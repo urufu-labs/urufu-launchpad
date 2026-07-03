@@ -144,8 +144,7 @@ contract DeployPhase1 is Script {
     bytes32 public constant ERC1155_ROYALTY_CONFIG = keccak256(abi.encode("ERC1155", "ERC2981Royalty1155"));
     bytes32 public constant ERC1155_SUPPLY_PAYABLE_CONFIG =
         keccak256(abi.encode("ERC1155", "PayableMint1155,SupplyPerToken1155"));
-    bytes32 public constant ERC1155_SPLIT_PAYABLE_CONFIG =
-        keccak256(abi.encode("ERC1155", "PayableMint1155Split"));
+    bytes32 public constant ERC1155_SPLIT_PAYABLE_CONFIG = keccak256(abi.encode("ERC1155", "PayableMint1155Split"));
 
     function run() external returns (Deployment memory d) {
         address deployer = msg.sender;

@@ -8,16 +8,43 @@ import {ERC721} from "solady/tokens/ERC721.sol";
 import {LoyaltyOracle} from "src/flywheel/LoyaltyOracle.sol";
 
 contract MockUru is ERC20 {
-    function name() public pure override returns (string memory) { return "URU"; }
-    function symbol() public pure override returns (string memory) { return "URU"; }
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
+    function name() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
+        _mint(to, amount);
+    }
 }
 
 contract MockGemu is ERC721 {
-    function name() public pure override returns (string memory) { return "GEMU"; }
-    function symbol() public pure override returns (string memory) { return "GEMU"; }
-    function tokenURI(uint256) public pure override returns (string memory) { return ""; }
-    function mint(address to, uint256 id) external { _mint(to, id); }
+    function name() public pure override returns (string memory) {
+        return "GEMU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "GEMU";
+    }
+
+    function tokenURI(
+        uint256
+    ) public pure override returns (string memory) {
+        return "";
+    }
+
+    function mint(
+        address to,
+        uint256 id
+    ) external {
+        _mint(to, id);
+    }
 }
 
 contract LoyaltyOracleTest is Test {
@@ -28,7 +55,7 @@ contract LoyaltyOracleTest is Test {
     address internal owner = makeAddr("owner");
     address internal holder = makeAddr("holder");
 
-    uint256 internal constant URU_THRESHOLD = 1_000e18;
+    uint256 internal constant URU_THRESHOLD = 1000e18;
 
     function setUp() public {
         uru = new MockUru();
@@ -42,12 +69,12 @@ contract LoyaltyOracleTest is Test {
 
     function test_Discount_NftOnly_20() public {
         gemu.mint(holder, 1);
-        assertEq(oracle.discountBpsFor(holder), 2_000);
+        assertEq(oracle.discountBpsFor(holder), 2000);
     }
 
     function test_Discount_UruOnly_40() public {
         uru.mint(holder, URU_THRESHOLD);
-        assertEq(oracle.discountBpsFor(holder), 4_000);
+        assertEq(oracle.discountBpsFor(holder), 4000);
     }
 
     function test_Discount_UruBelowThreshold_Zero() public {
@@ -58,27 +85,27 @@ contract LoyaltyOracleTest is Test {
     function test_Discount_Both_50() public {
         gemu.mint(holder, 1);
         uru.mint(holder, URU_THRESHOLD);
-        assertEq(oracle.discountBpsFor(holder), 5_000);
+        assertEq(oracle.discountBpsFor(holder), 5000);
     }
 
     function test_Discount_ClampedAtMax() public {
         vm.prank(owner);
-        oracle.setConfig(address(uru), address(gemu), URU_THRESHOLD, 7_000, 7_000, 8_000, 6_000);
+        oracle.setConfig(address(uru), address(gemu), URU_THRESHOLD, 7000, 7000, 8000, 6000);
         gemu.mint(holder, 1);
         uru.mint(holder, URU_THRESHOLD);
         // bothBps=8000 but maxDiscountBps=6000 → clamped
-        assertEq(oracle.discountBpsFor(holder), 6_000);
+        assertEq(oracle.discountBpsFor(holder), 6000);
     }
 
     function test_SetConfig_RevertsIfBpsOverHardMax() public {
-        vm.expectRevert(abi.encodeWithSelector(LoyaltyOracle.LoyaltyOracle__BadBps.selector, uint16(8_000)));
+        vm.expectRevert(abi.encodeWithSelector(LoyaltyOracle.LoyaltyOracle__BadBps.selector, uint16(8000)));
         vm.prank(owner);
-        oracle.setConfig(address(uru), address(gemu), URU_THRESHOLD, 9_000, 4_000, 5_000, 5_000);
+        oracle.setConfig(address(uru), address(gemu), URU_THRESHOLD, 9000, 4000, 5000, 5000);
     }
 
     function test_Discount_ZeroAddresses_Safe() public {
         vm.prank(owner);
-        oracle.setConfig(address(0), address(0), URU_THRESHOLD, 2_000, 4_000, 5_000, 5_000);
+        oracle.setConfig(address(0), address(0), URU_THRESHOLD, 2000, 4000, 5000, 5000);
         gemu.mint(holder, 1);
         // Even though holder has a gemu NFT, the oracle points at address(0) so no discount.
         assertEq(oracle.discountBpsFor(holder), 0);

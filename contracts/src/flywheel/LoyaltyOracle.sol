@@ -4,11 +4,15 @@ pragma solidity 0.8.26;
 import {Ownable} from "solady/auth/Ownable.sol";
 
 interface IERC20BalanceOf {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
 }
 
 interface IERC721BalanceOf {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
 }
 
 /// @title  LoyaltyOracle
@@ -29,11 +33,16 @@ contract LoyaltyOracle is Ownable {
     error LoyaltyOracle__BadBps(uint16 bps);
 
     event ConfigSet(
-        address uruToken, address gemuNft,
-        uint256 uruThreshold, uint16 nftHolderBps, uint16 uruHolderBps, uint16 bothBps, uint16 maxDiscountBps
+        address uruToken,
+        address gemuNft,
+        uint256 uruThreshold,
+        uint16 nftHolderBps,
+        uint16 uruHolderBps,
+        uint16 bothBps,
+        uint16 maxDiscountBps
     );
 
-    uint16 public constant HARD_MAX_DISCOUNT_BPS = 8_000; // 80% floor on how far we let discounts go
+    uint16 public constant HARD_MAX_DISCOUNT_BPS = 8000; // 80% floor on how far we let discounts go
 
     address public uruToken;
     address public gemuNft;
@@ -54,20 +63,21 @@ contract LoyaltyOracle is Ownable {
         uruToken = uruToken_;
         gemuNft = gemuNft_;
         uruThreshold = uruThreshold_;
-        nftHolderBps = 2_000; // 20%
-        uruHolderBps = 4_000; // 40%
-        bothBps = 5_000;      // 50%
-        maxDiscountBps = 5_000;
+        nftHolderBps = 2000; // 20%
+        uruHolderBps = 4000; // 40%
+        bothBps = 5000; // 50%
+        maxDiscountBps = 5000;
     }
 
     /// @notice Return the launch-fee discount in bps for `holder`.
     ///         Router applies as: `discountedFee = fee * (10_000 - discount) / 10_000`.
-    function discountBpsFor(address holder) external view returns (uint16) {
+    function discountBpsFor(
+        address holder
+    ) external view returns (uint16) {
         if (holder == address(0)) return 0;
         bool hasNft = gemuNft != address(0) && IERC721BalanceOf(gemuNft).balanceOf(holder) > 0;
-        bool hasUru = uruToken != address(0)
-            && IERC20BalanceOf(uruToken).balanceOf(holder) >= uruThreshold
-            && uruThreshold > 0;
+        bool hasUru =
+            uruToken != address(0) && IERC20BalanceOf(uruToken).balanceOf(holder) >= uruThreshold && uruThreshold > 0;
         uint16 discount;
         if (hasNft && hasUru) discount = bothBps;
         else if (hasUru) discount = uruHolderBps;

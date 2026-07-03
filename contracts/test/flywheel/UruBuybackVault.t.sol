@@ -7,9 +7,20 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 import {UruBuybackVault} from "src/flywheel/UruBuybackVault.sol";
 
 contract MockUru is ERC20 {
-    function name() public pure override returns (string memory) { return "URU"; }
-    function symbol() public pure override returns (string memory) { return "URU"; }
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
+    function name() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
+        _mint(to, amount);
+    }
 }
 
 /// Mock swap router — takes ETH in, credits `uru` out to `to`.
@@ -17,9 +28,15 @@ contract MockSwapRouter {
     MockUru public immutable uru;
     uint256 public constant RATE = 1000; // 1 ETH → 1000 URU
 
-    constructor(MockUru _uru) { uru = _uru; }
+    constructor(
+        MockUru _uru
+    ) {
+        uru = _uru;
+    }
 
-    function swap(address to) external payable {
+    function swap(
+        address to
+    ) external payable {
         uint256 out = msg.value * RATE;
         uru.mint(to, out);
     }
@@ -85,7 +102,9 @@ contract UruBuybackVaultTest is Test {
         vm.prank(owner);
         vault.setKeeper(keeper, true);
 
-        vm.expectRevert(abi.encodeWithSelector(UruBuybackVault.UruBuybackVault__TargetNotAllowed.selector, address(swapRouter)));
+        vm.expectRevert(
+            abi.encodeWithSelector(UruBuybackVault.UruBuybackVault__TargetNotAllowed.selector, address(swapRouter))
+        );
         vm.prank(keeper);
         vault.executeBuyback(address(swapRouter), 1 ether, "", 0);
     }

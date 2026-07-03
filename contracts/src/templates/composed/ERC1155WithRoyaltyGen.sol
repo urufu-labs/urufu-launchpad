@@ -54,6 +54,7 @@ contract ERC1155WithRoyaltyGen is ERC1155, Ownable {
     // --- from ERC2981Royalty1155.frag.sol ---
     address private _royaltyReceiver;
     uint96 private _royaltyFeeBps;
+
     // ============================================================
     // Modules append storage variables below this marker.
 
@@ -211,11 +212,16 @@ contract ERC1155WithRoyaltyGen is ERC1155, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from ERC2981Royalty1155.frag.sol ---
-    function royaltyInfo(uint256, uint256 salePrice) external view returns (address, uint256) {
+    function royaltyInfo(
+        uint256,
+        uint256 salePrice
+    ) external view returns (address, uint256) {
         return (_royaltyReceiver, (salePrice * _royaltyFeeBps) / 10_000);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view virtual override returns (bool) {
         return interfaceId == 0x2a55205a || super.supportsInterface(interfaceId);
     }
 

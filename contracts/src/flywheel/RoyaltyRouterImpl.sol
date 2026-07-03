@@ -37,9 +37,12 @@ contract RoyaltyRouterImpl is Ownable {
 
     /// @notice Wire the clone. Called exactly once by the factory in the same tx as
     ///         `LibClone.cloneDeterministic`. Any subsequent call reverts.
-    function initialize(address launcherPayout_, uint16 launcherBps_, address platformSink_, uint16 platformBps_)
-        external
-    {
+    function initialize(
+        address launcherPayout_,
+        uint16 launcherBps_,
+        address platformSink_,
+        uint16 platformBps_
+    ) external {
         if (initialized) revert RoyaltyRouterImpl__AlreadyInitialized();
         if (launcherPayout_ == address(0) || platformSink_ == address(0)) revert RoyaltyRouterImpl__ZeroAddress();
         uint256 sum = uint256(launcherBps_) + uint256(platformBps_);
@@ -63,7 +66,9 @@ contract RoyaltyRouterImpl is Ownable {
 
     /// @notice Launcher can rotate their payout address (Ownable-gated). Cannot rotate the
     ///         platform sink or the split — those are frozen at initialize.
-    function setLauncherPayout(address newPayout) external onlyOwner {
+    function setLauncherPayout(
+        address newPayout
+    ) external onlyOwner {
         if (newPayout == address(0)) revert RoyaltyRouterImpl__ZeroAddress();
         emit LauncherPayoutUpdated(launcherPayout, newPayout);
         launcherPayout = newPayout;
@@ -81,7 +86,9 @@ contract RoyaltyRouterImpl is Ownable {
 
     /// @notice Emergency drain (Ownable-only). Sweeps everything to `to`, bypassing the split.
     ///         Only useful if a sink is compromised — otherwise use `distributeStuck`.
-    function sweep(address to) external onlyOwner {
+    function sweep(
+        address to
+    ) external onlyOwner {
         if (to == address(0)) revert RoyaltyRouterImpl__ZeroAddress();
         uint256 bal = address(this).balance;
         if (bal == 0) revert RoyaltyRouterImpl__ZeroBalance();
@@ -89,7 +96,9 @@ contract RoyaltyRouterImpl is Ownable {
         emit Swept(to, bal);
     }
 
-    function _distribute(uint256 amount) internal {
+    function _distribute(
+        uint256 amount
+    ) internal {
         uint256 toPlatform = (amount * platformBps) / 10_000;
         uint256 toLauncher = amount - toPlatform;
 

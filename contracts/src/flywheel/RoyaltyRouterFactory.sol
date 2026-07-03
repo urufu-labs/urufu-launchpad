@@ -40,7 +40,12 @@ contract RoyaltyRouterFactory is Ownable {
     uint16 public immutable PLATFORM_BPS;
     address public platformSink;
 
-    constructor(address initialOwner, address impl_, address platformSink_, uint16 platformBps_) {
+    constructor(
+        address initialOwner,
+        address impl_,
+        address platformSink_,
+        uint16 platformBps_
+    ) {
         if (initialOwner == address(0) || impl_ == address(0) || platformSink_ == address(0)) {
             revert RoyaltyRouterFactory__ZeroAddress();
         }
@@ -54,7 +59,9 @@ contract RoyaltyRouterFactory is Ownable {
     /// @notice Rotate the platform sink (e.g. FeeSplitter address change). Owner-only.
     ///         Existing already-deployed clones do NOT retroactively rotate — their sink is
     ///         frozen at initialize. Only affects future deploys.
-    function setPlatformSink(address newSink) external onlyOwner {
+    function setPlatformSink(
+        address newSink
+    ) external onlyOwner {
         if (newSink == address(0)) revert RoyaltyRouterFactory__ZeroAddress();
         emit PlatformSinkUpdated(platformSink, newSink);
         platformSink = newSink;
@@ -63,7 +70,10 @@ contract RoyaltyRouterFactory is Ownable {
     /// @notice Deploy the per-collection clone. Permissionless — anyone can trigger, but the
     ///         salt is fixed by `collection` so there's only ever one clone per collection.
     /// @return clone Deterministic address of the deployed royalty router.
-    function deployFor(address collection, address launcherPayout) external returns (address clone) {
+    function deployFor(
+        address collection,
+        address launcherPayout
+    ) external returns (address clone) {
         if (collection == address(0) || launcherPayout == address(0)) revert RoyaltyRouterFactory__ZeroAddress();
         bytes32 salt = _saltOf(collection);
         address predicted = LibClone.predictDeterministicAddress(IMPLEMENTATION, salt, address(this));
@@ -78,11 +88,15 @@ contract RoyaltyRouterFactory is Ownable {
 
     /// @notice Predict a collection's royalty router clone address BEFORE the clone is
     ///         deployed. Use this to pass as the ERC-2981 receiver at collection launch.
-    function predictFor(address collection) external view returns (address) {
+    function predictFor(
+        address collection
+    ) external view returns (address) {
         return LibClone.predictDeterministicAddress(IMPLEMENTATION, _saltOf(collection), address(this));
     }
 
-    function _saltOf(address collection) internal pure returns (bytes32) {
+    function _saltOf(
+        address collection
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encode(collection));
     }
 }

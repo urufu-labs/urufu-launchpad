@@ -43,7 +43,9 @@ contract ERC1155WithSplitPayableGen is ERC1155, Ownable {
     // VM_INJECT_EVENTS
     // --- from PayableMint1155Split.frag.sol ---
     event PayableMint1155SplitConfigured(uint256 idsCount, address platformFeeReceiver, uint16 platformFeeBps);
-    event PayableMintedSplit(address indexed to, uint256 indexed id, uint256 amount, uint256 pricePaid, uint256 platformCut);
+    event PayableMintedSplit(
+        address indexed to, uint256 indexed id, uint256 amount, uint256 pricePaid, uint256 platformCut
+    );
     event PayableWithdrawnSplit(address indexed to, uint256 amount);
     // ============================================================
     // Modules append events below this marker.
@@ -63,6 +65,7 @@ contract ERC1155WithSplitPayableGen is ERC1155, Ownable {
     mapping(uint256 => bool) private _pmsMintable;
     address private _pmsPlatformFeeReceiver;
     uint16 private _pmsPlatformFeeBps;
+
     // ============================================================
     // Modules append storage variables below this marker.
 
@@ -136,7 +139,9 @@ contract ERC1155WithSplitPayableGen is ERC1155, Ownable {
         {
             (uint256[] memory ids_, uint256[] memory prices_, address feeReceiver_, uint16 feeBps_) =
                 abi.decode(moduleData[0], (uint256[], uint256[], address, uint16));
-            if (ids_.length != prices_.length) revert PayableMint1155Split__LengthMismatch(ids_.length, prices_.length);
+            if (ids_.length != prices_.length) {
+                revert PayableMint1155Split__LengthMismatch(ids_.length, prices_.length);
+            }
             if (feeReceiver_ == address(0)) revert PayableMint1155Split__ZeroAddress();
             if (feeBps_ == 0 || feeBps_ >= 10_000) revert PayableMint1155Split__BadPlatformBps(feeBps_);
 
@@ -227,7 +232,10 @@ contract ERC1155WithSplitPayableGen is ERC1155, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from PayableMint1155Split.frag.sol ---
-    function mintPayable(uint256 id, uint256 amount) external payable {
+    function mintPayable(
+        uint256 id,
+        uint256 amount
+    ) external payable {
         if (amount == 0) revert PayableMint1155Split__ZeroQty();
         if (!_pmsMintable[id]) revert PayableMint1155Split__NotMintable(id);
         uint256 expected = _pmsPricePerToken[id] * amount;
@@ -243,13 +251,17 @@ contract ERC1155WithSplitPayableGen is ERC1155, Ownable {
         emit PayableMintedSplit(msg.sender, id, amount, msg.value, platformCut);
     }
 
-    function withdrawPayable(address to) external onlyOwner {
+    function withdrawPayable(
+        address to
+    ) external onlyOwner {
         uint256 amount = address(this).balance;
         SafeTransferLib.safeTransferETH(to, amount);
         emit PayableWithdrawnSplit(to, amount);
     }
 
-    function priceOf(uint256 id) external view returns (uint256 price, bool mintable) {
+    function priceOf(
+        uint256 id
+    ) external view returns (uint256 price, bool mintable) {
         return (_pmsPricePerToken[id], _pmsMintable[id]);
     }
 

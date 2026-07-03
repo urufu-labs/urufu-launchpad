@@ -29,7 +29,7 @@ contract BuybackUruHook is BaseHook, IUnlockCallback {
 
     event ToVault(Currency indexed launchedToken, uint256 amount);
 
-    uint16 public constant MAX_BPS = 2_000; // 20% cap — flywheel, not confiscation
+    uint16 public constant MAX_BPS = 2000; // 20% cap — flywheel, not confiscation
 
     Currency public immutable launchedToken;
     address public immutable buybackVault;

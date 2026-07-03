@@ -57,9 +57,9 @@ contract ConfigureFlywheel is Script {
         address swapTarget = vm.envAddress("SWAP_TARGET");
         address treasury = vm.envOr("TREASURY", msg.sender);
 
-        uint16 buybackBps = uint16(vm.envOr("URU_BUYBACK_BPS", uint256(4_000)));
-        uint16 nftBps = uint16(vm.envOr("NFT_REVENUE_BPS", uint256(3_500)));
-        uint16 treasuryBps = uint16(vm.envOr("TREASURY_BPS", uint256(2_500)));
+        uint16 buybackBps = uint16(vm.envOr("URU_BUYBACK_BPS", uint256(4000)));
+        uint16 nftBps = uint16(vm.envOr("NFT_REVENUE_BPS", uint256(3500)));
+        uint16 treasuryBps = uint16(vm.envOr("TREASURY_BPS", uint256(2500)));
 
         uint256 sum = uint256(buybackBps) + uint256(nftBps) + uint256(treasuryBps);
         if (sum != 10_000) revert ConfigureFlywheel__BadSplit(sum);
@@ -104,14 +104,7 @@ contract ConfigureFlywheel is Script {
             console2.log("         current block.timestamp:       ", block.timestamp);
             console2.log("         re-run this script after that time to apply splits");
         } else {
-            splitter.setConfig(
-                buybackVaultAddr,
-                nftVaultAddr,
-                treasury,
-                buybackBps,
-                nftBps,
-                treasuryBps
-            );
+            splitter.setConfig(buybackVaultAddr, nftVaultAddr, treasury, buybackBps, nftBps, treasuryBps);
             console2.log("  [ok] FeeSplitter splits configured");
         }
 

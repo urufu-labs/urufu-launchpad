@@ -71,6 +71,7 @@ contract ERC1155WithSupplyPayableGen is ERC1155, Ownable {
     mapping(uint256 => uint256) private _sptCap;
     mapping(uint256 => uint256) private _sptMinted;
     mapping(uint256 => bool) private _sptHasCap;
+
     // ============================================================
     // Modules append storage variables below this marker.
 
@@ -240,7 +241,9 @@ contract ERC1155WithSupplyPayableGen is ERC1155, Ownable {
                 if (_sptHasCap[ids[i]]) {
                     uint256 minted = _sptMinted[ids[i]] + amounts[i];
                     uint256 cap = _sptCap[ids[i]];
-                    if (minted > cap) revert SupplyPerToken1155__ExceedsCap(ids[i], amounts[i], cap - _sptMinted[ids[i]]);
+                    if (minted > cap) {
+                        revert SupplyPerToken1155__ExceedsCap(ids[i], amounts[i], cap - _sptMinted[ids[i]]);
+                    }
                     _sptMinted[ids[i]] = minted;
                 }
             }
@@ -252,7 +255,10 @@ contract ERC1155WithSupplyPayableGen is ERC1155, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from PayableMint1155.frag.sol ---
-    function mintPayable(uint256 id, uint256 amount) external payable {
+    function mintPayable(
+        uint256 id,
+        uint256 amount
+    ) external payable {
         if (amount == 0) revert PayableMint1155__ZeroQty();
         if (!_pmMintable[id]) revert PayableMint1155__NotMintable(id);
         uint256 expected = _pmPricePerToken[id] * amount;
@@ -261,28 +267,38 @@ contract ERC1155WithSupplyPayableGen is ERC1155, Ownable {
         emit PayableMinted(msg.sender, id, amount, msg.value);
     }
 
-    function withdrawPayable(address to) external onlyOwner {
+    function withdrawPayable(
+        address to
+    ) external onlyOwner {
         uint256 amount = address(this).balance;
         SafeTransferLib.safeTransferETH(to, amount);
         emit PayableWithdrawn(to, amount);
     }
 
-    function priceOf(uint256 id) external view returns (uint256 price, bool mintable) {
+    function priceOf(
+        uint256 id
+    ) external view returns (uint256 price, bool mintable) {
         return (_pmPricePerToken[id], _pmMintable[id]);
     }
 
     receive() external payable {}
 
     // --- from SupplyPerToken1155.frag.sol ---
-    function supplyCapOf(uint256 id) external view returns (uint256 cap, bool capped) {
+    function supplyCapOf(
+        uint256 id
+    ) external view returns (uint256 cap, bool capped) {
         return (_sptCap[id], _sptHasCap[id]);
     }
 
-    function totalMintedOf(uint256 id) external view returns (uint256) {
+    function totalMintedOf(
+        uint256 id
+    ) external view returns (uint256) {
         return _sptMinted[id];
     }
 
-    function remainingSupplyOf(uint256 id) external view returns (uint256) {
+    function remainingSupplyOf(
+        uint256 id
+    ) external view returns (uint256) {
         if (!_sptHasCap[id]) return type(uint256).max;
         uint256 cap = _sptCap[id];
         uint256 minted = _sptMinted[id];

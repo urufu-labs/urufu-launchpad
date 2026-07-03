@@ -5,8 +5,13 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 interface IERC20Minimal {
-    function balanceOf(address) external view returns (uint256);
-    function transfer(address, uint256) external returns (bool);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
+    function transfer(
+        address,
+        uint256
+    ) external returns (bool);
 }
 
 /// @title  UruBuybackVault
@@ -48,7 +53,11 @@ contract UruBuybackVault is Ownable {
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isSwapTarget;
 
-    constructor(address initialOwner, address uru_, address distributionSink_) {
+    constructor(
+        address initialOwner,
+        address uru_,
+        address distributionSink_
+    ) {
         if (initialOwner == address(0) || uru_ == address(0) || distributionSink_ == address(0)) {
             revert UruBuybackVault__ZeroAddress();
         }
@@ -76,7 +85,7 @@ contract UruBuybackVault is Ownable {
         if (ethIn == 0) revert UruBuybackVault__ZeroSwap();
 
         uint256 uruBefore = uru.balanceOf(address(this));
-        (bool ok, ) = swapTarget.call{value: ethIn}(swapData);
+        (bool ok,) = swapTarget.call{value: ethIn}(swapData);
         if (!ok) revert UruBuybackVault__SwapFailed();
         uint256 uruAfter = uru.balanceOf(address(this));
         uint256 uruOut = uruAfter - uruBefore;
@@ -91,24 +100,34 @@ contract UruBuybackVault is Ownable {
     // ============================================================
     // Admin — onlyOwner
     // ============================================================
-    function setKeeper(address keeper, bool allowed) external onlyOwner {
+    function setKeeper(
+        address keeper,
+        bool allowed
+    ) external onlyOwner {
         isKeeper[keeper] = allowed;
         emit KeeperSet(keeper, allowed);
     }
 
-    function setSwapTarget(address target, bool allowed) external onlyOwner {
+    function setSwapTarget(
+        address target,
+        bool allowed
+    ) external onlyOwner {
         isSwapTarget[target] = allowed;
         emit SwapTargetSet(target, allowed);
     }
 
-    function setDistributionSink(address sink) external onlyOwner {
+    function setDistributionSink(
+        address sink
+    ) external onlyOwner {
         if (sink == address(0)) revert UruBuybackVault__ZeroAddress();
         distributionSink = sink;
         emit DistributionSinkSet(sink);
     }
 
     // Escape hatch: sweep any stuck ETH (shouldn't happen but safety).
-    function sweepETH(address to) external onlyOwner {
+    function sweepETH(
+        address to
+    ) external onlyOwner {
         if (to == address(0)) revert UruBuybackVault__ZeroAddress();
         SafeTransferLib.safeTransferETH(to, address(this).balance);
     }

@@ -21,7 +21,11 @@ contract NftRevenueVaultTest is Test {
         vm.deal(address(this), 100 ether);
     }
 
-    function _leaf(address holder, uint256 epochId, uint256 amount) internal pure returns (bytes32) {
+    function _leaf(
+        address holder,
+        uint256 epochId,
+        uint256 amount
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(holder, epochId, amount));
     }
 
@@ -43,7 +47,9 @@ contract NftRevenueVaultTest is Test {
     }
 
     function test_AddEpoch_RevertsWithoutBalance() public {
-        vm.expectRevert(abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__InsufficientBalance.selector, 0, 1 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__InsufficientBalance.selector, 0, 1 ether)
+        );
         vm.prank(owner);
         vault.addEpoch(bytes32(uint256(1)), 1 ether);
     }
@@ -54,9 +60,8 @@ contract NftRevenueVaultTest is Test {
         assertTrue(ok);
         bytes32 leafA = _leaf(alice, 0, 1 ether);
         bytes32 leafB = _leaf(bob, 0, 2 ether);
-        bytes32 root = leafA < leafB
-            ? keccak256(abi.encodePacked(leafA, leafB))
-            : keccak256(abi.encodePacked(leafB, leafA));
+        bytes32 root =
+            leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
         vm.prank(owner);
         vault.addEpoch(root, 3 ether);
@@ -73,9 +78,8 @@ contract NftRevenueVaultTest is Test {
         assertTrue(ok);
         bytes32 leafA = _leaf(alice, 0, 1 ether);
         bytes32 leafB = _leaf(bob, 0, 2 ether);
-        bytes32 root = leafA < leafB
-            ? keccak256(abi.encodePacked(leafA, leafB))
-            : keccak256(abi.encodePacked(leafB, leafA));
+        bytes32 root =
+            leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
         vm.prank(owner);
         vault.addEpoch(root, 3 ether);
@@ -84,7 +88,9 @@ contract NftRevenueVaultTest is Test {
         proofA[0] = leafB;
         vm.prank(alice);
         vault.claim(0, 1 ether, proofA);
-        vm.expectRevert(abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__AlreadyClaimed.selector, uint256(0), alice));
+        vm.expectRevert(
+            abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__AlreadyClaimed.selector, uint256(0), alice)
+        );
         vm.prank(alice);
         vault.claim(0, 1 ether, proofA);
     }

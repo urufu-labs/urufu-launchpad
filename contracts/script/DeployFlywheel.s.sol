@@ -66,9 +66,8 @@ contract DeployFlywheel is Script {
         // in the same 40/35/25 loop as launch + curve + swap fees. Not registered in any
         // launch flow yet — activated when NFT bases turn on in the UI.
         RoyaltyRouterImpl royaltyImpl = new RoyaltyRouterImpl();
-        RoyaltyRouterFactory royaltyFactory = new RoyaltyRouterFactory(
-            admin, address(royaltyImpl), address(splitter), royaltyPlatformBps
-        );
+        RoyaltyRouterFactory royaltyFactory =
+            new RoyaltyRouterFactory(admin, address(royaltyImpl), address(splitter), royaltyPlatformBps);
 
         Router(payable(router)).setLoyaltyOracle(address(oracle_));
 
@@ -102,7 +101,9 @@ contract DeployFlywheel is Script {
         _writeFlywheelJson(out);
     }
 
-    function _writeFlywheelJson(Deployed memory out) internal {
+    function _writeFlywheelJson(
+        Deployed memory out
+    ) internal {
         string memory obj = "flywheel";
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeAddress(obj, "FeeSplitter", out.feeSplitter);

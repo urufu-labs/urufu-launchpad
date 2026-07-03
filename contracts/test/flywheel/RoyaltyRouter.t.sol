@@ -41,7 +41,9 @@ contract RoyaltyRouterTest is Test {
 
     function test_Factory_DeployFor_RevertsOnDuplicate() public {
         address clone = factory.deployFor(collection, launcher);
-        vm.expectRevert(abi.encodeWithSelector(RoyaltyRouterFactory.RoyaltyRouterFactory__AlreadyDeployed.selector, clone));
+        vm.expectRevert(
+            abi.encodeWithSelector(RoyaltyRouterFactory.RoyaltyRouterFactory__AlreadyDeployed.selector, clone)
+        );
         factory.deployFor(collection, launcher);
     }
 
@@ -106,13 +108,13 @@ contract RoyaltyRouterTest is Test {
     function test_Impl_Initialize_RevertsIfAlreadyInitialized() public {
         address clone = factory.deployFor(collection, launcher);
         vm.expectRevert(RoyaltyRouterImpl.RoyaltyRouterImpl__AlreadyInitialized.selector);
-        RoyaltyRouterImpl(payable(clone)).initialize(launcher, 9_500, platform, 500);
+        RoyaltyRouterImpl(payable(clone)).initialize(launcher, 9500, platform, 500);
     }
 
     function test_Impl_Initialize_RevertsOnBadSum() public {
         RoyaltyRouterImpl fresh = new RoyaltyRouterImpl();
-        vm.expectRevert(abi.encodeWithSelector(RoyaltyRouterImpl.RoyaltyRouterImpl__BadSum.selector, 9_999));
-        fresh.initialize(launcher, 9_499, platform, 500);
+        vm.expectRevert(abi.encodeWithSelector(RoyaltyRouterImpl.RoyaltyRouterImpl__BadSum.selector, 9999));
+        fresh.initialize(launcher, 9499, platform, 500);
     }
 
     function test_Impl_SetLauncherPayout_OwnerOnly() public {

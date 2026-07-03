@@ -74,7 +74,11 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     // ============================================================
     // Constructor
     // ============================================================
-    constructor(address initialOwner, address treasury_, uint256 minConfigDelay_) {
+    constructor(
+        address initialOwner,
+        address treasury_,
+        uint256 minConfigDelay_
+    ) {
         if (initialOwner == address(0) || treasury_ == address(0)) revert FeeSplitter__ZeroAddress();
         _initializeOwner(initialOwner);
         treasurySink = treasury_;
@@ -87,7 +91,10 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     // ============================================================
     // IFeeReceiver — called by Router / curves / hooks
     // ============================================================
-    function receiveFee(address launcher, BaseType base) external payable {
+    function receiveFee(
+        address launcher,
+        BaseType base
+    ) external payable {
         emit FeeReceived(launcher, base, msg.value);
         _distribute(msg.value);
     }
@@ -122,16 +129,15 @@ contract FeeSplitter is IFeeReceiver, Ownable {
         treasuryBps = treasuryBps_;
         lastConfigChange = block.timestamp;
 
-        emit ConfigSet(
-            uruBuybackSink_, nftRevenueSink_, treasurySink_,
-            uruBuybackBps_, nftRevenueBps_, treasuryBps_
-        );
+        emit ConfigSet(uruBuybackSink_, nftRevenueSink_, treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_);
     }
 
     /// @notice Emergency sweep of stranded ETH (post-distribution residue from rounding, or
     ///         direct sends that hit receive() before the distribute path could fire). Owner
     ///         only; goes to the specified address. Not timelocked — this is a safety valve.
-    function sweep(address to) external onlyOwner {
+    function sweep(
+        address to
+    ) external onlyOwner {
         if (to == address(0)) revert FeeSplitter__ZeroAddress();
         uint256 amount = address(this).balance;
         if (amount == 0) revert FeeSplitter__ZeroBalance();
@@ -142,7 +148,9 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     // ============================================================
     // Internal
     // ============================================================
-    function _distribute(uint256 amount) internal {
+    function _distribute(
+        uint256 amount
+    ) internal {
         if (amount == 0) return;
 
         // Slices per bps. Rounding residue (up to 3 wei) stays in the contract and is swept
@@ -152,11 +160,17 @@ contract FeeSplitter is IFeeReceiver, Ownable {
         uint256 toTreasury = amount - toBuyback - toNft;
 
         // If a sink is unset, roll its slice into the treasury. Ensures we never lose ETH.
-        if (uruBuybackSink == address(0) && toBuyback > 0) { toTreasury += toBuyback; toBuyback = 0; }
-        if (nftRevenueSink == address(0) && toNft > 0)     { toTreasury += toNft;    toNft = 0; }
+        if (uruBuybackSink == address(0) && toBuyback > 0) {
+            toTreasury += toBuyback;
+            toBuyback = 0;
+        }
+        if (nftRevenueSink == address(0) && toNft > 0) {
+            toTreasury += toNft;
+            toNft = 0;
+        }
 
-        if (toBuyback > 0)  SafeTransferLib.safeTransferETH(uruBuybackSink, toBuyback);
-        if (toNft > 0)      SafeTransferLib.safeTransferETH(nftRevenueSink, toNft);
+        if (toBuyback > 0) SafeTransferLib.safeTransferETH(uruBuybackSink, toBuyback);
+        if (toNft > 0) SafeTransferLib.safeTransferETH(nftRevenueSink, toNft);
         if (toTreasury > 0) SafeTransferLib.safeTransferETH(treasurySink, toTreasury);
 
         emit Distributed(amount, toBuyback, toNft, toTreasury);

@@ -58,6 +58,7 @@ contract ERC1155WithPayableGen is ERC1155, Ownable {
     // --- from PayableMint1155.frag.sol ---
     mapping(uint256 => uint256) private _pmPricePerToken;
     mapping(uint256 => bool) private _pmMintable;
+
     // ============================================================
     // Modules append storage variables below this marker.
 
@@ -216,7 +217,10 @@ contract ERC1155WithPayableGen is ERC1155, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from PayableMint1155.frag.sol ---
-    function mintPayable(uint256 id, uint256 amount) external payable {
+    function mintPayable(
+        uint256 id,
+        uint256 amount
+    ) external payable {
         if (amount == 0) revert PayableMint1155__ZeroQty();
         if (!_pmMintable[id]) revert PayableMint1155__NotMintable(id);
         uint256 expected = _pmPricePerToken[id] * amount;
@@ -225,13 +229,17 @@ contract ERC1155WithPayableGen is ERC1155, Ownable {
         emit PayableMinted(msg.sender, id, amount, msg.value);
     }
 
-    function withdrawPayable(address to) external onlyOwner {
+    function withdrawPayable(
+        address to
+    ) external onlyOwner {
         uint256 amount = address(this).balance;
         SafeTransferLib.safeTransferETH(to, amount);
         emit PayableWithdrawn(to, amount);
     }
 
-    function priceOf(uint256 id) external view returns (uint256 price, bool mintable) {
+    function priceOf(
+        uint256 id
+    ) external view returns (uint256 price, bool mintable) {
         return (_pmPricePerToken[id], _pmMintable[id]);
     }
 

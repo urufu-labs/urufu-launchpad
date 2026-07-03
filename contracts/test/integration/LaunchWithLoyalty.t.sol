@@ -14,16 +14,43 @@ import {LoyaltyOracle} from "src/flywheel/LoyaltyOracle.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 contract MockUru is ERC20 {
-    function name() public pure override returns (string memory) { return "URU"; }
-    function symbol() public pure override returns (string memory) { return "URU"; }
-    function mint(address to, uint256 amount) external { _mint(to, amount); }
+    function name() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
+        _mint(to, amount);
+    }
 }
 
 contract MockGemu is ERC721 {
-    function name() public pure override returns (string memory) { return "GEMU"; }
-    function symbol() public pure override returns (string memory) { return "GEMU"; }
-    function tokenURI(uint256) public pure override returns (string memory) { return ""; }
-    function mint(address to, uint256 id) external { _mint(to, id); }
+    function name() public pure override returns (string memory) {
+        return "GEMU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "GEMU";
+    }
+
+    function tokenURI(
+        uint256
+    ) public pure override returns (string memory) {
+        return "";
+    }
+
+    function mint(
+        address to,
+        uint256 id
+    ) external {
+        _mint(to, id);
+    }
 }
 
 /// @notice End-to-end test: launcher with URU + gemu NFTs pays a discounted fee via
@@ -44,7 +71,7 @@ contract LaunchWithLoyaltyTest is Test {
     address internal launcher = makeAddr("launcher");
 
     uint256 internal constant BASE_FEE = 0.05 ether;
-    uint256 internal constant URU_THRESHOLD = 1_000e18;
+    uint256 internal constant URU_THRESHOLD = 1000e18;
     bytes32 internal BARE_ERC20 = keccak256(abi.encode("ERC20", ""));
 
     function setUp() public {
@@ -59,8 +86,8 @@ contract LaunchWithLoyaltyTest is Test {
             BASE_FEE,
             BASE_FEE,
             0.01 ether,
-            0.10 ether,
-            0.10 ether
+            0.1 ether,
+            0.1 ether
         );
 
         f20 = new ERC20Factory(admin, address(router), registrar);
@@ -81,13 +108,16 @@ contract LaunchWithLoyaltyTest is Test {
         vm.deal(launcher, 1 ether);
     }
 
-    function _bareParams(string memory name, string memory ticker) internal view returns (LaunchParams memory) {
+    function _bareParams(
+        string memory name,
+        string memory ticker
+    ) internal view returns (LaunchParams memory) {
         return LaunchParams({
             base: BaseType.ERC20,
             name: name,
             ticker: ticker,
             configHash: BARE_ERC20,
-            initData: abi.encode(uint256(1_000 ether), launcher, new bytes[](0)),
+            initData: abi.encode(uint256(1000 ether), launcher, new bytes[](0)),
             moduleCount: 1,
             installHook: false,
             installGovernance: false,
@@ -105,20 +135,20 @@ contract LaunchWithLoyaltyTest is Test {
     function test_QuoteFor_NftHolder_20PctOff() public {
         gemu.mint(launcher, 1);
         LaunchParams memory p = _bareParams("Nft", "NFT");
-        assertEq(router.quoteFor(p, launcher), BASE_FEE * 8_000 / 10_000);
+        assertEq(router.quoteFor(p, launcher), BASE_FEE * 8000 / 10_000);
     }
 
     function test_QuoteFor_UruHolder_40PctOff() public {
         uru.mint(launcher, URU_THRESHOLD);
         LaunchParams memory p = _bareParams("Uru", "URU");
-        assertEq(router.quoteFor(p, launcher), BASE_FEE * 6_000 / 10_000);
+        assertEq(router.quoteFor(p, launcher), BASE_FEE * 6000 / 10_000);
     }
 
     function test_QuoteFor_Both_50PctOff() public {
         gemu.mint(launcher, 1);
         uru.mint(launcher, URU_THRESHOLD);
         LaunchParams memory p = _bareParams("Both", "BOTH");
-        assertEq(router.quoteFor(p, launcher), BASE_FEE * 5_000 / 10_000);
+        assertEq(router.quoteFor(p, launcher), BASE_FEE * 5000 / 10_000);
     }
 
     function test_Launch_AppliesDiscount() public {
@@ -126,7 +156,7 @@ contract LaunchWithLoyaltyTest is Test {
         uru.mint(launcher, URU_THRESHOLD);
 
         LaunchParams memory p = _bareParams("Discounted", "DISC");
-        uint256 expected = BASE_FEE * 5_000 / 10_000;
+        uint256 expected = BASE_FEE * 5000 / 10_000;
         uint256 launcherBalBefore = launcher.balance;
 
         vm.prank(launcher);
@@ -139,7 +169,7 @@ contract LaunchWithLoyaltyTest is Test {
     function test_Launch_OverpayRefundsExcess() public {
         gemu.mint(launcher, 1);
         LaunchParams memory p = _bareParams("Refund", "REF");
-        uint256 discounted = BASE_FEE * 8_000 / 10_000;
+        uint256 discounted = BASE_FEE * 8000 / 10_000;
 
         vm.prank(launcher);
         router.launch{value: BASE_FEE}(p);

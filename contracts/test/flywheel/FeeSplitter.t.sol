@@ -28,22 +28,22 @@ contract FeeSplitterTest is Test {
 
     function test_SetConfig_HappyPath() public {
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
         assertEq(splitter.uruBuybackSink(), buyback);
-        assertEq(splitter.uruBuybackBps(), 4_000);
-        assertEq(splitter.nftRevenueBps(), 3_500);
-        assertEq(splitter.treasuryBps(), 2_500);
+        assertEq(splitter.uruBuybackBps(), 4000);
+        assertEq(splitter.nftRevenueBps(), 3500);
+        assertEq(splitter.treasuryBps(), 2500);
     }
 
     function test_SetConfig_RevertsIfSumNot10000() public {
-        vm.expectRevert(abi.encodeWithSelector(FeeSplitter.FeeSplitter__BadSum.selector, 9_999));
+        vm.expectRevert(abi.encodeWithSelector(FeeSplitter.FeeSplitter__BadSum.selector, 9999));
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_499);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2499);
     }
 
     function test_Distribute_SplitsPerBps() public {
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
 
         vm.prank(caller);
         splitter.receiveFee{value: 10 ether}(caller, BaseType.ERC20);
@@ -56,7 +56,7 @@ contract FeeSplitterTest is Test {
     function test_Distribute_UnsetSinkRollsIntoTreasury() public {
         // 40% buyback but buyback sink is zero → rolls into treasury (40 + 25 = 65%)
         vm.prank(owner);
-        splitter.setConfig(address(0), nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(address(0), nftVault, treasury, 4000, 3500, 2500);
 
         vm.prank(caller);
         splitter.receiveFee{value: 10 ether}(caller, BaseType.ERC20);
@@ -72,11 +72,11 @@ contract FeeSplitterTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(FeeSplitter.FeeSplitter__TooSoon.selector, block.timestamp, block.timestamp + 1 days)
         );
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
 
         vm.warp(block.timestamp + 1 days);
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
         assertEq(splitter.uruBuybackSink(), buyback);
     }
 
@@ -89,7 +89,7 @@ contract FeeSplitterTest is Test {
 
     function test_Receive_DistributesToo() public {
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4_000, 3_500, 2_500);
+        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
 
         vm.prank(caller);
         (bool ok,) = address(splitter).call{value: 10 ether}("");

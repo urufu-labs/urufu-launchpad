@@ -45,7 +45,9 @@ contract NftRevenueVault is Ownable {
     /// epoch → holder → claimed?
     mapping(uint256 => mapping(address => bool)) private _claimed;
 
-    constructor(address initialOwner) {
+    constructor(
+        address initialOwner
+    ) {
         _initializeOwner(initialOwner);
     }
 
@@ -55,7 +57,10 @@ contract NftRevenueVault is Ownable {
 
     /// @notice Publish a merkle root for a new epoch. `totalAmount` is the ETH sum the tree
     ///         hands out across all leaves; the vault must have at least this balance.
-    function addEpoch(bytes32 merkleRoot, uint256 totalAmount) external onlyOwner {
+    function addEpoch(
+        bytes32 merkleRoot,
+        uint256 totalAmount
+    ) external onlyOwner {
         if (totalAmount == 0) revert NftRevenueVault__ZeroAmount();
         if (address(this).balance < totalAmount) {
             revert NftRevenueVault__InsufficientBalance(address(this).balance, totalAmount);
@@ -67,7 +72,11 @@ contract NftRevenueVault is Ownable {
 
     /// @notice Claim an epoch's per-holder allocation. Proof leaves are
     ///         `keccak256(abi.encodePacked(holder, epochId, amount))`.
-    function claim(uint256 epochId, uint256 amount, bytes32[] calldata proof) external {
+    function claim(
+        uint256 epochId,
+        uint256 amount,
+        bytes32[] calldata proof
+    ) external {
         Epoch storage e = epochs[epochId];
         if (e.merkleRoot == bytes32(0)) revert NftRevenueVault__EpochUnknown(epochId);
         if (_claimed[epochId][msg.sender]) revert NftRevenueVault__AlreadyClaimed(epochId, msg.sender);
@@ -80,7 +89,10 @@ contract NftRevenueVault is Ownable {
         emit Claimed(epochId, msg.sender, amount);
     }
 
-    function isClaimed(uint256 epochId, address holder) external view returns (bool) {
+    function isClaimed(
+        uint256 epochId,
+        address holder
+    ) external view returns (bool) {
         return _claimed[epochId][holder];
     }
 }
