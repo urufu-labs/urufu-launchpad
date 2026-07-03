@@ -395,20 +395,7 @@ export default function CreatePage() {
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-      {/* Marquee ribbon at top — cheap alive signal */}
-      <div className="uru-marquee-wrap">
-        <div className="uru-marquee">
-          <div className="uru-marquee-track">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <span key={i}>
-                ✿ welcome to the urufu shop ✿ pls drop ur modules in the basket ★ new: on-chain svg + royalty ❀
-                <span style={{ fontFamily: 'var(--font-jp), monospace' }}>好き好き大好き</span> ✿ launch today ~~ ❀
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
+      {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className="mx-auto max-w-6xl px-4 py-4">
         {/* Header cluster — high density anchor zone per SKILL.md §density */}
         <header className="relative mb-3" style={{ paddingTop: 20 }}>

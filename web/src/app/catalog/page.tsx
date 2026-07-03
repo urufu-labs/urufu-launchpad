@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useChainId } from 'wagmi';
 
@@ -67,7 +68,11 @@ function AddrLink({ chain, addr }: { chain: ChainKey | null; addr: string | unde
 
 export default function CatalogPage() {
   const chainId = useChainId();
-  const activeChain = CHAIN_ID_TO_KEY[chainId] ?? null;
+  // Wagmi hydrates chainId async — pre-mount we render the default so SSR + first client
+  // paint agree. Post-mount the wallet's actual chain (if supported) takes over.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const activeChain = mounted ? (CHAIN_ID_TO_KEY[chainId] ?? null) : null;
   const targetChain: ChainKey = CHAINS_ENABLED[0]!;
   const chainKey = activeChain && CHAINS_ENABLED.includes(activeChain) ? activeChain : targetChain;
   const contracts = CONTRACTS[chainKey];
@@ -77,19 +82,7 @@ export default function CatalogPage() {
 
   return (
     <>
-      {/* marquee ribbon */}
-      <div className="uru-marquee-wrap">
-        <div className="uru-marquee">
-          <div className="uru-marquee-track">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <span key={i}>
-                ✿ the shelf ✿ 20 modules shipped ❀ 3 planned (B20 compliance) ★ 33 curated impls ~~{' '}
-                <span style={{ fontFamily: 'var(--font-jp), monospace' }}>品揃え</span> ❁
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
 
       <div className="mx-auto max-w-5xl px-4 py-10">
         {/* HERO CLUSTER */}

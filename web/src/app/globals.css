@@ -440,6 +440,18 @@ body {
 .uru-chip:active { transform: translate(1.5px, 1.5px); box-shadow: 0 0 0 var(--anchor); }
 .uru-chip[data-active='true'] { background: var(--pink-hot); color: #fff; }
 
+/* Launch card hover cue — nudges up + pinks the shadow so cards clearly read as clickable */
+.uru-launch-card {
+  cursor: pointer;
+}
+.uru-launch-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow:
+    0 0 0 1.5px var(--cream),
+    0 0 0 3px var(--anchor),
+    5px 5px 0 var(--pink-hot);
+}
+
 /* Chart-flash overlay — fades from ~55% opacity to 0 over 600ms */
 @keyframes uru-chart-flash {
   0%   { opacity: 1; }

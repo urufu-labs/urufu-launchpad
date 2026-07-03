@@ -27,19 +27,7 @@ export default function HomePage() {
 
   return (
     <>
-      {/* thin marquee ribbon */}
-      <div className="uru-marquee-wrap">
-        <div className="uru-marquee">
-          <div className="uru-marquee-track">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <span key={i}>
-                ✿ urufu labs ✿ launch a token in one click ❀ liquidity locked forever ★{' '}
-                <span style={{ fontFamily: 'var(--font-jp), monospace' }}>好き好き大好き</span> ❁ trades reward gemu holders ~
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
 
       <div className="mx-auto max-w-4xl px-4">
         {/* =====================================================================

@@ -9,6 +9,7 @@ import { ChainSwitcher } from '@/components/ChainSwitcher';
 import { CursorMascot } from '@/components/CursorMascot';
 import { AudioBindings } from '@/components/AudioBindings';
 import { AudioToggle } from '@/components/AudioToggle';
+import { TokenTicker } from '@/components/TokenTicker';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -123,6 +124,7 @@ export default function RootLayout({
               <WalletButton />
             </nav>
           </header>
+          <TokenTicker />
           <main className="flex-1">{children}</main>
           <footer
             className="mt-8 px-4 py-4 text-center"

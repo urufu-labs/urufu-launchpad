@@ -15,6 +15,8 @@ import {
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentLaunches, fetchCurveByToken, type IndexerLaunch } from '@/lib/indexer';
+import { loadMetadata } from '@/lib/metadata';
+import { formatGweiPerToken } from '@/lib/priceFmt';
 
 type Filter = 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all';
 
@@ -107,18 +109,8 @@ export default function DiscoverPage() {
 
   return (
     <>
-      <div className="uru-marquee-wrap">
-        <div className="uru-marquee">
-          <div className="uru-marquee-track">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <span key={i}>
-                ✿ browse launches ✿ {chainMocks.length} tokens on {CHAIN_LABELS[activeChain]} ❀ freshly launched ★{' '}
-                <span style={{ fontFamily: 'var(--font-jp), monospace' }}>新着</span> ❁ preview mode ~~
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* Global TokenTicker mounts once in the root layout — no per-page marquee here */}
+
 
       <div className="mx-auto max-w-6xl px-4 py-6">
         {/* Header cluster */}
@@ -249,13 +241,27 @@ async function indexerLaunchToMock(row: IndexerLaunch): Promise<MockLaunch | nul
 function LaunchCard({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
+  // Spot price from the bonding curve: (ethReserve + virtualEth) / (tokenReserve + virtualToken),
+  // scaled to wei-per-token so the same formatter used on the trade page applies here.
+  const spotPriceWei = useMemo(() => {
+    const num = (launch.ethReserve + launch.virtualEthReserve) * 10n ** 18n;
+    const den = launch.tokenReserve + launch.virtualTokenReserve;
+    return den > 0n ? num / den : 0n;
+  }, [launch.ethReserve, launch.virtualEthReserve, launch.tokenReserve, launch.virtualTokenReserve]);
+
+  // Real user-uploaded logo from token metadata. Falls back to the mock swatch + emoji so cards
+  // never look empty. localStorage-only for now; IPFS pull ships alongside the profile IPFS work.
+  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  useEffect(() => {
+    const m = loadMetadata(launch.chainId, launch.address);
+    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
+  }, [launch.chainId, launch.address]);
 
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell"
+      className="uru-shell uru-shell-tight uru-launch-card"
       style={{
-        padding: 12,
         display: 'block',
         textDecoration: 'none',
         color: 'inherit',
@@ -270,7 +276,9 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
             borderRadius: 10,
             border: '1.5px solid var(--anchor)',
             boxShadow: '2px 2px 0 var(--anchor)',
-            background: launch.logoBg,
+            background: logoDataUrl
+              ? `#fff url(${logoDataUrl}) center/cover no-repeat`
+              : launch.logoBg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -278,7 +286,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
             flexShrink: 0,
           }}
         >
-          {launch.logoEmoji}
+          {!logoDataUrl && launch.logoEmoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -289,20 +297,55 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
               ${launch.ticker}
             </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 2, lineHeight: 1.35 }}>
-            {launch.description.length > 84 ? launch.description.slice(0, 84) + '…' : launch.description}
-          </div>
+          {launch.description && (
+            <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 2, lineHeight: 1.35 }}>
+              {launch.description.length > 84 ? launch.description.slice(0, 84) + '…' : launch.description}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Price + mcap row — pulled up so it reads first */}
+      <div
+        style={{
+          marginTop: 10,
+          padding: '6px 8px',
+          background: 'var(--cream-deep)',
+          border: '1.5px dashed var(--anchor)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          gap: 8,
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 10,
+          color: 'var(--anchor-soft)',
+        }}
+      >
+        <span>
+          price{' '}
+          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 13 }}>
+            {spotPriceWei > 0n ? formatGweiPerToken(spotPriceWei) : '—'}
+          </span>{' '}
+          gwei
+        </span>
+        <span>
+          mcap{' '}
+          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 13 }}>
+            {Number(formatEther(mcap)).toFixed(3)}
+          </span>{' '}
+          ETH
+        </span>
+      </div>
+
       {/* Progress bar */}
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 3 }}>
           <span>{launch.graduated ? '✿ graduated ✿' : `${progress.toFixed(1)}% → v4`}</span>
           <span>{Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} ETH</span>
         </div>
         <div style={{ height: 8, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', position: 'relative' }}>
           <div
+            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
             style={{
               width: `${progress}%`,
               height: '100%',
@@ -312,13 +355,19 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
         </div>
       </div>
 
-      {/* Stats row */}
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-        <span>
-          mcap <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>{Number(formatEther(mcap)).toFixed(2)} ETH</span>
+      {/* Stats + CTA row */}
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+        <span>{launch.trades.length} trades · {ago(launch.launchedAt)}</span>
+        <span
+          style={{
+            color: 'var(--pink-hot)',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            textTransform: 'lowercase',
+          }}
+        >
+          trade <span className="uru-arrow">→</span>
         </span>
-        <span>{launch.trades.length} trades</span>
-        <span>{ago(launch.launchedAt)}</span>
       </div>
     </Link>
   );
