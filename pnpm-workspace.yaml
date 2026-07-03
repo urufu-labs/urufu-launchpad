@@ -1,0 +1,9 @@
+packages:
+  - 'web'
+  - 'compile-service'
+  - 'indexer'
+
+# Merged from web/ create-next-app scaffold. Skip build steps for native/binary deps.
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

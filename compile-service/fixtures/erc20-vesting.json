@@ -1,0 +1,14 @@
+{
+  "base": "ERC20",
+  "modules": ["Vesting"],
+  "params": {
+    "Vesting": {
+      "beneficiary": "0x000000000000000000000000000000000000dEaD",
+      "totalAmount": "1000000000000000000000",
+      "cliffTimestamp": 1735689600,
+      "endTimestamp": 1798761600
+    }
+  },
+  "contractName": "ERC20WithVestingGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

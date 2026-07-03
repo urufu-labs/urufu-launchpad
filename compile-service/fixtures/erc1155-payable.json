@@ -1,0 +1,7 @@
+{
+  "base": "ERC1155",
+  "modules": ["PayableMint1155"],
+  "params": { "PayableMint1155": { "ids": ["1"], "pricesWei": ["10000000000000000"] } },
+  "contractName": "ERC1155WithPayableGen",
+  "templatePath": "contracts/src/templates/ERC1155Template.sol"
+}

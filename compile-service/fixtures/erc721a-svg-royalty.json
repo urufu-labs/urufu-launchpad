@@ -1,0 +1,10 @@
+{
+  "base": "ERC721A",
+  "modules": ["OnChainSVG", "ERC2981Royalty"],
+  "params": {
+    "OnChainSVG": {},
+    "ERC2981Royalty": { "receiver": "0x000000000000000000000000000000000000dEaD", "feeBps": 500 }
+  },
+  "contractName": "ERC721AWithSvgAndRoyaltyGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

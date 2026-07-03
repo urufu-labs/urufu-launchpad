@@ -1,0 +1,7 @@
+{
+  "base": "ERC20",
+  "modules": ["AntiBot"],
+  "params": { "AntiBot": { "blockGate": 5 } },
+  "contractName": "ERC20WithAntiBotGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

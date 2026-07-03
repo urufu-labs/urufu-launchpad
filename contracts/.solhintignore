@@ -1,0 +1,6 @@
+lib/
+out/
+cache/
+node_modules/
+test/mocks/
+src/templates/composed/

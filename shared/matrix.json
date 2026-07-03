@@ -1,0 +1,321 @@
+{
+  "$comment": "Module compatibility matrix. Read by frontend (grey-out incompatible options) AND compile-service (validate on submit). Single source of truth. Shape: { bases: string[]; mechanics: Record<base, string[]>; modules: Record<name, { base: string[]; requires?: string[]; incompatibleWith?: string[]; flagged?: string; params: {...JSONSchema}; }>; }",
+  "version": "0.0.0",
+  "bases": ["ERC20", "ERC721A", "ERC1155"],
+  "mechanics": {
+    "ERC20": ["bonding-curve", "fixed-sale", "lbp", "direct-to-lp", "no-sale"],
+    "ERC721A": ["fixed-mint", "allowlist-mint", "dutch-auction", "free-mint", "curve-mint"],
+    "ERC1155": ["fixed-mint", "allowlist-mint", "free-mint"]
+  },
+  "modules": {
+    "AntiBot": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/AntiBot.frag.sol",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["blockGate"],
+        "properties": {
+          "blockGate": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Number of blocks after initialize during which non-owner senders can only send to allowlisted recipients."
+          }
+        }
+      },
+      "abiEncode": "uint16"
+    },
+    "FeeOnTransfer": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/FeeOnTransfer.frag.sol",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["feeBps", "burnBps", "treasuryBps", "treasury"],
+        "properties": {
+          "feeBps":      { "type": "integer", "minimum": 1, "maximum": 3000, "description": "Fee in basis points (1 = 0.01%). Capped at 30%." },
+          "burnBps":     { "type": "integer", "minimum": 0, "maximum": 10000, "description": "Portion of fee that's burned. burnBps + treasuryBps must equal 10000." },
+          "treasuryBps": { "type": "integer", "minimum": 0, "maximum": 10000, "description": "Portion of fee routed to treasury." },
+          "treasury":    { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$", "description": "Treasury address. Required if treasuryBps > 0." }
+        }
+      },
+      "abiEncode": "(uint16,uint16,uint16,address)"
+    },
+    "OnChainSVG": {
+      "version": 1,
+      "base": ["ERC721A"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/OnChainSVG.frag.sol",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "abiEncode": "()"
+    },
+    "ERC2981Royalty": {
+      "version": 1,
+      "base": ["ERC721A"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/ERC2981Royalty.frag.sol",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["receiver", "feeBps"],
+        "properties": {
+          "receiver": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+          "feeBps":   { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Royalty in basis points. Capped at 10%." }
+        }
+      },
+      "abiEncode": "(address,uint96)"
+    },
+    "AntiWhale": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/AntiWhale.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["maxWallet", "maxTx", "expireAfterBlocks"],
+        "properties": {
+          "maxWallet": { "type": "string", "description": "uint128 wei max wallet holding" },
+          "maxTx":     { "type": "string", "description": "uint128 wei max per-tx amount" },
+          "expireAfterBlocks": { "type": "integer", "minimum": 0, "maximum": 500000 }
+        }
+      },
+      "abiEncode": "(uint128,uint128,uint32)"
+    },
+    "Pausable": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": "reduces decentralization — owner can freeze all transfers",
+      "fragmentPath": "contracts/modules/token/Pausable.frag.sol",
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "Soulbound": {
+      "version": 1,
+      "base": ["ERC721A"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/Soulbound.frag.sol",
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "DelayedReveal": {
+      "version": 1,
+      "base": ["ERC721A"],
+      "requires": [],
+      "incompatibleWith": ["OnChainSVG"],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/DelayedReveal.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["hiddenBaseURI"],
+        "properties": {
+          "hiddenBaseURI": { "type": "string", "description": "URI prefix served for every token until reveal()." }
+        }
+      },
+      "abiEncode": "(string)"
+    },
+    "Permit": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/Permit.frag.sol",
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "Airdrop": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/allocation/Airdrop.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["merkleRoot"],
+        "properties": {
+          "merkleRoot": { "type": "string", "pattern": "^0x[a-fA-F0-9]{64}$", "description": "Off-chain merkle root over (recipient, amount) leaves." }
+        }
+      },
+      "abiEncode": "(bytes32)"
+    },
+    "Refundable": {
+      "version": 1,
+      "base": ["ERC721A"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/Refundable.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["pricePerToken", "refundWindowBlocks"],
+        "properties": {
+          "pricePerToken": { "type": "string", "description": "Mint price per token in wei. Buyer must send exactly price*qty on refundableMint." },
+          "refundWindowBlocks": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Blocks post-mint during which buyer can burn to reclaim price." }
+        }
+      },
+      "abiEncode": "(uint256,uint32)"
+    },
+    "Votes": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/Votes.frag.sol",
+      "templateOverride": "contracts/src/templates/ERC20VotesTemplate.sol",
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "GovernorBundle": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": ["Votes"],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/token/GovernorBundle.frag.sol",
+      "templateOverride": "contracts/src/templates/ERC20VotesTemplate.sol",
+      "params": {
+        "type": "object",
+        "required": ["votingDelay", "votingPeriod", "proposalThreshold", "quorumNumerator", "timelockMinDelay"],
+        "properties": {
+          "votingDelay":       { "type": "integer", "description": "Delay in seconds (ERC-6372 timestamp mode) before voting opens." },
+          "votingPeriod":      { "type": "integer", "description": "Voting period in seconds." },
+          "proposalThreshold": { "type": "string",  "description": "Min votes required to propose (wei)." },
+          "quorumNumerator":   { "type": "integer", "minimum": 1, "maximum": 100, "description": "Quorum as N/100 of total voting supply." },
+          "timelockMinDelay":  { "type": "integer", "description": "Timelock enforced delay between queue and execute, in seconds." }
+        }
+      },
+      "abiEncode": "(uint48,uint32,uint256,uint256,uint256)"
+    },
+    "SupplyPerToken1155": {
+      "version": 1,
+      "base": ["ERC1155"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/SupplyPerToken1155.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["ids", "caps"],
+        "properties": {
+          "ids":  { "type": "array", "items": { "type": "string" }, "description": "Token IDs to cap. Any id not in this list stays uncapped." },
+          "caps": { "type": "array", "items": { "type": "string" }, "description": "Max supply for each id (equal-length with ids)." }
+        }
+      },
+      "abiEncode": "(uint256[],uint256[])"
+    },
+    "PayableMint1155": {
+      "version": 1,
+      "base": ["ERC1155"],
+      "requires": [],
+      "incompatibleWith": ["PayableMint1155Split"],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/PayableMint1155.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["ids", "pricesWei"],
+        "properties": {
+          "ids":       { "type": "array", "items": { "type": "string" } },
+          "pricesWei": { "type": "array", "items": { "type": "string" }, "description": "Price per token in wei for each id (equal-length with ids)." }
+        }
+      },
+      "abiEncode": "(uint256[],uint256[])"
+    },
+    "PayableMint1155Split": {
+      "version": 1,
+      "base": ["ERC1155"],
+      "requires": [],
+      "incompatibleWith": ["PayableMint1155"],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/PayableMint1155Split.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["ids", "pricesWei", "platformFeeReceiver", "platformFeeBps"],
+        "properties": {
+          "ids":                  { "type": "array", "items": { "type": "string" } },
+          "pricesWei":            { "type": "array", "items": { "type": "string" }, "description": "Price per token in wei for each id (equal-length with ids)." },
+          "platformFeeReceiver":  { "type": "string", "description": "FeeSplitter address that receives the platform bps of each mint." },
+          "platformFeeBps":       { "type": "string", "description": "Platform's basis-point cut of every mint. Must be < 10000." }
+        }
+      },
+      "abiEncode": "(uint256[],uint256[],address,uint16)"
+    },
+    "ERC2981Royalty1155": {
+      "version": 1,
+      "base": ["ERC1155"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/nft/ERC2981Royalty1155.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["receiver", "feeBps"],
+        "properties": {
+          "receiver": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+          "feeBps":   { "type": "integer", "minimum": 0, "maximum": 1000 }
+        }
+      },
+      "abiEncode": "(address,uint96)"
+    },
+    "Staking": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": ["FeeOnTransfer"],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/allocation/Staking.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["rewardsTotal", "durationSeconds"],
+        "properties": {
+          "rewardsTotal":    { "type": "string", "description": "Total reward tokens distributed over the period (wei)." },
+          "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 630720000, "description": "Reward emission window. Max ~20 years." }
+        }
+      },
+      "abiEncode": "(uint256,uint32)"
+    },
+    "Vesting": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "fragmentPath": "contracts/modules/allocation/Vesting.frag.sol",
+      "params": {
+        "type": "object",
+        "required": ["beneficiary", "totalAmount", "cliffTimestamp", "endTimestamp"],
+        "properties": {
+          "beneficiary":     { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+          "totalAmount":     { "type": "string", "description": "Total amount to vest in wei." },
+          "cliffTimestamp":  { "type": "integer", "description": "Unix seconds. No release before this." },
+          "endTimestamp":    { "type": "integer", "description": "Unix seconds. Full amount vested at or after this." }
+        }
+      },
+      "abiEncode": "(address,uint256,uint64,uint64)"
+    }
+  }
+}

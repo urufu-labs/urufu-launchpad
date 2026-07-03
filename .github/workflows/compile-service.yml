@@ -1,0 +1,27 @@
+name: compile-service
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'compile-service/**'
+      - '.github/workflows/compile-service.yml'
+  pull_request:
+    paths:
+      - 'compile-service/**'
+      - '.github/workflows/compile-service.yml'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vm/compile-service typecheck
+      - run: pnpm --filter @vm/compile-service build

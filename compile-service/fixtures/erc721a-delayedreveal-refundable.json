@@ -1,0 +1,10 @@
+{
+  "base": "ERC721A",
+  "modules": ["DelayedReveal", "Refundable"],
+  "params": {
+    "DelayedReveal": { "hiddenBaseURI": "ipfs://hidden/" },
+    "Refundable": { "pricePerToken": "10000000000000000", "refundWindowBlocks": 100 }
+  },
+  "contractName": "ERC721AWithDelayedRevealRefundableGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

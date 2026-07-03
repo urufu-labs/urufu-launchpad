@@ -1,0 +1,10 @@
+{
+  "base": "ERC20",
+  "modules": ["Airdrop", "Permit"],
+  "params": {
+    "Airdrop": { "merkleRoot": "0x0000000000000000000000000000000000000000000000000000000000000000" },
+    "Permit": {}
+  },
+  "contractName": "ERC20WithAirdropPermitGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

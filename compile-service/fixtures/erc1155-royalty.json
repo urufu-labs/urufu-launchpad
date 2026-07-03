@@ -1,0 +1,7 @@
+{
+  "base": "ERC1155",
+  "modules": ["ERC2981Royalty1155"],
+  "params": { "ERC2981Royalty1155": { "receiver": "0x000000000000000000000000000000000000dEaD", "feeBps": 500 } },
+  "contractName": "ERC1155WithRoyaltyGen",
+  "templatePath": "contracts/src/templates/ERC1155Template.sol"
+}

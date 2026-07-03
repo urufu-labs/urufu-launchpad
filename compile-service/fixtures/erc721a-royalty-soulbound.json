@@ -1,0 +1,10 @@
+{
+  "base": "ERC721A",
+  "modules": ["ERC2981Royalty", "Soulbound"],
+  "params": {
+    "ERC2981Royalty": { "receiver": "0x000000000000000000000000000000000000dEaD", "feeBps": 500 },
+    "Soulbound": {}
+  },
+  "contractName": "ERC721AWithRoyaltySoulboundGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

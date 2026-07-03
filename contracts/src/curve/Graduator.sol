@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.26;
+
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
+
+/// @title  Graduator
+/// @notice Takes a graduated BondingCurve's ETH + token reserves and mints them as a
+///         full-range LP position in a Uniswap v4 pool with the platform's chosen hook.
+///         The LP position ends up owned by this contract — since the hook is expected to
+///         be `LPLockedHook` (or `MultiHookHost`), any `poolManager.modifyLiquidity` call
+///         that removes liquidity reverts forever. LP locked by construction.
+///
+/// @dev    Called by `BondingCurve._graduate()` in the same transaction: BondingCurve
+///         `.approve()`s this contract to pull its tokens, then calls `execute` with the
+///         ETH value alongside. Execute does the whole v4 dance in one shot.
+///
+///         Fee tier + tick spacing are configurable at deploy time. Defaults match the
+///         common 0.3% tier that Uniswap v4 examples use, giving reasonable liquidity
+///         concentration for the initial LP.
+contract Graduator is IUnlockCallback {
+    error Graduator__NotPoolManager();
+    error Graduator__EthMismatch(uint256 sent, uint256 expected);
+    error Graduator__ZeroAmount();
+
+    event Graduated(
+        address indexed token,
+        address indexed hook,
+        uint256 ethAmount,
+        uint256 tokenAmount,
+        uint160 sqrtPriceX96,
+        uint128 liquidity
+    );
+
+    IPoolManager public immutable poolManager;
+    IHooks public immutable defaultHook;
+    uint24 public immutable fee;
+    int24 public immutable tickSpacing;
+
+    // Full-range tick bounds, aligned to tickSpacing at construction.
+    int24 public immutable tickLower;
+    int24 public immutable tickUpper;
+
+    constructor(
+        IPoolManager _poolManager,
+        IHooks _defaultHook,
+        uint24 _fee,
+        int24 _tickSpacing
+    ) {
+        poolManager = _poolManager;
+        defaultHook = _defaultHook;
+        fee = _fee;
+        tickSpacing = _tickSpacing;
+        tickLower = (TickMath.MIN_TICK / _tickSpacing + 1) * _tickSpacing;
+        tickUpper = (TickMath.MAX_TICK / _tickSpacing) * _tickSpacing;
+    }
+
+    /// @notice Graduate a curve. Caller must have already approved `tokenAmount` of `token`.
+    function execute(
+        address token,
+        uint256 ethAmount,
+        uint256 tokenAmount
+    ) external payable {
+        if (ethAmount == 0 || tokenAmount == 0) revert Graduator__ZeroAmount();
+        if (msg.value != ethAmount) revert Graduator__EthMismatch(msg.value, ethAmount);
+
+        // Pull the tokens — safeTransferFrom guards against non-compliant ERC20s that
+        // silently return false (USDT-family) rather than reverting. Solady's assembly
+        // wrapper reverts on any failure; Slither can't see through the asm.
+        // slither-disable-next-line unchecked-transfer
+        SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), tokenAmount);
+
+        // v4 orders currencies numerically: address(0) < any 20-byte address, so native ETH
+        // is always currency0.
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(token),
+            fee: fee,
+            tickSpacing: tickSpacing,
+            hooks: defaultHook
+        });
+
+        // sqrt(price) in Q64.96 where price = ethAmount / tokenAmount.
+        // sqrtPriceX96 = sqrt(ethAmount * 2^192 / tokenAmount)
+        //              = sqrt(ethAmount) * 2^96 / sqrt(tokenAmount)
+        uint160 sqrtPriceX96 = uint160((FixedPointMathLib.sqrt(ethAmount) << 96) / FixedPointMathLib.sqrt(tokenAmount));
+
+        poolManager.initialize(key, sqrtPriceX96);
+
+        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
+        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
+        uint128 liquidity =
+            LiquidityAmounts.getLiquidityForAmounts(sqrtPriceX96, sqrtLower, sqrtUpper, ethAmount, tokenAmount);
+
+        poolManager.unlock(abi.encode(key, uint256(liquidity), ethAmount, tokenAmount, token));
+        emit Graduated(token, address(defaultHook), ethAmount, tokenAmount, sqrtPriceX96, liquidity);
+    }
+
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
+        if (msg.sender != address(poolManager)) revert Graduator__NotPoolManager();
+        (PoolKey memory key, uint256 liquidity,,, address token) =
+            abi.decode(data, (PoolKey, uint256, uint256, uint256, address));
+
+        // modifyLiquidity returns the CALLER's delta. For adding liquidity both amounts are
+        // negative — the exact wei we need to settle to close the position. Using the exact
+        // returned delta (vs. the pre-computed intended amounts) protects against rounding
+        // mismatches between LiquidityAmounts.getLiquidityForAmounts and v4's internal
+        // amount-for-liquidity computation.
+        (BalanceDelta callerDelta,) = poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: int256(liquidity), salt: bytes32(0)
+            }),
+            ""
+        );
+
+        int128 delta0 = _amount0(callerDelta);
+        int128 delta1 = _amount1(callerDelta);
+
+        // Settle currency0 (native ETH).
+        if (delta0 < 0) {
+            uint256 owed = uint256(uint128(-delta0));
+            poolManager.settle{value: owed}();
+        } else if (delta0 > 0) {
+            poolManager.take(key.currency0, address(this), uint256(uint128(delta0)));
+        }
+
+        // Settle currency1 (the launched token). safeTransfer for the same USDT-style guard.
+        if (delta1 < 0) {
+            uint256 owed = uint256(uint128(-delta1));
+            poolManager.sync(Currency.wrap(token));
+            // slither-disable-next-line unchecked-transfer
+            SafeTransferLib.safeTransfer(token, address(poolManager), owed);
+            poolManager.settle();
+        } else if (delta1 > 0) {
+            poolManager.take(key.currency1, address(this), uint256(uint128(delta1)));
+        }
+
+        return "";
+    }
+
+    function _amount0(
+        BalanceDelta d
+    ) private pure returns (int128) {
+        return int128(int256(BalanceDelta.unwrap(d) >> 128));
+    }
+
+    function _amount1(
+        BalanceDelta d
+    ) private pure returns (int128) {
+        return int128(int256(BalanceDelta.unwrap(d)));
+    }
+
+    receive() external payable {}
+}

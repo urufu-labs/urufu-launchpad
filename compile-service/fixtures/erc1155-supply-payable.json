@@ -1,0 +1,10 @@
+{
+  "base": "ERC1155",
+  "modules": ["PayableMint1155", "SupplyPerToken1155"],
+  "params": {
+    "PayableMint1155": { "ids": ["1"], "pricesWei": ["10000000000000000"] },
+    "SupplyPerToken1155": { "ids": ["1"], "caps": ["100"] }
+  },
+  "contractName": "ERC1155WithSupplyPayableGen",
+  "templatePath": "contracts/src/templates/ERC1155Template.sol"
+}

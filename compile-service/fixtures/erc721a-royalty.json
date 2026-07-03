@@ -1,0 +1,7 @@
+{
+  "base": "ERC721A",
+  "modules": ["ERC2981Royalty"],
+  "params": { "ERC2981Royalty": { "receiver": "0x000000000000000000000000000000000000dEaD", "feeBps": 500 } },
+  "contractName": "ERC721AWithRoyaltyGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

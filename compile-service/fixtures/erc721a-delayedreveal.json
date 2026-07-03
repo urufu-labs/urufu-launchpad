@@ -1,0 +1,7 @@
+{
+  "base": "ERC721A",
+  "modules": ["DelayedReveal"],
+  "params": { "DelayedReveal": { "hiddenBaseURI": "ipfs://hidden/" } },
+  "contractName": "ERC721AWithDelayedRevealGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

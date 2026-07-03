@@ -1,0 +1,17 @@
+{
+  "base": "ERC20",
+  "modules": ["GovernorBundle", "Votes"],
+  "params": {
+    "Votes": {},
+    "GovernorBundle": {
+      "votingDelay": 86400,
+      "votingPeriod": 604800,
+      "proposalThreshold": "1000000000000000000000",
+      "quorumNumerator": 4,
+      "timelockMinDelay": 172800
+    }
+  },
+  "contractName": "ERC20WithGovernorBundleGen",
+  "templatePath": "contracts/src/templates/ERC20VotesTemplate.sol",
+  "baseContractName": "ERC20VotesTemplate"
+}

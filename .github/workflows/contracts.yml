@@ -1,0 +1,35 @@
+name: contracts
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts.yml'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - name: Show forge version
+        run: forge --version
+      - name: Format check
+        run: forge fmt --check
+      - name: Build
+        run: forge build --sizes
+      - name: Test (CI profile — high fuzz runs)
+        run: FOUNDRY_PROFILE=ci forge test -vvv
+      - name: Coverage summary
+        run: forge coverage --report summary

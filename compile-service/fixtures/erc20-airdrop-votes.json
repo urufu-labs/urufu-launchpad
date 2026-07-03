@@ -1,0 +1,11 @@
+{
+  "base": "ERC20",
+  "modules": ["Airdrop", "Votes"],
+  "params": {
+    "Airdrop": { "merkleRoot": "0x0000000000000000000000000000000000000000000000000000000000000000" },
+    "Votes": {}
+  },
+  "contractName": "ERC20WithAirdropVotesGen",
+  "templatePath": "contracts/src/templates/ERC20VotesTemplate.sol",
+  "baseContractName": "ERC20VotesTemplate"
+}

@@ -1,0 +1,14 @@
+{
+  "base": "ERC1155",
+  "modules": ["PayableMint1155Split"],
+  "params": {
+    "PayableMint1155Split": {
+      "ids": ["1"],
+      "pricesWei": ["10000000000000000"],
+      "platformFeeReceiver": "0x0000000000000000000000000000000000000001",
+      "platformFeeBps": "500"
+    }
+  },
+  "contractName": "ERC1155WithSplitPayableGen",
+  "templatePath": "contracts/src/templates/ERC1155Template.sol"
+}

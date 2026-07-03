@@ -1,0 +1,47 @@
+{
+  "name": "launchpad",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.7.1",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:compile-service": "pnpm --filter compile-service dev",
+    "dev:indexer": "pnpm --filter indexer dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "build": "pnpm -r build",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "contracts:test": "cd contracts && forge test",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:coverage": "cd contracts && forge coverage --report summary",
+    "contracts:fmt": "cd contracts && forge fmt",
+    "contracts:fmt:check": "cd contracts && forge fmt --check",
+    "contracts:snapshot": "cd contracts && forge snapshot",
+    "contracts:install": "cd contracts && bash install-deps.sh",
+    "contracts:rehearse:registry": "cd contracts && bash rehearse-deploy.sh DeployNameRegistry sepolia",
+    "splice": "node --experimental-strip-types --disable-warning=ExperimentalWarning compile-service/src/cli.ts",
+    "splice:antibot": "pnpm splice compile-service/fixtures/erc20-antibot.json contracts/src/templates/composed/ERC20WithAntiBotGen.sol",
+    "splice:feeontransfer": "pnpm splice compile-service/fixtures/erc20-feeontransfer.json contracts/src/templates/composed/ERC20WithFeeOnTransferGen.sol",
+    "contracts:rehearse:phase1": "cd contracts && bash rehearse-deploy.sh DeployPhase1 sepolia",
+    "contracts:rehearse:combos": "cd contracts && bash rehearse-combos.sh sepolia",
+    "contracts:rehearse:curve": "cd contracts && bash rehearse-deploy.sh PostDeploySmoke sepolia",
+    "contracts:deploy:phase1": "cd contracts && bash deploy.sh Phase1 ${CHAIN:-sepolia}",
+    "contracts:deploy:hooks": "cd contracts && bash deploy.sh Hooks ${CHAIN:-sepolia}",
+    "contracts:handoff": "cd contracts && bash deploy.sh HandoffOwnership ${CHAIN:-sepolia}",
+    "contracts:smoke": "cd contracts && bash deploy.sh PostDeploySmoke ${CHAIN:-sepolia}",
+    "contracts:deploy:flywheel": "cd contracts && bash deploy.sh Flywheel ${CHAIN:-base}",
+    "contracts:configure:flywheel": "cd contracts && bash deploy.sh ConfigureFlywheel ${CHAIN:-base}",
+    "contracts:verify:phase1": "cd contracts && bash verify-phase1.sh ${CHAIN:-sepolia}",
+    "contracts:security": "cd contracts && bash security.sh",
+    "sync:addresses": "node tools/sync-addresses.mjs ${CHAIN:-sepolia}"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.0",
+    "prettier-plugin-solidity": "^1.4.0"
+  }
+}

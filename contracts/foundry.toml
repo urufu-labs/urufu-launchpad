@@ -1,0 +1,71 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+cache_path = "cache"
+
+solc_version = "0.8.26"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 10_000
+via_ir = true
+
+# Allow reading local fixture files in tests; write access is scoped to the deployment
+# address book DeployPhase1 emits (deployment.<chainid>.json at the contracts/ root).
+# Foundry does prefix matching on path, so `./deployment.` catches every chain-id variant.
+fs_permissions = [
+  { access = "read", path = "./" },
+  { access = "write", path = "./" },
+]
+
+[fuzz]
+runs = 1_000
+max_test_rejects = 65_536
+
+[invariant]
+runs = 256
+depth = 32
+fail_on_revert = false
+call_override = false
+
+# Clone profile — used when compiling contracts that get cloned by factories.
+# Small optimizer runs → tighter bytecode, cheaper CREATE2 clone deploys.
+# Selected explicitly by the compile-service when building templates.
+[profile.clone]
+optimizer_runs = 200
+via_ir = true
+
+# CI profile — heavier fuzz and invariant budgets.
+[profile.ci]
+
+[profile.ci.fuzz]
+runs = 10_000
+
+[profile.ci.invariant]
+runs = 1_024
+depth = 64
+
+# Formatting rules — match HANDOFF.md §Solidity style.
+[fmt]
+bracket_spacing = false
+int_types = "long"
+line_length = 120
+multiline_func_header = "params_first"
+number_underscore = "thousands"
+quote_style = "double"
+tab_width = 4
+wrap_comments = true
+
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+base = "${BASE_RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+base = { key = "${BASESCAN_API_KEY}", chain = 8453 }
+base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532 }

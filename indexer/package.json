@@ -1,0 +1,20 @@
+{
+  "name": "@vm/indexer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint 'src/**/*.ts'"
+  },
+  "dependencies": {
+    "@ponder/core": "^0.7.0",
+    "viem": "^2.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

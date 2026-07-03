@@ -1,0 +1,11 @@
+{
+  "base": "ERC20",
+  "modules": ["AntiBot", "AntiWhale", "Permit"],
+  "params": {
+    "AntiBot": { "blockGate": 5 },
+    "AntiWhale": { "maxWallet": "100000000000000000000", "maxTx": "10000000000000000000", "expireAfterBlocks": 1000 },
+    "Permit": {}
+  },
+  "contractName": "ERC20WithAntiBotAntiWhalePermitGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

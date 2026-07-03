@@ -1,0 +1,7 @@
+{
+  "base": "ERC20",
+  "modules": ["FeeOnTransfer"],
+  "params": { "FeeOnTransfer": { "feeBps": 500, "burnBps": 5000, "treasuryBps": 5000, "treasury": "0x000000000000000000000000000000000000dEaD" } },
+  "contractName": "ERC20WithFeeOnTransferGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

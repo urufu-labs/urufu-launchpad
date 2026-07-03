@@ -1,0 +1,15 @@
+{
+  "base": "ERC20",
+  "modules": ["Airdrop", "Vesting"],
+  "params": {
+    "Airdrop": { "merkleRoot": "0x0000000000000000000000000000000000000000000000000000000000000000" },
+    "Vesting": {
+      "beneficiary": "0x000000000000000000000000000000000000dEaD",
+      "totalAmount": "1000000000000000000000",
+      "cliffTimestamp": 1735689600,
+      "endTimestamp": 1798761600
+    }
+  },
+  "contractName": "ERC20WithAirdropVestingGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

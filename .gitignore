@@ -1,0 +1,56 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# next.js / turbopack
+.next/
+out/
+.turbo/
+
+# foundry build artifacts
+contracts/cache/
+contracts/out/
+contracts/broadcast/*/
+!contracts/broadcast/*/dry-run/
+*.dbg.json
+
+# per-chain address book emitted by DeployPhase1. Regenerated every broadcast; the
+# canonical addresses live in web/src/lib/config.ts (via `pnpm sync:addresses`).
+contracts/deployment.*.json
+
+# Slither outputs (regenerated on every run via `pnpm contracts:security`).
+contracts/slither-report.json
+contracts/slither-summary.md
+
+# env / secrets — DO NOT COMMIT
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+keystore/
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ponder
+indexer/.ponder/
+indexer/generated/
+
+# compile-service caches
+compile-service/cache/
+compile-service/tmp/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

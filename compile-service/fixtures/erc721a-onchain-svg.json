@@ -1,0 +1,7 @@
+{
+  "base": "ERC721A",
+  "modules": ["OnChainSVG"],
+  "params": { "OnChainSVG": {} },
+  "contractName": "ERC721AWithOnChainSVGGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

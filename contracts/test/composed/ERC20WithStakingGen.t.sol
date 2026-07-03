@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.26;
+
+import {Test} from "forge-std/Test.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
+
+import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
+
+contract ERC20WithStakingGenTest is Test {
+    ERC20WithStakingGen internal impl;
+    ERC20WithStakingGen internal token;
+
+    address internal owner = makeAddr("owner");
+    address internal alice = makeAddr("alice");
+    address internal bob = makeAddr("bob");
+
+    uint256 internal constant REWARDS_TOTAL = 1000 ether;
+    uint32 internal constant DURATION = 30 days;
+    uint256 internal constant INITIAL = 10_000 ether;
+
+    function setUp() public {
+        impl = new ERC20WithStakingGen();
+        token = ERC20WithStakingGen(LibClone.clone(address(impl)));
+
+        bytes[] memory moduleData = new bytes[](1);
+        moduleData[0] = abi.encode(REWARDS_TOTAL, DURATION);
+        bytes memory initData = abi.encode(owner, "Stake", "STK", INITIAL, owner, moduleData);
+        token.initialize(initData);
+
+        // Fund alice + bob from owner.
+        vm.prank(owner);
+        token.transfer(alice, 1000 ether);
+        vm.prank(owner);
+        token.transfer(bob, 1000 ether);
+    }
+
+    function test_Init_ComputesRate() public view {
+        uint256 rate = token.stakingRewardRate();
+        assertEq(rate, REWARDS_TOTAL / DURATION);
+    }
+
+    function test_Stake_MovesTokens() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+        assertEq(token.stakingBalanceOf(alice), 100 ether);
+        assertEq(token.stakingTotalStaked(), 100 ether);
+        assertEq(token.balanceOf(alice), 900 ether);
+        assertEq(token.balanceOf(address(token)), 100 ether);
+    }
+
+    function test_Stake_RevertsOnZero() public {
+        vm.expectRevert(ERC20WithStakingGen.Staking__ZeroAmount.selector);
+        vm.prank(alice);
+        token.stake(0);
+    }
+
+    function test_Withdraw_ReturnsTokens() public {
+        vm.prank(alice);
+        token.stake(500 ether);
+        vm.prank(alice);
+        token.stakingWithdraw(200 ether);
+        assertEq(token.stakingBalanceOf(alice), 300 ether);
+        assertEq(token.balanceOf(alice), 700 ether);
+    }
+
+    function test_Withdraw_RevertsOverBalance() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC20WithStakingGen.Staking__InsufficientStake.selector, 200 ether, 100 ether)
+        );
+        vm.prank(alice);
+        token.stakingWithdraw(200 ether);
+    }
+
+    function test_Earned_AccruesLinearly() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+
+        vm.warp(block.timestamp + DURATION / 2);
+        uint256 earned = token.stakingEarned(alice);
+        // Alice is the only staker → she earns half of total rewards.
+        // Allow rounding — rate is truncated to whole tokens/sec.
+        uint256 rate = REWARDS_TOTAL / DURATION;
+        uint256 expected = rate * (DURATION / 2);
+        assertApproxEqAbs(earned, expected, 1e12);
+    }
+
+    function test_Earned_ShareBetweenTwoStakers() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+        vm.prank(bob);
+        token.stake(100 ether);
+
+        vm.warp(block.timestamp + DURATION);
+        uint256 aliceEarned = token.stakingEarned(alice);
+        uint256 bobEarned = token.stakingEarned(bob);
+        // Equal stakes → roughly equal rewards.
+        assertApproxEqRel(aliceEarned, bobEarned, 0.001e18);
+    }
+
+    function test_Claim_MintsReward() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+        vm.warp(block.timestamp + DURATION);
+
+        uint256 aliceBalBefore = token.balanceOf(alice);
+        vm.prank(alice);
+        token.stakingClaim();
+        uint256 aliceBalAfter = token.balanceOf(alice);
+        assertGt(aliceBalAfter, aliceBalBefore);
+    }
+
+    function test_Claim_RevertsOnNothing() public {
+        vm.expectRevert(ERC20WithStakingGen.Staking__NothingToClaim.selector);
+        vm.prank(alice);
+        token.stakingClaim();
+    }
+
+    function test_Earned_StopsAtPeriodFinish() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+
+        vm.warp(block.timestamp + DURATION);
+        uint256 atEnd = token.stakingEarned(alice);
+
+        vm.warp(block.timestamp + 30 days);
+        uint256 afterEnd = token.stakingEarned(alice);
+        assertEq(atEnd, afterEnd);
+    }
+}

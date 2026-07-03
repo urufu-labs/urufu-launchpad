@@ -1,0 +1,8 @@
+{
+  "base": "ERC20",
+  "modules": ["Votes"],
+  "params": { "Votes": {} },
+  "contractName": "ERC20WithVotesGen",
+  "templatePath": "contracts/src/templates/ERC20VotesTemplate.sol",
+  "baseContractName": "ERC20VotesTemplate"
+}

@@ -1,0 +1,7 @@
+{
+  "base": "ERC20",
+  "modules": ["Pausable"],
+  "params": { "Pausable": {} },
+  "contractName": "ERC20WithPausableGen",
+  "templatePath": "contracts/src/templates/ERC20Template.sol"
+}

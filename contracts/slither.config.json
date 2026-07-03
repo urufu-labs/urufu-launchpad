@@ -1,0 +1,19 @@
+{
+  "filter_paths": "lib/|test/|script/",
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "exclude_optimization": true,
+  "solc_remaps": [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "solady/=lib/solady/src/",
+    "erc721a/=lib/ERC721A/contracts/",
+    "v4-core/=lib/v4-core/src/",
+    "v4-periphery/=lib/v4-periphery/src/",
+    "@uniswap/v4-core/src/=lib/v4-core/src/",
+    "@uniswap/v4-core/=lib/v4-core/",
+    "@uniswap/v4-periphery/=lib/v4-periphery/"
+  ]
+}

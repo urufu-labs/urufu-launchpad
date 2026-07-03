@@ -1,0 +1,7 @@
+{
+  "base": "ERC721A",
+  "modules": ["Soulbound"],
+  "params": { "Soulbound": {} },
+  "contractName": "ERC721AWithSoulboundGen",
+  "templatePath": "contracts/src/templates/ERC721ATemplate.sol"
+}

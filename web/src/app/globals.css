@@ -1,0 +1,378 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   urufu labs — kawaiicore per kawaiicore-design SKILL.md
+   Cream base + dark plum anchor. Not #000, not #fff.
+   ============================================================================ */
+
+:root {
+  /* Sanrio-2002 pastel-on-cream palette */
+  --cream:        #fff8e7;
+  --cream-deep:   #fff5d6;
+  --cream-shadow: #f2e7c8;
+  --anchor:       #3a2c3a;   /* mauve-charcoal, THE dark color, not #000 */
+  --anchor-soft:  #6b4d6b;
+
+  --pink-warm:    #ffd1dc;
+  --pink-warmer:  #ffc1cc;
+  --pink-hot:     #ff88b3;
+  --mizuiro:      #bde0fe;
+  --mizuiro-deep: #a2d2ff;
+  --mint:         #c8f7c5;
+  --mint-deep:    #aaf0d1;
+  --yolk:         #ffefad;
+  --yolk-deep:    #ffd970;
+  --tape-fiber:   rgba(255, 209, 220, 0.55);
+
+  /* Body base — deep cream w/ paper feel. Shells (cream) pop on this. */
+  --paper-base:   #fbeecf;
+  --paper-base-2: #f4e0b3;
+
+  /* Link blue — real pre-2007 personal-site blue */
+  --link-blue:    #0033cc;
+  --link-visited: #7c1fa0;
+}
+
+@theme inline {
+  --color-background: var(--paper-base);
+  --color-foreground: var(--anchor);
+  --font-body: var(--font-body), Georgia, "Times New Roman", serif;
+  --font-display: var(--font-display), "Yusei Magic", cursive;
+  --font-round: var(--font-round), "Klee One", cursive;
+  --font-pixel: var(--font-pixel), "Pixelify Sans", monospace;
+}
+
+/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile. */
+body {
+  background: var(--paper-base);
+  background-image:
+    /* subtle paper dots — 24px tile */
+    radial-gradient(circle at 6px 6px, rgba(58,44,58,0.05) 1px, transparent 2px),
+    /* soft color washes at page-scale */
+    radial-gradient(circle at 22% 12%, rgba(255,209,220,0.30) 0, transparent 50%),
+    radial-gradient(circle at 82% 82%, rgba(189,224,254,0.22) 0, transparent 55%),
+    radial-gradient(circle at 60% 40%, rgba(200,247,197,0.16) 0, transparent 60%);
+  background-size: 24px 24px, auto, auto, auto;
+  color: var(--anchor);
+  font-family: var(--font-body), Georgia, "Times New Roman", serif;
+  font-size: 13px;
+  min-height: 100vh;
+}
+
+/* Real hyperlinks — blue, underlined, unstyled per JP personal-site convention */
+.uru-prose a { color: var(--link-blue); text-decoration: underline; }
+.uru-prose a:visited { color: var(--link-visited); }
+
+/* ============================================================================
+   MASCOT — the wolf. Cursor + footer + speech-bubble form.
+   ============================================================================ */
+
+.uru-cursor {
+  position: fixed;
+  width: 28px; height: 28px;
+  pointer-events: none;
+  z-index: 9999;
+  transition: transform 220ms cubic-bezier(.34,1.56,.64,1);
+  transform: translate(-50%, -50%);
+  mix-blend-mode: normal;
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,0.35));
+  will-change: transform;
+}
+@media (hover: none) { .uru-cursor { display: none; } }
+
+/* ============================================================================
+   SCRAPBOOK "PAGE" — the nested frame stack per skill: 3+ layers
+   Layer 1 outer: tiled cream background w/ subtle paper grain
+   Layer 2 middle: page-width card with dotted-gold border
+   Layer 3 inner: sections with double-line borders
+   Layer 4: tape/stamps straddling seams
+   ============================================================================ */
+
+.uru-shell {
+  background: var(--cream);
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 20%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
+    radial-gradient(circle at 30% 78%, rgba(0,0,0,0.03) 0 1px, transparent 2px);
+  color: var(--anchor);
+  border: 3px double var(--anchor);
+  border-radius: 14px;
+  padding: 20px;
+  position: relative;
+  box-shadow:
+    0 0 0 2px var(--cream),
+    0 0 0 4px var(--anchor),
+    6px 6px 0 rgba(58,44,58,0.15);
+}
+
+.uru-shell-inner {
+  background: var(--cream-deep);
+  border: 2px dotted var(--anchor);
+  border-radius: 10px;
+  padding: 14px;
+  position: relative;
+}
+
+.uru-shell-inner-inner {
+  background: #fff;
+  border: 1px solid var(--anchor);
+  padding: 10px;
+  position: relative;
+}
+
+/* Cream sticker "polaroid" — asymmetric bottom padding, prime rotation */
+.uru-polaroid {
+  background: #fff;
+  border: 1.5px solid var(--anchor);
+  padding: 6px 6px 22px 6px;
+  box-shadow: 3px 3px 0 var(--pink-warm);
+  position: relative;
+  transition: transform 180ms steps(4);
+}
+.uru-polaroid:hover { transform: translate(-1px, -2px) rotate(-1deg); box-shadow: 5px 5px 0 var(--pink-hot); }
+/* Tilts disabled per user preference — polaroids sit flat. Drag state still tilts for feedback. */
+.uru-polaroid[data-tilt='p3'],
+.uru-polaroid[data-tilt='n7'],
+.uru-polaroid[data-tilt='p11'],
+.uru-polaroid[data-tilt='n11'],
+.uru-polaroid[data-tilt='p13'],
+.uru-polaroid[data-tilt='n4'],
+.uru-polaroid[data-tilt='p2'],
+.uru-polaroid[data-tilt='n2'] { transform: none; }
+
+.uru-polaroid[data-dragging='true'] {
+  transform: rotate(-2deg) scale(1.03);
+  box-shadow: 8px 8px 0 var(--pink-hot);
+  z-index: 90; cursor: grabbing;
+}
+.uru-polaroid:hover { transform: translate(-1px, -2px); }
+.uru-polaroid[data-planned='true'] {
+  opacity: 0.55; filter: grayscale(0.35);
+  box-shadow: 3px 3px 0 var(--cream-shadow);
+}
+
+/* Tape strip — striped semi-transparent, rotated at prime degrees */
+.uru-tape {
+  position: absolute;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--pink-warm) 0 6px,
+    var(--pink-warmer) 6px 12px
+  );
+  border-top: 1px solid rgba(255,255,255,0.6);
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  opacity: 0.88;
+  pointer-events: none;
+}
+.uru-tape-mizuiro {
+  background: repeating-linear-gradient(-45deg, var(--mizuiro) 0 6px, var(--mizuiro-deep) 6px 12px);
+}
+.uru-tape-mint {
+  background: repeating-linear-gradient(-45deg, var(--mint) 0 6px, var(--mint-deep) 6px 12px);
+}
+.uru-tape-yolk {
+  background: repeating-linear-gradient(-45deg, var(--yolk) 0 6px, var(--yolk-deep) 6px 12px);
+}
+
+/* Postage stamp — perforated border via SVG mask */
+.uru-stamp {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--yolk);
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1.5px solid var(--anchor);
+  box-shadow: 1.5px 1.5px 0 var(--anchor);
+  transform: rotate(-3deg);
+}
+.uru-stamp-pink { background: var(--pink-warm); }
+.uru-stamp-mizuiro { background: var(--mizuiro); }
+.uru-stamp-mint { background: var(--mint); }
+.uru-stamp-cream { background: var(--cream); }
+
+/* Section title in display marker font */
+.uru-h1 {
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-weight: 400;
+  color: var(--anchor);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.uru-h2 {
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  color: var(--anchor);
+  font-size: 20px;
+  line-height: 1.2;
+}
+.uru-eyebrow {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--anchor);
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+}
+
+/* Buttons — 3-layer Win95 press feel (base / face / highlight) */
+.uru-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--pink-warm);
+  color: var(--anchor);
+  border: 1.5px solid var(--anchor);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  box-shadow: 2px 2px 0 var(--anchor);
+  cursor: pointer;
+  transition: transform 80ms steps(2), box-shadow 80ms steps(2), background 100ms;
+  position: relative;
+}
+.uru-btn:hover { background: var(--pink-hot); color: #fff; }
+.uru-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--anchor); }
+.uru-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+.uru-btn-primary { background: var(--pink-hot); color: #fff; padding: 8px 18px; font-size: 14px; }
+.uru-btn-mint { background: var(--mint); }
+.uru-btn-cream { background: var(--cream); }
+
+/* Inputs — old-school raised field with dotted border */
+.uru-input {
+  width: 100%;
+  background: #fff;
+  color: var(--anchor);
+  border: 1.5px inset var(--anchor);
+  padding: 5px 8px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.uru-input:focus {
+  outline: 2px solid var(--pink-hot);
+  outline-offset: 1px;
+}
+
+/* Cart drop zone — dashed pink outline that reacts on drag-over */
+.uru-cart {
+  background: var(--cream);
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 24px, rgba(58,44,58,0.04) 24px 25px),
+    repeating-linear-gradient(0deg, transparent 0 24px, rgba(58,44,58,0.04) 24px 25px);
+  border: 2.5px dashed var(--pink-hot);
+  padding: 14px;
+  position: relative;
+  min-height: 200px;
+}
+.uru-cart[data-active='true'] {
+  background: var(--pink-warm);
+  border-color: var(--anchor);
+}
+
+/* JP bullets */
+.uru-list-flower { list-style: none; padding-left: 0; }
+.uru-list-flower li { position: relative; padding-left: 18px; }
+.uru-list-flower li::before { content: '✿'; position: absolute; left: 0; color: var(--pink-hot); }
+
+/* Speech bubble w/ tail — mascot voice */
+.uru-bubble {
+  position: relative;
+  background: var(--cream);
+  border: 1.5px solid var(--anchor);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: 2px 2px 0 var(--anchor);
+}
+.uru-bubble::before {
+  content: '';
+  position: absolute;
+  left: -10px; top: 22px;
+  width: 0; height: 0;
+  border: 8px solid transparent;
+  border-right-color: var(--anchor);
+}
+.uru-bubble::after {
+  content: '';
+  position: absolute;
+  left: -7px; top: 22px;
+  width: 0; height: 0;
+  border: 8px solid transparent;
+  border-right-color: var(--cream);
+}
+
+/* Marquee tape strip */
+.uru-marquee {
+  overflow: hidden;
+  border-top: 1.5px solid var(--anchor);
+  border-bottom: 1.5px solid var(--anchor);
+  background: var(--yolk);
+}
+.uru-marquee-track {
+  display: inline-flex;
+  gap: 32px;
+  padding: 4px 0;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  color: var(--anchor);
+  white-space: nowrap;
+  animation: uru-marquee 28s linear infinite;
+}
+@keyframes uru-marquee { to { transform: translateX(-50%); } }
+.uru-marquee-wrap:hover .uru-marquee-track { animation-play-state: paused; }
+
+/* 88x31 button collection */
+.uru-88 {
+  display: inline-flex;
+  width: 88px; height: 31px;
+  align-items: center; justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--anchor);
+  background: var(--cream);
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-align: center;
+  image-rendering: pixelated;
+  box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px var(--anchor);
+}
+.uru-88 strong { color: var(--pink-hot); font-weight: 900; }
+.uru-88-pink { background: var(--pink-warm); }
+.uru-88-mint { background: var(--mint); }
+.uru-88-mizuiro { background: var(--mizuiro); }
+
+/* Ambient wiggle — steps not ease per skill note #6 (but we use ease for bob, steps for sprite) */
+@keyframes uru-idle-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.uru-idle-bob { animation: uru-idle-bob 2s ease-in-out infinite; }
+
+@keyframes uru-blink { 0%,90%,100% { transform: scaleY(1); } 95% { transform: scaleY(0.05); } }
+.uru-blink { animation: uru-blink 4.7s steps(2) infinite; transform-origin: center; }
+
+@keyframes uru-marquee-arrow { 0%,100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+.uru-arrow { animation: uru-marquee-arrow 0.9s steps(4) infinite; display: inline-block; }
+
+@keyframes uru-pop {
+  0%   { opacity: 0; transform: scale(0.7) rotate(-8deg); }
+  60%  { opacity: 1; transform: scale(1.08) rotate(3deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-2deg); }
+}
+.uru-pop { animation: uru-pop 380ms cubic-bezier(.34,1.56,.64,1) both; }
+
+/* Reduced motion — kill non-essential motion per skill */
+@media (prefers-reduced-motion: reduce) {
+  .uru-marquee-track, .uru-idle-bob, .uru-blink, .uru-arrow { animation: none !important; }
+  .uru-pop { animation: none; opacity: 1; transform: none; }
+}

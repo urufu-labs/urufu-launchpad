@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+dist
+contracts/out
+contracts/cache
+contracts/broadcast
+contracts/lib
+indexer/.ponder
+indexer/generated
+compile-service/cache
+pnpm-lock.yaml
