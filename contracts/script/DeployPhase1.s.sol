@@ -21,7 +21,6 @@ import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.so
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
 import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
 import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
-import {ERC20WithGovernorBundleGen} from "src/templates/composed/ERC20WithGovernorBundleGen.sol";
 import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAntiBotAntiWhaleGen.sol";
 import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
 import {ERC20WithFoTPermitGen} from "src/templates/composed/ERC20WithFoTPermitGen.sol";
@@ -110,7 +109,6 @@ contract DeployPhase1 is Script {
     bytes32 public constant ERC20_VESTING_CONFIG = keccak256(abi.encode("ERC20", "Vesting"));
     bytes32 public constant ERC20_STAKING_CONFIG = keccak256(abi.encode("ERC20", "Staking"));
     bytes32 public constant ERC20_VOTES_CONFIG = keccak256(abi.encode("ERC20", "Votes"));
-    bytes32 public constant ERC20_GOVERNOR_CONFIG = keccak256(abi.encode("ERC20", "GovernorBundle,Votes"));
 
     // ---- 14 curated multi-module bundles ----
     bytes32 public constant ERC20_ANTIBOT_ANTIWHALE_CONFIG = keccak256(abi.encode("ERC20", "AntiBot,AntiWhale"));
@@ -184,7 +182,6 @@ contract DeployPhase1 is Script {
         ERC20WithVestingGen impl20Vesting = new ERC20WithVestingGen();
         ERC20WithStakingGen impl20Staking = new ERC20WithStakingGen();
         ERC20WithVotesGen impl20Votes = new ERC20WithVotesGen();
-        ERC20WithGovernorBundleGen impl20Governor = new ERC20WithGovernorBundleGen();
         // 14 curated bundles
         ERC20WithAntiBotAntiWhaleGen impl20AbAw = new ERC20WithAntiBotAntiWhaleGen();
         ERC20WithAntiBotPermitGen impl20AbP = new ERC20WithAntiBotPermitGen();
@@ -240,7 +237,6 @@ contract DeployPhase1 is Script {
         factory20.registerImpl(ERC20_VESTING_CONFIG, address(impl20Vesting));
         factory20.registerImpl(ERC20_STAKING_CONFIG, address(impl20Staking));
         factory20.registerImpl(ERC20_VOTES_CONFIG, address(impl20Votes));
-        factory20.registerImpl(ERC20_GOVERNOR_CONFIG, address(impl20Governor));
         factory20.registerImpl(ERC20_ANTIBOT_ANTIWHALE_CONFIG, address(impl20AbAw));
         factory20.registerImpl(ERC20_ANTIBOT_PERMIT_CONFIG, address(impl20AbP));
         factory20.registerImpl(ERC20_FOT_PERMIT_CONFIG, address(impl20FotP));

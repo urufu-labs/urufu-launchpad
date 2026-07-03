@@ -73,7 +73,7 @@ full spec + invariants in `docs/AUDIT-PREP.md`. Deploy the flywheel post-Phase 1
 
 | Layer | Count | Notes |
 |---|---|---|
-| Modules | **20 shipped** | AntiBot, FeeOnTransfer, AntiWhale, Pausable, Permit, Votes, OnChainSVG, ERC2981Royalty, Soulbound, DelayedReveal, Refundable, Airdrop, Vesting, Staking, GovernorBundle, PayableMint1155, SupplyPerToken1155, and more |
+| Modules | **shipped** | AntiBot, FeeOnTransfer, AntiWhale, Pausable, Permit, Votes, OnChainSVG, ERC2981Royalty, Soulbound, DelayedReveal, Refundable, Airdrop, Vesting, Staking, PayableMint1155, SupplyPerToken1155, and more |
 | v4 hooks | **5 shipped + 1 flywheel** | LPLocked, FeeRedirect, AntiSniper, MultiHookHost, BuybackBurn, **BuybackUruHook** |
 | Flywheel contracts | **4 shipped** | FeeSplitter, LoyaltyOracle, NftRevenueVault, UruBuybackVault |
 | Curated impls | **37 registered** | Every combo `DeployPhase1` puts in the factory registries |
@@ -232,7 +232,6 @@ launchpad/
 │   │   ├── factories/        # per-base deploy factories
 │   │   ├── curve/            # BondingCurve, CurveFactory
 │   │   ├── hooks/            # 5 v4 hooks + BaseHook + HookMiner
-│   │   ├── governance/       # VMGovernor
 │   │   └── types/            # LaunchParams, enums
 │   ├── modules/              # module fragments (.frag.sol)
 │   ├── test/                 # 454 tests: unit/, integration/, curve/, hooks/, composed/

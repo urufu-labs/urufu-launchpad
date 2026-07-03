@@ -190,27 +190,6 @@
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
-    "GovernorBundle": {
-      "version": 1,
-      "base": ["ERC20"],
-      "requires": ["Votes"],
-      "incompatibleWith": [],
-      "flagged": null,
-      "fragmentPath": "contracts/modules/token/GovernorBundle.frag.sol",
-      "templateOverride": "contracts/src/templates/ERC20VotesTemplate.sol",
-      "params": {
-        "type": "object",
-        "required": ["votingDelay", "votingPeriod", "proposalThreshold", "quorumNumerator", "timelockMinDelay"],
-        "properties": {
-          "votingDelay":       { "type": "integer", "description": "Delay in seconds (ERC-6372 timestamp mode) before voting opens." },
-          "votingPeriod":      { "type": "integer", "description": "Voting period in seconds." },
-          "proposalThreshold": { "type": "string",  "description": "Min votes required to propose (wei)." },
-          "quorumNumerator":   { "type": "integer", "minimum": 1, "maximum": 100, "description": "Quorum as N/100 of total voting supply." },
-          "timelockMinDelay":  { "type": "integer", "description": "Timelock enforced delay between queue and execute, in seconds." }
-        }
-      },
-      "abiEncode": "(uint48,uint32,uint256,uint256,uint256)"
-    },
     "SupplyPerToken1155": {
       "version": 1,
       "base": ["ERC1155"],

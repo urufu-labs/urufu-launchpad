@@ -28,7 +28,7 @@ jobs:
       - name: Format check
         run: forge fmt --check
       - name: Build
-        run: forge build --sizes
+        run: forge build
       - name: Test (CI profile — high fuzz runs)
         run: FOUNDRY_PROFILE=ci forge test -vvv
       - name: Coverage summary

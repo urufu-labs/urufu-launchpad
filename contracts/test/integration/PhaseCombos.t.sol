@@ -21,7 +21,6 @@ import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.so
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
 import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
 import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
-import {ERC20WithGovernorBundleGen} from "src/templates/composed/ERC20WithGovernorBundleGen.sol";
 import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAntiBotAntiWhaleGen.sol";
 import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
 import {ERC20WithFoTPermitGen} from "src/templates/composed/ERC20WithFoTPermitGen.sol";
@@ -86,7 +85,6 @@ contract PhaseCombosTest is Test {
     bytes32 internal VESTING = keccak256(abi.encode("ERC20", "Vesting"));
     bytes32 internal STAKING = keccak256(abi.encode("ERC20", "Staking"));
     bytes32 internal VOTES = keccak256(abi.encode("ERC20", "Votes"));
-    bytes32 internal GOVERNOR = keccak256(abi.encode("ERC20", "GovernorBundle,Votes"));
     bytes32 internal AB_AW = keccak256(abi.encode("ERC20", "AntiBot,AntiWhale"));
     bytes32 internal AB_P = keccak256(abi.encode("ERC20", "AntiBot,Permit"));
     bytes32 internal FOT_P = keccak256(abi.encode("ERC20", "FeeOnTransfer,Permit"));
@@ -156,7 +154,6 @@ contract PhaseCombosTest is Test {
         f20.registerImpl(VESTING, address(new ERC20WithVestingGen()));
         f20.registerImpl(STAKING, address(new ERC20WithStakingGen()));
         f20.registerImpl(VOTES, address(new ERC20WithVotesGen()));
-        f20.registerImpl(GOVERNOR, address(new ERC20WithGovernorBundleGen()));
         f20.registerImpl(AB_AW, address(new ERC20WithAntiBotAntiWhaleGen()));
         f20.registerImpl(AB_P, address(new ERC20WithAntiBotPermitGen()));
         f20.registerImpl(FOT_P, address(new ERC20WithFoTPermitGen()));
@@ -304,14 +301,6 @@ contract PhaseCombosTest is Test {
         bytes[] memory m = new bytes[](1);
         m[0] = "";
         _launch(BaseType.ERC20, "Combo Votes", "CVOTE", VOTES, _erc20InitData(1000 ether, m), 2);
-    }
-
-    function test_Combo_ERC20_GovernorBundle() public {
-        // Sorted alphabetically: GovernorBundle → Votes.
-        bytes[] memory m = new bytes[](2);
-        m[0] = abi.encode(uint48(1 days), uint32(7 days), uint256(1000 ether), uint256(4), uint256(2 days));
-        m[1] = "";
-        _launch(BaseType.ERC20, "Combo Governor", "CGOV", GOVERNOR, _erc20InitData(10_000 ether, m), 3);
     }
 
     // ============================================================================
@@ -558,7 +547,7 @@ contract PhaseCombosTest is Test {
             base: BaseType.ERC20,
             name: "Fee 2M",
             ticker: "F2M",
-            configHash: GOVERNOR,
+            configHash: AB_AW,
             initData: _erc20InitData(1 ether, new bytes[](2)),
             moduleCount: 3,
             installHook: false,

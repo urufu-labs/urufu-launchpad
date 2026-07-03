@@ -8,7 +8,6 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import {VMGovernor} from "src/governance/VMGovernor.sol";
 
 /// @title  ERC20VotesTemplate
 /// @notice ERC-5805-compatible ERC-20 base for the VM launchpad. Identical shape to
