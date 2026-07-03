@@ -32,4 +32,7 @@ jobs:
       - name: Test (CI profile — high fuzz runs)
         run: FOUNDRY_PROFILE=ci forge test -vvv
       - name: Coverage summary
-        run: forge coverage --report summary
+        # --ir-minimum enables viaIR with minimum optimization; without it, coverage's
+        # stripped optimizer settings blow the solc stack on DeployFlywheel's 6-field
+        # struct literal. See https://book.getfoundry.sh/guides/best-practices/stack-too-deep
+        run: forge coverage --report summary --ir-minimum
