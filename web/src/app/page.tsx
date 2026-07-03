@@ -219,7 +219,7 @@ export default function HomePage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
               <FlowStop tag="URU buyback" jp="買戻" pct="40%" note="ETH → URU → urufu gemu NFT holders" bg="var(--pink-warm)" />
               <FlowStop tag="NFT revenue" jp="配当" pct="35%" note="direct ETH to urufu gemu NFT holders" bg="var(--mint)" />
-              <FlowStop tag="Treasury" jp="金庫" pct="25%" note="platform + infra + audits" bg="var(--cream-deep)" />
+              <FlowStop tag="Treasury" jp="金庫" pct="25%" note="keeps the lights on" bg="var(--cream-deep)" />
             </div>
 
             <div style={{ marginTop: 16, padding: 12, background: 'var(--yolk)', border: '1.5px solid var(--anchor)' }}>

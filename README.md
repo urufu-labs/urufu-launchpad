@@ -288,9 +288,3 @@ launchpad/
 ## License
 
 Dual-license: MIT for interfaces + templates, BUSL-1.1 for the bonding curve, hooks, and Router — the moat pieces.
-
----
-
-## Contact
-
-Brandon (@brand) — solo dev.
