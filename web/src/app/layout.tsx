@@ -7,6 +7,8 @@ import { Providers } from './providers';
 import { WalletButton } from '@/components/WalletButton';
 import { ChainSwitcher } from '@/components/ChainSwitcher';
 import { CursorMascot } from '@/components/CursorMascot';
+import { AudioBindings } from '@/components/AudioBindings';
+import { AudioToggle } from '@/components/AudioToggle';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -74,6 +76,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <Providers>
           <CursorMascot />
+          <AudioBindings />
           <header
             className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 flex-wrap"
             style={{ borderBottom: '1.5px solid var(--anchor)', background: 'var(--cream)', color: 'var(--anchor)' }}
@@ -109,9 +112,13 @@ export default function RootLayout({
               <Link href="/catalog" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
+              <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
+              <Link href="/profile" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
               {/* mobile-only compact menu */}
               <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="shop">✿</Link>
               <Link href="/trade" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="trade">✦</Link>
+              <Link href="/profile" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="profile">♡</Link>
+              <AudioToggle />
               <ChainSwitcher />
               <WalletButton />
             </nav>

@@ -10,7 +10,7 @@
 /// precision high enough to survive further shrinkage on brand-new launches. Kept
 /// intentionally dependency-light: no realtime WebSocket yet, no Ponder-served candles.
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
   ColorType,
@@ -18,6 +18,8 @@ import {
   type CandlestickData,
   type IChartApi,
 } from 'lightweight-charts';
+
+import { playSfx } from '@/lib/audio/sfx';
 
 export interface TradePoint {
   timestamp: number; // seconds
@@ -63,11 +65,40 @@ function aggregate(points: TradePoint[]): CandlestickData[] {
     }));
 }
 
-export function TradeChart({ points }: { points: TradePoint[] }) {
+export function TradeChart({
+  points,
+  flashKey,
+  flashSide,
+}: {
+  points: TradePoint[];
+  /// When this value changes, the chart flashes green (buy) / pink (sell) for ~600ms.
+  /// Pass a monotonic counter (tx hash, incrementing nonce, or newest-trade timestamp).
+  flashKey?: number | string | null;
+  flashSide?: 'buy' | 'sell';
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
   const candles = useMemo(() => aggregate(points), [points]);
+
+  // Flash overlay — the animation is keyed on flashCounter so mounting fires the CSS keyframe
+  // from the start every time. flashKey drives when to bump the counter; flashSide picks color.
+  const seenKeyRef = useRef<typeof flashKey>(undefined);
+  const [flashCounter, setFlashCounter] = useState(0);
+  const [flashActive, setFlashActive] = useState<'buy' | 'sell' | null>(null);
+  useEffect(() => {
+    if (flashKey != null && flashKey !== seenKeyRef.current) {
+      const isFirstEver = seenKeyRef.current === undefined;
+      seenKeyRef.current = flashKey;
+      setFlashCounter((n) => n + 1);
+      setFlashActive(flashSide ?? 'buy');
+      // Skip audio on the first render — we don't want the chart to blast a sound just
+      // because the newest indexed trade happened to seed the flash key on mount.
+      if (!isFirstEver) playSfx(flashSide === 'sell' ? 'trade-sell' : 'trade-buy');
+      const t = window.setTimeout(() => setFlashActive(null), 620);
+      return () => window.clearTimeout(t);
+    }
+  }, [flashKey, flashSide]);
 
   // Auto-tune display precision from the smallest close in the dataset so brand-new
   // launches (tiny gwei) still get readable ticks, while mature curves don't drown in
@@ -121,17 +152,42 @@ export function TradeChart({ points }: { points: TradePoint[] }) {
   }, [candles, precision]);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: 320,
+        border: '1.5px solid var(--anchor)',
+        boxShadow: '3px 3px 0 var(--anchor)',
+        background: '#fff8e7',
+        boxSizing: 'border-box',
+      }}
+    >
       <div
         ref={containerRef}
         style={{
           width: '100%',
-          height: 320,
-          border: '1.5px solid var(--anchor)',
-          boxShadow: '3px 3px 0 var(--anchor)',
-          background: '#fff8e7',
+          height: '100%',
         }}
       />
+      {/* Flash overlay — spans the whole wrapper. No blend mode: canvas + blend behaves
+          inconsistently, easier to just tune the alpha directly. */}
+      {flashActive && (
+        <div
+          key={flashCounter}
+          aria-hidden
+          className="uru-chart-flash"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: flashActive === 'buy'
+              ? 'rgba(107, 203, 119, 0.38)'
+              : 'rgba(232, 110, 132, 0.38)',
+            zIndex: 5,
+          }}
+        />
+      )}
       {/* Unit label — pixel font, top-right, so users know the y-axis scale */}
       <div
         style={{

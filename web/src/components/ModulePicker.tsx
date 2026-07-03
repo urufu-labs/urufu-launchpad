@@ -5,6 +5,7 @@ import { encodeAbiParameters, isAddress, zeroAddress, type Hex } from 'viem';
 import {
   MODULES,
   checkCompatibility,
+  encodeParamValue,
   modulesForBase,
   validateParam,
   type BaseType,
@@ -190,6 +191,11 @@ export function encodeModuleSlice(mod: ModuleSpec, params: Record<string, unknow
     if (p.type === 'integer') {
       const n = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
       return BigInt(Number.isFinite(n) ? n : 0);
+    }
+    if (p.type === 'percent' || p.type === 'eth') {
+      // Convert %/ETH → bps/wei. Falls back to 0 for empty inputs so the cart preview
+      // doesn't crash before the user finishes typing.
+      return encodeParamValue(p, raw);
     }
     if (p.type === 'string') {
       return typeof raw === 'string' ? raw : '';

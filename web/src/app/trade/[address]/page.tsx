@@ -31,6 +31,7 @@ import { fetchTradesForCurve } from '@/lib/indexer';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { Mascot } from '@/components/Mascot';
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
+import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
 import { MockTradeView } from './MockTradeView';
 
 type Side = 'buy' | 'sell';
@@ -51,6 +52,11 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
 function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const { address: wallet, isConnected } = useAccount();
   const chainId = useChainId();
+  // Wagmi's `isConnected` flips after hydration — gate any label / disabled decision
+  // that could change what the first client paint shows.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const connectedForRender = mounted && isConnected;
   const activeChain = CHAIN_ID_TO_KEY[chainId] ?? null;
   const contracts = activeChain ? CONTRACTS[activeChain as ChainKey] : null;
 
@@ -320,10 +326,15 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     );
   }
 
+  // Chart flash — fires when the newest indexed trade changes. Side + timestamp drives it.
+  const newestTrade = recentTrades[0];
+  const chartFlashKey = newestTrade ? `${newestTrade.timestamp}-${newestTrade.trader}` : null;
+  const chartFlashSide: 'buy' | 'sell' = newestTrade?.isBuy ? 'buy' : 'sell';
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
+    <div className="mx-auto max-w-6xl px-4 py-4">
       {/* Header — token identity + market cap */}
-      <div className="flex items-start gap-4 mb-4">
+      <div className="flex items-start gap-3 mb-3">
         <div
           style={{
             width: 72,
@@ -353,18 +364,33 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               ${(tokenSymbol as string) ?? '—'}
             </span>
           </h1>
-          <div style={{ marginTop: 4, display: 'flex', gap: 12, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
+          <div style={{ marginTop: 4, display: 'flex', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)', alignItems: 'center', flexWrap: 'wrap' }}>
             <Link href={explorerAddressUrl(activeChain as ChainKey, tokenAddress)} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
               {tokenAddress.slice(0, 6)}…{tokenAddress.slice(-4)}
             </Link>
-            <span>mkt cap: {typeof marketCap === 'bigint' ? Number(formatEther(marketCap)).toFixed(4) : '—'} ETH</span>
+            <span>mkt cap:{' '}
+              <FlashCell value={marketCap}>
+                {typeof marketCap === 'bigint' ? Number(formatEther(marketCap)).toFixed(4) : '—'} ETH
+              </FlashCell>
+            </span>
             <span>fee: {typeof feeBps === 'bigint' ? `${Number(feeBps) / 100}%` : '—'}</span>
           </div>
         </div>
       </div>
 
+      {/* Live trade ticker + copy-CA on the right — ticker fills the row, copy button pins to end */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TradeTicker
+            trades={recentTrades.map((t) => ({ isBuy: t.isBuy, eth: t.eth, tokens: t.tokens, trader: t.trader }))}
+            symbol={tokenSymbol as string | undefined}
+          />
+        </div>
+        <CopyCA address={tokenAddress} />
+      </div>
+
       {/* Graduation progress bar */}
-      <div className="uru-shell" style={{ padding: 14, marginBottom: 16 }}>
+      <div className="uru-shell uru-shell-tight" style={{ marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
           <div className="uru-eyebrow">graduation ✿ v4</div>
           <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 12, color: 'var(--anchor)' }}>
@@ -374,6 +400,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         </div>
         <div style={{ height: 14, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', position: 'relative' }}>
           <div
+            className={progressPct > 85 && !graduated ? 'uru-shimmer' : ''}
             style={{
               width: `${progressPct}%`,
               height: '100%',
@@ -382,20 +409,25 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             }}
           />
         </div>
+        {progressPct > 85 && !graduated && (
+          <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--pink-hot)', fontWeight: 700 }}>
+            so close ✿✿✿ almost graduated!!
+          </div>
+        )}
         {graduated && (
-          <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--pink-hot)' }}>
-            ✿ graduated — trading moves to uniswap v4 (pool creation in phase 3~)
+          <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 12, color: 'var(--pink-hot)', fontWeight: 700 }}>
+            ✿ GRADUATED ~★ trading moves to uniswap v4
           </div>
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* MAIN — chart + recent trades */}
-        <div className="space-y-4">
-          <TradeChart points={tradePoints} />
+        <div className="space-y-3">
+          <TradeChart points={tradePoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
 
           {/* Recent trades */}
-          <div className="uru-shell" style={{ padding: 14 }}>
+          <div className="uru-shell uru-shell-tight">
             <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ recent trades</div>
             {recentTrades.length === 0 ? (
               <div style={{ padding: 16, textAlign: 'center', fontFamily: 'var(--font-pixel), monospace', fontSize: 12, color: 'var(--anchor-soft)' }}>
@@ -410,16 +442,21 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     </span>
                     <span>{Number(formatEther(t.eth)).toFixed(4)} ETH</span>
                     <span>{Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol as string}</span>
-                    <span style={{ color: 'var(--anchor-soft)' }}>{t.trader.slice(0, 6)}…{t.trader.slice(-4)}</span>
+                    <Link href={`/profile/${t.trader}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+                      {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
+                    </Link>
                   </li>
                 ))}
               </ul>
             )}
           </div>
 
+          {/* Local chat — dopamine layer. Ships as localStorage-backed for now. */}
+          <ChatDrawer tokenAddress={tokenAddress} wallet={wallet} />
+
           {/* Info sidebar (metadata) */}
           {metadata && (metadata.description || metadata.website || metadata.twitter || metadata.telegram || metadata.discord) && (
-            <div className="uru-shell" style={{ padding: 14 }}>
+            <div className="uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ about</div>
               {metadata.description && (
                 <p style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 8 }}>{metadata.description}</p>
@@ -435,8 +472,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         </div>
 
         {/* SIDEBAR — buy/sell panel */}
-        <aside className="space-y-4 lg:sticky lg:top-4 lg:h-fit">
-          <div className="uru-shell" style={{ padding: 14 }}>
+        <aside className="space-y-3 lg:sticky lg:top-4 lg:h-fit">
+          <div className="uru-shell uru-shell-tight">
             {/* buy/sell toggle */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
               {(['buy', 'sell'] as const).map((s) => (
@@ -482,25 +519,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       {side === 'buy' ? 'ETH' : (tokenSymbol as string) ?? ''}
                     </span>
                   </div>
-                  {side === 'sell' && walletBal !== undefined && (
-                    <button
-                      type="button"
-                      onClick={() => setInputAmount(formatUnits(walletBal as bigint, 18))}
-                      style={{
-                        marginTop: 4,
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        color: 'var(--link-blue)',
-                        textDecoration: 'underline',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      max ({Number(formatUnits(walletBal as bigint, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })})
-                    </button>
-                  )}
                 </label>
+
+                {/* Quick pick chips — always visible on buy, only if balance>0 on sell */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 4 }}>
+                    quick pick ✿
+                  </div>
+                  <QuickAmounts
+                    side={side}
+                    walletBal={walletBal as bigint | undefined}
+                    onPick={(amount) => setInputAmount(amount)}
+                  />
+                </div>
 
                 <div style={{ marginTop: 12, padding: 8, background: 'var(--cream-deep)', border: '1.5px dashed var(--anchor)' }}>
                   <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
@@ -539,11 +570,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 <button
                   type="button"
                   onClick={submit}
-                  disabled={!isConnected || inputWei === 0n || writePending || receipt.isLoading}
+                  disabled={!connectedForRender || inputWei === 0n || writePending || receipt.isLoading}
                   className={side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'}
                   style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
                 >
-                  {!isConnected
+                  {!connectedForRender
                     ? 'connect wallet'
                     : writePending
                       ? 'confirming ~~'
@@ -566,10 +597,17 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           </div>
 
           {/* Curve stats */}
-          <div className="uru-shell" style={{ padding: 12 }}>
+          <div className="uru-shell uru-shell-tight">
             <div className="uru-eyebrow" style={{ marginBottom: 6 }}>curve stats</div>
             <dl style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, lineHeight: 1.7, color: 'var(--anchor-soft)' }}>
-              <div>price: <span style={{ color: 'var(--anchor)' }}>{typeof spotPrice === 'bigint' ? formatGweiPerToken(spotPrice as bigint) : '—'} <span style={{ color: 'var(--anchor-soft)' }}>gwei/token</span></span></div>
+              <div>price:{' '}
+                <FlashCell value={spotPrice} className="uru-tag">
+                  <span style={{ color: 'var(--anchor)' }}>
+                    {typeof spotPrice === 'bigint' ? formatGweiPerToken(spotPrice as bigint) : '—'}{' '}
+                    <span style={{ color: 'var(--anchor-soft)' }}>gwei/token</span>
+                  </span>
+                </FlashCell>
+              </div>
               <div>tokens sold: <span style={{ color: 'var(--anchor)' }}>{Number(formatUnits(tokensSold, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></div>
               <div>your bal: <span style={{ color: 'var(--anchor)' }}>{walletBal !== undefined ? Number(formatUnits(walletBal as bigint, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span></div>
               <div>curve: <span style={{ color: 'var(--anchor)' }}>{curveAddress.slice(0, 6)}…{curveAddress.slice(-4)}</span></div>

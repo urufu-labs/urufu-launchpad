@@ -32,13 +32,14 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 
+import { playSfx } from '@/lib/audio/sfx';
 import { curveFactoryAbi, erc20FactoryAbi, nameRegistryAbi, routerAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl, explorerTxUrl } from '@/lib/wagmi';
 import {
   BASE_TYPE_TO_UINT,
   configHashFor,
-  modulesForBase,
+  shippedModulesForBase,
   moduleById,
   type BaseType,
   type ModuleSpec,
@@ -76,6 +77,12 @@ export default function CreatePage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain, isPending: switchPending } = useSwitchChain();
+
+  // Wagmi + useActiveChain flip after client-side hydration (isConnected false → true,
+  // chainId 1 → wallet's real chain). Any banner that keys off those values will
+  // hydration-mismatch unless we gate its first render behind `mounted`.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // The user's PICKED chain (from the header switcher) is the launch target — not the
   // wallet's current chain. When the wallet is on a different chain than the pick, we
@@ -118,19 +125,22 @@ export default function CreatePage() {
   }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const available = useMemo(() => modulesForBase(base), [base]);
+  // Shop shelf shows only shipped modules — planned ones (B20 compliance tier etc.) live in
+  // /catalog so ppl can still see they're on the roadmap without clogging the launch flow.
+  const available = useMemo(() => shippedModulesForBase(base), [base]);
 
   /// True blockers only — module can't coexist with something already in the basket.
   /// Missing `requires` is NOT a block; picking a module auto-adds its deps.
   const blockedReasons = useMemo(() => {
     const map: Record<string, string> = {};
+    const labelOf = (id: string) => moduleById(id)?.label ?? id;
     for (const mod of available) {
       if (mod.status !== 'shipped') { map[mod.id] = 'not shipped yet ~~'; continue; }
       if (selectedModules.includes(mod.id)) { map[mod.id] = 'already in basket ✿'; continue; }
       const blocker = selectedModules.find((sid) => moduleById(sid)?.incompatibleWith.includes(mod.id));
-      if (blocker) { map[mod.id] = `won't stack with ${blocker}`; continue; }
+      if (blocker) { map[mod.id] = `wont stack with ${labelOf(blocker)}`; continue; }
       const conflict = mod.incompatibleWith.find((iid) => selectedModules.includes(iid));
-      if (conflict) { map[mod.id] = `won't stack with ${conflict}`; continue; }
+      if (conflict) { map[mod.id] = `wont stack with ${labelOf(conflict)}`; continue; }
       map[mod.id] = '';
     }
     return map;
@@ -142,7 +152,7 @@ export default function CreatePage() {
     const map: Record<string, string[]> = {};
     for (const mod of available) {
       const missing = mod.requires.filter((r) => !selectedModules.includes(r));
-      map[mod.id] = missing;
+      map[mod.id] = missing.map((r) => moduleById(r)?.label ?? r);
     }
     return map;
   }, [available, selectedModules]);
@@ -151,6 +161,9 @@ export default function CreatePage() {
     const mod = moduleById(id);
     if (!mod || mod.status !== 'shipped' || selectedModules.includes(id)) return;
     if (blockedReasons[id]) return;
+
+    // Basket "drop" thud. Fires for drag-drops AND quick-add clicks since both funnel here.
+    playSfx('stamp');
 
     // Walk the requires chain and pull in every missing dependency.
     const toAdd = new Set<string>([id]);
@@ -317,10 +330,13 @@ export default function CreatePage() {
         const raw = p[field.key];
         if (field.type === 'address') {
           if (typeof raw !== 'string' || !isAddress(raw)) return false;
-        } else if (field.type === 'integer') {
+        } else if (field.type === 'integer' || field.type === 'percent') {
           if (raw === undefined || raw === null || raw === '' || !Number.isFinite(Number(raw))) return false;
         } else if (field.type === 'string') {
           if (typeof raw !== 'string' || raw.length === 0) return false;
+        } else if (field.type === 'eth') {
+          if (typeof raw !== 'string' || raw.trim().length === 0) return false;
+          try { parseUnits(raw, 18); } catch { return false; }
         }
       }
     }
@@ -393,9 +409,9 @@ export default function CreatePage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mx-auto max-w-6xl px-4 py-4">
         {/* Header cluster — high density anchor zone per SKILL.md §density */}
-        <header className="relative mb-6" style={{ paddingTop: 28 }}>
+        <header className="relative mb-3" style={{ paddingTop: 20 }}>
           {/* stamps cluster — kept above the content strip so nothing overlaps the eyebrow */}
           <span className="uru-stamp uru-stamp-pink" style={{ position: 'absolute', top: 0, right: 140, transform: 'rotate(-7deg)' }}>
             ★ new
@@ -442,8 +458,8 @@ export default function CreatePage() {
           </div>
         </header>
 
-        {!contracts && (
-          <div className="uru-shell mb-6" style={{ background: 'var(--yolk)' }}>
+        {mounted && !contracts && (
+          <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
             <div className="flex items-start gap-3">
               <Mascot size={40} mood="confused" />
               <div>
@@ -457,8 +473,8 @@ export default function CreatePage() {
           </div>
         )}
 
-        {isConnected && !isOnEnabledChain && (
-          <div className="uru-shell mb-6" style={{ background: 'var(--pink-warm)' }}>
+        {mounted && isConnected && !isOnEnabledChain && (
+          <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--pink-warm)' }}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <Mascot size={40} mood="gasp" />
@@ -479,9 +495,9 @@ export default function CreatePage() {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {/* MAIN — the shop counter */}
-          <div className="space-y-6">
+          <div className="space-y-3">
             {/* STEP 1 — base picker with prime-tilt polaroids */}
             <section className="uru-shell">
               <span className="uru-tape" style={{ width: 74, height: 16, top: -8, left: 42, transform: 'rotate(-7deg)' }} />
@@ -843,7 +859,7 @@ export default function CreatePage() {
           </div>
 
           {/* SIDEBAR — cart + widgets + webring */}
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:h-fit">
+          <aside className="space-y-3 lg:sticky lg:top-4 lg:h-fit">
             {/* Shopkeeper speech bubble */}
             <div className="flex items-start gap-2">
               <Mascot size={44} mood={mascotMood} className="uru-idle-bob" />
@@ -868,7 +884,7 @@ export default function CreatePage() {
             />
 
             {/* Receipt + launch */}
-            <div className="uru-shell" style={{ padding: 14 }}>
+            <div className="uru-shell uru-shell-tight">
               <div className="flex items-baseline justify-between">
                 <div className="uru-eyebrow">receipt</div>
                 <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 20, fontWeight: 700, color: 'var(--anchor)' }}>
@@ -936,7 +952,7 @@ export default function CreatePage() {
             </div>
 
             {/* "currently" widget — cheap author-trace signal */}
-            <div className="uru-shell" style={{ padding: 12 }}>
+            <div className="uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ currently</div>
               <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
                 <li>listening — Perfume, <i>Polyrhythm</i></li>
@@ -958,7 +974,7 @@ export default function CreatePage() {
             </div>
 
             {/* Composition info — tiny receipt strip */}
-            <div className="uru-shell" style={{ padding: 10 }}>
+            <div className="uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 4 }}>tech</div>
               <dl style={{ fontSize: 10, fontFamily: 'var(--font-pixel), monospace', lineHeight: 1.6, color: 'var(--anchor-soft)' }}>
                 <div>base: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
@@ -1056,9 +1072,6 @@ function ShelfItem({
       </div>
       <div className="uru-h2" style={{ fontSize: 14 }}>{mod.label}</div>
       <div style={{ fontSize: 11, lineHeight: 1.4, color: 'var(--anchor-soft)', marginTop: 4 }}>{mod.description}</div>
-      <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
-        {mod.bases.join(' ✿ ')} <span style={{ opacity: 0.6 }}>{mod.abiEncode}</span>
-      </div>
       {!blocked && !planned && bundleWith.length > 0 && (
         <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--pink-hot)' }}>
           + auto-adds {bundleWith.join(', ')}
@@ -1157,27 +1170,79 @@ function CartItem({
         <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
           {mod.params.map((p) => {
             const v = params[p.key];
-            const type = p.type === 'integer' ? 'number' : 'text';
+            // 'percent' → number input w/ % suffix. 'eth' → text input w/ ETH suffix (decimals ok).
+            // Everything else keeps its old behavior.
+            const isNumberInput = p.type === 'integer' || p.type === 'percent';
+            const inputType = isNumberInput ? 'number' : 'text';
+            const suffix =
+              p.type === 'percent' ? '%'
+              : p.type === 'eth' ? 'ETH'
+              : p.type === 'address' ? undefined
+              : undefined;
+
             let missing = false;
             if (p.type === 'address') missing = typeof v !== 'string' || !isAddress(v);
             else if (p.type === 'string') missing = typeof v !== 'string' || v.length === 0;
-            else if (p.type === 'integer') missing = v === undefined || v === null || v === '' || !Number.isFinite(Number(v));
+            else if (p.type === 'integer' || p.type === 'percent') missing = v === undefined || v === null || v === '' || !Number.isFinite(Number(v));
+            else if (p.type === 'eth') {
+              missing = typeof v !== 'string' || v.trim().length === 0;
+              if (!missing) { try { parseUnits(v as string, 18); } catch { missing = true; } }
+            }
+
+            const rangeHint =
+              p.type === 'percent' && p.min !== undefined && p.max !== undefined
+                ? ` ${p.min}–${p.max}%`
+                : p.type === 'integer' && p.min !== undefined && p.max !== undefined
+                  ? ` [${p.min}–${p.max}]`
+                  : '';
+
             return (
               <label key={p.key} style={{ display: 'block' }}>
                 <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)' }}>
                   {p.label}
-                  {p.min !== undefined && p.max !== undefined && (
-                    <span> [{p.min}–{p.max}]</span>
-                  )}
+                  {rangeHint && <span>{rangeHint}</span>}
                 </span>
-                <input
-                  className="uru-input"
-                  type={type}
-                  value={(v as string | number | undefined) ?? ''}
-                  placeholder={p.type === 'address' ? '0x…' : undefined}
-                  onChange={(e) => onParamsChange({ ...params, [p.key]: type === 'number' ? Number(e.target.value) : e.target.value })}
-                  style={missing ? { borderColor: 'var(--pink-hot)' } : undefined}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="uru-input"
+                    type={inputType}
+                    step={p.type === 'percent' ? (p.step ?? 0.01) : p.type === 'eth' ? 'any' : undefined}
+                    inputMode={p.type === 'eth' ? 'decimal' : undefined}
+                    value={(v as string | number | undefined) ?? ''}
+                    placeholder={p.type === 'address' ? '0x…' : p.type === 'eth' ? '0.0' : undefined}
+                    onChange={(e) => onParamsChange({
+                      ...params,
+                      [p.key]: p.type === 'integer' || p.type === 'percent'
+                        ? (e.target.value === '' ? '' : Number(e.target.value))
+                        : e.target.value,
+                    })}
+                    style={{
+                      ...(missing ? { borderColor: 'var(--pink-hot)' } : undefined),
+                      ...(suffix ? { paddingRight: 34 } : undefined),
+                    }}
+                  />
+                  {suffix && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        right: 8,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 10,
+                        color: 'var(--anchor-soft)',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      {suffix}
+                    </span>
+                  )}
+                </div>
+                {p.description && (
+                  <div style={{ marginTop: 2, fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 10, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
+                    {p.description}
+                  </div>
+                )}
                 {missing && (
                   <div style={{ marginTop: 2, fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--pink-hot)' }}>
                     ~~ fill this before launch

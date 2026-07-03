@@ -153,3 +153,79 @@ export async function isIndexerReachable(): Promise<boolean> {
   const data = await gql<{ __schema: unknown }>(`query { __schema { queryType { name } } }`);
   return data !== null;
 }
+
+// ---- Profile-scoped queries — for /profile/[address] ----
+
+export interface IndexerHolding {
+  id: string;
+  chainId: number;
+  tokenAddress: Address;
+  holderAddress: Address;
+  balance: string;
+  updatedAt: string;
+}
+
+/// All launches created by a given wallet, newest first. Feeds the "creations" grid on a
+/// profile — each row is a token this address launched via Router.launch.
+export async function fetchLaunchesByCreator(creator: Address, limit = 40): Promise<IndexerLaunch[] | null> {
+  const data = await gql<{ launchess: { items: IndexerLaunch[] } }>(
+    `query LaunchesByCreator($creator: String!, $limit: Int!) {
+      launchess(
+        where: { launchedBy: $creator },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId tokenAddress launchedBy base name ticker configHash feePaid
+          installedHook installedGovernance installedBondingCurve curveAddress
+          blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { creator: creator.toLowerCase(), limit },
+  );
+  return data?.launchess.items ?? null;
+}
+
+/// Every trade this wallet has ever made across every curve, newest first. Feeds the
+/// activity feed + is the raw input to PnL math.
+export async function fetchTradesByTrader(trader: Address, limit = 200): Promise<IndexerTrade[] | null> {
+  const data = await gql<{ tradess: { items: IndexerTrade[] } }>(
+    `query TradesByTrader($trader: String!, $limit: Int!) {
+      tradess(
+        where: { trader: $trader },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId curveAddress tokenAddress trader isBuy ethAmount tokenAmount
+          ethReserveAfter tokenReserveAfter priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { trader: trader.toLowerCase(), limit },
+  );
+  return data?.tradess.items ?? null;
+}
+
+/// Current per-token balances for a wallet. Used for the "holdings" strip on the profile.
+export async function fetchHoldingsByAddress(holder: Address, limit = 100): Promise<IndexerHolding[] | null> {
+  const data = await gql<{ holderss: { items: IndexerHolding[] } }>(
+    `query HoldingsByAddress($holder: String!, $limit: Int!) {
+      holderss(
+        where: { holderAddress: $holder },
+        orderBy: "updatedAt",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId tokenAddress holderAddress balance updatedAt
+        }
+      }
+    }`,
+    { holder: holder.toLowerCase(), limit },
+  );
+  return data?.holderss.items ?? null;
+}
