@@ -34,25 +34,29 @@ const dot = DotGothic16({
   subsets: ['latin'],
 });
 
+// One line, shows in browser tabs + link previews. Slogan-shaped.
+const TAGLINE = 'tap tap launch ✿ liquidity locked forever ✿ 好き好き大好き';
+const TITLE = 'urufu labs ✿ tap tap launch';
+const DESCRIPTION = 'make ur token, hit launch, done ✿ once it takes off the liquidity locks forever, and every trade rewards urufu gemu nft holders ~';
+
 export const metadata: Metadata = {
-  title: 'urufu labs — the composable token launchpad',
-  description:
-    'Pick a base, stack audited modules, deploy in one tx. Bonding-curve launches graduate to Uniswap v4 with LP locked forever.',
+  title: TITLE,
+  description: DESCRIPTION,
   icons: {
     icon: '/favicon.svg',
     shortcut: '/favicon.svg',
     apple: '/favicon.svg',
   },
   openGraph: {
-    title: 'urufu labs — the composable token launchpad',
-    description: '3 bases · 20 modules · 5 v4 hooks · 33 curated combos. Bonding curve → Uniswap v4, LP locked forever.',
+    title: TITLE,
+    description: DESCRIPTION,
     images: ['/og.svg'],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'urufu labs — the composable token launchpad',
-    description: '3 bases · 20 modules · 5 v4 hooks · 33 curated combos.',
+    title: TITLE,
+    description: TAGLINE,
     images: ['/og.svg'],
   },
 };
