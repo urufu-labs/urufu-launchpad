@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.26;
 
+/*
+ *  ════════════════════════════════════════════════════════════════
+ *
+ *    ウ  urufu labs  ✯  tap tap launch
+ *
+ *  ════════════════════════════════════════════════════════════════
+ *
+ *    this token was deployed with urufu labs.  once graduation
+ *    hits, liquidity locks forever  ❤  and every trade after
+ *    that rewards urufu gemu nft holders.
+ *
+ *          ～  好き好き大好き  ～  launch ur own with urufu labs
+ *
+ *  ════════════════════════════════════════════════════════════════
+ */
+
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {ERC20Votes} from "solady/tokens/ERC20Votes.sol";
 import {Ownable} from "solady/auth/Ownable.sol";

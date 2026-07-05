@@ -170,14 +170,14 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
                 <li
                   key={i}
                   className={i === 0 ? 'uru-slide-in' : ''}
-                  style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}
+                  style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, alignItems: 'baseline' }}
                 >
-                  <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
+                  <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700, textAlign: 'left' }}>
                     {t.isBuy ? 'BUY' : 'SELL'}
                   </span>
-                  <span>{Number(formatEther(t.ethAmount)).toFixed(4)} ETH</span>
-                  <span>{Number(formatUnits(t.tokenAmount, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} {launch.ticker}</span>
-                  <Link href={`/profile/${t.trader}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+                  <span style={{ textAlign: 'left' }}>{Number(formatEther(t.ethAmount)).toFixed(4)} ETH</span>
+                  <span style={{ textAlign: 'right' }}>{Number(formatUnits(t.tokenAmount, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} {launch.ticker}</span>
+                  <Link href={`/profile/${t.trader}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline', justifySelf: 'end' }}>
                     {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
                   </Link>
                 </li>

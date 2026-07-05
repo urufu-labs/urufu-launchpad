@@ -436,13 +436,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 4 }}>
                 {recentTrades.map((t, i) => (
-                  <li key={i} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
-                    <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
+                  <li key={i} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, alignItems: 'baseline' }}>
+                    <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700, textAlign: 'left' }}>
                       {t.isBuy ? 'BUY' : 'SELL'}
                     </span>
-                    <span>{Number(formatEther(t.eth)).toFixed(4)} ETH</span>
-                    <span>{Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol as string}</span>
-                    <Link href={`/profile/${t.trader}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+                    <span style={{ textAlign: 'left' }}>{Number(formatEther(t.eth)).toFixed(4)} ETH</span>
+                    <span style={{ textAlign: 'right' }}>{Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol as string}</span>
+                    <Link href={`/profile/${t.trader}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline', justifySelf: 'end' }}>
                       {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
                     </Link>
                   </li>

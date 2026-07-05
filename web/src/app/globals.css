@@ -20,6 +20,7 @@
   --mizuiro-deep: #a2d2ff;
   --mint:         #c8f7c5;
   --mint-deep:    #aaf0d1;
+  --mint-hot:     #2fbf6a;   /* matched weight to --pink-hot for buy/sell contrast */
   --yolk:         #ffefad;
   --yolk-deep:    #ffd970;
   --tape-fiber:   rgba(255, 209, 220, 0.55);

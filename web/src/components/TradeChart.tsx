@@ -26,7 +26,13 @@ export interface TradePoint {
   priceWeiPerToken: bigint;
 }
 
-const RESOLUTION_SECONDS = 60; // 1-minute candles for MVP
+const RESOLUTIONS = [
+  { label: '1m', seconds: 60 },
+  { label: '5m', seconds: 300 },
+  { label: '15m', seconds: 900 },
+  { label: '1h', seconds: 3600 },
+] as const;
+type ResolutionSeconds = (typeof RESOLUTIONS)[number]['seconds'];
 
 /// Convert wei-per-token → gwei-per-token as a JS number. Safe because typical launched
 /// tokens sit in the 1e9–1e14 wei-per-token range, well within Number precision.
@@ -36,13 +42,13 @@ function toGwei(weiPerToken: bigint): number {
   return Number(weiPerToken) / 1e9;
 }
 
-function aggregate(points: TradePoint[]): CandlestickData[] {
+function aggregate(points: TradePoint[], resolutionSeconds: number): CandlestickData[] {
   if (points.length === 0) return [];
   const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
   const buckets = new Map<number, { open: number; high: number; low: number; close: number }>();
   for (const p of sorted) {
     if (p.priceWeiPerToken <= 0n) continue; // skip zero-price rows (bad data guard)
-    const bucket = Math.floor(p.timestamp / RESOLUTION_SECONDS) * RESOLUTION_SECONDS;
+    const bucket = Math.floor(p.timestamp / resolutionSeconds) * resolutionSeconds;
     const price = toGwei(p.priceWeiPerToken);
     if (!Number.isFinite(price) || price <= 0) continue;
     const existing = buckets.get(bucket);
@@ -78,8 +84,9 @@ export function TradeChart({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const [resolution, setResolution] = useState<ResolutionSeconds>(60);
 
-  const candles = useMemo(() => aggregate(points), [points]);
+  const candles = useMemo(() => aggregate(points, resolution), [points, resolution]);
 
   // Flash overlay — the animation is keyed on flashCounter so mounting fires the CSS keyframe
   // from the start every time. flashKey drives when to bump the counter; flashSide picks color.
@@ -170,6 +177,42 @@ export function TradeChart({
           height: '100%',
         }}
       />
+      {/* Resolution toggle — top-left pills, sitting under the price-unit label. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 30,
+          left: 12,
+          display: 'flex',
+          gap: 4,
+          zIndex: 6,
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 10,
+        }}
+      >
+        {RESOLUTIONS.map((r) => {
+          const active = r.seconds === resolution;
+          return (
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => setResolution(r.seconds)}
+              style={{
+                padding: '2px 6px',
+                border: '1px solid var(--anchor)',
+                background: active ? 'var(--pink-hot)' : 'rgba(255, 248, 231, 0.9)',
+                color: active ? '#fff' : 'var(--anchor)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+                fontWeight: active ? 700 : 400,
+              }}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
       {/* Flash overlay — spans the whole wrapper. No blend mode: canvas + blend behaves
           inconsistently, easier to just tune the alpha directly. */}
       {flashActive && (
