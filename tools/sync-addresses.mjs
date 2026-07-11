@@ -25,6 +25,8 @@ const CHAIN_TO_ID = {
   sepolia: 11155111,
   base: 8453,
   'base-sepolia': 84532,
+  robinhood: 4663,
+  'robinhood-testnet': 46630,
 };
 
 const chain = process.argv[2];
