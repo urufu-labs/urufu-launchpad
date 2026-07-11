@@ -18,19 +18,20 @@ import { fetchRecentLaunches, fetchCurveByToken, type IndexerLaunch } from '@/li
 import { loadMetadata } from '@/lib/metadata';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 
-type Filter = 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all';
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
+  { id: 'trending', label: 'trending', jp: '人気' },
   { id: 'new', label: 'new', jp: '新着' },
-  { id: 'mcap', label: 'top mkt cap', jp: '時価' },
+  { id: 'mcap', label: 'top mcap', jp: '時価' },
   { id: 'near-graduation', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
   { id: 'all', label: 'all', jp: '全部' },
 ];
 
+const NOW = 1_780_000_000; // static "now" so it matches deterministic mock timestamps
 function ago(ts: number): string {
-  const now = 1_780_000_000; // static "now" so it matches mock timestamps
-  const s = now - ts;
+  const s = NOW - ts;
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
@@ -40,21 +41,17 @@ function ago(ts: number): string {
 export default function DiscoverPage() {
   const activeChain = useActiveChain();
   const activeChainId = CHAIN_KEY_TO_ID[activeChain];
-  const [filter, setFilter] = useState<Filter>('new');
+  const [filter, setFilter] = useState<Filter>('trending');
   const [query, setQuery] = useState('');
   const [indexerLaunches, setIndexerLaunches] = useState<MockLaunch[] | null>(null);
   const [indexerChecked, setIndexerChecked] = useState(false);
 
-  // Try the indexer once on mount. If it's up and returns launches, use those instead of the
-  // mock fixture; otherwise stay on mocks. The resulting `MockLaunch` shape is the same for
-  // both paths so the rest of the page doesn't care.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const rows = await fetchRecentLaunches(40);
       if (cancelled) return;
       if (!rows || rows.length === 0) { setIndexerChecked(true); return; }
-      // Only surface launches that have a curve — the discover feed is trade-focused.
       const curveRows = rows.filter((r) => r.installedBondingCurve && r.curveAddress);
       if (curveRows.length === 0) { setIndexerChecked(true); return; }
       const mapped = await Promise.all(curveRows.map((r) => indexerLaunchToMock(r)));
@@ -66,7 +63,6 @@ export default function DiscoverPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Chain-filter both sources so the user only sees launches on the chain they picked.
   const chainMocks = useMemo(() => mocksForChain(activeChainId), [activeChainId]);
   const chainIndexed = useMemo(
     () => (indexerLaunches ? indexerLaunches.filter((l) => l.chainId === activeChainId) : null),
@@ -86,6 +82,9 @@ export default function DiscoverPage() {
       );
     }
     switch (filter) {
+      case 'trending':
+        list.sort((a, b) => b.trades.length - a.trades.length);
+        break;
       case 'new':
         list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
@@ -108,100 +107,143 @@ export default function DiscoverPage() {
   }, [filter, query, source]);
 
   return (
-    <>
-      {/* Global TokenTicker mounts once in the root layout — no per-page marquee here */}
-
-
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Header cluster */}
-        <div className="flex items-end gap-4 mb-6" style={{ position: 'relative' }}>
-          <Mascot size={72} mood="happy" className="uru-idle-bob" />
-          <div>
-            <div className="uru-eyebrow">launches ✿ {CHAIN_LABELS[activeChain]}</div>
-            <h1 className="uru-h1" style={{ fontSize: 36, lineHeight: 1 }}>
-              the feed
-              <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 22, marginLeft: 8 }}>
-                新着
-              </span>
-            </h1>
-            <p style={{ marginTop: 4, fontSize: 13, color: 'var(--anchor-soft)', maxWidth: 520 }}>
-              every token launched on urufu labs shows up here ~ click into one to trade against its
-              bonding curve. use the chain switcher in the header to swap networks (◕‿◕✿)
-            </p>
+    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
+      {/* ================================================================
+          COMPACT HEADER — one row: mascot + title + chain badge + count
+          ================================================================ */}
+      <section
+        className="uru-shell"
+        style={{
+          padding: '12px 18px',
+          marginBottom: 10,
+          display: 'flex',
+          gap: 14,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        <Mascot size={44} mood="happy" className="uru-idle-bob" />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>❁ launches · {CHAIN_LABELS[activeChain]}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <h1 className="uru-h1" style={{ fontSize: 24, lineHeight: 1 }}>the feed</h1>
+            <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 14, color: 'var(--anchor-soft)' }}>
+              新着
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 11,
+                color: 'var(--anchor-soft)',
+                marginLeft: 4,
+              }}
+            >
+              · {source.length} on this chain
+            </span>
           </div>
         </div>
+        <Link href="/create" className="uru-btn uru-btn-primary" style={{ padding: '6px 14px', fontSize: 12 }}>
+          launch a token <span className="uru-arrow">→</span>
+        </Link>
+      </section>
 
-        {/* Data source banner — flips from preview to live once the indexer has launches */}
-        <div
-          className="uru-shell"
-          style={{
-            padding: 12,
-            marginBottom: 16,
-            background: indexerLaunches ? 'var(--mint)' : 'var(--yolk)',
-          }}
-        >
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Mascot size={32} mood={indexerLaunches ? 'happy' : 'confused'} />
-            <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor)' }}>
-              {indexerLaunches ? (
-                <>
-                  <b>live feed</b> ~ {indexerLaunches.length} launch{indexerLaunches.length === 1 ? '' : 'es'} from the indexer ✿
-                </>
-              ) : indexerChecked ? (
-                <><b>preview mode</b> ~ indexer reachable but no launches yet. mock feed shown until the first real one lands.</>
-              ) : (
-                <><b>preview mode</b> ~ mock tokens for UI preview. broadcast phase 1 + start the indexer for a live feed.</>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* ================================================================
+          DATA-SOURCE STRIP — slim colored bar instead of full shell
+          ================================================================ */}
+      <div
+        style={{
+          padding: '6px 12px',
+          marginBottom: 10,
+          background: indexerLaunches ? 'var(--mint)' : 'var(--yolk)',
+          borderLeft: '4px solid var(--anchor)',
+          border: '1.5px solid var(--anchor)',
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 10.5,
+          color: 'var(--anchor)',
+        }}
+      >
+        {indexerLaunches ? (
+          <>
+            <b>● live feed</b> ~ {indexerLaunches.length} launch{indexerLaunches.length === 1 ? '' : 'es'} from the indexer ✿
+          </>
+        ) : indexerChecked ? (
+          <><b>◐ preview</b> ~ indexer reachable but no launches yet; mock feed shown until the first real one lands.</>
+        ) : (
+          <><b>◐ preview</b> ~ mock tokens. broadcast phase 1 + start the indexer for a live feed.</>
+        )}
+      </div>
 
-        {/* Filter tabs + search */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+      {/* ================================================================
+          TOOLBAR — tabs + search on one row, hides gracefully on mobile
+          ================================================================ */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          alignItems: 'center',
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           {FILTERS.map((f) => (
             <button
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
-              className="uru-btn"
-              style={{
-                fontSize: 12,
-                padding: '4px 10px',
-                background: filter === f.id ? 'var(--pink-warm)' : 'transparent',
-                fontWeight: 700,
-              }}
+              className="uru-chip"
+              data-active={filter === f.id}
+              style={{ padding: '5px 12px' }}
             >
-              {f.label}{' '}
-              <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, opacity: 0.7 }}>{f.jp}</span>
+              {f.label}
+              <span
+                style={{
+                  fontFamily: 'var(--font-jp), monospace',
+                  fontSize: 10,
+                  marginLeft: 4,
+                  opacity: 0.7,
+                }}
+              >
+                {f.jp}
+              </span>
             </button>
           ))}
-          <div style={{ flex: 1 }} />
-          <input
-            className="uru-input"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="search name/ticker/addr"
-            style={{ maxWidth: 240, fontSize: 12 }}
-          />
         </div>
-
-        {/* Card grid */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((l) => (
-            <LaunchCard key={l.address} launch={l} />
-          ))}
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="uru-shell" style={{ padding: 20, textAlign: 'center', marginTop: 16 }}>
-            <Mascot size={48} mood="confused" />
-            <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 12, color: 'var(--anchor-soft)' }}>
-              no launches match ~~
-            </div>
-          </div>
-        )}
+        <div style={{ flex: 1 }} />
+        <input
+          className="uru-input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="search name / ticker / addr"
+          style={{ maxWidth: 260, fontSize: 12 }}
+        />
       </div>
-    </>
+
+      {/* ================================================================
+          DENSE CARD GRID — 4-col at lg, 3-col at md, 2-col at sm
+          ================================================================ */}
+      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {filtered.map((l) => (
+          <LaunchCard key={l.address} launch={l} />
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="uru-shell" style={{ padding: 22, textAlign: 'center', marginTop: 12 }}>
+          <Mascot size={44} mood="confused" />
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 11,
+              color: 'var(--anchor-soft)',
+            }}
+          >
+            no launches match ~~
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -211,15 +253,13 @@ async function indexerLaunchToMock(row: IndexerLaunch): Promise<MockLaunch | nul
   if (!row.curveAddress) return null;
   const curve = await fetchCurveByToken(row.tokenAddress);
   if (!curve) return null;
-
-  // Rehydrate bigint strings.
   const b = (s: string) => BigInt(s);
   return {
     chainId: row.chainId,
     address: row.tokenAddress,
     name: row.name || row.ticker,
     ticker: row.ticker,
-    description: '', // metadata sits in launcher-side storage / IPFS (Phase 3)
+    description: '',
     logoBg: '#c9e6ff',
     logoEmoji: '✿',
     creator: row.launchedBy,
@@ -230,27 +270,22 @@ async function indexerLaunchToMock(row: IndexerLaunch): Promise<MockLaunch | nul
     virtualTokenReserve: b(curve.virtualTokenReserve),
     graduationTargetEth: b(curve.graduationTargetEth),
     curveSupply: b(curve.curveSupply),
-    // Total supply isn't in the indexer schema (yet); reasonable default matches CurveFactory.
     totalSupply: parseEther('1000000000'),
     tradeFeeBps: curve.tradeFeeBps,
     graduated: curve.graduated,
-    trades: [], // trade list is fetched on the trade page, not the feed
+    trades: [],
   };
 }
 
 function LaunchCard({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
-  // Spot price from the bonding curve: (ethReserve + virtualEth) / (tokenReserve + virtualToken),
-  // scaled to wei-per-token so the same formatter used on the trade page applies here.
   const spotPriceWei = useMemo(() => {
     const num = (launch.ethReserve + launch.virtualEthReserve) * 10n ** 18n;
     const den = launch.tokenReserve + launch.virtualTokenReserve;
     return den > 0n ? num / den : 0n;
   }, [launch.ethReserve, launch.virtualEthReserve, launch.tokenReserve, launch.virtualTokenReserve]);
 
-  // Real user-uploaded logo from token metadata. Falls back to the mock swatch + emoji so cards
-  // never look empty. localStorage-only for now; IPFS pull ships alongside the profile IPFS work.
   const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
   useEffect(() => {
     const m = loadMetadata(launch.chainId, launch.address);
@@ -260,110 +295,158 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell uru-shell-tight uru-launch-card"
+      className="uru-shell-tight uru-launch-card"
       style={{
         display: 'block',
         textDecoration: 'none',
         color: 'inherit',
-        transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+        padding: 10,
       }}
     >
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <div
           style={{
-            width: 56,
-            height: 56,
-            borderRadius: 10,
+            width: 44,
+            height: 44,
+            borderRadius: 8,
             border: '1.5px solid var(--anchor)',
-            boxShadow: '2px 2px 0 var(--anchor)',
             background: logoDataUrl
               ? `#fff url(${logoDataUrl}) center/cover no-repeat`
               : launch.logoBg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 28,
+            fontSize: 22,
             flexShrink: 0,
           }}
         >
           {!logoDataUrl && launch.logoEmoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <div className="uru-h2" style={{ fontSize: 15, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <div
+              className="uru-h2"
+              style={{
+                fontSize: 13,
+                lineHeight: 1.1,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {launch.name}
             </div>
-            <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
+            <div
+              style={{
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                color: 'var(--anchor-soft)',
+              }}
+            >
               ${launch.ticker}
             </div>
           </div>
           {launch.description && (
-            <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 2, lineHeight: 1.35 }}>
-              {launch.description.length > 84 ? launch.description.slice(0, 84) + '…' : launch.description}
+            <div
+              style={{
+                fontSize: 10.5,
+                color: 'var(--anchor-soft)',
+                marginTop: 1,
+                lineHeight: 1.3,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {launch.description}
             </div>
           )}
         </div>
       </div>
 
-      {/* Price + mcap row — pulled up so it reads first */}
+      {/* Price + mcap strip */}
       <div
         style={{
-          marginTop: 10,
-          padding: '6px 8px',
+          marginTop: 8,
+          padding: '4px 6px',
           background: 'var(--cream-deep)',
-          border: '1.5px dashed var(--anchor)',
+          border: '1px dashed var(--anchor)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
-          gap: 8,
+          gap: 6,
           fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10,
+          fontSize: 9.5,
           color: 'var(--anchor-soft)',
         }}
       >
         <span>
-          price{' '}
-          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 13 }}>
+          px{' '}
+          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
             {spotPriceWei > 0n ? formatGweiPerToken(spotPriceWei) : '—'}
-          </span>{' '}
-          gwei
+          </span>
+          {' '}gwei
         </span>
         <span>
           mcap{' '}
-          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 13 }}>
+          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
             {Number(formatEther(mcap)).toFixed(3)}
-          </span>{' '}
-          ETH
+          </span>
+          {' '}Ξ
         </span>
       </div>
 
-      {/* Progress bar */}
-      <div style={{ marginTop: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 3 }}>
-          <span>{launch.graduated ? '✿ graduated ✿' : `${progress.toFixed(1)}% → v4`}</span>
-          <span>{Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} ETH</span>
-        </div>
-        <div style={{ height: 8, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', position: 'relative' }}>
+      {/* Progress */}
+      <div style={{ marginTop: 6 }}>
+        <div
+          style={{
+            height: 6,
+            background: 'var(--cream-deep)',
+            border: '1.5px solid var(--anchor)',
+          }}
+        >
           <div
             className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
             style={{
               width: `${progress}%`,
               height: '100%',
-              background: launch.graduated ? 'var(--mint)' : 'var(--pink-hot)',
+              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
             }}
           />
         </div>
+        <div
+          style={{
+            marginTop: 3,
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            color: 'var(--anchor-soft)',
+          }}
+        >
+          <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(1)}% → v4`}</span>
+          <span>{Number(formatEther(launch.ethReserve)).toFixed(2)}/{Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ</span>
+        </div>
       </div>
 
-      {/* Stats + CTA row */}
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-        <span>{launch.trades.length} trades · {ago(launch.launchedAt)}</span>
+      {/* Trades + time */}
+      <div
+        style={{
+          marginTop: 6,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 9.5,
+          color: 'var(--anchor-soft)',
+        }}
+      >
+        <span>{launch.trades.length} tx · {ago(launch.launchedAt)}</span>
         <span
           style={{
             color: 'var(--pink-hot)',
             fontWeight: 700,
             letterSpacing: '0.04em',
-            textTransform: 'lowercase',
           }}
         >
           trade <span className="uru-arrow">→</span>

@@ -9,6 +9,7 @@ import { ChainSwitcher } from '@/components/ChainSwitcher';
 import { CursorMascot } from '@/components/CursorMascot';
 import { AudioBindings } from '@/components/AudioBindings';
 import { AudioToggle } from '@/components/AudioToggle';
+import { ThemeToggle, themeBootstrapScript } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 
 const yusei = Yusei_Magic({
@@ -73,7 +74,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${yusei.variable} ${klee.variable} ${pixel.variable} ${dot.variable} h-full`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* Inline theme bootstrap — runs before hydration so dark→light or light→dark
+            never flashes on first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <Providers>
           <CursorMascot />
@@ -115,10 +122,12 @@ export default function RootLayout({
               <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
               <Link href="/profile" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
+              <Link href="/docs" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
               {/* mobile-only compact menu */}
               <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="shop">✿</Link>
               <Link href="/trade" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="trade">✦</Link>
               <Link href="/profile" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="profile">♡</Link>
+              <ThemeToggle />
               <AudioToggle />
               <ChainSwitcher />
               <WalletButton />

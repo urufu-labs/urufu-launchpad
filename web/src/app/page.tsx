@@ -1,280 +1,380 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
-import { mocksForChain, mockMarketCapEth, mockProgressPct, type MockLaunch } from '@/lib/mockLaunches';
+import {
+  MOCK_LAUNCHES,
+  mocksForChain,
+  mockMarketCapEth,
+  mockProgressPct,
+  type MockLaunch,
+} from '@/lib/mockLaunches';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { CHAIN_LABELS } from '@/lib/config';
+
+type Tab = 'trending' | 'new' | 'near' | 'graduated';
+
+const TABS: Array<{ id: Tab; label: string; jp: string }> = [
+  { id: 'trending', label: 'trending', jp: '人気' },
+  { id: 'new', label: 'new', jp: '新着' },
+  { id: 'near', label: 'near grad', jp: '卒業' },
+  { id: 'graduated', label: 'graduated', jp: '完了' },
+];
+
+// Static "now" so relative times match the deterministic mock timestamps.
+const NOW = 1_780_000_000;
+function ago(ts: number): string {
+  const s = NOW - ts;
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
 
 export default function HomePage() {
   const activeChain = useActiveChain();
   const chainId = CHAIN_KEY_TO_ID[activeChain];
-  // Home feed picks 4 tiles from the active chain: 2 newest, 2 near-graduation. Same
-  // MockLaunch shape used on /discover so once the indexer wires in, swapping the source is
-  // a one-line change here.
-  const { newest, nearGrad } = useMemo(() => {
-    const chainMocks = mocksForChain(chainId);
-    const sortedNewest = chainMocks.slice().sort((a, b) => b.launchedAt - a.launchedAt).slice(0, 2);
-    const sortedNear = chainMocks
-      .filter((l) => !l.graduated)
-      .sort((a, b) => mockProgressPct(b) - mockProgressPct(a))
-      .slice(0, 2);
-    return { newest: sortedNewest, nearGrad: sortedNear };
-  }, [chainId]);
+  const [tab, setTab] = useState<Tab>('trending');
+  const [query, setQuery] = useState('');
+
+  const chainMocks = useMemo(() => mocksForChain(chainId), [chainId]);
+
+  // Cross-chain aggregates so the stat strip stays meaningful even on an empty chain.
+  const stats = useMemo(() => {
+    const total = MOCK_LAUNCHES.length;
+    const graduated = MOCK_LAUNCHES.filter((l) => l.graduated).length;
+    const totalEth = MOCK_LAUNCHES.reduce((acc, l) => acc + l.ethReserve, 0n);
+    const totalTrades = MOCK_LAUNCHES.reduce((acc, l) => acc + l.trades.length, 0);
+    return { total, graduated, totalEth, totalTrades };
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = chainMocks.slice();
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      list = list.filter(
+        (l) => l.name.toLowerCase().includes(q) || l.ticker.toLowerCase().includes(q),
+      );
+    }
+    switch (tab) {
+      case 'trending':
+        list.sort((a, b) => b.trades.length - a.trades.length);
+        break;
+      case 'new':
+        list.sort((a, b) => b.launchedAt - a.launchedAt);
+        break;
+      case 'near':
+        list = list.filter((l) => !l.graduated).sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
+        break;
+      case 'graduated':
+        list = list.filter((l) => l.graduated);
+        break;
+    }
+    return list;
+  }, [chainMocks, query, tab]);
+
+  // Cross-chain most-recent trades for the right-rail live activity list. Slice-per-launch
+  // caps the fan-in so a single hyper-active launch can't dominate the rail.
+  const liveTrades = useMemo(() => {
+    return MOCK_LAUNCHES
+      .flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
+      .sort((a, b) => b.t.timestamp - a.t.timestamp)
+      .slice(0, 14);
+  }, []);
 
   return (
-    <>
-      {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
+    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
+      {/* ===================================================================
+          COMPACT HERO — one row, mascot inline, CTA on the right
+          =================================================================== */}
+      <section
+        className="uru-shell"
+        style={{
+          padding: '14px 20px',
+          marginBottom: 12,
+          display: 'flex',
+          gap: 16,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        <Mascot size={64} mood="happy" className="uru-idle-bob" />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 3 }}>✿ urufu labs launchpad</div>
+          <div className="uru-h1" style={{ fontSize: 'clamp(22px, 3vw, 30px)', lineHeight: 1.05 }}>
+            a launchpad <span style={{ color: 'var(--pink-hot)' }}>u</span> can compose
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--anchor-soft)' }}>
+            compose a token, ship real solidity, own the liquidity forever ✿
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link href="/create" className="uru-btn uru-btn-primary">
+            launch a token <span className="uru-arrow">→</span>
+          </Link>
+          <Link href="/catalog" className="uru-btn uru-btn-mint">
+            shelf
+          </Link>
+        </div>
+      </section>
 
-      <div className="mx-auto max-w-4xl px-4">
-        {/* =====================================================================
-            HERO
-            ===================================================================== */}
-        <header className="relative py-14 sm:py-20 text-center">
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 18,
-              marginBottom: 8,
-            }}
-          >
-            <Mascot size={100} mood="happy" className="uru-idle-bob" />
-            <div
-              className="uru-h1"
-              style={{
-                fontSize: 'clamp(34px, 5vw, 48px)',
-                lineHeight: 1,
-                letterSpacing: '-1px',
-                textAlign: 'left',
-              }}
-            >
-              urufu<span style={{ color: 'var(--pink-hot)' }}>labs</span>
-              <sup
+      {/* ===================================================================
+          STATS STRIP — data-forward, pixel-font values
+          =================================================================== */}
+      <section
+        className="grid gap-2 mb-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
+      >
+        <StatTile label="tokens" jp="数" value={String(stats.total)} />
+        <StatTile label="graduated" jp="卒業" value={String(stats.graduated)} accent="mint" />
+        <StatTile
+          label="eth raised"
+          jp="集金"
+          value={`${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`}
+          accent="pink"
+        />
+        <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
+        <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
+      </section>
+
+      {/* ===================================================================
+          MAIN GRID — dense feed on the left, live-activity rail on the right
+          =================================================================== */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+            {/* -------------- feed column -------------- */}
+            <section style={{ minWidth: 0 }}>
+              {/* Tabs + search */}
+              <div
                 style={{
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 12,
-                  marginLeft: 3,
-                  color: 'var(--anchor-soft)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  alignItems: 'center',
+                  marginBottom: 10,
                 }}
               >
-                ®
-              </sup>
-            </div>
-          </div>
-          <h1
-            className="uru-h1 mt-4"
-            style={{ fontSize: 'clamp(40px, 7vw, 62px)', lineHeight: 1.05 }}
-          >
-            a launchpad <span style={{ color: 'var(--pink-hot)' }}>u</span> can compose
-          </h1>
-          <p
-            className="mt-4"
-            style={{
-              fontFamily: 'var(--font-round), Klee One, cursive',
-              fontSize: 16,
-              color: 'var(--anchor-soft)',
-              maxWidth: 480,
-              margin: '16px auto 0',
-              lineHeight: 1.5,
-            }}
-          >
-            every other launchpad hardcodes one shape of token. urufu lets u pick a base, drag
-            audited modules into a cart, and deploy real solidity ~~ not a wrapper (◕‿◕✿)
-          </p>
-          <div className="flex flex-wrap gap-3 mt-7 justify-center">
-            <Link href="/create" className="uru-btn uru-btn-primary">
-              launch a token <span className="uru-arrow">→</span>
-            </Link>
-            <Link href="/catalog" className="uru-btn uru-btn-mint">
-              see the shelf
-            </Link>
-          </div>
-        </header>
-
-        {/* =====================================================================
-            WHAT'S UNDER THE HOOD — one prose shell + inline number chips
-            ===================================================================== */}
-        <section className="pb-10">
-          <div className="uru-shell" style={{ padding: 24 }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ how it works</div>
-            <h2 className="uru-h1" style={{ fontSize: 28, lineHeight: 1.15 }}>
-              launch a token in one click.
-            </h2>
-            <p style={{ marginTop: 10, lineHeight: 1.65, maxWidth: 640 }}>
-              pick what u want, hit launch, done — no code, no team, no waiting. once it takes
-              off, the liquidity locks forever so no one can pull the rug. every trade rewards{' '}
-              <b>urufu gemu</b> nft holders, and holding <b>URU</b>{' '}or an urufu gemu nft gets u
-              a discount when u launch. &nbsp;
-              <Link href="/catalog" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-                see the shelf »
-              </Link>
-            </p>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-              <NumberChip n="3" label="bases" jp="型" />
-              <NumberChip n="23" label="modules shipped" jp="出来" />
-              <NumberChip n="5" label="v4 hooks" jp="鉤" />
-              <NumberChip n="3" label="planned (B20)" jp="予定" />
-              <NumberChip n="37" label="curated combos" jp="定食" />
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================================
-            NEW + TOP LAUNCHES — feed placeholders (pump.fun-style beat)
-            ===================================================================== */}
-        <section className="pb-10">
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span className="uru-h1" style={{ fontSize: 24, lineHeight: 1 }}>the feed</span>
-              <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 18, color: 'var(--anchor-soft)' }}>
-                新着
-              </span>
-            </div>
-            <Link
-              href="/discover"
-              style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--link-blue)', textDecoration: 'underline' }}
-            >
-              all launches »
-            </Link>
-          </div>
-          <div style={{ display: 'grid', gap: 16 }}>
-            {/* NEW column */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div className="uru-eyebrow">✿ freshly launched</div>
-                <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>preview data</span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {newest.map((l) => (<HomeFeedCard key={l.address} launch={l} tag="new" />))}
-              </div>
-            </div>
-
-            {/* NEAR GRADUATION column */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div className="uru-eyebrow">❀ near graduation</div>
-                <Link href="/discover" style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--link-blue)', textDecoration: 'underline' }}>
-                  see everything »
-                </Link>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {nearGrad.map((l) => (<HomeFeedCard key={l.address} launch={l} tag="grad" />))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================================
-            HOW IT WORKS — 3 tight steps
-            ===================================================================== */}
-        <section className="pb-10">
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-            <span className="uru-h1" style={{ fontSize: 24, lineHeight: 1 }}>how it works</span>
-            <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 18, color: 'var(--anchor-soft)' }}>
-              流れ
-            </span>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StepCard n="01" title="pick a base" body="erc-20 · 721a · 1155" tape="pink" />
-            <StepCard n="02" title="drag modules" body="audited fragments in ur cart" tape="mint" />
-            <StepCard n="03" title="launch" body="one tx · address on etherscan" tape="mizuiro" />
-          </div>
-        </section>
-
-        {/* =====================================================================
-            THE FLYWHEEL — economic story (right after how-it-works)
-            ===================================================================== */}
-        <section className="pb-10">
-          <div className="uru-shell" style={{ padding: 20, background: 'var(--cream-deep)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ the flywheel</div>
-            <h2 className="uru-h1" style={{ fontSize: 24, lineHeight: 1.2 }}>
-              value routes back to <span style={{ color: 'var(--pink-hot)' }}>URU</span> + <span style={{ color: 'var(--pink-hot)' }}>urufu gemu NFT</span> holders
-              <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 16, marginLeft: 8 }}>
-                循環
-              </span>
-            </h2>
-            <p style={{ marginTop: 10, lineHeight: 1.6, fontSize: 14 }}>
-              every launch fee + curve trade + post-graduation swap feeds a <b>FeeSplitter</b>{' '}
-              that routes ETH three ways. hold URU or an urufu gemu NFT, get paid every time
-              somebody launches ~~
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-              <FlowStop tag="URU buyback" jp="買戻" pct="40%" note="ETH → URU → urufu gemu NFT holders" bg="var(--pink-warm)" />
-              <FlowStop tag="NFT revenue" jp="配当" pct="35%" note="direct ETH to urufu gemu NFT holders" bg="var(--mint)" />
-              <FlowStop tag="Treasury" jp="金庫" pct="25%" note="keeps the lights on" bg="var(--cream-deep)" />
-            </div>
-
-            <div style={{ marginTop: 16, padding: 12, background: 'var(--yolk)', border: '1.5px solid var(--anchor)' }}>
-              <div className="uru-eyebrow" style={{ marginBottom: 4 }}>❀ launch-fee discount tiers</div>
-              <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-                <li>hold ≥ 1 urufu gemu NFT → <b>20% off</b> every launch fee</li>
-                <li>hold ≥ 100,000 URU → <b>40% off</b></li>
-                <li>hold both → <b>50% off</b> (capped)</li>
-              </ul>
-            </div>
-
-            <p style={{ marginTop: 12, fontSize: 11, color: 'var(--anchor-soft)', fontStyle: 'italic' }}>
-              creators earn on their tokens post-graduation via v4 hooks (real market cap
-              threshold gates it). splits are timelock-gated (2-day cooldown) and
-              multisig-controlled post-launch ~
-            </p>
-          </div>
-        </section>
-
-        {/* =====================================================================
-            SHOPKEEPER
-            ===================================================================== */}
-        <section className="pb-10">
-          <div className="uru-shell" style={{ padding: 20, maxWidth: 640, margin: '0 auto' }}>
-            <div className="flex items-center gap-4">
-              <Mascot size={56} mood="happy" />
-              <div className="uru-bubble" style={{ fontSize: 15 }}>
-                every launchpad hardcodes one shape. urufu doesn't. ~~
-                <div
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {TABS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTab(t.id)}
+                      className="uru-chip"
+                      data-active={tab === t.id}
+                      style={{ padding: '5px 12px' }}
+                    >
+                      {t.label}
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-jp), monospace',
+                          fontSize: 10,
+                          marginLeft: 4,
+                          opacity: 0.7,
+                        }}
+                      >
+                        {t.jp}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div style={{ flex: 1 }} />
+                <input
+                  className="uru-input"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="search name / ticker"
+                  style={{ maxWidth: 200, fontSize: 12 }}
+                />
+                <Link
+                  href="/discover"
                   style={{
-                    marginTop: 6,
                     fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 10,
-                    color: 'var(--anchor-soft)',
+                    fontSize: 11,
+                    color: 'var(--link-blue)',
+                    textDecoration: 'underline',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  — urufu &lt;3
+                  see all »
+                </Link>
+              </div>
+
+              {/* Dense card grid — 3-col at lg, 2-col at sm, 1-col mobile */}
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.slice(0, 12).map((l) => (
+                  <LaunchTile key={l.address} launch={l} />
+                ))}
+              </div>
+
+              {filtered.length === 0 && (
+                <div
+                  className="uru-shell"
+                  style={{ padding: 22, textAlign: 'center' }}
+                >
+                  <Mascot size={44} mood="confused" />
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontFamily: 'var(--font-pixel), monospace',
+                      fontSize: 11,
+                      color: 'var(--anchor-soft)',
+                    }}
+                  >
+                    no launches on {CHAIN_LABELS[activeChain]} yet ~~
+                  </div>
+                  <Link
+                    href="/create"
+                    style={{
+                      display: 'inline-block',
+                      marginTop: 10,
+                      fontFamily: 'var(--font-pixel), monospace',
+                      fontSize: 11,
+                      color: 'var(--link-blue)',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    launch the first one »
+                  </Link>
+                </div>
+              )}
+            </section>
+
+            {/* -------------- live-activity + flywheel rail -------------- */}
+            <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 6,
+                  }}
+                >
+                  <div className="uru-eyebrow">✦ live trades</div>
+                  <span
+                    aria-hidden
+                    title="preview data"
+                    style={{
+                      display: 'inline-block',
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: 'var(--mint-hot)',
+                      boxShadow: '0 0 6px var(--mint-hot)',
+                    }}
+                  />
+                </div>
+                <ul
+                  style={{
+                    listStyle: 'none',
+                    margin: 0,
+                    padding: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  {liveTrades.map((row, i) => (
+                    <li
+                      key={`${row.l.address}-${row.t.timestamp}-${i}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: 6,
+                        padding: '3px 0',
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 10,
+                        borderBottom: '1px dashed var(--cream-shadow)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: row.t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)',
+                          fontWeight: 700,
+                          width: 24,
+                        }}
+                      >
+                        {row.t.isBuy ? 'BUY' : 'SEL'}
+                      </span>
+                      <Link
+                        href={`/trade/${row.l.address}`}
+                        style={{
+                          color: 'var(--anchor)',
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        ${row.l.ticker}
+                      </Link>
+                      <span style={{ color: 'var(--anchor-soft)' }}>
+                        {Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ
+                      </span>
+                      <span style={{ color: 'var(--anchor-soft)', width: 24, textAlign: 'right' }}>
+                        {ago(row.t.timestamp)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
+                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ the flywheel</div>
+                <ul
+                  className="uru-list-flower"
+                  style={{ margin: 0, fontSize: 11, lineHeight: 1.55 }}
+                >
+                  <li><b style={{ color: 'var(--pink-hot)' }}>40%</b> URU buyback</li>
+                  <li><b style={{ color: 'var(--pink-hot)' }}>35%</b> urufu gemu nft holders</li>
+                  <li><b style={{ color: 'var(--pink-hot)' }}>25%</b> treasury</li>
+                </ul>
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 6,
+                    background: 'var(--yolk)',
+                    border: '1px solid var(--anchor)',
+                    fontSize: 10,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================================
-            CURRENTLY + FRIENDS
-            ===================================================================== */}
-        <section className="pb-12 grid gap-4 sm:grid-cols-2">
-          <div className="uru-shell" style={{ padding: 14 }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ currently</div>
-            <ul className="uru-list-flower" style={{ fontSize: 12, lineHeight: 1.7 }}>
-              <li>testing — sepolia</li>
-              <li>listening — Perfume · Polyrhythm</li>
-              <li>mood — 好き 好き 大好き</li>
-            </ul>
-          </div>
-          <div className="uru-shell" style={{ padding: 14 }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>❀ friends</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              <span className="uru-88 uru-88-pink"><strong>urufu</strong>labs</span>
-              <span className="uru-88 uru-88-mint">chibi-<strong>wolf</strong></span>
-              <span className="uru-88 uru-88-mizuiro">solady<strong>.gg</strong></span>
-              <span className="uru-88">forge<strong>&hearts;</strong></span>
-            </div>
-          </div>
-        </section>
+            </aside>
       </div>
-    </>
+
+      {/* ===================================================================
+          HOW IT WORKS — demoted below the feed, compact 3-tile strip
+          =================================================================== */}
+      <section style={{ marginTop: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+          <span className="uru-h1" style={{ fontSize: 18 }}>how it works</span>
+          <span
+            style={{
+              fontFamily: 'var(--font-jp), monospace',
+              fontSize: 14,
+              color: 'var(--anchor-soft)',
+            }}
+          >
+            流れ
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StepTile n="01" title="pick a base" body="erc-20 · 721a · 1155" tape="pink" />
+          <StepTile n="02" title="drag modules" body="audited fragments in ur cart" tape="mint" />
+          <StepTile n="03" title="launch" body="one tx · address on etherscan" tape="mizuiro" />
+        </div>
+      </section>
+
+    </div>
   );
 }
 
@@ -282,83 +382,79 @@ export default function HomePage() {
 // small components
 // ============================================================================
 
-function NumberChip({ n, label, jp }: { n: string; label: string; jp: string }) {
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'baseline',
-        gap: 6,
-        padding: '4px 10px',
-        background: 'var(--cream-deep)',
-        border: '1.5px solid var(--anchor)',
-        borderRadius: 999,
-        boxShadow: '2px 2px 0 var(--anchor)',
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 12,
-      }}
-    >
-      <b style={{ color: 'var(--pink-hot)', fontSize: 14 }}>{n}</b>
-      <span>{label}</span>
-      <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12 }}>
-        {jp}
-      </span>
-    </span>
-  );
-}
-
-function FlowStop({ tag, jp, pct, note, bg }: { tag: string; jp: string; pct: string; note: string; bg: string }) {
+function StatTile({
+  label,
+  jp,
+  value,
+  accent,
+}: {
+  label: string;
+  jp: string;
+  value: string;
+  accent?: 'pink' | 'mint' | 'mizuiro';
+}) {
+  const bg =
+    accent === 'pink' ? 'var(--pink-warm)' :
+    accent === 'mint' ? 'var(--mint)' :
+    accent === 'mizuiro' ? 'var(--mizuiro)' :
+    'var(--cream)';
   return (
     <div
-      style={{
-        padding: 12,
-        background: bg,
-        border: '1.5px solid var(--anchor)',
-        boxShadow: '2px 2px 0 var(--anchor)',
-      }}
+      className="uru-shell-tight"
+      style={{ background: bg, padding: '8px 12px', minWidth: 0 }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-        <span className="uru-h2" style={{ fontSize: 14, lineHeight: 1 }}>{tag}</span>
-        <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>{jp}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span className="uru-eyebrow">{label}</span>
+        <span
+          style={{
+            fontFamily: 'var(--font-jp), monospace',
+            fontSize: 10,
+            color: 'var(--anchor-soft)',
+          }}
+        >
+          {jp}
+        </span>
       </div>
-      <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 22, fontWeight: 700, color: 'var(--pink-hot)', lineHeight: 1 }}>
-        {pct}
-      </div>
-      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
-        {note}
+      <div
+        style={{
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 20,
+          fontWeight: 700,
+          color: 'var(--anchor)',
+          lineHeight: 1.05,
+          marginTop: 2,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {value}
       </div>
     </div>
   );
 }
 
-function HomeFeedCard({ launch, tag }: { launch: MockLaunch; tag: 'new' | 'grad' }) {
+function LaunchTile({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell relative"
+      className="uru-shell-tight uru-launch-card"
       style={{
-        padding: 12,
         display: 'block',
         textDecoration: 'none',
         color: 'inherit',
+        padding: 10,
       }}
     >
-      <span
-        className={`uru-stamp ${tag === 'new' ? 'uru-stamp-mint' : 'uru-stamp-mizuiro'}`}
-        style={{ position: 'absolute', top: -10, right: 12 }}
-      >
-        {tag === 'new' ? 'new' : `${progress.toFixed(0)}%`}
-      </span>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <div
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: 10,
+            width: 40,
+            height: 40,
+            borderRadius: 8,
             border: '1.5px solid var(--anchor)',
-            boxShadow: '2px 2px 0 var(--anchor)',
             background: launch.logoBg,
             display: 'flex',
             alignItems: 'center',
@@ -370,81 +466,82 @@ function HomeFeedCard({ launch, tag }: { launch: MockLaunch; tag: 'new' | 'grad'
           {launch.logoEmoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <div
+              className="uru-h2"
+              style={{
+                fontSize: 13,
+                lineHeight: 1.1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {launch.name}
             </div>
-            <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+            <div
+              style={{
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                color: 'var(--anchor-soft)',
+              }}
+            >
               ${launch.ticker}
             </div>
           </div>
-          <div style={{ marginTop: 3, height: 6, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)' }}>
-            <div style={{ width: `${progress}%`, height: '100%', background: launch.graduated ? 'var(--mint)' : 'var(--pink-hot)' }} />
+          <div
+            style={{
+              marginTop: 2,
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 10,
+              color: 'var(--anchor-soft)',
+            }}
+          >
+            <span>
+              mcap <b style={{ color: 'var(--anchor)' }}>{Number(formatEther(mcap)).toFixed(3)}</b>Ξ
+            </span>
+            <span>{launch.trades.length} tx</span>
           </div>
-          <div style={{ marginTop: 3, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)' }}>
-            <span>mcap {Number(formatEther(mcap)).toFixed(2)} ETH</span>
-            <span>{launch.trades.length} trades</span>
-          </div>
+        </div>
+      </div>
+      <div style={{ marginTop: 6 }}>
+        <div
+          style={{
+            height: 6,
+            background: 'var(--cream-deep)',
+            border: '1.5px solid var(--anchor)',
+          }}
+        >
+          <div
+            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
+            style={{
+              width: `${progress}%`,
+              height: '100%',
+              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
+            }}
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 3,
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            color: 'var(--anchor-soft)',
+          }}
+        >
+          <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(0)}% → v4`}</span>
+          <span>{ago(launch.launchedAt)} ago</span>
         </div>
       </div>
     </Link>
   );
 }
 
-function FeedEmpty({
-  tag,
-  mood,
-  headline,
-  body,
-  cta,
-}: {
-  tag: 'new' | 'top';
-  mood: 'sleepy' | 'confused' | 'happy';
-  headline: string;
-  body: string;
-  cta: { href: string; text: string };
-}) {
-  return (
-    <div className="uru-shell relative" style={{ padding: 22, textAlign: 'center' }}>
-      <span
-        className={`uru-stamp ${tag === 'new' ? 'uru-stamp-mint' : 'uru-stamp-mizuiro'}`}
-        style={{ position: 'absolute', top: -10, left: 16 }}
-      >
-        {tag}
-      </span>
-      <Mascot size={54} mood={mood} className="uru-idle-bob" />
-      <div className="uru-h2" style={{ fontSize: 14, marginTop: 8 }}>
-        {headline}
-      </div>
-      <p
-        style={{
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 12,
-          color: 'var(--anchor-soft)',
-          marginTop: 4,
-          lineHeight: 1.45,
-        }}
-      >
-        {body}
-      </p>
-      <Link
-        href={cta.href}
-        style={{
-          display: 'inline-block',
-          marginTop: 12,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 11,
-          color: 'var(--link-blue)',
-          textDecoration: 'underline',
-        }}
-      >
-        {cta.text}
-      </Link>
-    </div>
-  );
-}
-
-function StepCard({
+function StepTile({
   n,
   title,
   body,
@@ -457,22 +554,25 @@ function StepCard({
 }) {
   const tapeClass = tape === 'mint' ? 'uru-tape-mint' : tape === 'mizuiro' ? 'uru-tape-mizuiro' : '';
   return (
-    <div className="uru-shell relative" style={{ padding: 20, textAlign: 'center' }}>
+    <div
+      className="uru-shell-tight relative"
+      style={{ padding: 14, textAlign: 'center' }}
+    >
       <span
         className={`uru-tape ${tapeClass}`}
-        style={{ width: 68, height: 14, top: -6, left: '50%', marginLeft: -34 }}
+        style={{ width: 56, height: 12, top: -5, left: '50%', marginLeft: -28 }}
       />
-      <div className="uru-h1" style={{ fontSize: 38, color: 'var(--pink-hot)', lineHeight: 1 }}>
+      <div className="uru-h1" style={{ fontSize: 26, color: 'var(--pink-hot)', lineHeight: 1 }}>
         {n}
       </div>
-      <div className="uru-h2" style={{ fontSize: 14, marginTop: 8 }}>
+      <div className="uru-h2" style={{ fontSize: 13, marginTop: 5 }}>
         {title}
       </div>
       <div
         style={{
-          marginTop: 4,
+          marginTop: 2,
           fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 12,
+          fontSize: 11,
           color: 'var(--anchor-soft)',
         }}
       >

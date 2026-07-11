@@ -34,6 +34,53 @@
   --link-visited: #7c1fa0;
 }
 
+/* ============================================================================
+   DARK MODE — cool dark plum→charcoal base, cream foreground stays warm.
+   Applied when <html data-theme="dark">; ThemeToggle sets the attribute after a
+   bootstrap script runs in <head> to prevent FOUC.
+
+   Approach: shift the base slightly cooler (dark cool plum) to avoid the sepia
+   look that warm-brown darks get. Keep the CTA accents (pink/mint) fully vivid
+   so buttons + charts still pop. Add strong contrast between body and shell so
+   the layered "scrapbook" hierarchy still reads.
+   ============================================================================ */
+:root[data-theme="dark"] {
+  /* surface layers — cool dark stack, each step is a distinct L* */
+  --cream:        #241c30;   /* shell surface — cool dark plum */
+  --cream-deep:   #1a1425;   /* inner shell / tables */
+  --cream-shadow: #100a18;   /* deepest depth marker */
+
+  /* foreground — warm cream stays for that hand-drawn feel over the cool base */
+  --anchor:       #f5ead0;
+  --anchor-soft:  #a294b0;
+
+  /* accents — CTAs stay vivid. Warm-tint chips dim toward the surface. */
+  --pink-warm:    #3d2135;   /* pill / chip background */
+  --pink-warmer:  #331b2c;
+  --pink-hot:     #ff88b3;   /* CTA pink — untouched */
+  --mizuiro:      #1e3a58;
+  --mizuiro-deep: #172e48;
+  --mint:         #1e4034;
+  --mint-deep:    #153328;
+  --mint-hot:     #4bd07d;
+  --yolk:         #40311a;
+  --yolk-deep:    #322612;
+  --tape-fiber:   rgba(255, 209, 220, 0.35);
+
+  /* body — coolest + deepest so shells clearly float above */
+  --paper-base:   #120e1c;
+  --paper-base-2: #191423;
+
+  /* links — pastel blue on dark reads better than deep-web navy */
+  --link-blue:    #93bbff;
+  --link-visited: #d4a0ff;
+
+  /* Fields + white surfaces need explicit dark values so `color: var(--anchor)` (now cream)
+     isn't rendered on a hardcoded white bg. */
+  --input-bg:     #120e1c;
+  --paper-white:  #1e1728;
+}
+
 @theme inline {
   --color-background: var(--paper-base);
   --color-foreground: var(--anchor);
@@ -58,6 +105,16 @@ body {
   font-family: var(--font-body), Georgia, "Times New Roman", serif;
   font-size: 13px;
   min-height: 100vh;
+}
+
+/* Dark mode — light-toned paper dots + subtle color washes. Washes stay low-opacity so
+   the base reads as a clean dark surface, not a purple-pink-blue tie-dye. */
+:root[data-theme="dark"] body {
+  background-image:
+    radial-gradient(circle at 6px 6px, rgba(245,236,218,0.05) 1px, transparent 2px),
+    radial-gradient(circle at 22% 12%, rgba(255,136,179,0.08) 0, transparent 55%),
+    radial-gradient(circle at 82% 82%, rgba(126,180,240,0.06) 0, transparent 60%),
+    radial-gradient(circle at 60% 40%, rgba(75,208,125,0.04) 0, transparent 65%);
 }
 
 /* Real hyperlinks — blue, underlined, unstyled per JP personal-site convention */
@@ -106,6 +163,25 @@ body {
     6px 6px 0 rgba(58,44,58,0.15);
 }
 
+/* On dark, invert the shell dot flecks so they're lighter than the surface, and
+   drop the plum drop-shadow tint so it doesn't muddy against the dark base. */
+:root[data-theme="dark"] .uru-shell {
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(245,236,218,0.05) 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 20%, rgba(245,236,218,0.05) 0 1px, transparent 2px),
+    radial-gradient(circle at 30% 78%, rgba(245,236,218,0.05) 0 1px, transparent 2px);
+  box-shadow:
+    0 0 0 2px var(--cream),
+    0 0 0 4px var(--anchor),
+    6px 6px 0 rgba(0,0,0,0.4);
+}
+:root[data-theme="dark"] .uru-shell-tight {
+  box-shadow:
+    0 0 0 1.5px var(--cream),
+    0 0 0 3px var(--anchor),
+    3px 3px 0 rgba(0,0,0,0.4);
+}
+
 /* Denser shell for sidebar widgets + info strips. Same borders, tighter padding, smaller drop-shadow. */
 .uru-shell-tight {
   padding: 10px 12px;
@@ -125,7 +201,7 @@ body {
 }
 
 .uru-shell-inner-inner {
-  background: #fff;
+  background: var(--paper-white, #fff);
   border: 1px solid var(--anchor);
   padding: 10px;
   position: relative;
@@ -133,7 +209,7 @@ body {
 
 /* Cream sticker "polaroid" — asymmetric bottom padding, prime rotation */
 .uru-polaroid {
-  background: #fff;
+  background: var(--paper-white, #fff);
   border: 1.5px solid var(--anchor);
   padding: 6px 6px 22px 6px;
   box-shadow: 3px 3px 0 var(--pink-warm);
@@ -256,10 +332,10 @@ body {
 .uru-btn-mint { background: var(--mint); }
 .uru-btn-cream { background: var(--cream); }
 
-/* Inputs — old-school raised field with dotted border */
+/* Inputs — old-school raised field with dotted border. `--input-bg` swaps on dark. */
 .uru-input {
   width: 100%;
-  background: #fff;
+  background: var(--input-bg, #fff);
   color: var(--anchor);
   border: 1.5px inset var(--anchor);
   padding: 5px 8px;

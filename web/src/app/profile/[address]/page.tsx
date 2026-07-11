@@ -47,20 +47,16 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const isValid = address !== ZERO_ADDR;
 
   const { address: wallet } = useAccount();
-  // Wagmi hydrates async — `wallet` is undefined on SSR then may be set on the client. Any
-  // conditional keyed off `isOwn` mismatches without a mount gate.
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const isOwn = mounted && !!wallet && wallet.toLowerCase() === address.toLowerCase();
 
-  // ---------- Local identity ----------
   const [profile, setProfile] = useState<UserProfile>(() => ({ address: address.toLowerCase(), savedAt: 0 }));
   useEffect(() => {
     if (!isValid) return;
     setProfile(loadProfile(address));
   }, [address, isValid]);
 
-  // ---------- Indexer-backed data ----------
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
   const [trades, setTrades] = useState<IndexerTrade[] | null>(null);
   const [holdings, setHoldings] = useState<IndexerHolding[] | null>(null);
@@ -84,11 +80,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return () => { cancelled = true; };
   }, [address, isValid]);
 
-  // ---------- Per-token positions + realized PnL (unrealized ships once spot prices land) ----------
   const positions: Position[] = useMemo(() => computePositions(trades ?? []), [trades]);
   const realizedTotal = useMemo(() => positions.reduce((sum, p) => sum + p.realizedPnl, 0n), [positions]);
 
-  // ---------- Derived stats ----------
   const stats = useMemo(() => {
     const tradesList = trades ?? [];
     let ethSpent = 0n;
@@ -112,8 +106,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     };
   }, [launches, trades]);
 
-  // ---------- Follow state — subscribe to storage-level changes so the button flips
-  // instantly across tabs when the same wallet follows/unfollows elsewhere.
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowingThis, setIsFollowingThis] = useState(false);
   useEffect(() => {
@@ -125,7 +117,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return onFollowsChange(refresh);
   }, [address]);
 
-  // ---------- Edit modal ----------
   const [editing, setEditing] = useState(false);
 
   if (!isValid) {
@@ -144,138 +135,196 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const name = displayNameFor(profile, address);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-4">
-      {/* Header — avatar + identity + edit button */}
-      <div className="uru-shell" style={{ marginBottom: 10, position: 'relative' }}>
-        <span className="uru-tape" style={{ width: 82, height: 16, top: -8, left: 40, transform: 'rotate(-6deg)' }} />
-        <span className="uru-tape uru-tape-mint" style={{ width: 68, height: 16, top: -6, right: 60, transform: 'rotate(3deg)' }} />
+    <div className="mx-auto max-w-6xl px-3 sm:px-4 py-4">
+      {/* ================================================================
+          IDENTITY HEADER — avatar + name + address + socials + CTA
+          ================================================================ */}
+      <section
+        className="uru-shell"
+        style={{
+          padding: '14px 18px',
+          marginBottom: 10,
+          display: 'flex',
+          gap: 14,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div
+          style={{
+            width: 72,
+            height: 72,
+            flexShrink: 0,
+            borderRadius: 12,
+            border: '1.5px solid var(--anchor)',
+            boxShadow: '2px 2px 0 var(--anchor)',
+            background: profile.avatarDataUrl
+              ? `#fff url(${profile.avatarDataUrl}) center/cover no-repeat`
+              : 'var(--cream-deep)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--font-jp), monospace',
+            fontSize: 28,
+            color: 'var(--anchor)',
+          }}
+        >
+          {!profile.avatarDataUrl && 'ウ'}
+        </div>
 
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div className="uru-eyebrow">♡ profile</div>
+          <h1 className="uru-h1" style={{ fontSize: 24, lineHeight: 1.1 }}>
+            {name}
+          </h1>
           <div
             style={{
-              width: 96,
-              height: 96,
-              flexShrink: 0,
-              borderRadius: 16,
-              border: '1.5px solid var(--anchor)',
-              boxShadow: '3px 3px 0 var(--anchor)',
-              background: profile.avatarDataUrl
-                ? `#fff url(${profile.avatarDataUrl}) center/cover no-repeat`
-                : 'var(--cream-deep)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontFamily: 'var(--font-jp), monospace',
-              fontSize: 34,
-              color: 'var(--anchor)',
+              marginTop: 2,
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 10,
+              color: 'var(--anchor-soft)',
+              wordBreak: 'break-all',
             }}
           >
-            {!profile.avatarDataUrl && 'ウ'}
+            {address}
           </div>
-
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="uru-eyebrow">profile</div>
-            <h1 className="uru-h1" style={{ fontSize: 30, lineHeight: 1.15 }}>
-              {name}
-            </h1>
-            <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
-              {address}
-            </div>
-            {profile.bio && (
-              <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, maxWidth: 520 }}>{profile.bio}</p>
-            )}
-            <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {profile.bio && (
+            <p style={{ marginTop: 6, fontSize: 12.5, lineHeight: 1.45, maxWidth: 520 }}>
+              {profile.bio}
+            </p>
+          )}
+          {(profile.twitter || profile.telegram || profile.discord || profile.website) && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
               {profile.twitter && <MiniLink href={profile.twitter} label="twitter" />}
               {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
               {profile.discord && <MiniLink href={profile.discord} label="discord" />}
               {profile.website && <MiniLink href={profile.website} label="site" />}
             </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'flex-start' }}>
-            {isOwn ? (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="uru-btn uru-btn-primary"
-              >
-                ✿ edit profile
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  const nowFollowing = toggleFollow(address);
-                  playSfx(nowFollowing ? 'coin' : 'flip');
-                }}
-                className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
-              >
-                {isFollowingThis ? '✿ following' : '+ follow'}
-              </button>
-            )}
-            {isOwn && (
-              <Link href="/feed" className="uru-btn uru-btn-mint" style={{ justifyContent: 'center', fontSize: 12 }}>
-                ✿ ur feed ({followingCount})
-              </Link>
-            )}
-          </div>
+          )}
         </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'flex-start' }}>
+          {isOwn ? (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="uru-btn uru-btn-primary"
+              style={{ padding: '6px 14px', fontSize: 12 }}
+            >
+              ✿ edit profile
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const nowFollowing = toggleFollow(address);
+                playSfx(nowFollowing ? 'coin' : 'flip');
+              }}
+              className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
+              style={{ padding: '6px 14px', fontSize: 12 }}
+            >
+              {isFollowingThis ? '✿ following' : '+ follow'}
+            </button>
+          )}
+          {isOwn && (
+            <Link
+              href="/feed"
+              className="uru-btn uru-btn-mint"
+              style={{ justifyContent: 'center', fontSize: 11, padding: '5px 10px' }}
+            >
+              ur feed ({followingCount})
+            </Link>
+          )}
+        </div>
+      </section>
+
+      {/* ================================================================
+          STATS STRIP — 6 tiles, data-forward
+          ================================================================ */}
+      <section
+        className="grid gap-2 mb-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
+      >
+        <StatTile label="launches" value={stats.launched.toString()} />
+        <StatTile label="trades" value={stats.tradeCount.toString()} />
+        <StatTile label="buys" value={stats.buyCount.toString()} accent="mint" />
+        <StatTile label="sells" value={stats.sellCount.toString()} accent="pink" />
+        <StatTile
+          label="net eth flow"
+          value={`${formatSignedEth(stats.netFlow)} Ξ`}
+          accent={stats.netFlow > 0n ? 'mint' : stats.netFlow < 0n ? 'pink' : undefined}
+        />
+        <StatTile
+          label="realized pnl"
+          value={`${formatSignedEth(realizedTotal)} Ξ`}
+          accent={realizedTotal > 0n ? 'mint' : realizedTotal < 0n ? 'pink' : undefined}
+        />
+      </section>
+
+      <div
+        style={{
+          marginBottom: 12,
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 10,
+          color: 'var(--anchor-soft)',
+        }}
+      >
+        spent {formatEther(stats.ethSpent)} Ξ · received {formatEther(stats.ethReceived)} Ξ ~ realized pnl uses buy-side avg cost basis
       </div>
 
-      {/* Stats strip */}
-      <div className="uru-shell uru-shell-tight" style={{ marginBottom: 10 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
-          <StatCell label="launches" value={stats.launched.toString()} />
-          <StatCell label="trades" value={stats.tradeCount.toString()} />
-          <StatCell label="buys" value={stats.buyCount.toString()} tint="mint" />
-          <StatCell label="sells" value={stats.sellCount.toString()} tint="pink" />
-          <StatCell
-            label="net ETH flow"
-            value={formatSignedEth(stats.netFlow)}
-            tint={stats.netFlow > 0n ? 'mint' : stats.netFlow < 0n ? 'pink' : undefined}
-          />
-          <StatCell
-            label="realized PnL"
-            value={formatSignedEth(realizedTotal)}
-            tint={realizedTotal > 0n ? 'mint' : realizedTotal < 0n ? 'pink' : undefined}
-          />
-        </div>
-        <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-          spent {formatEther(stats.ethSpent)} ETH · received {formatEther(stats.ethReceived)} ETH ~ realized PnL uses buy-side avg cost basis
-        </div>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        {/* MAIN — creations grid + activity */}
-        <div className="space-y-3">
-          <section className="uru-shell uru-shell-tight">
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ creations</div>
+      {/* ================================================================
+          MAIN + RAIL
+          ================================================================ */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+        {/* MAIN */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          {/* creations */}
+          <section>
+            <SectionHead label="creations" jp="発行" count={launches?.length} />
             {launches === null && !loaded && <LoadingRow />}
             {loaded && launches && launches.length === 0 && (
               <EmptyRow label={isOwn ? "u havent launched anything yet ~ head to /create" : "no launches yet"} />
             )}
             {launches && launches.length > 0 && (
-              <div className="grid" style={{ gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+              >
                 {launches.map((l) => (
                   <Link
                     key={l.id}
                     href={l.installedBondingCurve ? `/trade/${l.tokenAddress}` : `/catalog#${l.tokenAddress}`}
-                    className="uru-polaroid"
-                    style={{ textDecoration: 'none', color: 'inherit', padding: '8px 8px 14px' }}
+                    className="uru-shell-tight uru-launch-card"
+                    style={{
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      padding: 8,
+                    }}
                   >
-                    <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.2 }}>{l.name}</div>
-                    <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+                    <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.15 }}>
+                      {l.name}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 10,
+                        color: 'var(--anchor-soft)',
+                      }}
+                    >
                       ${l.ticker} · {BASE_LABEL[l.base] ?? '?'}
                     </div>
-                    <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {l.installedBondingCurve && (
-                        <span className="uru-stamp uru-stamp-mint" style={{ transform: 'rotate(-3deg)' }}>curve</span>
-                      )}
-                      {l.installedHook && (
-                        <span className="uru-stamp uru-stamp-mizuiro" style={{ transform: 'rotate(2deg)' }}>hook</span>
-                      )}
+                    <div style={{ marginTop: 5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {l.installedBondingCurve && <MiniBadge label="curve" tint="mint" />}
+                      {l.installedHook && <MiniBadge label="hook" tint="mizuiro" />}
                     </div>
-                    <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)' }}>
+                    <div
+                      style={{
+                        marginTop: 5,
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 9,
+                        color: 'var(--anchor-soft)',
+                      }}
+                    >
                       {formatAgo(Number(l.blockTimestamp) * 1000)} ago
                     </div>
                   </Link>
@@ -284,119 +333,226 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             )}
           </section>
 
-          <section className="uru-shell uru-shell-tight">
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ positions ~ realized PnL by token</div>
+          {/* positions */}
+          <section>
+            <SectionHead label="positions" jp="持高" count={positions.length} />
             {trades === null && !loaded && <LoadingRow />}
             {loaded && positions.length === 0 && <EmptyRow label="no positions yet" />}
             {positions.length > 0 && (
-              <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 6 }}>
-                {positions.map((p) => (
-                  <li
-                    key={p.tokenAddress}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'minmax(120px, 1.5fr) repeat(3, 1fr)',
-                      gap: 8,
-                      alignItems: 'center',
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                      padding: '4px 6px',
-                      background: p.realizedPnl > 0n
-                        ? 'rgba(107, 203, 119, 0.10)'
-                        : p.realizedPnl < 0n
-                          ? 'rgba(232, 110, 132, 0.10)'
-                          : 'transparent',
-                      borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'var(--anchor-soft)'}`,
-                    }}
-                  >
-                    <Link href={`/trade/${p.tokenAddress}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {p.tokenAddress.slice(0, 6)}…{p.tokenAddress.slice(-4)}
-                    </Link>
-                    <span title="buys · sells">
-                      <span style={{ color: 'var(--mint-hot,#2b8a3e)' }}>{p.buyCount}b</span>{' · '}
-                      <span style={{ color: 'var(--pink-hot)' }}>{p.sellCount}s</span>
-                    </span>
-                    <span title="net token balance from trades">
-                      {p.netTokens > 0n
-                        ? `${Number(formatUnits(p.netTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} held`
-                        : 'flat'}
-                    </span>
-                    <span
+              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
+                    gap: 8,
+                    padding: '5px 10px',
+                    background: 'var(--cream-deep)',
+                    borderBottom: '1.5px solid var(--anchor)',
+                    fontFamily: 'var(--font-pixel), monospace',
+                    fontSize: 9,
+                    letterSpacing: '0.08em',
+                    color: 'var(--anchor-soft)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <span>token</span>
+                  <span>trades</span>
+                  <span>held</span>
+                  <span style={{ textAlign: 'right' }}>realized pnl</span>
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {positions.map((p, i) => (
+                    <li
+                      key={p.tokenAddress}
                       style={{
-                        textAlign: 'right',
-                        fontWeight: 700,
-                        color: p.realizedPnl > 0n
-                          ? 'var(--mint-hot,#2b8a3e)'
-                          : p.realizedPnl < 0n
-                            ? 'var(--pink-hot)'
-                            : 'var(--anchor)',
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
+                        gap: 8,
+                        alignItems: 'center',
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 11,
+                        padding: '5px 10px',
+                        borderBottom: i === positions.length - 1 ? 'none' : '1px dotted var(--anchor)',
+                        borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
                       }}
                     >
-                      {formatSignedEth(p.realizedPnl)} ETH
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                      <Link
+                        href={`/trade/${p.tokenAddress}`}
+                        style={{
+                          color: 'var(--link-blue)',
+                          textDecoration: 'underline',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {p.tokenAddress.slice(0, 6)}…{p.tokenAddress.slice(-4)}
+                      </Link>
+                      <span title="buys · sells">
+                        <span style={{ color: 'var(--mint-hot,#2b8a3e)' }}>{p.buyCount}b</span>
+                        {' · '}
+                        <span style={{ color: 'var(--pink-hot)' }}>{p.sellCount}s</span>
+                      </span>
+                      <span title="net token balance from trades">
+                        {p.netTokens > 0n
+                          ? Number(formatUnits(p.netTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          : 'flat'}
+                      </span>
+                      <span
+                        style={{
+                          textAlign: 'right',
+                          fontWeight: 700,
+                          color: p.realizedPnl > 0n
+                            ? 'var(--mint-hot,#2b8a3e)'
+                            : p.realizedPnl < 0n
+                              ? 'var(--pink-hot)'
+                              : 'var(--anchor)',
+                        }}
+                      >
+                        {formatSignedEth(p.realizedPnl)} Ξ
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </section>
 
-          <section className="uru-shell uru-shell-tight">
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ activity</div>
+          {/* activity */}
+          <section>
+            <SectionHead label="activity" jp="取引" count={trades?.length} />
             {trades === null && !loaded && <LoadingRow />}
             {loaded && trades && trades.length === 0 && (
               <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : "no trades yet"} />
             )}
             {trades && trades.length > 0 && (
-              <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 4 }}>
-                {trades.slice(0, 30).map((t) => (
-                  <li
-                    key={t.id}
-                    style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr auto', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}
-                  >
-                    <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
-                      {t.isBuy ? 'BUY' : 'SELL'}
-                    </span>
-                    <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} ETH</span>
-                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Link href={`/trade/${t.tokenAddress}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-                        {t.tokenAddress.slice(0, 6)}…{t.tokenAddress.slice(-4)}
-                      </Link>
-                    </span>
-                    <span style={{ color: 'var(--anchor-soft)' }}>{formatAgo(Number(t.blockTimestamp) * 1000)}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '42px 1fr 1fr auto',
+                    gap: 8,
+                    padding: '5px 10px',
+                    background: 'var(--cream-deep)',
+                    borderBottom: '1.5px solid var(--anchor)',
+                    fontFamily: 'var(--font-pixel), monospace',
+                    fontSize: 9,
+                    letterSpacing: '0.08em',
+                    color: 'var(--anchor-soft)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <span>side</span>
+                  <span>eth</span>
+                  <span>token</span>
+                  <span style={{ textAlign: 'right' }}>ago</span>
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {trades.slice(0, 30).map((t, i) => (
+                    <li
+                      key={t.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '42px 1fr 1fr auto',
+                        gap: 8,
+                        alignItems: 'center',
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 11,
+                        padding: '5px 10px',
+                        borderBottom: i === Math.min(29, trades.length - 1) ? 'none' : '1px dotted var(--anchor)',
+                      }}
+                    >
+                      <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
+                        {t.isBuy ? 'BUY' : 'SELL'}
+                      </span>
+                      <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} Ξ</span>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Link
+                          href={`/trade/${t.tokenAddress}`}
+                          style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                        >
+                          {t.tokenAddress.slice(0, 6)}…{t.tokenAddress.slice(-4)}
+                        </Link>
+                      </span>
+                      <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
+                        {formatAgo(Number(t.blockTimestamp) * 1000)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </section>
         </div>
 
-        {/* SIDEBAR — holdings */}
-        <aside className="space-y-3 lg:sticky lg:top-4 lg:h-fit">
-          <section className="uru-shell uru-shell-tight">
-            <div className="uru-eyebrow" style={{ marginBottom: 8 }}>✿ holdings</div>
-            {holdings === null && !loaded && <LoadingRow />}
+        {/* RAIL — holdings */}
+        <aside
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            minWidth: 0,
+          }}
+          className="lg:sticky lg:top-4 lg:h-fit"
+        >
+          <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ holdings</div>
+            {holdings === null && !loaded && <LoadingRow tight />}
             {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
-              <EmptyRow label="no urufu tokens held" />
+              <EmptyRow label="no urufu tokens held" tight />
             )}
             {holdings && holdings.length > 0 && (
-              <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 4 }}>
+              <ul
+                style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 3,
+                }}
+              >
                 {holdings
                   .filter((h) => BigInt(h.balance) > 0n)
                   .slice(0, 20)
                   .map((h) => (
-                    <li key={h.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
-                      <Link href={`/trade/${h.tokenAddress}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+                    <li
+                      key={h.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        padding: '3px 0',
+                        borderBottom: '1px dashed var(--cream-shadow)',
+                        fontFamily: 'var(--font-pixel), monospace',
+                        fontSize: 10.5,
+                      }}
+                    >
+                      <Link
+                        href={`/trade/${h.tokenAddress}`}
+                        style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                      >
                         {h.tokenAddress.slice(0, 6)}…{h.tokenAddress.slice(-4)}
                       </Link>
-                      <span>{Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      <span>
+                        {Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
                     </li>
                   ))}
               </ul>
             )}
           </section>
 
-          <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', textAlign: 'center', lineHeight: 1.5 }}>
-            profile identity is local to ur browser for phase 1. followers + shared PnLs ship w/ the backend ~
+          <div
+            style={{
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 10,
+              color: 'var(--anchor-soft)',
+              textAlign: 'center',
+              lineHeight: 1.5,
+            }}
+          >
+            profile identity is local to ur browser for phase 1. followers + shared pnl ship w/ the backend ~
           </div>
         </aside>
       </div>
@@ -413,36 +569,144 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 }
 
 // ============================================================================
-// subcomponents kept in-file for locality
+// subcomponents
 // ============================================================================
 
-function StatCell({ label, value, tint }: { label: string; value: string; tint?: 'mint' | 'pink' }) {
-  const color = tint === 'mint' ? 'var(--mint-hot,#2b8a3e)' : tint === 'pink' ? 'var(--pink-hot)' : 'var(--anchor)';
+function SectionHead({ label, jp, count }: { label: string; jp: string; count?: number }) {
   return (
-    <div style={{ padding: '4px 8px' }}>
-      <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 18, fontWeight: 700, color, lineHeight: 1.15 }}>{value}</div>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
+      <span className="uru-h1" style={{ fontSize: 16, lineHeight: 1 }}>{label}</span>
+      <span
+        style={{
+          fontFamily: 'var(--font-jp), monospace',
+          fontSize: 12,
+          color: 'var(--anchor-soft)',
+        }}
+      >
+        {jp}
+      </span>
+      {typeof count === 'number' && (
+        <span
+          style={{
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 10,
+            color: 'var(--anchor-soft)',
+            marginLeft: 2,
+          }}
+        >
+          · {count}
+        </span>
+      )}
     </div>
   );
 }
 
-function LoadingRow() {
+function StatTile({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: 'pink' | 'mint' | 'mizuiro';
+}) {
+  const bg =
+    accent === 'pink' ? 'var(--pink-warm)' :
+    accent === 'mint' ? 'var(--mint)' :
+    accent === 'mizuiro' ? 'var(--mizuiro)' :
+    'var(--cream)';
+  const color =
+    accent === 'pink' ? 'var(--pink-hot)' :
+    accent === 'mint' ? 'var(--mint-hot,#2b8a3e)' :
+    'var(--anchor)';
   return (
-    <div style={{ padding: 12, textAlign: 'center', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
+    <div className="uru-shell-tight" style={{ background: bg, padding: '8px 12px', minWidth: 0 }}>
+      <div className="uru-eyebrow">{label}</div>
+      <div
+        style={{
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 17,
+          fontWeight: 700,
+          color,
+          lineHeight: 1.05,
+          marginTop: 2,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function MiniBadge({ label, tint }: { label: string; tint?: 'mint' | 'mizuiro' }) {
+  const bg = tint === 'mint' ? 'var(--mint)' : tint === 'mizuiro' ? 'var(--mizuiro)' : 'var(--cream-deep)';
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: '1px 5px',
+        background: bg,
+        border: '1px solid var(--anchor)',
+        fontFamily: 'var(--font-pixel), monospace',
+        fontSize: 9,
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        lineHeight: 1.2,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function LoadingRow({ tight }: { tight?: boolean }) {
+  return (
+    <div
+      style={{
+        padding: tight ? 8 : 14,
+        textAlign: 'center',
+        fontFamily: 'var(--font-pixel), monospace',
+        fontSize: 11,
+        color: 'var(--anchor-soft)',
+      }}
+    >
       loading ~~
     </div>
   );
 }
-function EmptyRow({ label }: { label: string }) {
+
+function EmptyRow({ label, tight }: { label: string; tight?: boolean }) {
   return (
-    <div style={{ padding: 12, textAlign: 'center', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
+    <div
+      style={{
+        padding: tight ? 8 : 14,
+        textAlign: 'center',
+        fontFamily: 'var(--font-pixel), monospace',
+        fontSize: 11,
+        color: 'var(--anchor-soft)',
+      }}
+    >
       {label}
     </div>
   );
 }
+
 function MiniLink({ href, label }: { href: string; label: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="uru-88" style={{ padding: '2px 8px', fontSize: 11, fontFamily: 'var(--font-pixel), monospace' }}>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="uru-88"
+      style={{
+        padding: '2px 8px',
+        fontSize: 11,
+        fontFamily: 'var(--font-pixel), monospace',
+      }}
+    >
       {label} →
     </a>
   );
