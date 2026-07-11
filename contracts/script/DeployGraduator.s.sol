@@ -51,8 +51,7 @@ contract DeployGraduator is Script {
         int24 tickSpacing = int24(int256(vm.envOr("GRADUATOR_TICK_SPACING", uint256(60))));
 
         vm.startBroadcast();
-        Graduator g =
-            new Graduator(IPoolManager(poolManager), IHooks(defaultHook), fee, tickSpacing);
+        Graduator g = new Graduator(IPoolManager(poolManager), IHooks(defaultHook), fee, tickSpacing);
         graduator = address(g);
 
         bool wire = vm.envOr("WIRE_INTO_FACTORY", uint256(0)) == 1;
