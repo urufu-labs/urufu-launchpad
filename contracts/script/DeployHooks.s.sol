@@ -130,5 +130,21 @@ contract DeployHooks is Script {
         console2.log("Post-deploy: create v4 pools with these hooks in PoolKey.hooks.");
         console2.log("Platform + creator claim fees via FeeRedirectHook.claim(currency).");
         console2.log("MultiHookHost delivers LP-locked + fee-split in one hook address.");
+
+        // Persist addresses so DeployGraduator + sync-addresses.mjs can consume them
+        // without hand-copying from the console.
+        {
+            string memory obj = "hooks";
+            vm.serializeUint(obj, "chainId", block.chainid);
+            vm.serializeAddress(obj, "PoolManager", poolManager);
+            vm.serializeAddress(obj, "LPLockedHook", lpLocked);
+            vm.serializeAddress(obj, "FeeRedirectHook", feeRedirect);
+            vm.serializeAddress(obj, "AntiSniperHook", antiSniper);
+            vm.serializeAddress(obj, "MultiHookHost", multiHookHost);
+            string memory json = vm.serializeAddress(obj, "BuybackBurnHook", buybackBurn);
+            string memory path = string.concat("deployment-hooks.", vm.toString(block.chainid), ".json");
+            vm.writeJson(json, path);
+            console2.log("Address book written:", path);
+        }
     }
 }

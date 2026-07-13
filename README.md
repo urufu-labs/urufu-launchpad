@@ -174,26 +174,35 @@ cp .env.example .env
 # 2. rehearsal (no broadcast; runs against forked Sepolia state)
 pnpm contracts:rehearse:phase1
 pnpm contracts:rehearse:combos     # every impl combo, one launch through Router each
+pnpm contracts:rehearse:hooks      # needs V4_POOL_MANAGER — set to the chain's PoolManager
+pnpm contracts:rehearse:graduator  # auto-reads PoolManager + MultiHookHost from the hooks book
 
-# 3. broadcast
+# 3. broadcast core stack
 pnpm contracts:deploy:phase1        # writes contracts/deployment.11155111.json
-pnpm contracts:deploy:hooks         # optional — needs V4_POOL_MANAGER env
+pnpm contracts:deploy:hooks         # writes contracts/deployment-hooks.11155111.json
+pnpm contracts:deploy:graduator     # writes contracts/deployment-graduator.11155111.json
+#   → set WIRE_INTO_FACTORY=1 to also call CurveFactory.setGraduator in-broadcast (only
+#     valid while the deploy key still owns CurveFactory, i.e. before HandoffOwnership).
 
-# 4. verify on Etherscan
+# 4. verify on Etherscan / Blockscout
 pnpm contracts:verify:phase1
+pnpm contracts:verify:hooks
+pnpm contracts:verify:graduator
 
 # 5. sync addresses into web + indexer
-pnpm sync:addresses                 # patches web/src/lib/config.ts + prints .env block
+pnpm sync:addresses                 # patches CONTRACTS + HOOKS + GRADUATORS in web/src/lib/config.ts
 # → copy the printed .env block into your .env, restart web + indexer
 
 # 6. smoke test against the live deploy
-pnpm contracts:smoke                # launches a token, buys on its curve, prints trade URL
+pnpm contracts:smoke                # ERC20+curve buy/sell, ERC721A launch, ERC1155 launch
+#   → set SMOKE_GRADUATE=1 to also drive the curve to the graduation target (costs ~5 ETH)
 
 # 7. deploy the flywheel (Base recommended — where URU + gemu live)
 export URU_TOKEN_ADDRESS=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac
 export GEMU_NFT_ADDRESS=0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A
 export URU_THRESHOLD=100000000000000000000000   # 100,000e18
 CHAIN=base pnpm contracts:deploy:flywheel
+CHAIN=base pnpm contracts:verify:flywheel
 
 # 8. configure the flywheel: allowlist keeper + swap target + set splits
 #    (splits step needs the 2-day timelock elapsed — re-run then if not)
@@ -203,10 +212,10 @@ CHAIN=base pnpm contracts:configure:flywheel
 
 # 9. hand ownership to your multisig (once you're satisfied)
 export MULTISIG_ADMIN=0xYourSafeAddress
-pnpm contracts:handoff
+pnpm contracts:handoff              # covers Phase 1, Curve, and (if deployed) Flywheel
 ```
 
-All of these run against Sepolia by default. Swap the `sepolia` suffix / RPC env var for `mainnet`, `base`, or `base-sepolia`. **Base is where the flywheel lives** because URU and the urufu gemu NFT collection are already deployed there.
+All of these run against Sepolia by default. Swap the `sepolia` suffix / RPC env var for `mainnet`, `base`, `base-sepolia`, `robinhood`, or `robinhood-testnet`. **Base is where the flywheel lives** because URU and the urufu gemu NFT collection are already deployed there.
 
 **Ownership model.** Every admin-controlled contract uses Solady `Ownable` (one-step transfer). The deploy key is expected to be hot / rotated out immediately via `HandoffOwnership.s.sol`. Router has a `paused` circuit breaker (`Router__Paused` on every `launch()` call) that the owner can flip in an incident.
 
@@ -235,7 +244,8 @@ launchpad/
 │   │   └── types/            # LaunchParams, enums
 │   ├── modules/              # module fragments (.frag.sol)
 │   ├── test/                 # 454 tests: unit/, integration/, curve/, hooks/, composed/
-│   ├── script/               # DeployPhase1, DeployHooks, HandoffOwnership, PostDeploySmoke
+│   ├── script/               # DeployNameRegistry, DeployPhase1, DeployHooks, DeployGraduator,
+│   │                          # DeployFlywheel, ConfigureFlywheel, HandoffOwnership, PostDeploySmoke
 │   ├── rehearse-*.sh         # fork rehearsal scripts
 │   └── verify-phase1.sh      # Etherscan verification
 │

@@ -7,8 +7,12 @@ import {NameRegistry} from "src/registry/NameRegistry.sol";
 /// @notice Deploys the NameRegistry with the canonical reserved-ticker seed.
 ///
 /// Env vars (all optional — defaults to `msg.sender` from the broadcast key):
-///   REGISTRY_OWNER    — initial owner. Post-deploy, transfer to a 2-of-3 multisig.
-///   REGISTRY_TREASURY — treasury address for future sweeps.
+///   REGISTRY_OWNER (or ADMIN)         — initial owner. Post-deploy, transfer to a 2-of-3 multisig.
+///   REGISTRY_TREASURY (or TREASURY)   — treasury address for future sweeps.
+///
+/// Both names are read for compatibility with `DeployPhase1.s.sol`, which uses ADMIN
+/// and TREASURY; if you're running both scripts and want a single set of env vars, set
+/// ADMIN + TREASURY and leave the REGISTRY_* names unset.
 ///
 /// Local fork rehearsal (no broadcast, runs in-memory against a forked node):
 ///   forge script script/DeployNameRegistry.s.sol:DeployNameRegistry \
@@ -21,8 +25,10 @@ import {NameRegistry} from "src/registry/NameRegistry.sol";
 contract DeployNameRegistry is Script {
     function run() external returns (NameRegistry registry) {
         address deployer = msg.sender;
-        address owner = vm.envOr("REGISTRY_OWNER", deployer);
-        address treasury = vm.envOr("REGISTRY_TREASURY", deployer);
+        // Prefer the REGISTRY_* names (more specific); fall back to ADMIN/TREASURY (the
+        // DeployPhase1 names) so operators can share env vars across scripts.
+        address owner = vm.envOr("REGISTRY_OWNER", vm.envOr("ADMIN", deployer));
+        address treasury = vm.envOr("REGISTRY_TREASURY", vm.envOr("TREASURY", deployer));
 
         string[] memory reserved = _initialReservedTickers();
 

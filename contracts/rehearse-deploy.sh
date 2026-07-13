@@ -19,11 +19,13 @@ SCRIPT="${1:-DeployNameRegistry}"
 NETWORK="${2:-sepolia}"
 
 case "$NETWORK" in
-  sepolia)      RPC="${SEPOLIA_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}" ;;
-  mainnet)      RPC="${MAINNET_RPC_URL:-}" ;;
-  base)         RPC="${BASE_RPC_URL:-}" ;;
-  base-sepolia) RPC="${BASE_SEPOLIA_RPC_URL:-}" ;;
-  *)            echo "Unknown network: $NETWORK"; exit 1 ;;
+  sepolia)            RPC="${SEPOLIA_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}" ;;
+  mainnet)            RPC="${MAINNET_RPC_URL:-}" ;;
+  base)               RPC="${BASE_RPC_URL:-}" ;;
+  base-sepolia)       RPC="${BASE_SEPOLIA_RPC_URL:-}" ;;
+  robinhood)          RPC="${ROBINHOOD_RPC_URL:-https://rpc.mainnet.chain.robinhood.com}" ;;
+  robinhood-testnet)  RPC="${ROBINHOOD_TESTNET_RPC_URL:-https://rpc.testnet.chain.robinhood.com}" ;;
+  *)                  echo "Unknown network: $NETWORK"; exit 1 ;;
 esac
 
 if [[ -z "$RPC" ]]; then

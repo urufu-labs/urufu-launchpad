@@ -63,9 +63,15 @@ mainnet = "${MAINNET_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"
 base = "${BASE_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+robinhood = "${ROBINHOOD_RPC_URL}"
+robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${BASESCAN_API_KEY}", chain = 8453 }
 base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532 }
+# Robinhood Chain uses Blockscout; key can be any non-empty string for public endpoints.
+# Override with a real key once Blockscout Pro is set up.
+robinhood = { key = "${BLOCKSCOUT_API_KEY:-none}", url = "https://robinhoodchain.blockscout.com/api", chain = 4663 }
+robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY:-none}", url = "https://robinhoodchain-testnet.blockscout.com/api", chain = 46630 }

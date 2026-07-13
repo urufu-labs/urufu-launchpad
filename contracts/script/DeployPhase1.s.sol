@@ -24,6 +24,7 @@ import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
 import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAntiBotAntiWhaleGen.sol";
 import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
 import {ERC20WithFoTPermitGen} from "src/templates/composed/ERC20WithFoTPermitGen.sol";
+import {ERC20WithAntiBotAndFeeOnTransferGen} from "src/templates/composed/ERC20WithAntiBotAndFeeOnTransferGen.sol";
 import {ERC20WithAntiBotAntiWhalePermitGen} from "src/templates/composed/ERC20WithAntiBotAntiWhalePermitGen.sol";
 import {ERC20WithAirdropVestingGen} from "src/templates/composed/ERC20WithAirdropVestingGen.sol";
 import {ERC20WithPermitVestingGen} from "src/templates/composed/ERC20WithPermitVestingGen.sol";
@@ -112,6 +113,7 @@ contract DeployPhase1 is Script {
 
     // ---- 14 curated multi-module bundles ----
     bytes32 public constant ERC20_ANTIBOT_ANTIWHALE_CONFIG = keccak256(abi.encode("ERC20", "AntiBot,AntiWhale"));
+    bytes32 public constant ERC20_ANTIBOT_FOT_CONFIG = keccak256(abi.encode("ERC20", "AntiBot,FeeOnTransfer"));
     bytes32 public constant ERC20_ANTIBOT_PERMIT_CONFIG = keccak256(abi.encode("ERC20", "AntiBot,Permit"));
     bytes32 public constant ERC20_FOT_PERMIT_CONFIG = keccak256(abi.encode("ERC20", "FeeOnTransfer,Permit"));
     bytes32 public constant ERC20_ANTIBOT_ANTIWHALE_PERMIT_CONFIG =
@@ -184,6 +186,7 @@ contract DeployPhase1 is Script {
         ERC20WithVotesGen impl20Votes = new ERC20WithVotesGen();
         // 14 curated bundles
         ERC20WithAntiBotAntiWhaleGen impl20AbAw = new ERC20WithAntiBotAntiWhaleGen();
+        ERC20WithAntiBotAndFeeOnTransferGen impl20AbFot = new ERC20WithAntiBotAndFeeOnTransferGen();
         ERC20WithAntiBotPermitGen impl20AbP = new ERC20WithAntiBotPermitGen();
         ERC20WithFoTPermitGen impl20FotP = new ERC20WithFoTPermitGen();
         ERC20WithAntiBotAntiWhalePermitGen impl20AbAwP = new ERC20WithAntiBotAntiWhalePermitGen();
@@ -238,6 +241,7 @@ contract DeployPhase1 is Script {
         factory20.registerImpl(ERC20_STAKING_CONFIG, address(impl20Staking));
         factory20.registerImpl(ERC20_VOTES_CONFIG, address(impl20Votes));
         factory20.registerImpl(ERC20_ANTIBOT_ANTIWHALE_CONFIG, address(impl20AbAw));
+        factory20.registerImpl(ERC20_ANTIBOT_FOT_CONFIG, address(impl20AbFot));
         factory20.registerImpl(ERC20_ANTIBOT_PERMIT_CONFIG, address(impl20AbP));
         factory20.registerImpl(ERC20_FOT_PERMIT_CONFIG, address(impl20FotP));
         factory20.registerImpl(ERC20_ANTIBOT_ANTIWHALE_PERMIT_CONFIG, address(impl20AbAwP));
@@ -318,46 +322,69 @@ contract DeployPhase1 is Script {
         console2.log("  3. Sync addresses to web/indexer: node tools/sync-addresses.mjs <chain>");
         console2.log("  4. Smoke test: forge script script/PostDeploySmoke.s.sol --rpc-url ... --broadcast");
 
-        _writeDeploymentJson(
-            address(registry),
-            address(feeReceiver),
-            address(router),
-            address(factory20),
-            address(factory721),
-            address(factory1155),
-            address(curveFactory),
-            address(curveImpl)
-        );
-    }
-
-    /// @dev Persists the go-live address book to `deployment.<chainid>.json` next to the
-    ///      script. `tools/sync-addresses.mjs` reads this and writes into web/src/lib/config.ts
-    ///      + indexer .env — no manual copy-paste after broadcast.
-    function _writeDeploymentJson(
-        address registry_,
-        address feeReceiver_,
-        address router_,
-        address erc20Factory_,
-        address erc721aFactory_,
-        address erc1155Factory_,
-        address curveFactory_,
-        address bondingCurveImpl_
-    ) internal {
-        string memory obj = "deployment";
-        vm.serializeUint(obj, "chainId", block.chainid);
-        vm.serializeUint(obj, "deployedAtBlock", block.number);
-        vm.serializeAddress(obj, "NameRegistry", registry_);
-        vm.serializeAddress(obj, "FeeReceiver", feeReceiver_);
-        vm.serializeAddress(obj, "Router", router_);
-        vm.serializeAddress(obj, "ERC20Factory", erc20Factory_);
-        vm.serializeAddress(obj, "ERC721AFactory", erc721aFactory_);
-        vm.serializeAddress(obj, "ERC1155Factory", erc1155Factory_);
-        vm.serializeAddress(obj, "CurveFactory", curveFactory_);
-        string memory json = vm.serializeAddress(obj, "BondingCurveImpl", bondingCurveImpl_);
-        string memory path = string.concat("deployment.", vm.toString(block.chainid), ".json");
-        vm.writeJson(json, path);
-        console2.log("---------------------------------------------------------");
-        console2.log("Address book written:", path);
+        // Persist the full address book. Every impl the frontend needs to know about
+        // ends up in `deployment.<chainid>.json`; `tools/sync-addresses.mjs` reads it and
+        // patches `web/src/lib/config.ts` + indexer .env — no manual copy-paste.
+        {
+            string memory obj = "deployment";
+            vm.serializeUint(obj, "chainId", block.chainid);
+            vm.serializeUint(obj, "deployedAtBlock", block.number);
+            vm.serializeAddress(obj, "NameRegistry", address(registry));
+            vm.serializeAddress(obj, "FeeReceiver", address(feeReceiver));
+            vm.serializeAddress(obj, "Router", address(router));
+            // ERC20 factory + every registered impl.
+            vm.serializeAddress(obj, "ERC20Factory", address(factory20));
+            vm.serializeAddress(obj, "ERC20TemplateImpl", address(impl20));
+            vm.serializeAddress(obj, "ERC20WithAntiBotImpl", address(impl20AntiBot));
+            vm.serializeAddress(obj, "ERC20WithAntiWhaleImpl", address(impl20AntiWhale));
+            vm.serializeAddress(obj, "ERC20WithFoTImpl", address(impl20FoT));
+            vm.serializeAddress(obj, "ERC20WithPausableImpl", address(impl20Pausable));
+            vm.serializeAddress(obj, "ERC20WithPermitImpl", address(impl20Permit));
+            vm.serializeAddress(obj, "ERC20WithAirdropImpl", address(impl20Airdrop));
+            vm.serializeAddress(obj, "ERC20WithVestingImpl", address(impl20Vesting));
+            vm.serializeAddress(obj, "ERC20WithStakingImpl", address(impl20Staking));
+            vm.serializeAddress(obj, "ERC20WithVotesImpl", address(impl20Votes));
+            // Curated multi-module bundles.
+            vm.serializeAddress(obj, "ERC20WithAntiBotAntiWhaleImpl", address(impl20AbAw));
+            vm.serializeAddress(obj, "ERC20WithAntiBotAndFeeOnTransferImpl", address(impl20AbFot));
+            vm.serializeAddress(obj, "ERC20WithAntiBotPermitImpl", address(impl20AbP));
+            vm.serializeAddress(obj, "ERC20WithFoTPermitImpl", address(impl20FotP));
+            vm.serializeAddress(obj, "ERC20WithAntiBotAntiWhalePermitImpl", address(impl20AbAwP));
+            vm.serializeAddress(obj, "ERC20WithAirdropVestingImpl", address(impl20DropVest));
+            vm.serializeAddress(obj, "ERC20WithPermitVestingImpl", address(impl20PVest));
+            vm.serializeAddress(obj, "ERC20WithAirdropPermitImpl", address(impl20DropP));
+            vm.serializeAddress(obj, "ERC20WithPermitStakingImpl", address(impl20PStk));
+            vm.serializeAddress(obj, "ERC20WithAirdropVotesImpl", address(impl20DropV));
+            vm.serializeAddress(obj, "ERC20WithPausablePermitImpl", address(impl20PauseP));
+            // ERC721A factory + every registered impl.
+            vm.serializeAddress(obj, "ERC721AFactory", address(factory721));
+            vm.serializeAddress(obj, "ERC721ATemplateImpl", address(impl721));
+            vm.serializeAddress(obj, "ERC721AWithDelayedRevealImpl", address(impl721DelayedReveal));
+            vm.serializeAddress(obj, "ERC721AWithSvgImpl", address(impl721Svg));
+            vm.serializeAddress(obj, "ERC721AWithRoyaltyImpl", address(impl721Royalty));
+            vm.serializeAddress(obj, "ERC721AWithSvgAndRoyaltyImpl", address(impl721SvgRoyalty));
+            vm.serializeAddress(obj, "ERC721AWithSoulboundImpl", address(impl721Soulbound));
+            vm.serializeAddress(obj, "ERC721AWithRefundableImpl", address(impl721Refundable));
+            vm.serializeAddress(obj, "ERC721AWithRoyaltyRefundableImpl", address(impl721RoyRef));
+            vm.serializeAddress(obj, "ERC721AWithDelayedRevealRefundableImpl", address(impl721DrRef));
+            vm.serializeAddress(obj, "ERC721AWithSvgSoulboundImpl", address(impl721SvgSoul));
+            vm.serializeAddress(obj, "ERC721AWithRoyaltySoulboundImpl", address(impl721RoySoul));
+            // ERC1155 factory + every registered impl.
+            vm.serializeAddress(obj, "ERC1155Factory", address(factory1155));
+            vm.serializeAddress(obj, "ERC1155TemplateImpl", address(impl1155));
+            vm.serializeAddress(obj, "ERC1155WithSupplyImpl", address(impl1155Supply));
+            vm.serializeAddress(obj, "ERC1155WithPayableImpl", address(impl1155Payable));
+            vm.serializeAddress(obj, "ERC1155WithSplitPayableImpl", address(impl1155SplitPayable));
+            vm.serializeAddress(obj, "ERC1155WithRoyaltyImpl", address(impl1155Royalty));
+            vm.serializeAddress(obj, "ERC1155WithSupplyPayableImpl", address(impl1155SupplyPayable));
+            // Curve stack.
+            vm.serializeAddress(obj, "CurveFactory", address(curveFactory));
+            string memory json = vm.serializeAddress(obj, "BondingCurveImpl", address(curveImpl));
+            string memory path = string.concat("deployment.", vm.toString(block.chainid), ".json");
+            vm.writeJson(json, path);
+            console2.log("---------------------------------------------------------");
+            console2.log("Address book written:", path);
+        }
     }
 
     function _initialReservedTickers() internal pure returns (string[] memory) {

@@ -37,17 +37,17 @@ contract HandoffOwnership is Script {
         address multisig = vm.envAddress("MULTISIG_ADMIN");
         if (multisig == address(0)) revert HandoffOwnership__NoMultisig();
 
-        string memory path = string.concat("deployment.", vm.toString(block.chainid), ".json");
-        if (!vm.exists(path)) revert HandoffOwnership__NoAddressBook();
-        string memory book = vm.readFile(path);
+        string memory corePath = string.concat("deployment.", vm.toString(block.chainid), ".json");
+        if (!vm.exists(corePath)) revert HandoffOwnership__NoAddressBook();
+        string memory core = vm.readFile(corePath);
 
-        address registry = vm.parseJsonAddress(book, ".NameRegistry");
-        address feeReceiver = vm.parseJsonAddress(book, ".FeeReceiver");
-        address router = vm.parseJsonAddress(book, ".Router");
-        address f20 = vm.parseJsonAddress(book, ".ERC20Factory");
-        address f721 = vm.parseJsonAddress(book, ".ERC721AFactory");
-        address f1155 = vm.parseJsonAddress(book, ".ERC1155Factory");
-        address cf = vm.parseJsonAddress(book, ".CurveFactory");
+        address registry = vm.parseJsonAddress(core, ".NameRegistry");
+        address feeReceiver = vm.parseJsonAddress(core, ".FeeReceiver");
+        address router = vm.parseJsonAddress(core, ".Router");
+        address f20 = vm.parseJsonAddress(core, ".ERC20Factory");
+        address f721 = vm.parseJsonAddress(core, ".ERC721AFactory");
+        address f1155 = vm.parseJsonAddress(core, ".ERC1155Factory");
+        address cf = vm.parseJsonAddress(core, ".CurveFactory");
 
         console2.log("=========================================================");
         console2.log("Handoff -> multisig:", multisig);
@@ -61,6 +61,26 @@ contract HandoffOwnership is Script {
         _handoff("ERC721AFactory", f721, multisig);
         _handoff("ERC1155Factory", f1155, multisig);
         _handoff("CurveFactory", cf, multisig);
+
+        // Graduator itself has no admin surface (poolManager / defaultHook / fee /
+        // tickSpacing are all immutable ctor args, no owner) — nothing to hand off.
+        // Graduation routing changes require `CurveFactory.setGraduator(new)`, which is
+        // gated by CurveFactory ownership already handed off above.
+
+        // Flywheel Ownables: same pattern — skip when the flywheel isn't deployed on this
+        // chain (URU + gemu NFT only live on Base today, so mainnet/sepolia never have this).
+        string memory flyPath = string.concat("deployment-flywheel.", vm.toString(block.chainid), ".json");
+        if (vm.exists(flyPath)) {
+            string memory flyBook = vm.readFile(flyPath);
+            _handoff("FeeSplitter", vm.parseJsonAddress(flyBook, ".FeeSplitter"), multisig);
+            _handoff("LoyaltyOracle", vm.parseJsonAddress(flyBook, ".LoyaltyOracle"), multisig);
+            _handoff("NftRevenueVault", vm.parseJsonAddress(flyBook, ".NftRevenueVault"), multisig);
+            _handoff("UruBuybackVault", vm.parseJsonAddress(flyBook, ".UruBuybackVault"), multisig);
+            _handoff("RoyaltyRouterFactory", vm.parseJsonAddress(flyBook, ".RoyaltyRouterFactory"), multisig);
+            // RoyaltyRouterImpl is a stateless template — no owner, skipped intentionally.
+        } else {
+            console2.log("  skip Flywheel (no deployment-flywheel.<chainid>.json)");
+        }
         vm.stopBroadcast();
 
         console2.log("---------------------------------------------------------");

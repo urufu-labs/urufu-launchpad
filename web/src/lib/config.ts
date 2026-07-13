@@ -52,8 +52,6 @@ export interface ContractSet {
   ERC20WithVestingImpl: Address;
   ERC20WithStakingImpl: Address;
   ERC20WithVotesImpl: Address;
-  ERC20WithGovernorImpl: Address;
-  ERC20VotesTemplateImpl: Address;
   ERC721AFactory: Address;
   ERC721ATemplateImpl: Address;
   ERC721AWithDelayedRevealImpl: Address;
@@ -68,9 +66,63 @@ export interface ContractSet {
   BondingCurveImpl: Address;
 }
 
+/// Uniswap v4 hooks the launchpad deploys per chain. `MultiHookHost` is the
+/// production default (LP-lock + fee-split in one hook address); the others are
+/// available for advanced launches. Populated by `sync-addresses.mjs` after
+/// `DeployHooks` broadcasts on a chain.
+export interface HookSet {
+  PoolManager: Address;
+  LPLockedHook: Address;
+  FeeRedirectHook: Address;
+  AntiSniperHook: Address;
+  MultiHookHost: Address;
+  BuybackBurnHook: Address;
+}
+
+/// urufu labs flywheel (URU buyback / gemu NFT revenue / royalty router).
+/// Populated by `sync-addresses.mjs` after `DeployFlywheel` broadcasts. Only
+/// meaningful on chains where URU + gemu nft are deployed — Base today.
+export interface FlywheelSet {
+  FeeSplitter: Address;
+  LoyaltyOracle: Address;
+  NftRevenueVault: Address;
+  UruBuybackVault: Address;
+  RoyaltyRouterImpl: Address;
+  RoyaltyRouterFactory: Address;
+}
+
 export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   mainnet: null,
   sepolia: null, // populate after DeployPhase1 broadcasts
+  base: null,
+  'base-sepolia': null,
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+export const HOOKS: Record<ChainKey, HookSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+/// One Graduator per chain — routes graduated bonding curves into a v4 pool with
+/// `MultiHookHost` as the default hook. `null` until `DeployGraduator` broadcasts.
+export const GRADUATORS: Record<ChainKey, Address | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
+  mainnet: null,
+  sepolia: null,
   base: null,
   'base-sepolia': null,
   robinhood: null,

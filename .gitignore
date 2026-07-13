@@ -14,9 +14,10 @@ contracts/broadcast/*/
 !contracts/broadcast/*/dry-run/
 *.dbg.json
 
-# per-chain address book emitted by DeployPhase1. Regenerated every broadcast; the
-# canonical addresses live in web/src/lib/config.ts (via `pnpm sync:addresses`).
+# Per-chain address books emitted by every Deploy* script. Regenerated on each broadcast;
+# the canonical addresses live in web/src/lib/config.ts (via `pnpm sync:addresses`).
 contracts/deployment.*.json
+contracts/deployment-*.json
 
 # Slither outputs (regenerated on every run via `pnpm contracts:security`).
 contracts/slither-report.json
