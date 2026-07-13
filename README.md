@@ -296,4 +296,9 @@ launchpad/
 
 ## License
 
-Dual-license: MIT for interfaces + templates, BUSL-1.1 for the bonding curve, hooks, and Router — the moat pieces.
+Dual-licensed. The SPDX header at the top of each source file is authoritative.
+
+- **[Business Source License 1.1](./LICENSE)** — everything except the files listed below. Source is available to read, audit, fork, and modify. Production use is limited to personal / educational / research / security-audit purposes; using the code to offer token launches, bonding-curve trading, curve graduation to Uniswap v4, or the URU / gemu revenue flywheel to third parties requires a commercial license. On the **Change Date (2030-07-13)** — four years after this License was applied — every BUSL-1.1 file automatically converts to MIT.
+- **[MIT](./LICENSE-MIT)** — the v4 hook library in `contracts/src/hooks/` (`BaseHook`, `HookMiner`, `LPLockedHook`, `FeeRedirectHook`, `AntiSniperHook`, `MultiHookHost`, `BuybackBurnHook`, `BuybackUruHook`) and `contracts/src/types/VMTypes.sol`. These wrap open primitives and stay permissively licensed so external hooks + integrations can copy patterns freely.
+
+For a commercial license, contact urufu labs.
