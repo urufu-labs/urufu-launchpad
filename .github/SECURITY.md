@@ -2,16 +2,27 @@
 
 Where we sit on the risk gradient today, what's been checked, and what a real production launch still needs.
 
+## Reporting a vulnerability
+
+**DM [@spoobsV1 on X](https://x.com/spoobsV1)** — that is the sole channel. Please don't email, open a public GitHub issue, or file a PR that describes the vuln. Include a short summary + repro steps in the DM; we'll take it from there in private.
+
+While a report is under triage, please refrain from:
+- deploying the exploit against a live urufu labs deployment,
+- disclosing the finding publicly (on X, in a blog, on Discord/Telegram, in a talk),
+- filing the same finding on a third-party bounty platform.
+
+Timelines: acknowledgment within 72h, triage decision within 7 days, coordinated disclosure once a patch has shipped or 90 days after acknowledgment (whichever is sooner).
+
 ## What runs today
 
 | Tool | Status | Owner |
 |---|---|---|
-| **Foundry tests** | ✅ 454 unit + integration, all green | in-tree |
+| **Foundry tests** | ✅ 547 unit + integration + fork + invariant, all green | in-tree |
 | **Foundry fuzz** | ✅ 1,000 runs per property (default) | in-tree |
-| **Fork tests** | ✅ LPLockedHook init + full graduation against real Sepolia v4 | in-tree |
+| **Invariant tests** | ✅ `test/invariant/` — 7 curve invariants + 4 router invariants, 256 runs × 8192 calls each, 0 reverts | in-tree |
+| **Fork tests** | ✅ LPLockedHook init + full graduation against real Sepolia v4 + Graduator wire path | in-tree |
 | **Slither** | ✅ `bash contracts/security.sh` — 2H, 36M, 28L, 94I (see triage) | in-tree |
 | **Solhint / linter** | ⚠️ Not wired | future |
-| **Invariant tests** | ⚠️ Not written | future |
 | **Coverage** | ⚠️ Foundry `forge coverage` runs but no CI gate | future |
 | **External audit** | ❌ Not done | pre-mainnet |
 | **Bug bounty** | ❌ Not launched | post-broadcast |
@@ -21,7 +32,7 @@ Where we sit on the risk gradient today, what's been checked, and what a real pr
 | Target | Status | Gate |
 |---|---|---|
 | Sepolia testnet | ✅ Ready | none |
-| Mainnet, dev funds only | ⚠️ | resolve Slither medium triage + write invariant tests |
+| Mainnet, dev funds only | ⚠️ | resolve Slither medium triage annotations |
 | Mainnet, real user funds | ❌ Not ready | external audit + bug bounty + coverage ≥90% |
 
 ## Slither triage
@@ -62,20 +73,19 @@ Bulk are:
 
 ## What still needs to happen before mainnet
 
-1. **Write invariant tests.** `forge invariant` supports property-based testing across random sequences of calls. Critical properties: curve `k` monotonicity, no-inflation invariant on refunds/vesting, LP position ownership immutability post-graduation.
-2. **Add solhint** to CI to enforce naming + gas patterns automatically.
-3. **Gas snapshot regression tracking.** `forge snapshot` in CI so a bad regression triggers review.
-4. **External audit.** Trail of Bits, Spearbit, Cantina — or a solo auditor like Guido or samczsun. Budget: $30k-$80k depending on scope; timeline 2-4 weeks.
-5. **Bug bounty on Immunefi.** Tiered payouts scale with TVL post-launch.
-6. **Formal specification** of the invariants that must hold on the router + curve + hooks. Even one page each is enough to guide auditors.
+1. **Add solhint** to CI to enforce naming + gas patterns automatically.
+2. **Gas snapshot regression tracking.** `forge snapshot` in CI so a bad regression triggers review.
+3. **External audit.** Trail of Bits, Spearbit, Cantina — or a solo auditor like Guido or samczsun. Budget: $30k-$80k depending on scope; timeline 2-4 weeks.
+4. **Bug bounty on Immunefi.** Tiered payouts scale with TVL post-launch.
+5. **Formal specification** of the invariants that must hold on the router + curve + hooks. Even one page each is enough to guide auditors — the current in-tree invariants are the mechanical baseline, not the full spec.
 
 ## Incident response
 
 - **Router pause**: `Router.setPaused(true)` reverts every `launch()`. Test path: `test/unit/Router.t.sol::test_Paused_RevertsLaunch`.
-- **Ownership**: after `HandoffOwnership.s.sol`, every admin action requires the multisig. Pause + fee updates + factory swaps all gated.
+- **Ownership**: after `HandoffOwnership.s.sol`, every admin action requires the multisig. Pause + fee updates + factory swaps + curve-factory + flywheel Ownables (FeeSplitter, LoyaltyOracle, NftRevenueVault, UruBuybackVault, RoyaltyRouterFactory) all gated by the multisig after handoff. `Graduator` has no admin surface — its config is immutable at construction, so no handoff applies; graduation-routing changes go through `CurveFactory.setGraduator(new)`.
 - **Curve funds when graduator not wired**: `_graduate()` leaves ETH + tokens on the BondingCurve, callable by owner via post-deploy adapter (not yet built — TODO if we launch without a graduator).
 - **v4 hook custody**: `LPLockedHook` reverts every `beforeRemoveLiquidity`. Even the deployer can't unlock. This is a feature, not a bug — if a hook needs to be swapped, deploy a new pool with the new hook.
 
 ## Contacts
 
-Brandon (@brand) — solo dev, sole approver.
+[@spoobsV1 on X](https://x.com/spoobsV1) — sole approver, sole reporting channel. All coordination happens in DM.

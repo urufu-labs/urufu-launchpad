@@ -15,7 +15,7 @@ Complements per-decision ADRs in `docs/decisions/ADR-*` — this is the per-sess
 - 33 curated impls registered by `DeployPhase1`
 - `BondingCurve` + `CurveFactory` + `Graduator` with `installBondingCurve` flag wired into `Router.LaunchParams`
 - `HandoffOwnership.s.sol`, `PostDeploySmoke.s.sol`, `verify-phase1.sh`, `deploy.sh` (multi-chain), `security.sh` (Slither) all shipping
-- `docs/SECURITY.md` triage: 2 High findings are Solady `SafeTransferLib` false positives; 36 Medium all triaged as non-exploitable
+- `.github/SECURITY.md` triage: 2 High findings are Solady `SafeTransferLib` false positives; 36 Medium all triaged as non-exploitable
 
 **Web state (`web/`):**
 - 7 static routes + `/trade/[address]` dynamic; production build passes

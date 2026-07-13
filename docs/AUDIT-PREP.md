@@ -2,7 +2,7 @@
 
 > Handoff document for external auditors. One page per critical contract with the exact
 > properties it must maintain, the threat model I've considered, and what my own tests
-> already cover. Read this alongside `docs/SECURITY.md` (triage of Slither findings) and
+> already cover. Read this alongside `.github/SECURITY.md` (triage of Slither findings) and
 > `docs/SPEC-*.md` (design-intent per contract).
 
 **Repo commit:** point auditors at whatever HEAD is at engagement start; embargo any
@@ -12,7 +12,7 @@ in-flight changes for the review period.
 - 485 in-memory + fuzz + invariant tests, all passing
 - 2 fork tests against real Sepolia Uniswap v4
 - Slither pass with `bash contracts/security.sh` — 2 High confirmed false positives (see
-  `docs/SECURITY.md`)
+  `.github/SECURITY.md`)
 
 ---
 

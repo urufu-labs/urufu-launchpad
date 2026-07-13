@@ -55,5 +55,5 @@ print('=' * 60)
 print()
 print(f"  full JSON:      slither-report.json")
 print(f"  markdown:       slither-summary.md")
-print(f"  triage notes:   docs/SECURITY.md")
+print(f"  triage notes:   .github/SECURITY.md")
 PY

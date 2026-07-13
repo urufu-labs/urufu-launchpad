@@ -282,7 +282,7 @@ launchpad/
 ## Known follow-ups
 
 **Phase 3** (post-Sepolia broadcast):
-- External audit + Immunefi bug bounty per `docs/SECURITY.md`.
+- External audit + Immunefi bug bounty per `.github/SECURITY.md`.
 - Actual Base broadcast + multisig setup.
 - B20 compliance module lineup (`B20PolicyAware`, `Blocklist`, `Jailable`) — planned.
 - Ponder → hosted indexer migration.
