@@ -129,3 +129,14 @@ export const v4StateViewAbi = parseAbi([
   `function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)`,
   `function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)`,
 ] as const);
+
+/// Subset of `NftRevenueVault` — enough to read epoch state + submit a claim.
+/// `claim(epochId, amount, proof)` verifies against the on-chain merkleRoot via
+/// solady MerkleProofLib; the frontend fetches (amount, proof) from
+/// compile-service's /rewards routes and forwards them here.
+export const nftRevenueVaultAbi = parseAbi([
+  `function nextEpochId() view returns (uint256)`,
+  `function epochs(uint256) view returns (bytes32 merkleRoot, uint256 totalAmount, uint256 unclaimed)`,
+  `function isClaimed(uint256 epochId, address holder) view returns (bool)`,
+  `function claim(uint256 epochId, uint256 amount, bytes32[] calldata proof)`,
+] as const);

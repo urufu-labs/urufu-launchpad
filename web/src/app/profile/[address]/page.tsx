@@ -41,6 +41,8 @@ import { uploadImageToIpfs } from '@/lib/ipfs';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
 import { computePositions, type Position } from '@/lib/pnl';
+import { FlywheelRewards } from '@/components/FlywheelRewards';
+import { useActiveChain } from '@/components/ChainSwitcher';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -51,6 +53,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const isValid = address !== ZERO_ADDR;
 
   const { address: wallet } = useAccount();
+  const activeChain = useActiveChain();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const isOwn = mounted && !!wallet && wallet.toLowerCase() === address.toLowerCase();
@@ -655,6 +658,8 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               </ul>
             )}
           </section>
+
+          <FlywheelRewards visibleFor={address} chain={activeChain} />
 
           <div
             style={{
