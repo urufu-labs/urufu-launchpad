@@ -422,7 +422,7 @@ body {
   font-size: 11px;
   color: var(--anchor);
   white-space: nowrap;
-  animation: uru-marquee 28s linear infinite;
+  animation: uru-marquee 15s linear infinite;
 }
 @keyframes uru-marquee { to { transform: translateX(-50%); } }
 .uru-marquee-wrap:hover .uru-marquee-track { animation-play-state: paused; }
@@ -559,7 +559,7 @@ body {
   font-family: var(--font-pixel), monospace;
   font-size: 11px;
   white-space: nowrap;
-  animation: uru-marquee 32s linear infinite;
+  animation: uru-marquee 18s linear infinite;
 }
 .uru-ticker-wrap:hover .uru-ticker-track { animation-play-state: paused; }
 .uru-ticker-buy  { color: var(--mint-hot,#2b8a3e); }

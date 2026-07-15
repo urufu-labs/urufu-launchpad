@@ -16,14 +16,16 @@ import Link from 'next/link';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import { formatGweiPerToken } from '@/lib/priceFmt';
-import { launchKind, type MockLaunch } from '@/lib/mockLaunches';
+import { formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
+import { launchKind, mockSpotPriceWei } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 
 export function TokenTicker() {
   const activeChain = useActiveChain();
   const activeChainId = CHAIN_KEY_TO_ID[activeChain];
   const chainLabel = CHAIN_LABELS[activeChain];
+  const unit = usePriceUnit();
+  const ethUsd = useEthUsd();
 
   // Ticker is curve-only — direct-mint tokens don't have a spot price to show.
   const feed = useLaunchFeed(activeChainId);
@@ -40,8 +42,13 @@ export function TokenTicker() {
       ];
     }
     return source.slice(0, 20).map((l, i) => {
-      const priceWei = spotPriceOf(l);
-      const priceStr = priceWei > 0n ? `${formatGweiPerToken(priceWei)} gwei` : '—';
+      // Use the graduated-aware helper -- prior version pulled straight from the frozen
+      // curve reserves via a local spotPriceOf(), which read 0 for every graduated token
+      // (BondingCurve drains reserves on graduation). Now v4 pool sqrtPriceX96 is used
+      // post-grad, curve virtual reserves pre-grad -- same numbers the trade + discover
+      // pages show, and formatPrice respects the USD/ETH header toggle.
+      const priceWei = mockSpotPriceWei(l);
+      const priceStr = priceWei > 0n ? formatPrice(priceWei, unit, ethUsd) : '—';
       return {
         key: `${l.address}-${i}`,
         node: (
@@ -83,8 +90,3 @@ export function TokenTicker() {
   );
 }
 
-function spotPriceOf(l: MockLaunch): bigint {
-  const num = (l.ethReserve + l.virtualEthReserve) * 10n ** 18n;
-  const den = l.tokenReserve + l.virtualTokenReserve;
-  return den > 0n ? num / den : 0n;
-}
