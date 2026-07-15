@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Base">
+  <title>Base</title>
+  <circle cx="12" cy="12" r="11" fill="#0052FF"/>
+  <path d="M12 4.5A7.5 7.5 0 1 0 19.5 12H12z" fill="#fff"/>
+</svg>

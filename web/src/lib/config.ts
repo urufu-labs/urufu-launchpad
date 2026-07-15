@@ -13,31 +13,33 @@ export type ChainKey =
   | 'robinhood-testnet';
 
 /// Chains the user can select in the shop. Every chain here shows up in the header chain
-/// switcher and gets its own /discover feed slice. Enable a chain once its DeployPhase1
-/// addresses are populated below OR you want mock-mode preview on it.
+/// switcher and gets its own /discover feed slice. Order here == order in the dropdown.
+/// Mainnet chains first, testnet last. Sepolia + robinhood-testnet excluded — we don't
+/// have contracts deployed there and don't want them in the picker as dead options.
 export const CHAINS_ENABLED: readonly ChainKey[] = [
-  'sepolia',
-  'mainnet',
   'base',
-  'base-sepolia',
+  'mainnet',
   'robinhood',
-  'robinhood-testnet',
+  'base-sepolia',
 ] as const;
 
 /// Default chain used when the wallet isn't connected or is on an unsupported chain.
 /// Set to whichever chain currently has live contracts + real activity — otherwise
 /// pages that fire reads before the user picks a chain hit a null CONTRACTS entry and
-/// silently show nothing.
-export const DEFAULT_CHAIN: ChainKey = 'base-sepolia';
+/// silently show nothing. Base mainnet is now the primary target.
+export const DEFAULT_CHAIN: ChainKey = 'base';
 
-/// Human-readable emoji + JP label pairs so the chain switcher UI stays kawaii.
-export const CHAIN_META: Record<ChainKey, { emoji: string; jp: string }> = {
-  mainnet: { emoji: '⛓️', jp: '本' },
-  sepolia: { emoji: '🧪', jp: '試' },
-  base: { emoji: '🔷', jp: '基' },
-  'base-sepolia': { emoji: '🧪', jp: '基試' },
-  robinhood: { emoji: '🏹', jp: '侠' },
-  'robinhood-testnet': { emoji: '🏹', jp: '侠試' },
+/// Chain display metadata for the header switcher + any per-chain badge in the UI.
+/// `iconPath` points at an SVG in `web/public/chains/`; swap those files to use official
+/// brand assets. `emoji` is a fallback for text-only contexts (a11y descriptions, alt).
+/// `jp` is the kawaii kanji shown next to the label in the dropdown.
+export const CHAIN_META: Record<ChainKey, { iconPath: string; emoji: string; jp: string }> = {
+  base: { iconPath: '/chains/base.svg', emoji: '🔷', jp: '基' },
+  mainnet: { iconPath: '/chains/mainnet.svg', emoji: '⛓️', jp: '本' },
+  robinhood: { iconPath: '/chains/robinhood.svg', emoji: '🏹', jp: '侠' },
+  'base-sepolia': { iconPath: '/chains/base-sepolia.svg', emoji: '🧪', jp: '基試' },
+  sepolia: { iconPath: '/chains/base-sepolia.svg', emoji: '🧪', jp: '試' },
+  'robinhood-testnet': { iconPath: '/chains/robinhood.svg', emoji: '🏹', jp: '侠試' },
 };
 
 export interface ContractSet {

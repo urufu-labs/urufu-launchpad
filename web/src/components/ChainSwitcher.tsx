@@ -9,6 +9,7 @@
 /// `activeChain` hook below.
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 
 import { CHAINS_ENABLED, CHAIN_LABELS, CHAIN_META, DEFAULT_CHAIN, type ChainKey } from '@/lib/config';
@@ -118,7 +119,15 @@ export function ChainSwitcher() {
           lineHeight: 1.1,
         }}
       >
-        <span aria-hidden style={{ fontSize: 12 }}>{activeMeta.emoji}</span>
+        <Image
+          src={activeMeta.iconPath}
+          alt=""
+          width={14}
+          height={14}
+          aria-hidden
+          style={{ display: 'block' }}
+          unoptimized
+        />
         <span>{CHAIN_LABELS[active]}</span>
         <span aria-hidden style={{ fontSize: 9, marginLeft: 2, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}>▾</span>
       </button>
@@ -166,7 +175,15 @@ export function ChainSwitcher() {
                   borderRadius: 3,
                 }}
               >
-                <span aria-hidden style={{ fontSize: 13 }}>{meta.emoji}</span>
+                <Image
+                  src={meta.iconPath}
+                  alt=""
+                  width={16}
+                  height={16}
+                  aria-hidden
+                  style={{ display: 'block' }}
+                  unoptimized
+                />
                 <span>{CHAIN_LABELS[c]}</span>
                 <span aria-hidden style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, opacity: 0.6 }}>{meta.jp}</span>
               </button>

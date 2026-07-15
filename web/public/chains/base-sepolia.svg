@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Base Sepolia (testnet)">
+  <title>Base Sepolia</title>
+  <circle cx="12" cy="12" r="10.5" fill="#0052FF" fill-opacity="0.35" stroke="#0052FF" stroke-width="1.5" stroke-dasharray="3 2"/>
+  <text x="12" y="15" text-anchor="middle" font-family="monospace" font-weight="700" font-size="7" fill="#0052FF">TEST</text>
+</svg>
