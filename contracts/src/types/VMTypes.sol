@@ -16,6 +16,11 @@ enum OwnershipMode {
 }
 
 /// @notice Parameters passed to Router.launch() and forwarded to the base-type factory.
+/// @dev    `antiSniperBlocks` + `buybackBurnBps` only take effect when `installBondingCurve`
+///         is true — Router forwards them into CurveFactory.createCurveWithConfig, which
+///         stores them on the BondingCurve until graduation. On graduation the Graduator
+///         writes them to MultiHookHost.setPoolConfig for the resulting v4 pool. Both zero
+///         = same behavior as before (no anti-sniper window, no buyback burn).
 struct LaunchParams {
     BaseType base;
     string name;
@@ -28,4 +33,6 @@ struct LaunchParams {
     bool installBondingCurve;
     OwnershipMode ownership;
     address ownerTargetIfMultisig;
+    uint32 antiSniperBlocks;
+    uint16 buybackBurnBps;
 }

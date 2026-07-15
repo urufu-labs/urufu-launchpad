@@ -2,15 +2,17 @@
 /**
  * Sync every `contracts/deployment*.<chainid>.json` book → web + indexer.
  *
- * DeployPhase1 writes    → contracts/deployment.<chainid>.json           (required)
- * DeployHooks writes     → contracts/deployment-hooks.<chainid>.json     (optional)
- * DeployGraduator writes → contracts/deployment-graduator.<chainid>.json (optional)
- * DeployFlywheel writes  → contracts/deployment-flywheel.<chainid>.json  (optional)
+ * DeployPhase1 writes          → contracts/deployment.<chainid>.json           (required)
+ * DeployHooks writes           → contracts/deployment-hooks.<chainid>.json     (optional)
+ * DeployGraduator writes       → contracts/deployment-graduator.<chainid>.json (optional)
+ * DeployV4SwapRouter writes    → contracts/deployment-v4router.<chainid>.json  (optional)
+ * DeployFlywheel writes        → contracts/deployment-flywheel.<chainid>.json  (optional)
  *
  * This script consumes whichever are present and:
  *   - Patches CONTRACTS[chain] in web/src/lib/config.ts (Phase 1 core)
  *   - Patches HOOKS[chain]     in web/src/lib/config.ts if hooks book exists
  *   - Patches GRADUATORS[chain] in web/src/lib/config.ts if graduator book exists
+ *   - Patches V4_ROUTERS[chain] in web/src/lib/config.ts if v4router book exists
  *   - Patches FLYWHEEL[chain]  in web/src/lib/config.ts if flywheel book exists
  *   - Prints a .env-shaped block for indexer + web
  *
@@ -56,6 +58,7 @@ if (!core) {
 }
 const hooks = readBook('hooks');
 const graduator = readBook('graduator');
+const v4router = readBook('v4router');
 const flywheel = readBook('flywheel');
 
 // ---- Field lists mirror the interfaces in web/src/lib/config.ts. ------------
@@ -182,6 +185,13 @@ if (graduator) {
 } else {
   console.log(`  [note] no graduator book at ${bookPath('graduator')} — GRADUATORS.${chain} left as-is`);
 }
+if (v4router) {
+  if (patchScalar('V4_ROUTERS', v4router.V4SwapRouter ?? ZERO)) {
+    console.log(`✓ wrote V4_ROUTERS.${chain}`);
+  }
+} else {
+  console.log(`  [note] no v4router book at ${bookPath('v4router')} — V4_ROUTERS.${chain} left as-is`);
+}
 if (flywheel) {
   if (patchMap('FLYWHEEL', FLYWHEEL_FIELDS, flywheel)) console.log(`✓ wrote FLYWHEEL.${chain}`);
 } else {
@@ -200,6 +210,9 @@ console.log(`NEXT_PUBLIC_ERC20_FACTORY_ADDRESS=${core.ERC20Factory}`);
 console.log(`NEXT_PUBLIC_ERC721A_FACTORY_ADDRESS=${core.ERC721AFactory}`);
 console.log(`NEXT_PUBLIC_ERC1155_FACTORY_ADDRESS=${core.ERC1155Factory}`);
 console.log(`NEXT_PUBLIC_CURVE_FACTORY_ADDRESS=${core.CurveFactory}`);
+if (hooks?.PoolManager) {
+  console.log(`NEXT_PUBLIC_POOL_MANAGER_ADDRESS=${hooks.PoolManager}`);
+}
 console.log(`PONDER_START_BLOCK_${chain.toUpperCase().replace('-', '_')}=${core.deployedAtBlock}`);
 console.log('------------------------------------------------------------\n');
 

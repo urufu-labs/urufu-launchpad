@@ -1,17 +1,27 @@
-// Ambient declarations for Ponder's virtual modules. Once `ponder codegen` runs (after the
-// contracts land on Sepolia + addresses are wired into ponder.config.ts), Ponder generates a
-// richer version of this file with exact typed event args per contract. Until then, we keep
-// broad types so `tsc --noEmit` passes without blocking scaffold work.
+// This file enables type checking and editor autocomplete for this Ponder project.
+// After upgrading, you may find that changes have been made to this file.
+// If this happens, please commit the changes. Do not manually edit this file.
+// See https://ponder.sh/docs/getting-started/installation#typescript for more information.
 
-declare module 'ponder:registry' {
-  interface PonderRegistry {
-    on(event: string, handler: (args: { event: any; context: any }) => void | Promise<void>): void;
-  }
-  export const ponder: PonderRegistry;
-}
+declare module "@/generated" {
+  import type { Virtual } from "@ponder/core";
 
-declare module 'ponder:schema' {
-  export const launches: unknown;
-  export const holders: unknown;
-  export const transfers: unknown;
+  type config = typeof import("./ponder.config.ts").default;
+  type schema = typeof import("./ponder.schema.ts");
+
+  export const ponder: Virtual.Registry<config, schema>;
+
+  export type EventNames = Virtual.EventNames<config>;
+  export type Event<name extends EventNames = EventNames> = Virtual.Event<
+    config,
+    name
+  >;
+  export type Context<name extends EventNames = EventNames> = Virtual.Context<
+    config,
+    schema,
+    name
+  >;
+  export type ApiContext = Virtual.ApiContext<schema>;
+  export type IndexingFunctionArgs<name extends EventNames = EventNames> =
+    Virtual.IndexingFunctionArgs<config, schema, name>;
 }

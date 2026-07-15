@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Yusei_Magic, Klee_One, Pixelify_Sans, DotGothic16 } from 'next/font/google';
 import Link from 'next/link';
 import './globals.css';
@@ -9,7 +9,7 @@ import { ChainSwitcher } from '@/components/ChainSwitcher';
 import { CursorMascot } from '@/components/CursorMascot';
 import { AudioBindings } from '@/components/AudioBindings';
 import { AudioToggle } from '@/components/AudioToggle';
-import { ThemeToggle, themeBootstrapScript } from '@/components/ThemeToggle';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 
 const yusei = Yusei_Magic({
@@ -42,6 +42,20 @@ const dot = DotGothic16({
 const TAGLINE = 'tap tap launch ✿ liquidity locked forever ✿ 好き好き大好き';
 const TITLE = 'urufu labs ✿ tap tap launch';
 const DESCRIPTION = 'make ur token, hit launch, done ✿ once it takes off the liquidity locks forever, and every trade rewards urufu gemu nft holders ~';
+
+/// Viewport meta — required for mobile so pages render at device width instead of the
+/// legacy 980px "desktop" fallback. `viewportFit: cover` lets the paper background bleed
+/// under the notch on iOS. `themeColor` matches --paper-base so the address bar tints
+/// with the site paint instead of Safari's default white.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f5ecda' },
+    { media: '(prefers-color-scheme: dark)', color: '#1c1a24' },
+  ],
+};
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -77,9 +91,12 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* Inline theme bootstrap — runs before hydration so dark→light or light→dark
-            never flashes on first paint. */}
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        {/* Theme bootstrap — served as a static file so React never sees a <script> node
+            in its tree (Next 16 warns on any <script> rendered from a component, even via
+            next/script). Blocking, no defer/async: must run before first paint so dark
+            mode doesn't flash light. Source at web/public/theme-bootstrap.js. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="/theme-bootstrap.js"></script>
       </head>
       <body className="min-h-full flex flex-col">
         <Providers>
@@ -117,18 +134,31 @@ export default function RootLayout({
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
             >
               <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ shop</Link>
-              <Link href="/catalog" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
               <Link href="/profile" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
-              <Link href="/docs" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
+              <a
+                href="https://www.urufu.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline hidden md:inline"
+                style={{ color: 'var(--pink-hot)' }}
+              >
+                ❋ urufu gemu ↗
+              </a>
               {/* mobile-only compact menu */}
               <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="shop">✿</Link>
               <Link href="/trade" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="trade">✦</Link>
               <Link href="/profile" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="profile">♡</Link>
-              <ThemeToggle />
-              <AudioToggle />
+              {/* Theme + audio hide under `sm` — the header runs out of room and both are
+                  reachable elsewhere (theme toggle re-appears in the footer strip; audio
+                  is a nice-to-have that autoplay-blocks anyway on mobile). Chain switcher
+                  + wallet are the two non-negotiables since they gate every interaction. */}
+              <div className="hidden sm:contents">
+                <ThemeToggle />
+                <AudioToggle />
+              </div>
               <ChainSwitcher />
               <WalletButton />
             </nav>
@@ -145,8 +175,54 @@ export default function RootLayout({
               background: 'var(--cream)',
             }}
           >
-            <div>site by ❀ urufu labs ❀ last updated 2026-07-01 ❀ best viewed on desktop lol</div>
+            {/* Utility + external links. Shelf + docs live down here so the header
+                stays focused on the primary launch / trade / discover flow. */}
+            <nav
+              className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2"
+              style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 12 }}
+              aria-label="footer links"
+            >
+              <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
+              <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
+              <a
+                href="https://x.com/urugemu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                style={{ color: 'var(--anchor)' }}
+              >
+                ✧ twitter ↗
+              </a>
+              <a
+                href="https://t.me/urugemu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                style={{ color: 'var(--anchor)' }}
+              >
+                ✧ telegram ↗
+              </a>
+              <a
+                href="https://www.urufu.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                style={{ color: 'var(--pink-hot)' }}
+              >
+                ❋ urufu gemu ↗
+              </a>
+            </nav>
+            <div style={{ marginTop: 10 }}>site by ❀ urufu labs ❀ last updated 2026-07-14 ❀ best viewed on desktop lol</div>
             <div style={{ marginTop: 4, opacity: 0.7 }}>a launchpad, not a landing pad (づ｡◕‿‿◕｡)づ</div>
+            {/* Mobile-only theme + audio row — the header hides these under sm because
+                room is scarce; surface them here so touch users can still flip themes. */}
+            <div
+              className="sm:hidden"
+              style={{ marginTop: 10, display: 'flex', justifyContent: 'center', gap: 12 }}
+            >
+              <ThemeToggle />
+              <AudioToggle />
+            </div>
           </footer>
         </Providers>
       </body>

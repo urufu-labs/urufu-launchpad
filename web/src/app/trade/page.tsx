@@ -1,12 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { isAddress, formatEther } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
-import { MOCK_LAUNCHES, mockProgressPct } from '@/lib/mockLaunches';
+import { mockProgressPct, launchKind, type MockLaunch } from '@/lib/mockLaunches';
+import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { loadMetadata } from '@/lib/metadata';
+import { useActiveChain } from '@/components/ChainSwitcher';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
 /// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
 /// is: paste a launched token's address to jump into its trade page. Once Ponder is wired,
@@ -15,6 +19,11 @@ export default function TradeIndex() {
   const [addr, setAddr] = useState('');
   const router = useRouter();
   const valid = isAddress(addr);
+  const activeChain = useActiveChain();
+  const feed = useLaunchFeed(CHAIN_KEY_TO_ID[activeChain]);
+  // /trade is for bonding-curve trading — filter direct-mint tokens out; they show up on
+  // home + discover instead.
+  const feedLaunches = feed.launches.filter((l) => launchKind(l) === 'curve').slice(0, 6);
 
   return (
     <div className="mx-auto max-w-5xl px-3 sm:px-4 py-4">
@@ -116,73 +125,8 @@ export default function TradeIndex() {
         </Link>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-4">
-        {MOCK_LAUNCHES.slice(0, 6).map((l) => (
-          <Link
-            key={l.address}
-            href={`/trade/${l.address}`}
-            className="uru-shell-tight uru-launch-card"
-            style={{
-              padding: 10,
-              display: 'flex',
-              gap: 10,
-              textDecoration: 'none',
-              color: 'inherit',
-              alignItems: 'center',
-            }}
-          >
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                border: '1.5px solid var(--anchor)',
-                background: l.logoBg,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 22,
-                flexShrink: 0,
-              }}
-            >
-              {l.logoEmoji}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {l.name}
-                </div>
-                <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-                  ${l.ticker}
-                </div>
-              </div>
-              <div
-                style={{
-                  marginTop: 3,
-                  height: 6,
-                  background: 'var(--cream-deep)',
-                  border: '1.5px solid var(--anchor)',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${mockProgressPct(l)}%`,
-                    height: '100%',
-                    background: l.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  marginTop: 3,
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 9,
-                  color: 'var(--anchor-soft)',
-                }}
-              >
-                {Number(formatEther(l.ethReserve)).toFixed(3)} / {Number(formatEther(l.graduationTargetEth)).toFixed(1)} Ξ
-              </div>
-            </div>
-          </Link>
+        {feedLaunches.map((l) => (
+          <TradeTile key={l.address} launch={l} />
         ))}
       </div>
 
@@ -224,5 +168,82 @@ export default function TradeIndex() {
         </ol>
       </details>
     </div>
+  );
+}
+
+function TradeTile({ launch }: { launch: MockLaunch }) {
+  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  useEffect(() => {
+    const m = loadMetadata(launch.chainId, launch.address);
+    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
+  }, [launch.chainId, launch.address]);
+  return (
+    <Link
+      href={`/trade/${launch.address}`}
+      className="uru-shell-tight uru-launch-card"
+      style={{
+        padding: 10,
+        display: 'flex',
+        gap: 10,
+        textDecoration: 'none',
+        color: 'inherit',
+        alignItems: 'center',
+      }}
+    >
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 8,
+          border: '1.5px solid var(--anchor)',
+          background: logoDataUrl
+            ? `#fff url(${logoDataUrl}) center/cover no-repeat`
+            : launch.logoBg,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 22,
+          flexShrink: 0,
+        }}
+      >
+        {!logoDataUrl && launch.logoEmoji}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {launch.name}
+          </div>
+          <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+            ${launch.ticker}
+          </div>
+        </div>
+        <div
+          style={{
+            marginTop: 3,
+            height: 6,
+            background: 'var(--cream-deep)',
+            border: '1.5px solid var(--anchor)',
+          }}
+        >
+          <div
+            style={{
+              width: `${mockProgressPct(launch)}%`,
+              height: '100%',
+              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
+            }}
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 3,
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            color: 'var(--anchor-soft)',
+          }}
+        >
+          {Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
+        </div>
+      </div>
+    </Link>
   );
 }

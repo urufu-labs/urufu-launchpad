@@ -1,0 +1,120 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { parseEther } from 'viem';
+
+import { fetchRecentLaunches, fetchCurveByToken, type IndexerLaunch } from './indexer';
+import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
+import { CONTRACTS, type ChainKey } from './config';
+import { CHAIN_ID_TO_KEY } from './wagmi';
+
+interface FeedState {
+  source: 'indexer' | 'mock';
+  launches: MockLaunch[];
+  ready: boolean;
+}
+
+// Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
+// no longer belongs on these because there are real launches to show. Kept as a lazy read so
+// tree-shaking of unused chain configs doesn't matter.
+function hasLiveContracts(chainId: number): boolean {
+  const key = CHAIN_ID_TO_KEY[chainId] as ChainKey | undefined;
+  return key ? CONTRACTS[key] !== null : false;
+}
+
+/// Unified launch-feed hook consumed by home / discover / trade-list.
+///
+/// - On chains with deployed contracts (CONTRACTS[key] !== null) it queries Ponder and
+///   returns the mapped MockLaunch[] filtered to the requested chain. Mocks are suppressed.
+/// - On chains without contracts (pure preview mode) it returns the mocks for that chain.
+///
+/// `ready` flips true once the indexer probe has finished, so pages can render a skeleton
+/// or an "indexer offline" fallback without briefly flashing the mock list.
+export function useLaunchFeed(chainId: number): FeedState {
+  const [state, setState] = useState<FeedState>(() => {
+    // First paint: if we already know the chain has no live contracts, render the mock
+    // preview immediately (SSR-safe, deterministic). Otherwise start empty and let the
+    // effect fill in from the indexer — avoids a flash of unrelated mock tokens.
+    if (!hasLiveContracts(chainId)) {
+      return {
+        source: 'mock',
+        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId),
+        ready: true,
+      };
+    }
+    return { source: 'indexer', launches: [], ready: false };
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!hasLiveContracts(chainId)) {
+      setState({
+        source: 'mock',
+        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId),
+        ready: true,
+      });
+      return () => { cancelled = true; };
+    }
+
+    // Reset immediately so we don't flash mocks from another chain while fetching.
+    setState({ source: 'indexer', launches: [], ready: false });
+
+    (async () => {
+      const rows = await fetchRecentLaunches(60);
+      if (cancelled) return;
+      if (!rows) {
+        // Indexer offline — leave the feed empty for this chain (real deployments should
+        // never fall back to unrelated mock tokens).
+        setState({ source: 'indexer', launches: [], ready: true });
+        return;
+      }
+      const mapped = await Promise.all(
+        rows.filter((r) => r.chainId === chainId).map(indexerRowToLaunch),
+      );
+      if (cancelled) return;
+      setState({
+        source: 'indexer',
+        launches: mapped.filter((l): l is MockLaunch => l !== null),
+        ready: true,
+      });
+    })();
+
+    return () => { cancelled = true; };
+  }, [chainId]);
+
+  return state;
+}
+
+async function indexerRowToLaunch(row: IndexerLaunch): Promise<MockLaunch | null> {
+  const b = (s: string) => BigInt(s);
+  // Always probe the curves table by tokenAddress, not just when the launches row has
+  // installedBondingCurve set. A token can be launched direct and get its curve created
+  // later via CurveFactory.createCurve(), in which case installedBondingCurve stays false
+  // on the launches row but the curves row exists — the presence of a curve row is the
+  // real source of truth for "this token has a bonding curve."
+  const curve = await fetchCurveByToken(row.tokenAddress);
+  return {
+    chainId: row.chainId,
+    address: row.tokenAddress,
+    name: row.name || row.ticker || row.tokenAddress.slice(0, 8),
+    ticker: row.ticker,
+    description: '',
+    logoBg: '#c9e6ff',
+    logoEmoji: '✿',
+    creator: row.launchedBy,
+    launchedAt: Number(row.blockTimestamp),
+    ethReserve: curve ? b(curve.ethReserve) : 0n,
+    tokenReserve: curve ? b(curve.tokenReserve) : 0n,
+    virtualEthReserve: curve ? b(curve.virtualEthReserve) : 0n,
+    virtualTokenReserve: curve ? b(curve.virtualTokenReserve) : 0n,
+    graduationTargetEth: curve ? b(curve.graduationTargetEth) : 0n,
+    curveSupply: curve ? b(curve.curveSupply) : 0n,
+    totalSupply: parseEther('1000000000'),
+    tradeFeeBps: curve?.tradeFeeBps ?? 0,
+    graduated: curve?.graduated ?? false,
+    trades: [],
+    tradeCount: curve?.tradeCount ?? 0,
+    kind: curve ? 'curve' : 'direct',
+  };
+}

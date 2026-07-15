@@ -1,22 +1,69 @@
-import { ponder } from 'ponder:registry';
+// @ponder/core@0.7.x exposes the `ponder` singleton via the '@/generated' virtual module
+// (Vite plugin at @ponder/core/src/build/plugin.ts). The 'ponder:registry' name is 0.8+.
+import { ponder } from '@/generated';
+import { keccak256, encodeAbiParameters } from 'viem';
+import { eq } from '@ponder/core';
 
-import { launches, curves, trades, graduations, holders, transfers } from '../ponder.schema.ts';
+import { launches, curves, trades, v4Swaps, graduations, holders, transfers } from '../ponder.schema.ts';
+
+/// v4 PoolKey → PoolId. Every launchpad graduation opens an ETH/token pool with the
+/// same fixed fee + tick spacing + MultiHookHost hook — so given the token address we
+/// can derive the exact poolId the PoolManager will emit `Swap` events for. Used at
+/// graduation time so the v4 Swap handler can join `v4Swaps.poolId → graduations.poolId
+/// → tokenAddress` in O(1).
+function computeV4PoolId(tokenAddress: `0x${string}`, hookAddress: `0x${string}`): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'address' }, // currency0 = ETH (0x0)
+        { type: 'address' }, // currency1 = token
+        { type: 'uint24' }, // fee
+        { type: 'int24' }, // tickSpacing
+        { type: 'address' }, // hooks
+      ],
+      ['0x0000000000000000000000000000000000000000', tokenAddress, 3000, 60, hookAddress],
+    ),
+  );
+}
+
+const MULTI_HOOK_HOST = process.env.NEXT_PUBLIC_MULTI_HOOK_HOST_ADDRESS as `0x${string}` | undefined;
 
 // =========================================================
 // Launch pipeline — three correlated events per launch tx, plus an optional fourth for
-// bonding-curve launches:
-//   1. NameRegistry.Reserved
+// bonding-curve launches. Ordering inside the tx (log-index order):
+//   1. NameRegistry.Reserved       (fires FIRST — NameRegistry.reserve is called before Router emits Launched)
 //   2. <BaseType>Factory.Deployed
-//   3. Router.Launched
-//   4. Router.CurveInstalled  (only when installBondingCurve == true)
-// All fire in the same tx. Router.Launched creates the row; the others upsert their fields.
+//   3. Router.Launched             (fires LAST — this is where we have the full launcher/base/feePaid picture)
+//   4. Router.CurveInstalled       (only when installBondingCurve == true)
+//
+// Because Router:Launched is the last event with all the notNull columns known, it does the
+// INSERT. The earlier events (Reserved, Deployed) buffer their per-token fields in a JS map
+// so Router:Launched can read them and write a fully-populated row on the first try. In-memory
+// state is safe here because Ponder processes events in log-index order on a single thread.
 // =========================================================
+
+interface PendingReserved {
+  name: string;
+  ticker: string;
+}
+interface PendingDeployed {
+  configHash: `0x${string}`;
+  impl: `0x${string}`;
+}
+
+const pendingReserved = new Map<string, PendingReserved>();
+const pendingDeployed = new Map<string, PendingDeployed>();
 
 ponder.on('Router:Launched', async ({ event, context }) => {
   const { token, launchedBy, base, nameHash, tickerHash, feePaid, installedHook, installedGovernance } =
     event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const id = `${chainId}-${token.toLowerCase()}`;
+
+  const reserved = pendingReserved.get(id);
+  const deployed = pendingDeployed.get(id);
+  pendingReserved.delete(id);
+  pendingDeployed.delete(id);
 
   await context.db.insert(launches).values({
     id,
@@ -26,10 +73,10 @@ ponder.on('Router:Launched', async ({ event, context }) => {
     base: Number(base),
     nameHash,
     tickerHash,
-    name: '',
-    ticker: '',
-    configHash: '0x' as `0x${string}`,
-    impl: null,
+    name: reserved?.name ?? '',
+    ticker: reserved?.ticker ?? '',
+    configHash: deployed?.configHash ?? ('0x' as `0x${string}`),
+    impl: deployed?.impl ?? null,
     feePaid,
     installedHook,
     installedGovernance,
@@ -43,7 +90,7 @@ ponder.on('Router:Launched', async ({ event, context }) => {
 
 ponder.on('Router:CurveInstalled', async ({ event, context }) => {
   const { token, curve } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const launchId = `${chainId}-${token.toLowerCase()}`;
 
   // Mark the launch row as curve-backed and store the curve address for the join.
@@ -55,11 +102,33 @@ ponder.on('Router:CurveInstalled', async ({ event, context }) => {
     });
 });
 
+// Router.CurveInstalled only fires when a curve is installed atomically via Router.launch().
+// If a launcher calls CurveFactory.createCurve() in a separate transaction *after* the token
+// launches, Router.CurveInstalled never fires — so we ALSO listen to CurveFactory.CurveCreated
+// (which fires on every curve, atomic or standalone) and upsert the same fields.
+ponder.on('CurveFactory:CurveCreated', async ({ event, context }) => {
+  const { token, curve } = event.args;
+  const chainId = context.network.chainId;
+  const launchId = `${chainId}-${token.toLowerCase()}`;
+
+  await context.db
+    .update(launches, { id: launchId })
+    .set({ installedBondingCurve: true, curveAddress: curve })
+    .catch(() => {
+      // No launches row for this token yet (createCurve was called for a token launched
+      // outside the Router pipeline). The launch row isn't going to appear later — safe skip.
+    });
+});
+
 ponder.on('NameRegistry:Reserved', async ({ event, context }) => {
   const { token, name, ticker } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const id = `${chainId}-${token.toLowerCase()}`;
 
+  // Reserved fires FIRST in the tx, before the launches row exists — buffer for Router:Launched
+  // to pick up. Also try an update in case a launches row is already present (e.g. a
+  // hypothetical re-reservation post-Launched).
+  pendingReserved.set(id, { name, ticker });
   await context.db
     .update(launches, { id })
     .set({ name, ticker })
@@ -68,9 +137,11 @@ ponder.on('NameRegistry:Reserved', async ({ event, context }) => {
 
 async function handleFactoryDeployed({ event, context }: { event: any; context: any }) {
   const { token, configHash, impl } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const id = `${chainId}-${token.toLowerCase()}`;
 
+  // Same story as Reserved — Deployed fires before Launched, so buffer.
+  pendingDeployed.set(id, { configHash, impl });
   await context.db
     .update(launches, { id })
     .set({ configHash, impl })
@@ -97,9 +168,29 @@ ponder.on('BondingCurve:CurveInitialized', async ({ event, context }) => {
     graduationTargetEth,
     tradeFeeBps,
   } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const curveAddress = event.log.address;
   const id = `${chainId}-${curveAddress.toLowerCase()}`;
+
+  // Backfill the launches row so the frontend feeds bucket it correctly. Router.CurveInstalled
+  // only fires when Router.launch installs the curve atomically; a standalone
+  // CurveFactory.createCurve() bypasses that path. CurveInitialized always fires when the
+  // curve boots, so this is the single source of truth for "this launch has a curve".
+  //
+  // Try the update; log if it throws so we surface any drizzle-level id-mismatch bug in dev
+  // instead of silently swallowing with .catch. The launches row is written by Router.Launched
+  // at an earlier block, so on historical resync it's guaranteed to exist by the time this
+  // handler runs. On live indexing where launch + createCurve happen in the same tx, the
+  // events are processed in log-index order so the row is also present.
+  const launchId = `${chainId}-${token.toLowerCase()}`;
+  try {
+    await context.db
+      .update(launches, { id: launchId })
+      .set({ installedBondingCurve: true, curveAddress });
+    console.log(`[indexer] linked curve ${curveAddress} → launch ${launchId}`);
+  } catch (err) {
+    console.warn(`[indexer] failed to link curve → launch ${launchId}:`, err instanceof Error ? err.message : err);
+  }
 
   await context.db.insert(curves).values({
     id,
@@ -124,7 +215,7 @@ ponder.on('BondingCurve:CurveInitialized', async ({ event, context }) => {
 
 ponder.on('BondingCurve:Trade', async ({ event, context }) => {
   const { trader, isBuy, ethAmount, tokenAmount, ethReserve, tokenReserve } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const curveAddress = event.log.address;
   const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
   const tradeId = `${chainId}-${event.transaction.hash}-${event.log.logIndex}`;
@@ -169,18 +260,28 @@ ponder.on('BondingCurve:Trade', async ({ event, context }) => {
 
 ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
   const { ethReserve, tokenReserve } = event.args;
-  const chainId = context.chain.id;
+  const chainId = context.network.chainId;
   const curveAddress = event.log.address;
   const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
 
   const curve = await context.db.find(curves, { id: curveId });
   const tokenAddress = curve?.tokenAddress ?? ('0x0000000000000000000000000000000000000000' as `0x${string}`);
 
+  // Precompute the v4 poolId — v4Swaps handler joins on this to backfill tokenAddress
+  // for post-grad swaps (otherwise the home page live-trades rail can't render them).
+  // Only meaningful when the graduating token has a real address AND the deploy chain
+  // has a wired MultiHookHost — leave null otherwise so the schema stays truthful.
+  const poolId =
+    MULTI_HOOK_HOST && tokenAddress !== '0x0000000000000000000000000000000000000000'
+      ? computeV4PoolId(tokenAddress, MULTI_HOOK_HOST)
+      : null;
+
   await context.db.insert(graduations).values({
     id: curveId,
     chainId,
     curveAddress,
     tokenAddress,
+    poolId,
     ethReserveFinal: ethReserve,
     tokenReserveFinal: tokenReserve,
     blockNumber: event.block.number,
@@ -199,6 +300,61 @@ ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
         updatedAt: event.block.timestamp,
       });
   }
+});
+
+// =========================================================
+// Uniswap v4 PoolManager.Swap — indexes every swap on every pool on this chain.
+//
+// Correlates each swap back to a launched token by hashing the expected PoolKey (with
+// MultiHookHost as the hook slot) and matching it against the incoming event's poolId.
+// If we recognize the poolId, the swap gets a `tokenAddress` set so the frontend can
+// filter without a join. Unrecognized pools (any other v4 pool on the chain) still
+// get inserted so the schema stays symmetric — the frontend ignores them.
+//
+// Only registered when NEXT_PUBLIC_POOL_MANAGER_ADDRESS is set in ponder.config.ts.
+// =========================================================
+
+ponder.on('PoolManager:Swap', async ({ event, context }) => {
+  const { id: poolId, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee } = event.args;
+  const chainId = context.network.chainId;
+
+  // v4 sqrtPriceX96 = sqrt(amount1/amount0) × 2^96 — for ETH(currency0)/token(currency1)
+  // that's sqrt(tokens/ETH) atomic. Invert to get wei-ETH per whole token:
+  //   weiPerToken = 1e18 / (sqrt^2 / 2^192) = (1e18 << 192) / sqrt^2
+  let priceWeiPerToken = 0n;
+  if (sqrtPriceX96 > 0n) {
+    const sqSq = sqrtPriceX96 * sqrtPriceX96;
+    if (sqSq > 0n) priceWeiPerToken = ((10n ** 18n) << 192n) / sqSq;
+  }
+
+  // Reverse-lookup: which launchpad token does this poolId belong to? We stored the
+  // expected poolId in the graduations row when the Graduated event fired, so a single
+  // query lands the tokenAddress. Any pool NOT graduated through the launchpad stays
+  // tokenAddress=null — the home page + trade page filter those out.
+  const gradRow = await context.db.sql
+    .select({ tokenAddress: graduations.tokenAddress })
+    .from(graduations)
+    .where(eq(graduations.poolId, poolId))
+    .limit(1);
+  const mappedToken = gradRow[0]?.tokenAddress ?? null;
+
+  await context.db.insert(v4Swaps).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    poolId,
+    tokenAddress: mappedToken,
+    sender,
+    amount0,
+    amount1,
+    sqrtPriceX96,
+    liquidity,
+    tick: Number(tick),
+    fee: Number(fee),
+    priceWeiPerToken,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
 });
 
 // =========================================================

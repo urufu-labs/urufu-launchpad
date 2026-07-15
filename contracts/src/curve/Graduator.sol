@@ -13,6 +13,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+
+/// Slim interface for the deployed MultiHookHost — just the setter Graduator calls per
+/// graduation. Kept as a bare interface so we don't drag MultiHookHost's full ABI in.
+interface IHookConfig {
+    function setPoolConfig(PoolId id, uint32 antiSniperBlocks, uint16 buybackBurnBps) external;
+}
 
 /// @title  Graduator
 /// @notice Takes a graduated BondingCurve's ETH + token reserves and mints them as a
@@ -29,6 +36,8 @@ import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
 ///         common 0.3% tier that Uniswap v4 examples use, giving reasonable liquidity
 ///         concentration for the initial LP.
 contract Graduator is IUnlockCallback {
+    using PoolIdLibrary for PoolKey;
+
     error Graduator__NotPoolManager();
     error Graduator__EthMismatch(uint256 sent, uint256 expected);
     error Graduator__ZeroAmount();
@@ -66,10 +75,14 @@ contract Graduator is IUnlockCallback {
     }
 
     /// @notice Graduate a curve. Caller must have already approved `tokenAmount` of `token`.
+    /// @param  antiSniperBlocks  swaps on the new pool revert for N blocks after init. 0 = disabled.
+    /// @param  buybackBurnBps    slice of every BUY's token output sent to 0xdead. 0 = disabled.
     function execute(
         address token,
         uint256 ethAmount,
-        uint256 tokenAmount
+        uint256 tokenAmount,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
     ) external payable {
         if (ethAmount == 0 || tokenAmount == 0) revert Graduator__ZeroAmount();
         if (msg.value != ethAmount) revert Graduator__EthMismatch(msg.value, ethAmount);
@@ -90,10 +103,32 @@ contract Graduator is IUnlockCallback {
             hooks: defaultHook
         });
 
-        // sqrt(price) in Q64.96 where price = ethAmount / tokenAmount.
-        // sqrtPriceX96 = sqrt(ethAmount * 2^192 / tokenAmount)
-        //              = sqrt(ethAmount) * 2^96 / sqrt(tokenAmount)
-        uint160 sqrtPriceX96 = uint160((FixedPointMathLib.sqrt(ethAmount) << 96) / FixedPointMathLib.sqrt(tokenAmount));
+        // Write per-pool hook config BEFORE initialize — once initialize fires it stamps
+        // the hook's `launchBlock` and the setPoolConfig call would revert with
+        // ConfigFrozen. Wrapped in try/catch so a graduation still succeeds even if the
+        // hook contract doesn't implement setPoolConfig (e.g. an older MultiHookHost
+        // deployment mid-migration); the pool just launches without anti-sniper / buyback.
+        if (antiSniperBlocks > 0 || buybackBurnBps > 0) {
+            try IHookConfig(address(defaultHook)).setPoolConfig(key.toId(), antiSniperBlocks, buybackBurnBps) {
+                // config landed
+            } catch {
+                // silently continue — the pool still opens without the extra behaviors.
+            }
+        }
+
+        // Uniswap v4 pricing convention:
+        //   sqrtPriceX96 = sqrt(price) * 2^96, where price = amount1 / amount0
+        // Here currency0 = native ETH, currency1 = token, so:
+        //   price = tokenAmount / ethAmount     (atomic units)
+        //   sqrtPriceX96 = sqrt(tokenAmount * 2^192 / ethAmount)
+        //              = sqrt(tokenAmount) * 2^96 / sqrt(ethAmount)
+        //
+        // An earlier version of this contract had tokenAmount + ethAmount swapped, which
+        // initialized every graduated pool at the wrong sqrtPriceX96 and stranded most of
+        // the LP-side tokens outside the concentrated position. Fork tests missed it
+        // because they only asserted `sqrtPriceX96 > 0`; the practical breakage only shows
+        // up when the pool tries to trade at anything resembling the intended reserves.
+        uint160 sqrtPriceX96 = uint160((FixedPointMathLib.sqrt(tokenAmount) << 96) / FixedPointMathLib.sqrt(ethAmount));
 
         poolManager.initialize(key, sqrtPriceX96);
 

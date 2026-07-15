@@ -47,6 +47,7 @@
     "contracts:verify:graduator": "cd contracts && bash verify-phase1.sh ${CHAIN:-sepolia} graduator",
     "contracts:verify:flywheel": "cd contracts && bash verify-phase1.sh ${CHAIN:-base} flywheel",
     "contracts:security": "cd contracts && bash security.sh",
+    "contracts:verify:wiring": "cd contracts && forge script script/VerifyWiring.s.sol:VerifyWiring --rpc-url ${RPC_URL:-$BASE_SEPOLIA_RPC_URL} --sig 'run()'",
     "sync:addresses": "node tools/sync-addresses.mjs ${CHAIN:-sepolia}"
   },
   "devDependencies": {

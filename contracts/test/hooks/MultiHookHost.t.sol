@@ -32,10 +32,15 @@ contract MultiHookHostTest is Test {
 
     function test_Permissions_LPLockAndFeeRedirect() public view {
         BaseHook.Permissions memory p = hook.getHookPermissions();
+        // v2 permissions: beforeInitialize (stamp launchBlock) + beforeSwap (anti-sniper gate)
+        // are now required in addition to the LP-lock + fee-redirect flags.
+        assertTrue(p.beforeInitialize);
         assertTrue(p.beforeRemoveLiquidity);
+        assertTrue(p.beforeSwap);
         assertTrue(p.afterSwap);
         assertTrue(p.afterSwapReturnDelta);
-        assertFalse(p.beforeSwap);
+        assertFalse(p.afterInitialize);
+        assertFalse(p.beforeAddLiquidity);
     }
 
     function test_RemoveLiquidity_AlwaysReverts() public {
@@ -46,9 +51,14 @@ contract MultiHookHostTest is Test {
         hook.beforeRemoveLiquidity(swapper, _key(), params, "");
     }
 
-    function test_AfterSwap_CreditsBothRecipients() public {
+    function test_AfterSwap_CreditsBothRecipientsAndTakesFee() public {
         BalanceDelta delta = toBalanceDelta(-1000, 1000);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -1000, sqrtPriceLimitX96: 0});
+
+        // afterSwap now pulls the fee from the pool manager first (so its currency delta
+        // nets to zero). Mock the take() so this unit test can run against a fake PM.
+        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
+        vm.expectCall(mockPM, abi.encodeCall(IPoolManager.take, (c1, address(hook), 20)));
 
         vm.prank(mockPM);
         (, int128 hookDelta) = hook.afterSwap(swapper, _key(), params, delta, "");
@@ -58,25 +68,36 @@ contract MultiHookHostTest is Test {
         assertEq(hookDelta, int128(20));
     }
 
-    function test_Claim_UsesUnlockPath() public {
+    /// Claim is now a plain balance transfer from the hook contract to the recipient — no
+    /// PoolManager unlock. Test the ERC20 path: mint a fake token, seed it into the hook
+    /// after afterSwap credits owed[], and assert the transfer happens.
+    function test_Claim_TransfersFromHookBalance() public {
+        // Set up: seed owed[] via afterSwap (with take mocked).
         BalanceDelta delta = toBalanceDelta(-1000, 1000);
         SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -1000, sqrtPriceLimitX96: 0});
+        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
         vm.prank(mockPM);
         hook.afterSwap(swapper, _key(), params, delta, "");
+        assertEq(hook.owed(c1, platform), 10);
 
-        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.unlock.selector), abi.encode(bytes("")));
-        vm.expectCall(mockPM, abi.encodeCall(IPoolManager.unlock, (abi.encode(c1, platform, uint256(10)))));
+        // The take() above was mocked so no real tokens landed. Give the hook a matching
+        // balance of the ERC20 (c1 = 0x2, a fake ERC20 address) via mockCall of transfer.
+        // Currency.transfer for a non-zero address calls SafeTransferLib on that address.
+        vm.mockCall(
+            Currency.unwrap(c1),
+            abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), platform, uint256(10)),
+            abi.encode(true)
+        );
+
         vm.prank(platform);
         hook.claim(c1);
         assertEq(hook.owed(c1, platform), 0);
     }
 
-    function test_UnlockCallback_TakesForRecipient() public {
-        bytes memory data = abi.encode(c1, platform, uint256(7));
-        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
-        vm.expectCall(mockPM, abi.encodeCall(IPoolManager.take, (c1, platform, 7)));
-        vm.prank(mockPM);
-        hook.unlockCallback(data);
+    function test_Claim_RevertsWhenNothingOwed() public {
+        vm.expectRevert(MultiHookHost.MultiHookHost__NothingToClaim.selector);
+        vm.prank(platform);
+        hook.claim(c1);
     }
 
     function test_Init_RevertsOnBpsOverCap() public {

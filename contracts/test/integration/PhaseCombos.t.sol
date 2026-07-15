@@ -228,7 +228,9 @@ contract PhaseCombosTest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         uint256 fee = router.quote(p);
         vm.prank(launcher);
@@ -537,7 +539,9 @@ contract PhaseCombosTest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         assertEq(router.quote(p), BASE_FEE);
     }
@@ -554,7 +558,9 @@ contract PhaseCombosTest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         // 3 modules → 2 extra add-ons.
         assertEq(router.quote(p), BASE_FEE + 2 * MODULE_ADD);

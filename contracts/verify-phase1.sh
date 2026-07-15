@@ -18,8 +18,10 @@ SUBSYSTEM="${2:-phase1}"
 case "$CHAIN" in
   mainnet)            CHAIN_ID=1        ; API_KEY="${ETHERSCAN_API_KEY:-}"                ; VERIFIER_URL="" ;;
   sepolia)            CHAIN_ID=11155111 ; API_KEY="${ETHERSCAN_API_KEY:-}"                ; VERIFIER_URL="" ;;
-  base)               CHAIN_ID=8453     ; API_KEY="${BASESCAN_API_KEY:-}"                 ; VERIFIER_URL="https://api.basescan.org/api" ;;
-  base-sepolia)       CHAIN_ID=84532    ; API_KEY="${BASESCAN_API_KEY:-}"                 ; VERIFIER_URL="https://api-sepolia.basescan.org/api" ;;
+  # base + base-sepolia use Foundry's built-in V2 unified endpoint via [etherscan] block in
+  # foundry.toml — the explicit V1 URLs were deprecated by Etherscan/Basescan.
+  base)               CHAIN_ID=8453     ; API_KEY="${BASESCAN_API_KEY:-}"                 ; VERIFIER_URL="" ;;
+  base-sepolia)       CHAIN_ID=84532    ; API_KEY="${BASESCAN_API_KEY:-}"                 ; VERIFIER_URL="" ;;
   robinhood)          CHAIN_ID=4663     ; API_KEY="${BLOCKSCOUT_API_KEY:-none}"           ; VERIFIER_URL="https://robinhoodchain.blockscout.com/api" ;;
   robinhood-testnet)  CHAIN_ID=46630    ; API_KEY="${BLOCKSCOUT_API_KEY:-none}"           ; VERIFIER_URL="https://robinhoodchain-testnet.blockscout.com/api" ;;
   *) echo "Unknown chain: $CHAIN"; exit 1 ;;

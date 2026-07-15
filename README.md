@@ -189,13 +189,23 @@ pnpm contracts:verify:phase1
 pnpm contracts:verify:hooks
 pnpm contracts:verify:graduator
 
-# 5. sync addresses into web + indexer
+# 5. verify the WIRING (read-only, catches misconfigurations before real funds land)
+RPC_URL=$BASE_SEPOLIA_RPC_URL pnpm contracts:verify:wiring
+#   → asserts every address has code, Router↔factories/CurveFactory,
+#     CurveFactory.graduator, Graduator.{poolManager, defaultHook, fee, tickSpacing},
+#     MultiHookHost permissions + address flag mask. Fails loudly on mismatch.
+
+# 6. sync addresses into web + indexer
 pnpm sync:addresses                 # patches CONTRACTS + HOOKS + GRADUATORS in web/src/lib/config.ts
 # → copy the printed .env block into your .env, restart web + indexer
 
-# 6. smoke test against the live deploy
+# 7. smoke test against the live deploy
 pnpm contracts:smoke                # ERC20+curve buy/sell, ERC721A launch, ERC1155 launch
 #   → set SMOKE_GRADUATE=1 to also drive the curve to the graduation target (costs ~5 ETH)
+
+# 7b. hook-behavior fork test — proves LP-lock + fee-redirect actually fire on the pool
+#     created at graduation. Runs against the fork of the target chain, zero on-chain cost.
+BASE_SEPOLIA_RPC_URL=$BASE_SEPOLIA_RPC_URL forge test --match-contract MultiHookGraduationForkTest
 
 # 7. deploy the flywheel (Base recommended — where URU + gemu live)
 export URU_TOKEN_ADDRESS=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac
@@ -213,7 +223,28 @@ CHAIN=base pnpm contracts:configure:flywheel
 # 9. hand ownership to your multisig (once you're satisfied)
 export MULTISIG_ADMIN=0xYourSafeAddress
 pnpm contracts:handoff              # covers Phase 1, Curve, and (if deployed) Flywheel
+
+# 10. re-run VerifyWiring — the "Ownership" section should now show the multisig
+RPC_URL=$BASE_SEPOLIA_RPC_URL pnpm contracts:verify:wiring
 ```
+
+### Per-chain V4 PoolManager addresses
+
+Set `V4_POOL_MANAGER=<addr>` before `contracts:deploy:hooks` / `contracts:deploy:graduator`.
+Uniswap publishes the canonical PoolManager for every chain at
+[docs.uniswap.org/contracts/v4/deployments](https://docs.uniswap.org/contracts/v4/deployments).
+Reference values as of writing:
+
+| Chain            | PoolManager                                    |
+|------------------|------------------------------------------------|
+| Ethereum mainnet | `0x000000000004444c5dc75cB358380D2e3dE08A90`   |
+| Base mainnet     | `0x498581fF718922c3f8e6A244956aF099B2652b2b`   |
+| Sepolia          | `0xE03A1074c86CFeDd5C142C4F04F1a1536e203543`   |
+| Base Sepolia     | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408`   |
+| Robinhood        | not yet published — check the Uniswap page     |
+
+Rehearse (`pnpm contracts:rehearse:hooks`) before every real broadcast — the CREATE2 salt
+mining is chain-independent but the PoolManager address is not.
 
 All of these run against Sepolia by default. Swap the `sepolia` suffix / RPC env var for `mainnet`, `base`, `base-sepolia`, `robinhood`, or `robinhood-testnet`. **Base is where the flywheel lives** because URU and the urufu gemu NFT collection are already deployed there.
 

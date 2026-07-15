@@ -1,5 +1,24 @@
 import { createConfig } from '@ponder/core';
 import { http, parseAbi, parseAbiItem } from 'viem';
+import { readFileSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+// Ponder's built-in dotenv only reads ./.env / ./.env.local relative to the indexer/
+// workspace. The launchpad keeps its single source of truth at the repo-root .env — pull
+// that in with a tiny parser (Vite's module graph can't reach dotenv as a transitive dep,
+// and we don't want to add it as an explicit dep). Only assigns keys not already in
+// process.env so shell overrides still win.
+const rootEnvPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.env');
+if (existsSync(rootEnvPath)) {
+  for (const line of readFileSync(rootEnvPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!match || match[1].startsWith('#')) continue;
+    const [, key, rawValue] = match;
+    const value = rawValue.replace(/^['"]|['"]$/g, '');
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 // Which chain this indexer instance runs against. In prod, spin up one indexer per chain
 // with `INDEXER_CHAIN=<slug>` set. Default is sepolia for local dev.
@@ -63,6 +82,10 @@ const CONTRACTS = {
   ERC721AFactory: process.env.NEXT_PUBLIC_ERC721A_FACTORY_ADDRESS as `0x${string}` | undefined,
   ERC1155Factory: process.env.NEXT_PUBLIC_ERC1155_FACTORY_ADDRESS as `0x${string}` | undefined,
   CurveFactory: process.env.NEXT_PUBLIC_CURVE_FACTORY_ADDRESS as `0x${string}` | undefined,
+  // Uniswap v4 PoolManager for this chain. Enables post-graduation Swap indexing so the
+  // home page's live-activity rail keeps ticking after tokens graduate. Optional — leave
+  // unset on chains where v4 isn't wired.
+  PoolManager: process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS as `0x${string}` | undefined,
 } as const;
 
 // ABIs — human-readable via parseAbi, same shape wagmi uses on the client side.
@@ -93,11 +116,25 @@ export const erc20Abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ]);
 
+/// Uniswap v4 PoolManager.Swap — one event per swap across every pool on the chain. On
+/// testnets that's manageable; on mainnet you'll want to switch to a per-poolId filter
+/// (Ponder doesn't support dynamic topic filters yet, so this is a TODO). We correlate
+/// each swap to a launched token in the handler by matching the poolId against known
+/// graduated launches.
+export const poolManagerAbi = parseAbi([
+  'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
+]);
+
 export default createConfig({
   networks: {
     [CHAIN_SLUG]: {
       chainId: chain.id,
       transport: http(chain.rpc),
+      // Poll the RPC every 1s for new blocks. Ponder's default backs off to keep public
+      // RPCs happy — fine for prod on a paid tier, painful for local dev where every
+      // extra second of lag is visible on the trade page. Base Sepolia has 2s blocks
+      // so 1s polling catches a new head within one block interval.
+      pollingInterval: 1_000,
     },
   },
   contracts: {
@@ -137,6 +174,18 @@ export default createConfig({
       address: CONTRACTS.CurveFactory,
       startBlock: chain.startBlock,
     },
+    // PoolManager.Swap events — indexed to power the post-graduation chart + home page
+    // live-activity rail. Only registered when NEXT_PUBLIC_POOL_MANAGER_ADDRESS is set.
+    ...(CONTRACTS.PoolManager
+      ? {
+          PoolManager: {
+            network: CHAIN_SLUG,
+            abi: poolManagerAbi,
+            address: CONTRACTS.PoolManager,
+            startBlock: chain.startBlock,
+          },
+        }
+      : {}),
     // Every BondingCurve is a clone deployed by CurveFactory. Ponder's inline `factory` config
     // subscribes to CurveCreated events and adds each new curve address as a Trade+Graduated
     // source dynamically. No per-launch config change needed.

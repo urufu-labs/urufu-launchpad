@@ -55,7 +55,9 @@ contract LaunchHandler is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         uint256 fee = router.quote(p);
         // Set launcher balance to EXACTLY the fee — no cumulative deal, no stray ETH.

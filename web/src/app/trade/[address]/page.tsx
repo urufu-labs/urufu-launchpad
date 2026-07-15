@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   useAccount,
@@ -9,12 +9,15 @@ import {
   useReadContract,
   useReadContracts,
   useSimulateContract,
+  useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
 import {
+  encodeAbiParameters,
   formatEther,
   isAddress,
+  keccak256,
   parseEther,
   parseUnits,
   formatUnits,
@@ -22,12 +25,13 @@ import {
   type Hex,
 } from 'viem';
 
-import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi } from '@/lib/abis';
-import { CONTRACTS, type ChainKey } from '@/lib/config';
-import { CHAIN_ID_TO_KEY, explorerAddressUrl } from '@/lib/wagmi';
+import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
+import { CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
+import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, type TokenMetadata } from '@/lib/metadata';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
 import { fetchTradesForCurve } from '@/lib/indexer';
+import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { Mascot } from '@/components/Mascot';
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
@@ -57,8 +61,22 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const connectedForRender = mounted && isConnected;
-  const activeChain = CHAIN_ID_TO_KEY[chainId] ?? null;
-  const contracts = activeChain ? CONTRACTS[activeChain as ChainKey] : null;
+  // Prefer the header-picker chain for READS so a disconnected wallet (or a wallet on a
+  // chain without contracts) still resolves the token's curve on its actual home chain.
+  // The wallet's own chain still gates writes downstream via wagmi's default chain switch.
+  const picker = useActiveChain();
+  const pickerContracts = CONTRACTS[picker];
+  const walletChain = CHAIN_ID_TO_KEY[chainId] ?? null;
+  const walletContracts = walletChain ? CONTRACTS[walletChain as ChainKey] : null;
+  const activeChain: ChainKey | null = pickerContracts ? picker : walletChain;
+  const contracts = pickerContracts ?? walletContracts;
+  // Force every RPC read (curve lookup, reserves, token metadata) to hit the chain we
+  // actually resolved contracts on — otherwise wagmi silently uses the wallet's chain and
+  // returns zeros for a token that lives on a different chain (very common when the wallet
+  // is on mainnet but the launch is on Base Sepolia).
+  const readChainId = activeChain ? CHAIN_KEY_TO_ID[activeChain] : undefined;
+  const walletOnActiveChain = walletChain === activeChain;
+  const { switchChain, isPending: switchPending } = useSwitchChain();
 
   // ---------- Look up the curve for this token via the factory ----------
   const curveQuery = useReadContract({
@@ -66,6 +84,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: contracts?.CurveFactory,
     functionName: 'curveFor',
     args: [tokenAddress],
+    chainId: readChainId,
     query: { enabled: !!contracts, staleTime: 15_000 },
   });
   const curveAddress = curveQuery.data && curveQuery.data !== '0x0000000000000000000000000000000000000000'
@@ -85,6 +104,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'tradeFeeBps' },
         ]
       : [],
+    // Leave allowFailure as its default (true) — the results below are read as
+    // `csResults[i].result`, which is only present in the wrapped shape. Setting
+    // allowFailure:false collapses each entry to the raw value and every widget
+    // downstream reads undefined.
+    ...(readChainId ? { chainId: readChainId } : {}),
     query: { enabled: !!curveAddress, refetchInterval: 8_000 },
   });
   const csResults = curveState.data ?? [];
@@ -94,16 +118,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const curveSupply = csResults[3]?.result as bigint | undefined;
   const spotPrice = csResults[4]?.result as bigint | undefined;
   const graduated = csResults[5]?.result as boolean | undefined;
-  const feeBps = csResults[6]?.result as bigint | undefined;
+  // tradeFeeBps() returns uint16 → wagmi maps to `number`, not `bigint`. Reading it as
+  // bigint made the fee row render '—' because `typeof feeBps === 'bigint'` was never true.
+  const feeBps = csResults[6]?.result as number | undefined;
 
-  const tokenNameQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'name' });
-  const tokenSymbolQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'symbol' });
-  const tokenTotalSupplyQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'totalSupply' });
+  const tokenNameQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'name', chainId: readChainId });
+  const tokenSymbolQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'symbol', chainId: readChainId });
+  const tokenTotalSupplyQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'totalSupply', chainId: readChainId });
   const walletBalQ = useReadContract({
     abi: erc20TokenAbi,
     address: tokenAddress,
     functionName: 'balanceOf',
     args: wallet ? [wallet] : undefined,
+    chainId: readChainId,
     query: { enabled: !!wallet, refetchInterval: 15_000 },
   });
   const curveAllowanceQ = useReadContract({
@@ -111,6 +138,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: tokenAddress,
     functionName: 'allowance',
     args: wallet && curveAddress ? [wallet, curveAddress] : undefined,
+    chainId: readChainId,
     query: { enabled: !!wallet && !!curveAddress, refetchInterval: 15_000 },
   });
   const tokenName = tokenNameQ.data;
@@ -196,6 +224,218 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     return () => { cancelled = true; };
   }, [publicClient, curveAddress]);
 
+  // Background poll so the recent-trades list + chart tick even without the current tab
+  // firing a tx. 15s is a friendly interval — catches other users' trades on the same curve.
+  useEffect(() => {
+    if (!curveAddress) return;
+    const id = setInterval(async () => {
+      const indexed = await fetchTradesForCurve(curveAddress, 500);
+      if (!indexed || indexed.length === 0) return;
+      setTradePoints(
+        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
+      );
+      setRecentTrades(
+        indexed.slice().reverse().slice(0, 25).map((t) => ({
+          isBuy: t.isBuy,
+          eth: BigInt(t.ethAmount),
+          tokens: BigInt(t.tokenAmount),
+          trader: t.trader,
+          timestamp: Number(t.blockTimestamp),
+        })),
+      );
+    }, 5_000);
+    return () => clearInterval(id);
+  }, [curveAddress]);
+
+  // ---------- v4 pool swaps → chart points (post-graduation) ------------------
+  // After graduation, the BondingCurve stops trading — the price story continues on the
+  // v4 pool. Fetch PoolManager.Swap logs filtered by our poolId and convert each swap's
+  // sqrtPriceX96 into a wei-per-token TradePoint. Bounded lookback keeps the initial pull
+  // cheap; a 30s poll picks up new swaps for the live chart.
+  //
+  // poolId + hookAddr are re-used by the market-cap section further down; compute once
+  // here so the effect can reference them before that section runs.
+  const hookAddr = activeChain ? HOOKS[activeChain]?.MultiHookHost : undefined;
+  const poolManagerAddr = activeChain ? HOOKS[activeChain]?.PoolManager : undefined;
+  const poolId = useMemo(() => {
+    if (!hookAddr) return undefined;
+    return keccak256(
+      encodeAbiParameters(
+        [
+          { type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' },
+        ],
+        ['0x0000000000000000000000000000000000000000', tokenAddress, 3000, 60, hookAddr],
+      ),
+    );
+  }, [tokenAddress, hookAddr]);
+  const [v4TradePoints, setV4TradePoints] = useState<TradePoint[]>([]);
+  /// Post-graduation swaps surfaced into the "recent trades" list. Sourced from the
+  /// same v4 log pull as v4TradePoints so we don't double the RPC work.
+  const [v4RecentTrades, setV4RecentTrades] = useState<
+    Array<{ isBuy: boolean; eth: bigint; tokens: bigint; trader: Address; timestamp: number }>
+  >([]);
+  /// Most-recent v4 swap sqrtPriceX96. Used as a fallback for market cap / spot when
+  /// StateView.getSlot0 hasn't returned yet (fresh RPC transports can lag several
+  /// seconds behind the swap tx being mined).
+  const [v4LatestSqrt, setV4LatestSqrt] = useState<bigint>(0n);
+  /// Bump this to force the v4 log-fetch effect to re-run without waiting for the 30s
+  /// interval. GraduatedPanel calls onSwapComplete which nudges this so the user's own
+  /// swap appears in recent trades + updates the chart within one block.
+  const [v4RefetchTick, setV4RefetchTick] = useState(0);
+  useEffect(() => {
+    if (!graduated || !poolId || !publicClient || !poolManagerAddr) return;
+    let cancelled = false;
+    // Public RPCs (and even some Alchemy tiers) cap `eth_getLogs` at 2000 blocks per
+    // request. We chunk in 2000-block windows walking backwards from `current` for a
+    // bounded total lookback so we don't hammer the RPC with dozens of requests on a
+    // fresh curve. Kept small (~15 chunks = ~30k blocks ≈ 16h of Base traffic) — enough
+    // for near-realtime charts; the indexer covers the deep history for the home page.
+    const CHUNK = 2000n;
+    const MAX_CHUNKS = 15;
+    const swapEventAbi = {
+      type: 'event',
+      name: 'Swap',
+      inputs: [
+        { name: 'id', type: 'bytes32', indexed: true },
+        { name: 'sender', type: 'address', indexed: true },
+        { name: 'amount0', type: 'int128', indexed: false },
+        { name: 'amount1', type: 'int128', indexed: false },
+        { name: 'sqrtPriceX96', type: 'uint160', indexed: false },
+        { name: 'liquidity', type: 'uint128', indexed: false },
+        { name: 'tick', type: 'int24', indexed: false },
+        { name: 'fee', type: 'uint24', indexed: false },
+      ],
+    } as const;
+
+    const load = async () => {
+      try {
+        const current = await publicClient.getBlockNumber();
+        const allLogs: Array<{
+          blockNumber: bigint;
+          sqrtPriceX96: bigint;
+          amount0: bigint;
+          amount1: bigint;
+          sender: Address;
+        }> = [];
+        let toBlock = current;
+        for (let i = 0; i < MAX_CHUNKS; i++) {
+          if (cancelled) return;
+          const fromBlock = toBlock > CHUNK ? toBlock - CHUNK + 1n : 0n;
+          try {
+            const chunk = await publicClient.getLogs({
+              address: poolManagerAddr,
+              event: swapEventAbi,
+              args: { id: poolId },
+              fromBlock,
+              toBlock,
+            });
+            for (const log of chunk) {
+              const args = (log as unknown as { args: Record<string, unknown> }).args;
+              const sqrt = args.sqrtPriceX96 as bigint | undefined;
+              if (!sqrt || sqrt === 0n) continue;
+              allLogs.push({
+                blockNumber: log.blockNumber,
+                sqrtPriceX96: sqrt,
+                amount0: args.amount0 as bigint,
+                amount1: args.amount1 as bigint,
+                sender: args.sender as Address,
+              });
+            }
+          } catch (chunkErr) {
+            // Individual chunk failure isn't fatal — the pool might not have existed
+            // yet at that block range. Keep walking backwards until MAX_CHUNKS.
+            console.debug('v4 chunk failed', fromBlock, toBlock, chunkErr);
+          }
+          if (fromBlock === 0n) break;
+          toBlock = fromBlock - 1n;
+        }
+        if (cancelled) return;
+
+        // Convert to TradePoints. Batch-fetch block timestamps (avoid an RPC per event).
+        const uniqueBlocks = Array.from(new Set(allLogs.map((l) => l.blockNumber)));
+        const blockTs: Record<string, bigint> = {};
+        for (const bn of uniqueBlocks) {
+          if (cancelled) return;
+          try {
+            const b = await publicClient.getBlock({ blockNumber: bn });
+            blockTs[bn.toString()] = b.timestamp;
+          } catch {}
+        }
+        const enriched = allLogs
+          .map((l) => {
+            const ts = blockTs[l.blockNumber.toString()];
+            if (!ts) return null;
+            // Same inversion math as poolSpotPriceEthPerToken — v4 sqrtPriceX96 encodes
+            // sqr(tokens/ETH) for our ETH-token pools, so we invert to get wei-per-token.
+            const sqSq = l.sqrtPriceX96 * l.sqrtPriceX96;
+            if (sqSq === 0n) return null;
+            const weiPerToken = ((10n ** 18n) << 192n) / sqSq;
+            if (weiPerToken === 0n) return null;
+            // v4 Swap.amount* is the caller's delta: positive = tokens flowing OUT of the
+            // pool to the swapper, negative = tokens flowing IN from the swapper. For our
+            // ETH(currency0)/token(currency1) pools, a BUY is +token (amount1 > 0) and a
+            // SELL is +ETH (amount0 > 0). abs the values so recent-trades reads intuitively.
+            const abs = (n: bigint) => (n < 0n ? -n : n);
+            const isBuy = l.amount1 > 0n;
+            return {
+              timestamp: Number(ts),
+              priceWeiPerToken: weiPerToken,
+              sqrtPriceX96: l.sqrtPriceX96,
+              isBuy,
+              eth: abs(l.amount0),
+              tokens: abs(l.amount1),
+              trader: l.sender,
+              blockNumber: l.blockNumber,
+            };
+          })
+          .filter((p): p is NonNullable<typeof p> => p !== null)
+          .sort((a, b) => a.timestamp - b.timestamp);
+        if (cancelled) return;
+        setV4TradePoints(enriched.map((e) => ({ timestamp: e.timestamp, priceWeiPerToken: e.priceWeiPerToken })));
+        // Take the newest swaps first so the recent-trades list shows most recent on top.
+        setV4RecentTrades(
+          enriched
+            .slice()
+            .reverse()
+            .slice(0, 25)
+            .map((e) => ({
+              isBuy: e.isBuy,
+              eth: e.eth,
+              tokens: e.tokens,
+              trader: e.trader,
+              timestamp: e.timestamp,
+            })),
+        );
+        // Freshest v4 spot (highest block wins) — feeds the market-cap fallback.
+        const newest = enriched.reduce<typeof enriched[number] | null>(
+          (best, cur) => (!best || cur.blockNumber > best.blockNumber ? cur : best),
+          null,
+        );
+        if (newest) setV4LatestSqrt(newest.sqrtPriceX96);
+      } catch (err) {
+        console.warn('v4 swap fetch failed', err);
+      }
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [graduated, poolId, poolManagerAddr, publicClient, v4RefetchTick]);
+
+  // Chart consumes curve + v4 points, chronologically merged.
+  const chartPoints = useMemo(() => {
+    const merged = [...tradePoints, ...v4TradePoints].sort((a, b) => a.timestamp - b.timestamp);
+    return merged;
+  }, [tradePoints, v4TradePoints]);
+
+  // Recent-trades ticker + list — merge curve trades (pre-grad) + v4 swaps (post-grad),
+  // newest-first, capped at 25. Without this the list freezes at the graduation point
+  // because curve.Trade events stop firing once the pool takes over.
+  const mergedRecentTrades = useMemo(() => {
+    return [...recentTrades, ...v4RecentTrades]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 25);
+  }, [recentTrades, v4RecentTrades]);
+
   // ---------- Trade panel ----------
   const [side, setSide] = useState<Side>('buy');
   const [inputAmount, setInputAmount] = useState('');
@@ -213,6 +453,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: curveAddress ?? undefined,
     functionName: 'quoteBuy',
     args: [inputWei],
+    chainId: readChainId,
     query: { enabled: !!curveAddress && side === 'buy' && inputWei > 0n, refetchInterval: 6_000 },
   });
   const sellQuote = useReadContract({
@@ -220,6 +461,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: curveAddress ?? undefined,
     functionName: 'quoteSell',
     args: [inputWei],
+    chainId: readChainId,
     query: { enabled: !!curveAddress && side === 'sell' && inputWei > 0n, refetchInterval: 6_000 },
   });
 
@@ -238,6 +480,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
   const needsApproval = side === 'sell' && (curveAllowance as bigint | undefined ?? 0n) < inputWei;
 
+  // Simulations MUST target the same chain the wallet will sign on — otherwise wagmi picks
+  // whatever the wallet is currently on and the sim silently succeeds against the wrong
+  // chain (or fails against a missing contract). Gate sims on wallet-being-on-active-chain
+  // so the "sim failed" banner doesn't fire while the user is mid-chain-switch.
   const buySim = useSimulateContract({
     abi: bondingCurveAbi,
     address: curveAddress ?? undefined,
@@ -245,7 +491,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     args: [slippage],
     value: inputWei,
     account: wallet,
-    query: { enabled: !!curveAddress && !!wallet && side === 'buy' && inputWei > 0n && !graduated },
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && inputWei > 0n && !graduated },
   });
   const sellSim = useSimulateContract({
     abi: bondingCurveAbi,
@@ -253,7 +500,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     functionName: 'sell',
     args: [inputWei, slippage],
     account: wallet,
-    query: { enabled: !!curveAddress && !!wallet && side === 'sell' && inputWei > 0n && !graduated && !needsApproval },
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'sell' && inputWei > 0n && !graduated && !needsApproval },
   });
   const approveSim = useSimulateContract({
     abi: erc20TokenAbi,
@@ -261,11 +509,40 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     functionName: 'approve',
     args: curveAddress ? [curveAddress, 2n ** 256n - 1n] : undefined,
     account: wallet,
-    query: { enabled: !!curveAddress && !!wallet && side === 'sell' && needsApproval },
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'sell' && needsApproval },
   });
 
   const { writeContract, isPending: writePending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash as Hex | undefined });
+
+  // Fire a fresh indexer pull the moment a trade lands so the "recent trades" list + chart
+  // include the user's just-completed tx (indexer refetchInterval is 15s otherwise). Depends
+  // on the receipt hash so it only runs once per successful confirm.
+  useEffect(() => {
+    if (!receipt.data || !curveAddress) return;
+    let cancelled = false;
+    (async () => {
+      const indexed = await fetchTradesForCurve(curveAddress, 500);
+      if (cancelled || !indexed) return;
+      setTradePoints(
+        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
+      );
+      setRecentTrades(
+        indexed.slice().reverse().slice(0, 25).map((t) => ({
+          isBuy: t.isBuy,
+          eth: BigInt(t.ethAmount),
+          tokens: BigInt(t.tokenAmount),
+          trader: t.trader,
+          timestamp: Number(t.blockTimestamp),
+        })),
+      );
+    })();
+    // Also nudge the wagmi cache so curve reserves + wallet balance update in the same beat.
+    curveState.refetch();
+    walletBalQ.refetch();
+    return () => { cancelled = true; };
+  }, [receipt.data?.transactionHash, curveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
     if (side === 'sell' && needsApproval && approveSim.data) {
@@ -278,21 +555,76 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   };
 
   const progressPct = useMemo(() => {
+    // After graduation the curve's ethReserve is drained (all sent to LP), so the raw
+    // ratio would read 0%. Pin the bar to 100% instead — that's the accurate state.
+    if (graduated) return 100;
     if (!ethReserve || !gradTarget) return 0;
     return Math.min(100, Number(((ethReserve as bigint) * 10_000n) / (gradTarget as bigint)) / 100);
-  }, [ethReserve, gradTarget]);
+  }, [graduated, ethReserve, gradTarget]);
 
   const tokensSold = useMemo(() => {
     if (!curveSupply || !tokenReserve) return 0n;
     return (curveSupply as bigint) - (tokenReserve as bigint);
   }, [curveSupply, tokenReserve]);
 
-  const marketCap = useMemo(() => {
-    if (!spotPrice || !tokenTotalSupply) return 0n;
-    return ((spotPrice as bigint) * (tokenTotalSupply as bigint)) / 10n ** 18n;
-  }, [spotPrice, tokenTotalSupply]);
+  // ---- v4 pool state (post-graduation) — slot0 spot read via StateView.
+  // `poolId` + `hookAddr` are defined earlier (near the chart-points effect) so they can
+  // be re-used here without re-computing.
+  const stateView = activeChain ? V4_STATE_VIEWS[activeChain] : null;
+  const slot0Q = useReadContract({
+    abi: v4StateViewAbi,
+    address: (stateView as Address | undefined) ?? undefined,
+    functionName: 'getSlot0',
+    args: poolId ? [poolId] : undefined,
+    chainId: readChainId,
+    query: { enabled: !!poolId && !!stateView && !!graduated, refetchInterval: 8_000 },
+  });
+  const poolSqrtPriceX96 = slot0Q.data?.[0] as bigint | undefined;
+
+  // Uniswap v4 sqrtPriceX96 encodes sqrt(price) × 2^96 where price = amount1/amount0 —
+  // for our ETH(currency0)/token(currency1) pools, that's atomic-tokens per atomic-ETH,
+  // a LARGE number (hundreds of millions of tokens per ETH). To get wei-ETH per WHOLE
+  // token (the number chart + market cap want), we invert:
+  //   price_ratio = (sqrt / 2^96)^2 = sqrt^2 / 2^192
+  //   weiPerWholeToken = 1e18 / price_ratio  = (1e18 * 2^192) / sqrt^2
+  // Direction matters — get it backwards and values blow past lightweight-charts'
+  // ±9e13 safe range (assertion error caught this).
+  const poolSpotPriceEthPerToken = useMemo(() => {
+    // Prefer StateView.getSlot0 (freshest, no log-fetch lag). Fall back to the newest
+    // v4 Swap log's sqrtPriceX96 — necessary when the RPC transport hasn't caught up
+    // with slot0 yet, or when the reader is on a chain where StateView isn't wired.
+    const src = poolSqrtPriceX96 && poolSqrtPriceX96 > 0n ? poolSqrtPriceX96 : v4LatestSqrt;
+    if (!src || src === 0n) return 0n;
+    return ((10n ** 18n) << 192n) / (src * src);
+  }, [poolSqrtPriceX96, v4LatestSqrt]);
+
+  const marketCap = useMemo<bigint | null>(() => {
+    if (!tokenTotalSupply) return null;
+    // Post-graduation: use v4 pool spot × totalSupply. Pre-graduation: use curve spot.
+    // Return null (not 0n) while we're still waiting for a spot to load — otherwise the
+    // header would render "0.0000 Ξ" in the seconds between graduation flipping and slot0
+    // returning, which reads as "worth nothing" instead of "still loading."
+    const spot = graduated ? poolSpotPriceEthPerToken : ((spotPrice as bigint | undefined) ?? 0n);
+    if (spot === 0n) return null;
+    return (spot * (tokenTotalSupply as bigint)) / 10n ** 18n;
+  }, [graduated, poolSpotPriceEthPerToken, spotPrice, tokenTotalSupply]);
 
   // ============================================================================
+
+  // First-paint skeleton: SSR + the very first client render show the same "looking up"
+  // panel so wagmi hydration (which populates chainId + query state asynchronously) can't
+  // cause the mascot to swap moods/sizes mid-hydrate. Once `mounted` flips, we fall through
+  // to whichever real branch matches state below.
+  if (!mounted) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-14 text-center">
+        <Mascot size={64} mood="sleepy" />
+        <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
+          looking up the curve..
+        </div>
+      </div>
+    );
+  }
 
   if (!contracts) {
     return (
@@ -395,7 +727,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             >
               {tokenAddress.slice(0, 6)}…{tokenAddress.slice(-4)}
             </Link>
-            <span>fee: {typeof feeBps === 'bigint' ? `${Number(feeBps) / 100}%` : '—'}</span>
+            <span>fee: {typeof feeBps === 'number' ? `${(feeBps / 100).toFixed(2)}%` : '—'}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -410,7 +742,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 lineHeight: 1.05,
               }}
             >
-              <FlashCell value={marketCap}>
+              <FlashCell value={marketCap ?? undefined}>
                 {typeof marketCap === 'bigint' ? Number(formatEther(marketCap)).toFixed(4) : '—'} Ξ
               </FlashCell>
             </div>
@@ -468,7 +800,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       {/* Live trade ticker */}
       <div style={{ marginBottom: 10 }}>
         <TradeTicker
-          trades={recentTrades.map((t) => ({ isBuy: t.isBuy, eth: t.eth, tokens: t.tokens, trader: t.trader }))}
+          trades={mergedRecentTrades.map((t) => ({ isBuy: t.isBuy, eth: t.eth, tokens: t.tokens, trader: t.trader }))}
           symbol={tokenSymbol as string | undefined}
         />
       </div>
@@ -476,7 +808,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* MAIN — chart + recent trades */}
         <div className="space-y-3">
-          <TradeChart points={tradePoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
+          <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
 
           {/* Recent trades — dense table with header row */}
           <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
@@ -498,10 +830,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                   color: 'var(--anchor-soft)',
                 }}
               >
-                {recentTrades.length} shown
+                {mergedRecentTrades.length} shown
               </span>
             </div>
-            {recentTrades.length === 0 ? (
+            {mergedRecentTrades.length === 0 ? (
               <div
                 style={{
                   padding: 16,
@@ -518,7 +850,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '52px 1fr 1fr 1fr',
+                    gridTemplateColumns: 'minmax(42px, 52px) 1fr 1fr 1fr',
+                    minWidth: 0,
                     gap: 8,
                     padding: '4px 10px',
                     borderBottom: '1px dotted var(--anchor)',
@@ -535,25 +868,28 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                   <span style={{ textAlign: 'right' }}>trader</span>
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {recentTrades.map((t, i) => (
+                  {mergedRecentTrades.map((t, i) => (
                     <li
                       key={i}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '52px 1fr 1fr 1fr',
+                        gridTemplateColumns: 'minmax(42px, 52px) 1fr 1fr 1fr',
+                    minWidth: 0,
                         gap: 8,
                         fontFamily: 'var(--font-pixel), monospace',
                         fontSize: 11,
                         alignItems: 'baseline',
                         padding: '4px 10px',
-                        borderBottom: i === recentTrades.length - 1 ? 'none' : '1px dotted var(--anchor)',
+                        borderBottom: i === mergedRecentTrades.length - 1 ? 'none' : '1px dotted var(--anchor)',
                       }}
                     >
                       <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
                         {t.isBuy ? 'BUY' : 'SELL'}
                       </span>
-                      <span>{Number(formatEther(t.eth)).toFixed(4)}</span>
-                      <span style={{ textAlign: 'right' }}>
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {Number(formatEther(t.eth)).toFixed(4)}
+                      </span>
+                      <span style={{ textAlign: 'right', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                       <Link
@@ -562,6 +898,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                           color: 'var(--link-blue)',
                           textDecoration: 'underline',
                           justifySelf: 'end',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
                         }}
                       >
                         {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
@@ -628,9 +968,31 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             <div style={{ padding: 12 }}>
 
             {graduated ? (
-              <div style={{ padding: 16, textAlign: 'center', background: 'var(--pink-warm)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 13 }}>
-                curve graduated ~~<br />trade on uniswap v4 (phase 3~)
-              </div>
+              <GraduatedPanel
+                chain={activeChain}
+                tokenAddress={tokenAddress}
+                curveAddress={curveAddress}
+                tokenSymbol={(tokenSymbol as string) ?? ''}
+                tokenTotalSupply={(tokenTotalSupply as bigint | undefined) ?? 0n}
+                walletTokenBal={(walletBal as bigint | undefined) ?? 0n}
+                walletOnActiveChain={walletOnActiveChain}
+                onSwitchChain={() => {
+                  if (activeChain) switchChain({ chainId: CHAIN_KEY_TO_ID[activeChain] });
+                }}
+                switchPending={switchPending}
+                poolSpotEthPerToken={poolSpotPriceEthPerToken}
+                onSwapComplete={() => {
+                  // Instant refresh — no 8-30s polling wait. Refetches pool spot
+                  // (slot0Q), wallet balances, and re-triggers the v4 events pull so
+                  // the chart + recent trades show the user's just-completed swap.
+                  slot0Q.refetch();
+                  walletBalQ.refetch();
+                  setV4RefetchTick((n) => n + 1);
+                  // Nudge the v4 events effect by bumping its dep — via the receipt hash
+                  // path we can't reach here, but the 30s interval will catch anything
+                  // the immediate refetch misses.
+                }}
+              />
             ) : (
               <>
                 <label style={{ display: 'block' }}>
@@ -702,22 +1064,43 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
                 <button
                   type="button"
-                  onClick={submit}
-                  disabled={!connectedForRender || inputWei === 0n || writePending || receipt.isLoading}
+                  onClick={() => {
+                    // Wallet on wrong chain? Prompt switch before submitting the trade. Once
+                    // the wallet reports the new chain, `walletOnActiveChain` flips true and
+                    // the button falls through to normal submit behavior.
+                    if (connectedForRender && !walletOnActiveChain && activeChain) {
+                      switchChain({ chainId: CHAIN_KEY_TO_ID[activeChain] });
+                      return;
+                    }
+                    submit();
+                  }}
+                  disabled={
+                    !connectedForRender ||
+                    inputWei === 0n ||
+                    writePending ||
+                    receipt.isLoading ||
+                    switchPending ||
+                    (walletOnActiveChain && side === 'buy' && !buySim.data) ||
+                    (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
+                  }
                   className={side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'}
                   style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
                 >
                   {!connectedForRender
                     ? 'connect wallet'
-                    : writePending
-                      ? 'confirming ~~'
-                      : receipt.isLoading
-                        ? 'waiting..'
-                        : side === 'sell' && needsApproval
-                          ? '✿ approve first'
-                          : side === 'buy'
-                            ? `✿ buy ${(tokenSymbol as string) ?? ''}`
-                            : `sell ${(tokenSymbol as string) ?? ''} ✿`}
+                    : !walletOnActiveChain && activeChain
+                      ? switchPending
+                        ? 'switching..'
+                        : `switch to ${activeChain} ✿`
+                      : writePending
+                        ? 'confirming ~~'
+                        : receipt.isLoading
+                          ? 'waiting..'
+                          : side === 'sell' && needsApproval
+                            ? '✿ approve first'
+                            : side === 'buy'
+                              ? `✿ buy ${(tokenSymbol as string) ?? ''}`
+                              : `sell ${(tokenSymbol as string) ?? ''} ✿`}
                 </button>
 
                 {(buySim.error || sellSim.error) && (
@@ -758,8 +1141,22 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                   {Number(formatUnits(tokensSold, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
               </li>
-              <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}>
-                <span>your balance</span>
+              <li
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}
+                title={
+                  wallet
+                    ? `Balance of ${wallet} — if you use a smart-wallet that submits via a different signer, tokens may sit at the smart account address instead.`
+                    : 'Connect a wallet to see its balance.'
+                }
+              >
+                <span>
+                  connected wallet
+                  {wallet && (
+                    <span style={{ fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)', marginLeft: 4, fontSize: 9 }}>
+                      {wallet.slice(0, 6)}…{wallet.slice(-4)}
+                    </span>
+                  )}
+                </span>
                 <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>
                   {walletBal !== undefined ? Number(formatUnits(walletBal as bigint, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
                 </span>
@@ -778,6 +1175,354 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/// Panel shown on `/trade/[address]` once the underlying BondingCurve has graduated. The
+/// curve is closed for buys/sells at this point; users trade through the v4 pool the
+/// Graduator seeded. Provides a real in-app buy/sell widget backed by V4SwapRouter, plus a
+/// deep-link fallback to Uniswap's swap UI.
+function GraduatedPanel({
+  chain,
+  tokenAddress,
+  curveAddress,
+  tokenSymbol,
+  tokenTotalSupply,
+  walletTokenBal,
+  walletOnActiveChain,
+  onSwitchChain,
+  switchPending,
+  poolSpotEthPerToken,
+  onSwapComplete,
+}: {
+  chain: ChainKey | null;
+  tokenAddress: Address;
+  curveAddress: Address;
+  tokenSymbol: string;
+  tokenTotalSupply: bigint;
+  walletTokenBal: bigint;
+  walletOnActiveChain: boolean;
+  onSwitchChain: () => void;
+  switchPending: boolean;
+  /// Wei-of-ETH per whole token, from the graduated v4 pool's slot0. Used to compute a
+  /// first-order output preview ("you receive ≈ X") — final amount will differ due to
+  /// AMM slippage + hook fees, but this makes the panel feel less blind.
+  poolSpotEthPerToken: bigint;
+  /// Fires the first time a tx receipt lands per unique tx hash. Outer trade page uses
+  /// this to force-refetch pool spot + wallet balance + trade list without waiting for
+  /// the natural polling intervals (8-30s).
+  onSwapComplete: () => void;
+}) {
+  const { address: wallet, isConnected } = useAccount();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const connectedForRender = mounted && isConnected;
+
+  const chainId = chain ? CHAIN_KEY_TO_ID[chain] : undefined;
+  const v4Router = chain ? V4_ROUTERS[chain] : null;
+  const hookAddr = chain ? HOOKS[chain]?.MultiHookHost : undefined;
+
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [amountInput, setAmountInput] = useState('');
+  const [slippagePct, setSlippagePct] = useState('2');
+
+  const inputWei = useMemo(() => {
+    try {
+      return side === 'buy' ? parseEther(amountInput || '0') : parseUnits(amountInput || '0', 18);
+    } catch {
+      return 0n;
+    }
+  }, [side, amountInput]);
+
+  const poolKey = useMemo(() => {
+    if (!hookAddr) return null;
+    return {
+      currency0: '0x0000000000000000000000000000000000000000' as Address,
+      currency1: tokenAddress,
+      fee: 3000,
+      tickSpacing: 60,
+      hooks: hookAddr,
+    };
+  }, [hookAddr, tokenAddress]);
+
+  // Approval check for sells.
+  const allowanceQ = useReadContract({
+    abi: erc20TokenAbi,
+    address: tokenAddress,
+    functionName: 'allowance',
+    args: wallet && v4Router ? [wallet, v4Router] : undefined,
+    chainId,
+    query: { enabled: !!wallet && !!v4Router, refetchInterval: 15_000 },
+  });
+  const currentAllowance = (allowanceQ.data as bigint | undefined) ?? 0n;
+  const needsApproval = side === 'sell' && inputWei > 0n && currentAllowance < inputWei;
+
+  // slippage → minOut is done inside sim to keep it live. Rough: 2% default.
+  const slippageBps = Math.max(0, Math.min(5000, Math.round(Number(slippagePct || '0') * 100)));
+  const minOut = inputWei === 0n ? 0n : (inputWei * BigInt(10_000 - slippageBps)) / 10_000n;
+
+  const buySim = useSimulateContract({
+    abi: v4SwapRouterAbi,
+    address: (v4Router as Address | undefined) ?? undefined,
+    functionName: 'swapExactETHForToken',
+    args: poolKey && wallet ? [poolKey, 1n, wallet] : undefined,
+    value: inputWei,
+    account: wallet,
+    chainId,
+    query: {
+      enabled: !!poolKey && !!v4Router && !!wallet && walletOnActiveChain && side === 'buy' && inputWei > 0n,
+    },
+  });
+  const sellSim = useSimulateContract({
+    abi: v4SwapRouterAbi,
+    address: (v4Router as Address | undefined) ?? undefined,
+    functionName: 'swapExactTokenForETH',
+    args: poolKey && wallet ? [poolKey, inputWei, 1n, wallet] : undefined,
+    account: wallet,
+    chainId,
+    query: {
+      enabled:
+        !!poolKey && !!v4Router && !!wallet && walletOnActiveChain && side === 'sell' && inputWei > 0n && !needsApproval,
+    },
+  });
+  const approveSim = useSimulateContract({
+    abi: erc20TokenAbi,
+    address: tokenAddress,
+    functionName: 'approve',
+    args: v4Router ? [v4Router as Address, 2n ** 256n - 1n] : undefined,
+    account: wallet,
+    chainId,
+    query: { enabled: !!v4Router && !!wallet && walletOnActiveChain && side === 'sell' && needsApproval },
+  });
+
+  const { writeContract, isPending: writePending, data: txHash } = useWriteContract();
+  const receipt = useWaitForTransactionReceipt({ hash: txHash as Hex | undefined });
+
+  // Fire onSwapComplete once per unique receipt hash — the outer trade page refetches
+  // pool state + wallet balance immediately so users see the effect of their swap
+  // without waiting for the polling intervals (8-30s).
+  const notifiedRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const h = receipt.data?.transactionHash;
+    if (!h || h === notifiedRef.current) return;
+    notifiedRef.current = h;
+    onSwapComplete();
+    // Also clear the amount input on successful swap so users don't accidentally re-send.
+    setAmountInput('');
+  }, [receipt.data?.transactionHash, onSwapComplete]);
+
+  const submit = () => {
+    if (side === 'sell' && needsApproval && approveSim.data) {
+      writeContract(approveSim.data.request);
+    } else if (side === 'buy' && buySim.data) {
+      writeContract(buySim.data.request);
+    } else if (side === 'sell' && sellSim.data) {
+      writeContract(sellSim.data.request);
+    }
+  };
+
+  const uniswapUrl = chainId
+    ? `https://app.uniswap.org/swap?chain=${chain}&inputCurrency=NATIVE&outputCurrency=${tokenAddress}&exactField=input`
+    : `https://app.uniswap.org/swap?outputCurrency=${tokenAddress}`;
+
+  if (!v4Router) {
+    return (
+      <div style={{ padding: 16, textAlign: 'center', background: 'var(--pink-warm)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 13 }}>
+        ✿ graduated ✿<br />
+        <span style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
+          V4SwapRouter not deployed on this chain yet — trade on Uniswap:
+        </span><br />
+        <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+          ✦ open Uniswap →
+        </a>
+      </div>
+    );
+  }
+
+  const balanceMax = side === 'sell' ? walletTokenBal : 0n;
+
+  return (
+    <div
+      style={{
+        padding: 14,
+        background: 'linear-gradient(180deg, var(--mint) 0%, var(--paper-base) 100%)',
+        border: '1.5px solid var(--anchor)',
+        boxShadow: '3px 3px 0 var(--anchor)',
+        fontFamily: 'var(--font-round), Klee One, cursive',
+      }}
+    >
+      <div style={{ fontSize: 18, marginBottom: 8 }}>✿ graduated · trade on v4 ✿</div>
+
+      {/* Buy/sell toggle */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        {(['buy', 'sell'] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => { setSide(s); setAmountInput(''); }}
+            className={side === s ? 'uru-btn uru-btn-primary' : 'uru-btn'}
+            style={{ flex: 1, justifyContent: 'center', padding: '4px 8px', fontSize: 12 }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <label style={{ display: 'block' }}>
+        <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+          you pay
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+          <input
+            className="uru-input"
+            type="number"
+            step="0.001"
+            min="0"
+            value={amountInput}
+            onChange={(e) => setAmountInput(e.target.value)}
+            placeholder="0.0"
+            style={{ flex: 1 }}
+          />
+          <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 12, fontWeight: 700 }}>
+            {side === 'buy' ? 'ETH' : tokenSymbol || 'TKN'}
+          </span>
+        </div>
+      </label>
+
+      {/* Sell balance hint + max */}
+      {side === 'sell' && (
+        <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+          <span>bal: {Number(formatUnits(walletTokenBal, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+          <button
+            type="button"
+            onClick={() => setAmountInput(formatUnits(balanceMax, 18))}
+            style={{ background: 'transparent', border: 'none', color: 'var(--link-blue)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline' }}
+          >
+            max
+          </button>
+        </div>
+      )}
+
+      {/* You receive — first-order estimate from pool spot × amount. Real amount differs
+          due to AMM slippage + MultiHookHost's 2% output cut; we render "≈" to be honest. */}
+      <div
+        style={{
+          marginTop: 8,
+          padding: 8,
+          background: 'var(--cream-deep)',
+          border: '1.5px dashed var(--anchor)',
+        }}
+      >
+        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+          you receive (est.)
+        </div>
+        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 16, fontWeight: 700, color: 'var(--anchor)', marginTop: 2 }}>
+          {inputWei === 0n || poolSpotEthPerToken === 0n
+            ? '—'
+            : side === 'buy'
+              ? `≈ ${Number(formatUnits((inputWei * 10n ** 18n) / poolSpotEthPerToken, 18)).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tokenSymbol || 'TKN'}`
+              : `≈ ${Number(formatEther((inputWei * poolSpotEthPerToken) / 10n ** 18n)).toFixed(6)} ETH`}
+        </div>
+        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', marginTop: 2 }}>
+          final differs by slippage + 2% swap fee
+        </div>
+      </div>
+
+      {/* Slippage */}
+      <label style={{ display: 'block', marginTop: 8 }}>
+        <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+          slippage %
+        </span>
+        <input
+          className="uru-input"
+          type="number"
+          step="0.1"
+          min="0"
+          max="50"
+          value={slippagePct}
+          onChange={(e) => setSlippagePct(e.target.value)}
+          style={{ marginTop: 3, width: '100%' }}
+        />
+      </label>
+
+      {/* Submit button */}
+      <button
+        type="button"
+        onClick={() => {
+          if (connectedForRender && !walletOnActiveChain) { onSwitchChain(); return; }
+          submit();
+        }}
+        disabled={
+          !connectedForRender ||
+          inputWei === 0n ||
+          writePending ||
+          receipt.isLoading ||
+          switchPending ||
+          (walletOnActiveChain && side === 'buy' && !buySim.data) ||
+          (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
+        }
+        className={side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'}
+        style={{ width: '100%', justifyContent: 'center', marginTop: 12, padding: '10px 12px', fontSize: 13 }}
+      >
+        {!connectedForRender
+          ? 'connect wallet'
+          : !walletOnActiveChain
+            ? switchPending ? 'switching..' : `switch to ${chain} ✿`
+            : writePending
+              ? 'confirming ~~'
+              : receipt.isLoading
+                ? 'waiting..'
+                : side === 'sell' && needsApproval
+                  ? '✿ approve first'
+                  : side === 'buy'
+                    ? `✿ buy ${tokenSymbol || ''}`
+                    : `sell ${tokenSymbol || ''} ✿`}
+      </button>
+
+      {(buySim.error || sellSim.error) && (
+        <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 10 }}>
+          sim failed: {(buySim.error ?? sellSim.error)?.message.slice(0, 120)}
+        </div>
+      )}
+
+      {/* Fallback link + explorer */}
+      <div
+        style={{
+          marginTop: 12,
+          padding: 8,
+          background: 'var(--cream-deep)',
+          border: '1px dashed var(--anchor)',
+          fontFamily: 'var(--font-pixel), monospace',
+          fontSize: 10,
+          color: 'var(--anchor-soft)',
+          textAlign: 'left',
+          lineHeight: 1.5,
+        }}
+      >
+        <div><b>prefer external UIs?</b></div>
+        <div style={{ marginTop: 4 }}>
+          <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+            open on Uniswap →
+          </a>
+        </div>
+        {chain && (
+          <div style={{ marginTop: 2 }}>
+            <a
+              href={explorerAddressUrl(chain, curveAddress)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+            >
+              curve on explorer →
+            </a>
+          </div>
+        )}
+      </div>
+      {/* Silence unused ref warnings for tokenTotalSupply — kept in the API for a future
+          "your position vs float" line. */}
+      <span style={{ display: 'none' }}>{tokenTotalSupply.toString()}</span>
     </div>
   );
 }

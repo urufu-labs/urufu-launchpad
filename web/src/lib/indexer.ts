@@ -147,6 +147,60 @@ export async function fetchTradesForCurve(curve: Address, limit = 500): Promise<
   return data?.tradess.items ?? null;
 }
 
+/// Post-graduation swaps indexed from Uniswap v4 PoolManager.Swap. Same rough shape as
+/// `IndexerTrade` but sourced from the v4 pool, not the BondingCurve — used by the home
+/// page live rail so post-graduation activity keeps flowing after curves close.
+export interface IndexerV4Swap {
+  id: string;
+  chainId: number;
+  poolId: `0x${string}`;
+  tokenAddress: Address | null;
+  sender: Address;
+  amount0: string;
+  amount1: string;
+  sqrtPriceX96: string;
+  liquidity: string;
+  tick: number;
+  fee: number;
+  priceWeiPerToken: string;
+  blockNumber: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | null> {
+  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+    `query RecentV4Swaps($limit: Int!) {
+      v4Swapss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
+          tick fee priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { limit },
+  );
+  return data?.v4Swapss.items ?? null;
+}
+
+/// Newest trades across every curve on the connected chain, most-recent first. Powers the
+/// home page's "live activity" rail so users see fresh buys/sells landing without opening
+/// a specific trade page.
+export async function fetchRecentTrades(limit = 25): Promise<IndexerTrade[] | null> {
+  const data = await gql<{ tradess: { items: IndexerTrade[] } }>(
+    `query RecentTrades($limit: Int!) {
+      tradess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId curveAddress tokenAddress trader isBuy ethAmount tokenAmount
+          ethReserveAfter tokenReserveAfter priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { limit },
+  );
+  return data?.tradess.items ?? null;
+}
+
 /// Health probe — used by pages to decide whether to try indexer queries at all before
 /// falling back to mocks. Cheap: hits the GraphQL endpoint's introspection.
 export async function isIndexerReachable(): Promise<boolean> {
@@ -208,6 +262,30 @@ export async function fetchTradesByTrader(trader: Address, limit = 200): Promise
     { trader: trader.toLowerCase(), limit },
   );
   return data?.tradess.items ?? null;
+}
+
+/// Batch-look-up launch metadata by tokenAddress. Used by the profile page to render
+/// friendly name/ticker labels for tokens the user traded but didn't launch (their own
+/// launches are already in `fetchLaunchesByCreator`).
+///
+/// Ponder's GraphQL filter uses `<field>_in: [values]`. `tokens` is deduped +
+/// lowercased inside so the caller can pass a raw list.
+export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerLaunch[] | null> {
+  const uniq = Array.from(new Set(tokens.map((t) => t.toLowerCase()))) as Address[];
+  if (uniq.length === 0) return [];
+  const data = await gql<{ launchess: { items: IndexerLaunch[] } }>(
+    `query LaunchesByTokens($tokens: [String!]!) {
+      launchess(where: { tokenAddress_in: $tokens }, limit: 1000) {
+        items {
+          id chainId tokenAddress launchedBy base name ticker configHash feePaid
+          installedHook installedGovernance installedBondingCurve curveAddress
+          blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { tokens: uniq },
+  );
+  return data?.launchess.items ?? null;
 }
 
 /// Current per-token balances for a wallet. Used for the "holdings" strip on the profile.

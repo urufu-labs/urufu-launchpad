@@ -3,24 +3,37 @@ pragma solidity 0.8.26;
 
 import {BaseHook} from "./BaseHook.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
 
 /// @title  MultiHookHost
-/// @notice One deployable hook that combines `LPLocked` + `FeeRedirect` behavior. v4 encodes
-///         the permission mask in the hook ADDRESS, and `PoolKey.hooks` is a single address —
-///         so a pool can only ever point at one hook contract. To ship the launchpad's
-///         "LP locked forever AND fees split to platform/creator" combo, both behaviors have
-///         to live in the same contract at the same address. This is that contract.
-/// @dev    Deploy at an address whose low bits set:
-///           BEFORE_REMOVE_LIQUIDITY_FLAG (1 << 9)
-///         | AFTER_SWAP_FLAG              (1 << 6)
-///         | AFTER_SWAP_RETURNS_DELTA_FLAG (1 << 2)
-///         The HookMiner CREATE2 utility computes the salt.
-contract MultiHookHost is BaseHook, IUnlockCallback {
+/// @notice One deployable hook that hosts every launchpad-side v4 hook feature: LP lock,
+///         fee-redirect to platform + creator, optional anti-sniper gate, optional
+///         buyback-burn on buys. v4 encodes permissions in the hook ADDRESS and only one
+///         hook can attach per pool, so combining behaviours into one contract at one
+///         address is required to ship all of them together.
+///
+/// @dev    Deploy at an address whose low bits match the mask below (HookMiner):
+///           BEFORE_INITIALIZE_FLAG           (1 << 13)
+///         | BEFORE_REMOVE_LIQUIDITY_FLAG     (1 << 9)
+///         | BEFORE_SWAP_FLAG                 (1 << 7)
+///         | AFTER_SWAP_FLAG                  (1 << 6)
+///         | AFTER_SWAP_RETURNS_DELTA_FLAG    (1 << 2)
+///
+///         Per-pool config (anti-sniper window + buyback burn bps) is set via
+///         `setPoolConfig` BEFORE the pool is initialized; once `beforeInitialize` fires,
+///         `launchBlock` is stamped and config is frozen for that pool forever.
+///
+///         Anyone can call `setPoolConfig` in principle — but in practice the Graduator
+///         calls it atomically in the same tx as `initialize`, so there's no window for a
+///         front-runner to plant bad config against a real launch.
+contract MultiHookHost is BaseHook {
+    using PoolIdLibrary for PoolKey;
+
     // ---- LPLocked ----
     error MultiHookHost__LiquidityLocked();
     event MultiHookHostRemoveAttempt(address indexed sender, PoolKey key);
@@ -33,7 +46,18 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
     event FeeAccrued(Currency indexed currency, uint256 platformShare, uint256 creatorShare);
     event FeeClaimed(Currency indexed currency, address indexed to, uint256 amount);
 
-    uint16 public constant MAX_TOTAL_BPS = 3000;
+    // ---- Per-pool config ----
+    error MultiHookHost__ConfigFrozen();
+    error MultiHookHost__BurnBpsTooHigh(uint256 bps);
+    error MultiHookHost__AntiSniperGate(uint256 launchBlock, uint256 gateBlocks);
+
+    event PoolConfigSet(PoolId indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps);
+    event BuybackBurned(Currency indexed currency, uint256 amount);
+
+    /// Chain-wide caps.
+    uint16 public constant MAX_TOTAL_BPS = 3000; // fee-redirect total (platform + creator)
+    uint16 public constant MAX_BUYBACK_BPS = 2000; // per-swap buyback burn slice
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     address public immutable platform;
     address public immutable creator;
@@ -41,6 +65,14 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
     uint16 public immutable creatorBps;
 
     mapping(Currency => mapping(address => uint256)) public owed;
+
+    struct PoolConfig {
+        uint32 launchBlock; // set exactly once at beforeInitialize, freezes config
+        uint32 antiSniperBlocks; // 0 = disabled; swaps revert before launchBlock + N
+        uint16 buybackBurnBps; // 0 = disabled; slice of BUY output tokens sent to BURN_ADDRESS
+    }
+
+    mapping(PoolId => PoolConfig) public poolConfig;
 
     constructor(
         IPoolManager _poolManager,
@@ -60,13 +92,13 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
 
     function getHookPermissions() public pure override returns (Permissions memory) {
         return Permissions({
-            beforeInitialize: false,
+            beforeInitialize: true,
             afterInitialize: false,
             beforeAddLiquidity: false,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: true,
             afterRemoveLiquidity: false,
-            beforeSwap: false,
+            beforeSwap: true,
             afterSwap: true,
             beforeDonate: false,
             afterDonate: false,
@@ -77,7 +109,39 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
         });
     }
 
-    // ---- LPLocked behavior ----
+    // ---------------------------------------------------------------- per-pool config
+
+    /// Set per-pool AntiSniper + BuybackBurn config. Must be called BEFORE
+    /// `poolManager.initialize(key, ...)` for this poolId — after that,
+    /// `beforeInitialize` stamps `launchBlock` and config becomes immutable.
+    ///
+    /// Callable by anyone. Front-run risk is nil in practice because the Graduator does
+    /// setPoolConfig + initialize atomically inside a single `poolManager.unlock` tx.
+    function setPoolConfig(
+        PoolId id,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external {
+        if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
+        if (buybackBurnBps > MAX_BUYBACK_BPS) revert MultiHookHost__BurnBpsTooHigh(buybackBurnBps);
+        poolConfig[id].antiSniperBlocks = antiSniperBlocks;
+        poolConfig[id].buybackBurnBps = buybackBurnBps;
+        emit PoolConfigSet(id, antiSniperBlocks, buybackBurnBps);
+    }
+
+    // ---------------------------------------------------------------- beforeInitialize
+    // Stamp the launch block. This is the freeze signal for setPoolConfig — it can no
+    // longer be updated after this hook fires for a given poolId.
+    function beforeInitialize(
+        address,
+        PoolKey calldata key,
+        uint160
+    ) external override onlyPoolManager returns (bytes4) {
+        poolConfig[key.toId()].launchBlock = uint32(block.number);
+        return this.beforeInitialize.selector;
+    }
+
+    // ---------------------------------------------------------------- LP lock
     function beforeRemoveLiquidity(
         address sender,
         PoolKey calldata key,
@@ -88,7 +152,37 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
         revert MultiHookHost__LiquidityLocked();
     }
 
-    // ---- FeeRedirect behavior ----
+    // ---------------------------------------------------------------- anti-sniper gate
+    function beforeSwap(
+        address,
+        PoolKey calldata key,
+        SwapParams calldata,
+        bytes calldata
+    ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
+        PoolConfig storage cfg = poolConfig[key.toId()];
+        if (cfg.antiSniperBlocks > 0) {
+            // launchBlock is stamped in beforeInitialize; if for some reason a swap
+            // fires before initialize (impossible via v4), launchBlock == 0 and the
+            // opensAt computation would be < block.number, letting the swap through.
+            uint256 opensAt = uint256(cfg.launchBlock) + uint256(cfg.antiSniperBlocks);
+            if (block.number < opensAt) {
+                revert MultiHookHost__AntiSniperGate(cfg.launchBlock, cfg.antiSniperBlocks);
+            }
+        }
+        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    // ---------------------------------------------------------------- fee + buyback
+    /// Handles two behaviors on the swap output side:
+    ///   1. Fee-redirect (existing): platformBps + creatorBps of the unspecified currency
+    ///      accrues to `owed[]` for platform + creator.
+    ///   2. Buyback-burn (new, per-pool): on BUYs only (unspecified currency == currency1
+    ///      = token), an additional `buybackBurnBps` slice is transferred to BURN_ADDRESS.
+    ///
+    /// Both slices come from the SAME raw output amount (before hook adjustments). The
+    /// `poolManager.take` is load-bearing — v4 credits the hook's currency delta with the
+    /// returned int128, and if we don't take the corresponding amount into the hook's
+    /// own balance the unlock reverts with `CurrencyNotSettled`.
     function afterSwap(
         address,
         PoolKey calldata key,
@@ -99,36 +193,56 @@ contract MultiHookHost is BaseHook, IUnlockCallback {
         (Currency unspecCurrency, int128 unspecDelta) = _unspecified(key, params, delta);
         if (unspecDelta <= 0) return (this.afterSwap.selector, 0);
         uint256 outAmount = uint128(unspecDelta);
-        uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
-        uint256 totalFee = (outAmount * totalBps) / 10_000;
-        if (totalFee == 0) return (this.afterSwap.selector, 0);
 
-        uint256 platformShare = (totalFee * platformBps) / totalBps;
-        uint256 creatorShare = totalFee - platformShare;
-        owed[unspecCurrency][platform] += platformShare;
-        owed[unspecCurrency][creator] += creatorShare;
-        emit FeeAccrued(unspecCurrency, platformShare, creatorShare);
-        return (this.afterSwap.selector, int128(int256(totalFee)));
+        uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
+        uint256 fee = (outAmount * totalBps) / 10_000;
+
+        // Buyback-burn only on BUYs — where the swapper receives the token side.
+        // Comparing addresses via `Currency.unwrap` (v4 doesn't overload ==).
+        uint256 burn = 0;
+        PoolConfig storage cfg = poolConfig[key.toId()];
+        if (cfg.buybackBurnBps > 0 && Currency.unwrap(unspecCurrency) == Currency.unwrap(key.currency1)) {
+            burn = (outAmount * uint256(cfg.buybackBurnBps)) / 10_000;
+        }
+
+        uint256 totalTake = fee + burn;
+        if (totalTake == 0) return (this.afterSwap.selector, 0);
+
+        poolManager.take(unspecCurrency, address(this), totalTake);
+
+        if (burn > 0) {
+            unspecCurrency.transfer(BURN_ADDRESS, burn);
+            emit BuybackBurned(unspecCurrency, burn);
+        }
+        if (fee > 0) {
+            uint256 platformShare = (fee * platformBps) / totalBps;
+            uint256 creatorShare = fee - platformShare;
+            owed[unspecCurrency][platform] += platformShare;
+            owed[unspecCurrency][creator] += creatorShare;
+            emit FeeAccrued(unspecCurrency, platformShare, creatorShare);
+        }
+
+        return (this.afterSwap.selector, int128(int256(totalTake)));
     }
 
+    // ---------------------------------------------------------------- claim
+    /// Fee tokens already sit in this contract's balance (pulled during afterSwap).
+    /// Claim is a plain transfer — no unlock/callback dance needed. Currency.transfer
+    /// from v4-core handles both native ETH and ERC-20 recipients.
     function claim(
         Currency currency
     ) external {
         uint256 amount = owed[currency][msg.sender];
         if (amount == 0) revert MultiHookHost__NothingToClaim();
         owed[currency][msg.sender] = 0;
-        poolManager.unlock(abi.encode(currency, msg.sender, amount));
+        currency.transfer(msg.sender, amount);
         emit FeeClaimed(currency, msg.sender, amount);
     }
 
-    function unlockCallback(
-        bytes calldata data
-    ) external returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert BaseHook__NotPoolManager();
-        (Currency currency, address to, uint256 amount) = abi.decode(data, (Currency, address, uint256));
-        poolManager.take(currency, to, amount);
-        return "";
-    }
+    // ---------------------------------------------------------------- misc
+    /// Accept native ETH transfers coming back from `poolManager.take` for the ETH-side
+    /// fee accrual (currency0 = 0x0 pools). Without this the take reverts.
+    receive() external payable {}
 
     function _unspecified(
         PoolKey calldata key,

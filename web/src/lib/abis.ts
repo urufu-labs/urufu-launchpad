@@ -15,7 +15,7 @@ export const OWNERSHIP_MODE = {
 } as const;
 
 /// LaunchParams struct tuple type — kept as a shared reference for typed args.
-export const LAUNCH_PARAMS_TUPLE = '(uint8 base, string name, string ticker, bytes32 configHash, bytes initData, uint256 moduleCount, bool installHook, bool installGovernance, bool installBondingCurve, uint8 ownership, address ownerTargetIfMultisig)' as const;
+export const LAUNCH_PARAMS_TUPLE = '(uint8 base, string name, string ticker, bytes32 configHash, bytes initData, uint256 moduleCount, bool installHook, bool installGovernance, bool installBondingCurve, uint8 ownership, address ownerTargetIfMultisig, uint32 antiSniperBlocks, uint16 buybackBurnBps)' as const;
 
 export const RESERVATION_TUPLE = '(address token, address launchedBy, uint64 timestamp, uint32 chainId, string name, string ticker)' as const;
 
@@ -34,7 +34,7 @@ export const nameRegistryAbi = parseAbi([
 ] as const);
 
 export const routerAbi = parseAbi([
-  `struct LaunchParams { uint8 base; string name; string ticker; bytes32 configHash; bytes initData; uint256 moduleCount; bool installHook; bool installGovernance; bool installBondingCurve; uint8 ownership; address ownerTargetIfMultisig; }`,
+  `struct LaunchParams { uint8 base; string name; string ticker; bytes32 configHash; bytes initData; uint256 moduleCount; bool installHook; bool installGovernance; bool installBondingCurve; uint8 ownership; address ownerTargetIfMultisig; uint32 antiSniperBlocks; uint16 buybackBurnBps; }`,
   `function quote(LaunchParams params) view returns (uint256)`,
   `function launch(LaunchParams params) payable returns (address token)`,
   `function fees(uint8 base) view returns (uint256)`,
@@ -111,4 +111,21 @@ export const royaltyRouterAbi = parseAbi([
   `function platformBps() view returns (uint16)`,
   `function setLauncherPayout(address newPayout)`,
   `function distributeStuck()`,
+] as const);
+
+/// V4SwapRouter — the post-graduation trade widget's write surface. PoolKey struct is
+/// passed as a tuple; solidity-side selectors are `swapExactETHForToken((address,address,uint24,int24,address),uint256,address)`
+/// and `swapExactTokenForETH((address,address,uint24,int24,address),uint256,uint256,address)`.
+export const POOL_KEY_TUPLE =
+  '(address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks)' as const;
+
+export const v4SwapRouterAbi = parseAbi([
+  `function swapExactETHForToken(${POOL_KEY_TUPLE} key, uint256 minOut, address recipient) payable returns (uint256 amountOut)`,
+  `function swapExactTokenForETH(${POOL_KEY_TUPLE} key, uint256 amountIn, uint256 minOut, address recipient) returns (uint256 amountOut)`,
+] as const);
+
+/// Subset of Uniswap v4 `StateView` — enough to read a pool's current price + liquidity.
+export const v4StateViewAbi = parseAbi([
+  `function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)`,
+  `function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)`,
 ] as const);

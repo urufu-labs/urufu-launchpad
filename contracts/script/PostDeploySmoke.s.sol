@@ -83,7 +83,9 @@ contract PostDeploySmoke is Script {
             installGovernance: false,
             installBondingCurve: true,
             ownership: OwnershipMode.Renounce,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
 
         uint256 fee = router.quote(p);
@@ -153,7 +155,9 @@ contract PostDeploySmoke is Script {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
 
         uint256 fee = router.quote(p);
@@ -188,7 +192,9 @@ contract PostDeploySmoke is Script {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
 
         uint256 fee = router.quote(p);

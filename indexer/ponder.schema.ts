@@ -64,12 +64,39 @@ export const trades = onchainTable('trades', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+/// Per-swap row for Uniswap v4 pools spawned by graduation. Same shape as `trades` for
+/// symmetry — the frontend can merge both when building the chart / live rail. `poolId` is
+/// the v4 PoolKey hash; `tokenAddress` is looked up from the graduations table when the
+/// swap fires so the frontend can filter by token without an extra join.
+export const v4Swaps = onchainTable('v4_swaps', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  poolId: t.hex().notNull(),                       // v4 PoolKey hash
+  tokenAddress: t.hex(),                           // resolved via graduations lookup; null if unknown
+  sender: t.hex().notNull(),
+  amount0: t.bigint().notNull(),                   // signed; negative = pool paid out
+  amount1: t.bigint().notNull(),
+  sqrtPriceX96: t.bigint().notNull(),
+  liquidity: t.bigint().notNull(),
+  tick: t.integer().notNull(),
+  fee: t.integer().notNull(),
+  priceWeiPerToken: t.bigint().notNull(),          // derived from sqrtPriceX96
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 /// One row per curve that has graduated. Useful for the "graduated" filter + trophy list.
+/// `poolId` is computed at graduation time from the known PoolKey (ETH + token + fixed
+/// fee/tickSpacing/hook) so the v4Swaps handler can reverse-look-up a swap's token by
+/// poolId without an expensive scan. Populated only when NEXT_PUBLIC_MULTI_HOOK_HOST_ADDRESS
+/// is set for the graduating chain — otherwise stays null and v4 swaps stay orphaned.
 export const graduations = onchainTable('graduations', (t) => ({
   id: t.text().primaryKey(),                       // `${chainId}-${curveAddress}`
   chainId: t.integer().notNull(),
   curveAddress: t.hex().notNull(),
   tokenAddress: t.hex().notNull(),
+  poolId: t.hex(),                                 // keccak256(abi.encode(PoolKey))
   ethReserveFinal: t.bigint().notNull(),
   tokenReserveFinal: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),

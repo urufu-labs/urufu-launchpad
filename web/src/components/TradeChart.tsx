@@ -1,21 +1,30 @@
 'use client';
 
-/// TradingView lightweight-charts wrapper. Takes a list of `TradePoint`s (one per Trade event)
-/// and aggregates them into OHLC candles at a chosen resolution on the fly.
+/// TradingView lightweight-charts wrapper.
 ///
-/// Units note: raw curve prices are ETH-per-token which for a launched memecoin is on the
-/// order of 1e-9 to 1e-6 ETH — lightweight-charts' default 2-decimal formatter rounds those
-/// to "0.00" on the Y-axis, which is why the chart LOOKED broken. We convert every price to
-/// **gwei-per-token** (multiply by 1e9) so the axis + tooltip show real numbers, and pick a
-/// precision high enough to survive further shrinkage on brand-new launches. Kept
-/// intentionally dependency-light: no realtime WebSocket yet, no Ponder-served candles.
+/// Bonding-curve prices don't behave like an order-book market: every trade moves the
+/// price deterministically along the curve, and BETWEEN trades the price is exactly flat.
+/// So OHLC candles are the wrong primitive — they invent open/high/low/close data that
+/// doesn't exist on a curve with a handful of trades, and read as noise or misleading
+/// dojis.
+///
+/// Instead we render a **step-line area chart**: one point per Trade event, price stays
+/// flat until the next trade, then jumps. That's what actually happened on-chain, no
+/// aggregation, no fudged wicks. Colors reflect the trend since the previous point
+/// (green if up, pink if down), matching the buy/sell theme used elsewhere.
+///
+/// Units note: raw curve prices are ETH-per-token in the 1e-9 to 1e-6 ETH range —
+/// lightweight-charts' default formatter would round these to "0.00". We convert every
+/// price to **gwei-per-token** (× 1e9) and auto-tune display precision from the smallest
+/// value in the series.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
+  AreaSeries,
   ColorType,
-  CandlestickSeries,
-  type CandlestickData,
+  LineType,
+  type AreaData,
   type IChartApi,
 } from 'lightweight-charts';
 
@@ -26,49 +35,37 @@ export interface TradePoint {
   priceWeiPerToken: bigint;
 }
 
-const RESOLUTIONS = [
-  { label: '1m', seconds: 60 },
-  { label: '5m', seconds: 300 },
-  { label: '15m', seconds: 900 },
-  { label: '1h', seconds: 3600 },
-] as const;
-type ResolutionSeconds = (typeof RESOLUTIONS)[number]['seconds'];
-
 /// Convert wei-per-token → gwei-per-token as a JS number. Safe because typical launched
 /// tokens sit in the 1e9–1e14 wei-per-token range, well within Number precision.
 function toGwei(weiPerToken: bigint): number {
-  // divide by 1e9 (wei → gwei). We keep sub-gwei precision via Number, since the values
-  // we care about (a few gwei to tens of thousands of gwei) fit cleanly in float64.
   return Number(weiPerToken) / 1e9;
 }
 
-function aggregate(points: TradePoint[], resolutionSeconds: number): CandlestickData[] {
+/// lightweight-charts asserts data values fit in ±(2^53 / 100). Anything outside — from a
+/// broken oracle, an extreme AMM state, or an inverted math bug in the caller — would
+/// crash the whole chart. We clamp so a single bad point can't take the page down.
+const CHART_MAX_ABS = 9e13; // gwei per token; log the drop so bad data is still visible.
+
+/// Turn a Trade stream into a step-line series. De-dupes points that share a timestamp
+/// (multiple trades in the same block: keep the last one — that's the state observers
+/// see when reading the reserve). Sorted ascending by time.
+function toSeries(points: TradePoint[]): AreaData[] {
   if (points.length === 0) return [];
-  const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
-  const buckets = new Map<number, { open: number; high: number; low: number; close: number }>();
+  const sorted = [...points]
+    .filter((p) => p.priceWeiPerToken > 0n)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const byTime = new Map<number, number>();
+  let dropped = 0;
   for (const p of sorted) {
-    if (p.priceWeiPerToken <= 0n) continue; // skip zero-price rows (bad data guard)
-    const bucket = Math.floor(p.timestamp / resolutionSeconds) * resolutionSeconds;
     const price = toGwei(p.priceWeiPerToken);
     if (!Number.isFinite(price) || price <= 0) continue;
-    const existing = buckets.get(bucket);
-    if (!existing) {
-      buckets.set(bucket, { open: price, high: price, low: price, close: price });
-    } else {
-      existing.high = Math.max(existing.high, price);
-      existing.low = Math.min(existing.low, price);
-      existing.close = price;
-    }
+    if (Math.abs(price) > CHART_MAX_ABS) { dropped++; continue; }
+    byTime.set(p.timestamp, price); // later trades at the same second overwrite
   }
-  return Array.from(buckets.entries())
+  if (dropped > 0) console.warn(`TradeChart: dropped ${dropped} out-of-range price points`);
+  return Array.from(byTime.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([time, ohlc]) => ({
-      time: time as CandlestickData['time'],
-      open: ohlc.open,
-      high: ohlc.high,
-      low: ohlc.low,
-      close: ohlc.close,
-    }));
+    .map(([time, value]) => ({ time: time as AreaData['time'], value }));
 }
 
 export function TradeChart({
@@ -84,9 +81,17 @@ export function TradeChart({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const [resolution, setResolution] = useState<ResolutionSeconds>(60);
 
-  const candles = useMemo(() => aggregate(points, resolution), [points, resolution]);
+  const series = useMemo(() => toSeries(points), [points]);
+
+  // Direction of the last move — colors the series green if up-only-or-flat, pink if
+  // the latest trade dropped the price below its predecessor. Cheap eyeball signal.
+  const isUp = useMemo(() => {
+    if (series.length < 2) return true;
+    const last = series[series.length - 1].value;
+    const prev = series[series.length - 2].value;
+    return last >= prev;
+  }, [series]);
 
   // Flash overlay — the animation is keyed on flashCounter so mounting fires the CSS keyframe
   // from the start every time. flashKey drives when to bump the counter; flashSide picks color.
@@ -107,17 +112,16 @@ export function TradeChart({
     }
   }, [flashKey, flashSide]);
 
-  // Auto-tune display precision from the smallest close in the dataset so brand-new
+  // Auto-tune display precision from the smallest value in the series so brand-new
   // launches (tiny gwei) still get readable ticks, while mature curves don't drown in
   // trailing zeros. Precision caps at 8 to match lightweight-charts' internal limit.
   const precision = useMemo(() => {
-    if (candles.length === 0) return 4;
-    const min = Math.min(...candles.map((c) => c.close as number));
+    if (series.length === 0) return 4;
+    const min = Math.min(...series.map((p) => p.value));
     if (!Number.isFinite(min) || min <= 0) return 6;
-    // We want 4–5 significant digits above the noise floor.
     const magnitude = Math.floor(Math.log10(min));
     return Math.max(2, Math.min(8, 4 - magnitude));
-  }, [candles]);
+  }, [series]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -135,35 +139,47 @@ export function TradeChart({
       rightPriceScale: { borderColor: '#3a2c3a' },
       timeScale: { borderColor: '#3a2c3a', timeVisible: true, secondsVisible: false },
       autoSize: true,
+      crosshair: {
+        // horz + vert dashed lines; tooltip in top-left shows the value.
+        horzLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
+        vertLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
+      },
       localization: {
         priceFormatter: (p: number) => p.toFixed(precision),
       },
     });
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#8ee0a0',
-      downColor: '#ff6f9e',
-      borderUpColor: '#3a2c3a',
-      borderDownColor: '#3a2c3a',
-      wickUpColor: '#3a2c3a',
-      wickDownColor: '#3a2c3a',
+    const upColor = '#6bcb77';
+    const downColor = '#e86e84';
+    const line = chart.addSeries(AreaSeries, {
+      lineType: LineType.WithSteps,
+      lineWidth: 2,
+      lineColor: isUp ? upColor : downColor,
+      topColor: isUp ? 'rgba(107, 203, 119, 0.35)' : 'rgba(232, 110, 132, 0.35)',
+      bottomColor: isUp ? 'rgba(107, 203, 119, 0)' : 'rgba(232, 110, 132, 0)',
+      // Show a small marker on every trade point so a single-trade curve isn't invisible.
+      pointMarkersVisible: series.length <= 40,
+      pointMarkersRadius: 3,
       priceFormat: {
         type: 'price',
         precision,
         minMove: 1 / Math.pow(10, precision),
       },
     });
-    series.setData(candles);
+    line.setData(series);
     chart.timeScale().fitContent();
     chartRef.current = chart;
     return () => { chart.remove(); chartRef.current = null; };
-  }, [candles, precision]);
+  }, [series, precision, isUp]);
 
   return (
     <div
+      // Height uses clamp() so the chart is a legible 320px on desktop but folds down to
+      // ~220px on phone-width viewports (below ~640px). Skips a media-query listener +
+      // JS re-render since it's pure CSS.
       style={{
         position: 'relative',
         width: '100%',
-        height: 320,
+        height: 'clamp(220px, 30vw, 320px)',
         border: '1.5px solid var(--anchor)',
         boxShadow: '3px 3px 0 var(--anchor)',
         background: '#fff8e7',
@@ -177,42 +193,6 @@ export function TradeChart({
           height: '100%',
         }}
       />
-      {/* Resolution toggle — top-left pills, sitting under the price-unit label. */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 30,
-          left: 12,
-          display: 'flex',
-          gap: 4,
-          zIndex: 6,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10,
-        }}
-      >
-        {RESOLUTIONS.map((r) => {
-          const active = r.seconds === resolution;
-          return (
-            <button
-              key={r.label}
-              type="button"
-              onClick={() => setResolution(r.seconds)}
-              style={{
-                padding: '2px 6px',
-                border: '1px solid var(--anchor)',
-                background: active ? 'var(--pink-hot)' : 'rgba(255, 248, 231, 0.9)',
-                color: active ? '#fff' : 'var(--anchor)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 'inherit',
-                fontWeight: active ? 700 : 400,
-              }}
-            >
-              {r.label}
-            </button>
-          );
-        })}
-      </div>
       {/* Flash overlay — spans the whole wrapper. No blend mode: canvas + blend behaves
           inconsistently, easier to just tune the alpha directly. */}
       {flashActive && (
@@ -231,7 +211,7 @@ export function TradeChart({
           }}
         />
       )}
-      {/* Unit label — pixel font, top-right, so users know the y-axis scale */}
+      {/* Unit label — pixel font, top-left, so users know the y-axis scale */}
       <div
         style={{
           position: 'absolute',
@@ -246,9 +226,9 @@ export function TradeChart({
           pointerEvents: 'none',
         }}
       >
-        price ✿ gwei per token
+        price ✿ gwei per token · step per trade
       </div>
-      {candles.length === 0 && (
+      {series.length === 0 && (
         <div
           style={{
             position: 'absolute',

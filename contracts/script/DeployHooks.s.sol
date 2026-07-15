@@ -46,11 +46,17 @@ contract DeployHooks is Script {
             bytes memory creation = type(LPLockedHook).creationCode;
             bytes memory args = abi.encode(IPoolManager(poolManager));
             (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 200_000);
-            vm.startBroadcast();
-            LPLockedHook deployed = new LPLockedHook{salt: bytes32(salt)}(IPoolManager(poolManager));
-            vm.stopBroadcast();
-            require(address(deployed) == predicted, "LPLocked salt drift");
-            lpLocked = address(deployed);
+            if (predicted.code.length > 0) {
+                // Same bytecode + same salt → same address. Idempotent redeploy is fine.
+                console2.log("  [skip] LPLockedHook already at predicted address");
+                lpLocked = predicted;
+            } else {
+                vm.startBroadcast();
+                LPLockedHook deployed = new LPLockedHook{salt: bytes32(salt)}(IPoolManager(poolManager));
+                vm.stopBroadcast();
+                require(address(deployed) == predicted, "LPLocked salt drift");
+                lpLocked = address(deployed);
+            }
         }
 
         // FeeRedirectHook: AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
@@ -59,13 +65,18 @@ contract DeployHooks is Script {
             bytes memory creation = type(FeeRedirectHook).creationCode;
             bytes memory args = abi.encode(IPoolManager(poolManager), platform, creator, platformBps, creatorBps);
             (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 200_000);
-            vm.startBroadcast();
-            FeeRedirectHook deployed = new FeeRedirectHook{salt: bytes32(salt)}(
-                IPoolManager(poolManager), platform, creator, platformBps, creatorBps
-            );
-            vm.stopBroadcast();
-            require(address(deployed) == predicted, "FeeRedirect salt drift");
-            feeRedirect = address(deployed);
+            if (predicted.code.length > 0) {
+                console2.log("  [skip] FeeRedirectHook already at predicted address");
+                feeRedirect = predicted;
+            } else {
+                vm.startBroadcast();
+                FeeRedirectHook deployed = new FeeRedirectHook{salt: bytes32(salt)}(
+                    IPoolManager(poolManager), platform, creator, platformBps, creatorBps
+                );
+                vm.stopBroadcast();
+                require(address(deployed) == predicted, "FeeRedirect salt drift");
+                feeRedirect = address(deployed);
+            }
         }
 
         // AntiSniperHook: BEFORE_INITIALIZE_FLAG | BEFORE_SWAP_FLAG.
@@ -75,27 +86,38 @@ contract DeployHooks is Script {
             bytes memory creation = type(AntiSniperHook).creationCode;
             bytes memory args = abi.encode(IPoolManager(poolManager), gateBlocks);
             (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 200_000);
-            vm.startBroadcast();
-            AntiSniperHook deployed = new AntiSniperHook{salt: bytes32(salt)}(IPoolManager(poolManager), gateBlocks);
-            vm.stopBroadcast();
-            require(address(deployed) == predicted, "AntiSniper salt drift");
-            antiSniper = address(deployed);
+            if (predicted.code.length > 0) {
+                console2.log("  [skip] AntiSniperHook already at predicted address");
+                antiSniper = predicted;
+            } else {
+                vm.startBroadcast();
+                AntiSniperHook deployed = new AntiSniperHook{salt: bytes32(salt)}(IPoolManager(poolManager), gateBlocks);
+                vm.stopBroadcast();
+                require(address(deployed) == predicted, "AntiSniper salt drift");
+                antiSniper = address(deployed);
+            }
         }
 
-        // MultiHookHost: BEFORE_REMOVE_LIQUIDITY | AFTER_SWAP | AFTER_SWAP_RETURNS_DELTA.
+        // MultiHookHost v2: adds BEFORE_INITIALIZE (stamp launchBlock) + BEFORE_SWAP
+        // (per-pool anti-sniper gate) on top of the original three. Mask = 0x22C4.
         {
-            uint160 requiredFlags =
-                Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+            uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
             bytes memory creation = type(MultiHookHost).creationCode;
             bytes memory args = abi.encode(IPoolManager(poolManager), platform, creator, platformBps, creatorBps);
             (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000);
-            vm.startBroadcast();
-            MultiHookHost deployed = new MultiHookHost{salt: bytes32(salt)}(
-                IPoolManager(poolManager), platform, creator, platformBps, creatorBps
-            );
-            vm.stopBroadcast();
-            require(address(deployed) == predicted, "MultiHookHost salt drift");
-            multiHookHost = address(deployed);
+            if (predicted.code.length > 0) {
+                console2.log("  [skip] MultiHookHost already at predicted address");
+                multiHookHost = predicted;
+            } else {
+                vm.startBroadcast();
+                MultiHookHost deployed = new MultiHookHost{salt: bytes32(salt)}(
+                    IPoolManager(poolManager), platform, creator, platformBps, creatorBps
+                );
+                vm.stopBroadcast();
+                require(address(deployed) == predicted, "MultiHookHost salt drift");
+                multiHookHost = address(deployed);
+            }
         }
 
         // BuybackBurnHook: AFTER_SWAP | AFTER_SWAP_RETURNS_DELTA.
@@ -109,13 +131,18 @@ contract DeployHooks is Script {
             bytes memory creation = type(BuybackBurnHook).creationCode;
             bytes memory args = abi.encode(IPoolManager(poolManager), Currency.wrap(placeholderToken), burnBps);
             (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000);
-            vm.startBroadcast();
-            BuybackBurnHook deployed = new BuybackBurnHook{salt: bytes32(salt)}(
-                IPoolManager(poolManager), Currency.wrap(placeholderToken), burnBps
-            );
-            vm.stopBroadcast();
-            require(address(deployed) == predicted, "BuybackBurn salt drift");
-            buybackBurn = address(deployed);
+            if (predicted.code.length > 0) {
+                console2.log("  [skip] BuybackBurnHook already at predicted address");
+                buybackBurn = predicted;
+            } else {
+                vm.startBroadcast();
+                BuybackBurnHook deployed = new BuybackBurnHook{salt: bytes32(salt)}(
+                    IPoolManager(poolManager), Currency.wrap(placeholderToken), burnBps
+                );
+                vm.stopBroadcast();
+                require(address(deployed) == predicted, "BuybackBurn salt drift");
+                buybackBurn = address(deployed);
+            }
         }
 
         console2.log("=========================================================");

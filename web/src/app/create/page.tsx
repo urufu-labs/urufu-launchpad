@@ -46,6 +46,7 @@ import {
 } from '@/lib/modules';
 import { encodeModuleSlice } from '@/components/ModulePicker';
 import { persistMetadata, readFileAsDataUrl, type TokenMetadata } from '@/lib/metadata';
+import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
@@ -124,10 +125,36 @@ export default function CreatePage() {
     }
   }
 
+  // Touch devices: skip DnD entirely — tap "add to basket" is the mobile-first UX so we
+  // don't want the whole card acting as a drag handle (a tap that doesn't reach a drop
+  // zone reads as a broken interaction). Desktop keeps the drag-to-basket flair.
+  const coarsePointer = useCoarsePointer();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   // Shop shelf shows only shipped modules — planned ones (B20 compliance tier etc.) live in
   // /catalog so ppl can still see they're on the roadmap without clogging the launch flow.
-  const available = useMemo(() => shippedModulesForBase(base), [base]);
+  //
+  // The platform MultiHookHost (LP lock + creator fee split) is baked into every
+  // graduated pool — users can't opt out and can't reconfigure the always-on parts.
+  // We therefore hide LPLocked / FeeRedirect / MultiHookHost from the shelf (they'd
+  // be no-op picks).
+  //
+  // AntiSniper + BuybackBurn ARE per-launch: the shop sends their params to the
+  // Router, Router forwards to CurveFactory.createCurveWithConfig, and the Graduator
+  // writes them onto the pool via MultiHookHost.setPoolConfig at graduation. Show
+  // them only when the launcher picks a bonding curve (direct-mint tokens never
+  // graduate → no pool → these would do nothing).
+  const ALWAYS_ON_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
+  const PER_LAUNCH_HOOKS = new Set(['AntiSniper', 'BuybackBurn']);
+  const available = useMemo(
+    () =>
+      shippedModulesForBase(base).filter((m) => {
+        if (m.category !== 'hook') return true;
+        if (ALWAYS_ON_HOOKS.has(m.id)) return false;
+        if (PER_LAUNCH_HOOKS.has(m.id)) return mechanic === 'bonding-curve';
+        return false;
+      }),
+    [base, mechanic],
+  );
 
   /// True blockers only — module can't coexist with something already in the basket.
   /// Missing `requires` is NOT a block; picking a module auto-adds its deps.
@@ -225,7 +252,14 @@ export default function CreatePage() {
     query: { enabled: !!contracts && ticker.trim().length >= 2, staleTime: 3_000 },
   });
 
-  const configHash = useMemo(() => configHashFor(base, selectedModules), [base, selectedModules]);
+  // Hook modules (LPLocked, FeeRedirect, AntiSniper, MultiHookHost, BuybackBurn) attach to
+  // the Uniswap v4 pool at graduation — they are NOT baked into the token template. Exclude
+  // them from the hash + the template moduleData so the factory can find the right impl.
+  const templateModuleIds = useMemo(
+    () => selectedModules.filter((id) => moduleById(id)?.category !== 'hook'),
+    [selectedModules],
+  );
+  const configHash = useMemo(() => configHashFor(base, templateModuleIds), [base, templateModuleIds]);
   const factoryAddress = contracts
     ? base === 'ERC20'
       ? contracts.ERC20Factory
@@ -265,13 +299,14 @@ export default function CreatePage() {
   }, [maxSupplyInput]);
 
   const moduleDataArray = useMemo<Hex[]>(() => {
-    const sorted = [...selectedModules].sort((a, b) => a.localeCompare(b));
+    // Match the on-chain expectation: sorted by id, template modules only (hooks excluded).
+    const sorted = [...templateModuleIds].sort((a, b) => a.localeCompare(b));
     return sorted.map((id) => {
       const mod = moduleById(id);
       if (!mod) return '0x' as Hex;
       return encodeModuleSlice(mod, moduleParams[id] ?? {});
     });
-  }, [selectedModules, moduleParams]);
+  }, [templateModuleIds, moduleParams]);
 
   const initData = useMemo(() => {
     if (base === 'ERC20')
@@ -289,6 +324,25 @@ export default function CreatePage() {
 
   const multisigValid = ownership !== 'TransferToMultisig' || isAddress(multisigTarget);
 
+  // Per-launch hook config — read straight out of the ModulePicker's param state.
+  // Only meaningful when useCurve is true (Router revert-guards on non-bonding-curve
+  // launches too, but the frontend should send zeros to keep the invariant obvious).
+  const antiSniperBlocks = useMemo<number>(() => {
+    if (!useCurve || !selectedModules.includes('AntiSniper')) return 0;
+    const raw = moduleParams['AntiSniper']?.gateBlocks;
+    const n = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }, [useCurve, selectedModules, moduleParams]);
+
+  const buybackBurnBps = useMemo<number>(() => {
+    if (!useCurve || !selectedModules.includes('BuybackBurn')) return 0;
+    const raw = moduleParams['BuybackBurn']?.burnBps;
+    const pct = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(pct) || pct <= 0) return 0;
+    // percent → bps, capped at MAX_BUYBACK_BPS = 2000 (matches MultiHookHost).
+    return Math.min(2000, Math.floor(pct * 100));
+  }, [useCurve, selectedModules, moduleParams]);
+
   const params = useMemo(
     () =>
       ({
@@ -297,15 +351,17 @@ export default function CreatePage() {
         ticker,
         configHash,
         initData,
-        moduleCount: BigInt(Math.max(1, selectedModules.length)),
+        moduleCount: BigInt(Math.max(1, templateModuleIds.length)),
         installHook: false,
         installGovernance: false,
         installBondingCurve: useCurve,
         ownership: useCurve ? OWNERSHIP_TO_UINT.Renounce : OWNERSHIP_TO_UINT[ownership],
         ownerTargetIfMultisig:
           !useCurve && ownership === 'TransferToMultisig' && multisigValid ? (multisigTarget as Address) : zeroAddress,
+        antiSniperBlocks,
+        buybackBurnBps,
       }) as const,
-    [base, name, ticker, configHash, initData, selectedModules.length, ownership, multisigTarget, multisigValid, useCurve],
+    [base, name, ticker, configHash, initData, templateModuleIds.length, ownership, multisigTarget, multisigValid, useCurve, antiSniperBlocks, buybackBurnBps],
   );
 
   const quote = useReadContract({
@@ -635,9 +691,29 @@ export default function CreatePage() {
                       blockedReason={blockedReasons[mod.id] ?? ''}
                       bundleWith={bundleHints[mod.id] ?? []}
                       onQuickAdd={() => addModule(mod.id)}
+                      draggable={!coarsePointer}
                     />
                   ))}
                 </div>
+                {base === 'ERC20' && mechanic === 'bonding-curve' && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: 10,
+                      background: 'var(--mint)',
+                      border: '1.5px dashed var(--anchor)',
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      fontFamily: 'var(--font-round), Klee One, cursive',
+                    }}
+                  >
+                    ✿ <b>on graduation</b>, ur curve auto-installs the platform hook:{' '}
+                    <b>LP locked forever</b> on Uniswap v4 + <b>1% creator fee</b> on every
+                    swap (claim it anytime from ur profile). opt-in extras from the shelf —{' '}
+                    <b>sniper gate</b> + <b>buy → burn</b> — get wired into the same pool at
+                    graduation using the params u picked ~
+                  </div>
+                )}
               </div>
             </section>
 
@@ -996,16 +1072,20 @@ function ShelfItem({
   blockedReason,
   bundleWith,
   onQuickAdd,
+  draggable,
 }: {
   mod: ModuleSpec;
   tilt: 'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2';
   blockedReason: string;
   bundleWith: string[];
   onQuickAdd: () => void;
+  /// Desktop = true; touch = false. When false the card renders as plain UI (no drag
+  /// handle, no grab cursor) and the "add to basket" button is the only entry point.
+  draggable: boolean;
 }) {
   const planned = mod.status === 'planned';
   const blocked = blockedReason.length > 0;
-  const disabled = planned || blocked;
+  const disabled = planned || blocked || !draggable;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `shelf-${mod.id}`,
     data: { moduleId: mod.id },
@@ -1037,9 +1117,10 @@ function ShelfItem({
       data-planned={disabled}
       title={blockedReason || undefined}
       style={{
-        cursor: disabled ? 'not-allowed' : 'grab',
+        cursor: !draggable ? 'default' : disabled ? 'not-allowed' : 'grab',
         opacity: blocked ? 0.42 : undefined,
         filter: blocked ? 'grayscale(0.85)' : undefined,
+        touchAction: draggable ? undefined : 'auto',
       }}
     >
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>

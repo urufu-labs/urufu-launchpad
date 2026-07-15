@@ -96,18 +96,8 @@ function toggleStyle(isDark: boolean): React.CSSProperties {
   };
 }
 
-/// Inline bootstrap that runs before React hydration to prevent a light→dark FOUC. Must
-/// be rendered as-is (dangerouslySetInnerHTML) inside <head> in the root layout.
-export const themeBootstrapScript = `
-(function() {
-  try {
-    var stored = localStorage.getItem('${STORAGE_KEY}');
-    var theme = stored === 'dark' || stored === 'light'
-      ? stored
-      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    document.documentElement.setAttribute('data-theme', theme);
-  } catch (e) {
-    document.documentElement.setAttribute('data-theme', 'light');
-  }
-})();
-`;
+// The inline bootstrap that used to live here has moved to `web/public/theme-bootstrap.js`
+// so the root layout can reference it via <script src>. Next 16 flags every <script> node
+// rendered from a component (dangerouslySetInnerHTML included), so keeping it as an
+// external static asset sidesteps the warning entirely. STORAGE_KEY above stays the source
+// of truth for the storage slot; update both if you ever rename it.

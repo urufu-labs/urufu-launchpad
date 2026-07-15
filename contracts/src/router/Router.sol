@@ -13,6 +13,11 @@ interface ICurveFactoryLike {
     function createCurve(
         address token
     ) external returns (address curve);
+    function createCurveWithConfig(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external returns (address curve);
     function defaultCurveSupply() external view returns (uint256);
 }
 
@@ -192,7 +197,9 @@ contract Router is Ownable, ReentrancyGuard {
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
-            address curve = ICurveFactoryLike(curveFactory).createCurve(token);
+            address curve = ICurveFactoryLike(curveFactory).createCurveWithConfig(
+                token, params.antiSniperBlocks, params.buybackBurnBps
+            );
             emit CurveInstalled(token, curve);
         }
 

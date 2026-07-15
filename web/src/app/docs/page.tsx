@@ -203,6 +203,25 @@ export default function DocsPage() {
           contract so removing liquidity literally reverts (aka refuses to happen). if
           someone tells u urufu tokens can be rugged, they are wrong ~~
         </Callout>
+
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 12, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ opt-in extras u can turn on at launch</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>
+              <b>sniper gate</b> — first N blocks after ur pool opens, buys + sells revert. gives
+              real ppl a moment to catch up before bots front-run the launch. auto-expires ~
+            </li>
+            <li>
+              <b>buy → burn</b> — every buy on uniswap sends a slice (up to 20%) of the incoming
+              tokens straight to 0x…dead. supply shrinks a lil every trade — pure deflation
+              flywheel.
+            </li>
+          </ul>
+          <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+            u pick these in the shop when ur launching with a bonding curve. once the curve
+            graduates, the settings get baked into the uniswap pool + can&apos;t be changed ~
+          </p>
+        </div>
       </Section>
 
       {/* ================================================================

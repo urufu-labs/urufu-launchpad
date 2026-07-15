@@ -97,12 +97,31 @@ contract CurveFactory is Ownable {
         emit GraduatorSet(graduator_);
     }
 
-    /// @notice Deploy a curve for `token`. Caller must have approved the factory to pull
-    ///         `defaultCurveSupply` tokens (or must transfer them to the curve after this
-    ///         call). Enforced pre-check: caller balance ≥ supply so we fail fast.
+    /// @notice Deploy a curve for `token` with default (no-op) hook config. Convenience
+    ///         wrapper for callers that don't care about anti-sniper / buyback-burn.
     function createCurve(
         address token
     ) external returns (address curve) {
+        return _createCurve(token, 0, 0);
+    }
+
+    /// @notice Deploy a curve for `token` with per-launch hook config. `antiSniperBlocks`
+    ///         and `buybackBurnBps` are forwarded to the Graduator at graduation time and
+    ///         from there into MultiHookHost.setPoolConfig for the resulting v4 pool.
+    ///         Bounded server-side by MultiHookHost's MAX_BUYBACK_BPS (2000 = 20%).
+    function createCurveWithConfig(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external returns (address curve) {
+        return _createCurve(token, antiSniperBlocks, buybackBurnBps);
+    }
+
+    function _createCurve(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) internal returns (address curve) {
         if (token == address(0)) revert CurveFactory__ZeroAddress();
         if (curveFor[token] != address(0)) revert CurveFactory__CurveExists(token);
 
@@ -129,7 +148,9 @@ contract CurveFactory is Ownable {
                 defaultVirtualEthReserve,
                 defaultGraduationTargetEth,
                 defaultTradeFeeBps,
-                graduator
+                graduator,
+                antiSniperBlocks,
+                buybackBurnBps
             );
 
         emit CurveCreated(token, curve, msg.sender);

@@ -86,7 +86,9 @@ contract RouterTest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.Renounce,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
     }
 

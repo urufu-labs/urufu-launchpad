@@ -21,6 +21,7 @@ import { useAccount } from 'wagmi';
 import { Mascot } from '@/components/Mascot';
 import {
   fetchLaunchesByCreator,
+  fetchLaunchesByTokens,
   fetchTradesByTrader,
   fetchHoldingsByAddress,
   type IndexerLaunch,
@@ -60,6 +61,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
   const [trades, setTrades] = useState<IndexerTrade[] | null>(null);
   const [holdings, setHoldings] = useState<IndexerHolding[] | null>(null);
+  const [tokenMeta, setTokenMeta] = useState<Record<string, { name: string; ticker: string }>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -75,10 +77,41 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       setLaunches(l);
       setTrades(t);
       setHoldings(h);
+
+      // Build friendly name/ticker map for every token this wallet touches, so the
+      // activity + positions + holdings lists render "URUFU" instead of "0x74…f462".
+      // Tokens the user launched themselves are already in `l`; anything else needs
+      // a second fetch. Batched with a single `_in` query.
+      const meta: Record<string, { name: string; ticker: string }> = {};
+      const seed = (rows: IndexerLaunch[] | null | undefined) => {
+        for (const r of rows ?? []) {
+          meta[r.tokenAddress.toLowerCase()] = { name: r.name, ticker: r.ticker };
+        }
+      };
+      seed(l);
+      const traded = new Set((t ?? []).map((tr) => tr.tokenAddress.toLowerCase()));
+      const held = new Set((h ?? []).map((hh) => hh.tokenAddress.toLowerCase()));
+      const missing = [...new Set([...traded, ...held])].filter((addr) => !meta[addr]) as Address[];
+      if (missing.length > 0) {
+        const extra = await fetchLaunchesByTokens(missing);
+        if (cancelled) return;
+        seed(extra);
+      }
+      setTokenMeta(meta);
+
       setLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [address, isValid]);
+
+  // Renders a friendly ticker (uppercase) for a token if the indexer has it, falling
+  // back to the shortened address otherwise. Ticker fits the tight columns better than
+  // name; hover shows the full name + address for disambiguation.
+  function tokenLabel(addr: Address): { display: string; full: string } {
+    const meta = tokenMeta[addr.toLowerCase()];
+    if (meta) return { display: meta.ticker || meta.name, full: `${meta.name} (${meta.ticker}) — ${addr}` };
+    return { display: `${addr.slice(0, 6)}…${addr.slice(-4)}`, full: addr };
+  }
 
   const positions: Position[] = useMemo(() => computePositions(trades ?? []), [trades]);
   const realizedTotal = useMemo(() => positions.reduce((sum, p) => sum + p.realizedPnl, 0n), [positions]);
@@ -293,7 +326,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                 {launches.map((l) => (
                   <Link
                     key={l.id}
-                    href={l.installedBondingCurve ? `/trade/${l.tokenAddress}` : `/catalog#${l.tokenAddress}`}
+                    href={`/trade/${l.tokenAddress}`}
                     className="uru-shell-tight uru-launch-card"
                     style={{
                       textDecoration: 'none',
@@ -376,18 +409,24 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
                       }}
                     >
-                      <Link
-                        href={`/trade/${p.tokenAddress}`}
-                        style={{
-                          color: 'var(--link-blue)',
-                          textDecoration: 'underline',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {p.tokenAddress.slice(0, 6)}…{p.tokenAddress.slice(-4)}
-                      </Link>
+                      {(() => {
+                        const lbl = tokenLabel(p.tokenAddress);
+                        return (
+                          <Link
+                            href={`/trade/${p.tokenAddress}`}
+                            title={lbl.full}
+                            style={{
+                              color: 'var(--link-blue)',
+                              textDecoration: 'underline',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {lbl.display}
+                          </Link>
+                        );
+                      })()}
                       <span title="buys · sells">
                         <span style={{ color: 'var(--mint-hot,#2b8a3e)' }}>{p.buyCount}b</span>
                         {' · '}
@@ -467,12 +506,18 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                       </span>
                       <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} Ξ</span>
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Link
-                          href={`/trade/${t.tokenAddress}`}
-                          style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-                        >
-                          {t.tokenAddress.slice(0, 6)}…{t.tokenAddress.slice(-4)}
-                        </Link>
+                        {(() => {
+                          const lbl = tokenLabel(t.tokenAddress);
+                          return (
+                            <Link
+                              href={`/trade/${t.tokenAddress}`}
+                              title={lbl.full}
+                              style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                            >
+                              {lbl.display}
+                            </Link>
+                          );
+                        })()}
                       </span>
                       <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
                         {formatAgo(Number(t.blockTimestamp) * 1000)}
@@ -528,12 +573,18 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         fontSize: 10.5,
                       }}
                     >
-                      <Link
-                        href={`/trade/${h.tokenAddress}`}
-                        style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-                      >
-                        {h.tokenAddress.slice(0, 6)}…{h.tokenAddress.slice(-4)}
-                      </Link>
+                      {(() => {
+                        const lbl = tokenLabel(h.tokenAddress);
+                        return (
+                          <Link
+                            href={`/trade/${h.tokenAddress}`}
+                            title={lbl.full}
+                            style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                          >
+                            {lbl.display}
+                          </Link>
+                        );
+                      })()}
                       <span>
                         {Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>

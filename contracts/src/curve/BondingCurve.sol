@@ -9,7 +9,9 @@ interface IGraduator {
     function execute(
         address token,
         uint256 ethAmount,
-        uint256 tokenAmount
+        uint256 tokenAmount,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
     ) external payable;
 }
 
@@ -72,6 +74,12 @@ contract BondingCurve is ReentrancyGuard {
     /// flags the curve done and holds funds for a keeper to withdraw later.
     address public graduator;
 
+    /// Per-launch anti-sniper + buyback-burn config, passed to the Graduator (and by it
+    /// into MultiHookHost.setPoolConfig) at graduation time. Zero for either = feature
+    /// disabled for the resulting v4 pool.
+    uint32 public antiSniperBlocks;
+    uint16 public buybackBurnBps;
+
     // ============================================================
     // Live state
     // ============================================================
@@ -91,7 +99,9 @@ contract BondingCurve is ReentrancyGuard {
         uint256 virtualEthReserve_,
         uint256 graduationTargetEth_,
         uint16 tradeFeeBps_,
-        address graduator_
+        address graduator_,
+        uint32 antiSniperBlocks_,
+        uint16 buybackBurnBps_
     ) external {
         if (_initialized != 0) revert BondingCurve__AlreadyInitialized();
         _initialized = 1;
@@ -105,6 +115,8 @@ contract BondingCurve is ReentrancyGuard {
         graduationTargetEth = graduationTargetEth_;
         tradeFeeBps = tradeFeeBps_;
         graduator = graduator_;
+        antiSniperBlocks = antiSniperBlocks_;
+        buybackBurnBps = buybackBurnBps_;
 
         tokenReserve = curveSupply_;
         ethReserve = 0;
@@ -241,7 +253,9 @@ contract BondingCurve is ReentrancyGuard {
             ethReserve = 0;
             tokenReserve = 0;
             SafeTransferLib.safeApprove(token, graduator, tokenOut);
-            IGraduator(graduator).execute{value: ethOut}(token, ethOut, tokenOut);
+            IGraduator(graduator).execute{value: ethOut}(
+                token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps
+            );
         }
     }
 

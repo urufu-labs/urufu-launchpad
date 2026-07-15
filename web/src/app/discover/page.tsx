@@ -2,23 +2,28 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { formatEther, parseEther } from 'viem';
+import { formatEther } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import {
-  mocksForChain,
   mockMarketCapEth,
   mockProgressPct,
+  launchKind,
+  tradeCountOf,
   type MockLaunch,
+  type LaunchKind,
 } from '@/lib/mockLaunches';
+import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import { fetchRecentLaunches, fetchCurveByToken, type IndexerLaunch } from '@/lib/indexer';
+import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata } from '@/lib/metadata';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 
-type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all';
+// 'direct' switches the pool to direct-mint tokens; every other filter operates on curve
+// tokens only (progress / mcap / graduation are curve concepts).
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all' | 'direct';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -27,51 +32,29 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'near-graduation', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
   { id: 'all', label: 'all', jp: '全部' },
+  { id: 'direct', label: 'direct mint', jp: '直接' },
 ];
 
-const NOW = 1_780_000_000; // static "now" so it matches deterministic mock timestamps
-function ago(ts: number): string {
-  const s = NOW - ts;
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
+// Relative-time formatting has moved to `useAgo` — a hook that returns null on SSR to
+// avoid hydration mismatch, then real "12s / 3m / 2h / 5d" strings post-mount, ticking
+// every 30s. Legacy static NOW here caused live launches (post-2026-06) to render as
+// negative time since they happened after the frozen constant.
 
 export default function DiscoverPage() {
   const activeChain = useActiveChain();
   const activeChainId = CHAIN_KEY_TO_ID[activeChain];
   const [filter, setFilter] = useState<Filter>('trending');
   const [query, setQuery] = useState('');
-  const [indexerLaunches, setIndexerLaunches] = useState<MockLaunch[] | null>(null);
-  const [indexerChecked, setIndexerChecked] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const rows = await fetchRecentLaunches(40);
-      if (cancelled) return;
-      if (!rows || rows.length === 0) { setIndexerChecked(true); return; }
-      const curveRows = rows.filter((r) => r.installedBondingCurve && r.curveAddress);
-      if (curveRows.length === 0) { setIndexerChecked(true); return; }
-      const mapped = await Promise.all(curveRows.map((r) => indexerLaunchToMock(r)));
-      if (!cancelled) {
-        setIndexerLaunches(mapped.filter((l): l is MockLaunch => l !== null));
-        setIndexerChecked(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const chainMocks = useMemo(() => mocksForChain(activeChainId), [activeChainId]);
-  const chainIndexed = useMemo(
-    () => (indexerLaunches ? indexerLaunches.filter((l) => l.chainId === activeChainId) : null),
-    [indexerLaunches, activeChainId],
-  );
-  const source = chainIndexed ?? chainMocks;
+  // Unified feed: indexer-backed for live chains, mocks for preview chains.
+  const feed = useLaunchFeed(activeChainId);
+  const indexerChecked = feed.ready;
+  const indexerLaunches = feed.source === 'indexer' ? feed.launches : null;
+  const source = feed.launches;
 
   const filtered = useMemo(() => {
-    let list = source.slice();
+    // 'direct' filter narrows to direct-mint tokens; every other filter is curve-only.
+    const wantKind: LaunchKind = filter === 'direct' ? 'direct' : 'curve';
+    let list = source.filter((l) => launchKind(l) === wantKind);
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -83,7 +66,7 @@ export default function DiscoverPage() {
     }
     switch (filter) {
       case 'trending':
-        list.sort((a, b) => b.trades.length - a.trades.length);
+        list.sort((a, b) => tradeCountOf(b) - tradeCountOf(a));
         break;
       case 'new':
         list.sort((a, b) => b.launchedAt - a.launchedAt);
@@ -97,6 +80,9 @@ export default function DiscoverPage() {
         break;
       case 'graduated':
         list = list.filter((l) => l.graduated);
+        break;
+      case 'direct':
+        list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
       case 'all':
       default:
@@ -245,36 +231,6 @@ export default function DiscoverPage() {
       )}
     </div>
   );
-}
-
-/// Map an indexer launch (+ its curve state) to the same MockLaunch shape the feed already
-/// renders, so the same LaunchCard works for both. Only used on the client after mount.
-async function indexerLaunchToMock(row: IndexerLaunch): Promise<MockLaunch | null> {
-  if (!row.curveAddress) return null;
-  const curve = await fetchCurveByToken(row.tokenAddress);
-  if (!curve) return null;
-  const b = (s: string) => BigInt(s);
-  return {
-    chainId: row.chainId,
-    address: row.tokenAddress,
-    name: row.name || row.ticker,
-    ticker: row.ticker,
-    description: '',
-    logoBg: '#c9e6ff',
-    logoEmoji: '✿',
-    creator: row.launchedBy,
-    launchedAt: Number(row.blockTimestamp),
-    ethReserve: b(curve.ethReserve),
-    tokenReserve: b(curve.tokenReserve),
-    virtualEthReserve: b(curve.virtualEthReserve),
-    virtualTokenReserve: b(curve.virtualTokenReserve),
-    graduationTargetEth: b(curve.graduationTargetEth),
-    curveSupply: b(curve.curveSupply),
-    totalSupply: parseEther('1000000000'),
-    tradeFeeBps: curve.tradeFeeBps,
-    graduated: curve.graduated,
-    trades: [],
-  };
 }
 
 function LaunchCard({ launch }: { launch: MockLaunch }) {
@@ -441,7 +397,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
           color: 'var(--anchor-soft)',
         }}
       >
-        <span>{launch.trades.length} tx · {ago(launch.launchedAt)}</span>
+        <span>{tradeCountOf(launch)} tx · <AgoLabel ts={launch.launchedAt} /></span>
         <span
           style={{
             color: 'var(--pink-hot)',
@@ -454,4 +410,9 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
       </div>
     </Link>
   );
+}
+
+function AgoLabel({ ts }: { ts: number }) {
+  const label = useAgo(ts);
+  return <>{label ?? '—'}</>;
 }

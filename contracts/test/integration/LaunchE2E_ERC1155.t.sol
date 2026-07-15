@@ -63,7 +63,9 @@ contract LaunchE2EERC1155Test is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: mode,
-            ownerTargetIfMultisig: mode == OwnershipMode.TransferToMultisig ? multisig : address(0)
+            ownerTargetIfMultisig: mode == OwnershipMode.TransferToMultisig ? multisig : address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
     }
 

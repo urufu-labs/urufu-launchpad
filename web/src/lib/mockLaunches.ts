@@ -16,6 +16,13 @@ export interface MockTrade {
   timestamp: number;
 }
 
+/// Launch mechanic:
+///  - 'curve'  → bonding curve installed (has graduation target, reserves move on trade)
+///  - 'direct' → direct-mint token (no curve; ownership + transfers only)
+/// Feeds use this to section curve tokens (tradeable) from direct-mint (mintable). Defaults
+/// to 'curve' for legacy mocks (all pre-Phase 1 fixtures assume the bonding-curve UI).
+export type LaunchKind = 'curve' | 'direct';
+
 export interface MockLaunch {
   chainId: number;
   address: Address;
@@ -26,6 +33,7 @@ export interface MockLaunch {
   logoEmoji: string;
   creator: Address;
   launchedAt: number;
+  kind?: LaunchKind;
   website?: string;
   twitter?: string;
   telegram?: string;
@@ -40,6 +48,22 @@ export interface MockLaunch {
   tradeFeeBps: number;
   graduated: boolean;
   trades: MockTrade[]; // most-recent last
+  /// Cheap indexer-sourced count so cards can show "N tx" without loading full trade
+  /// history per launch. Falls back to `trades.length` when the indexer hasn't supplied it
+  /// (legacy mocks, direct-mint tokens that never traded).
+  tradeCount?: number;
+}
+
+/// Prefer indexer-supplied tradeCount, otherwise fall back to the length of the trades
+/// array — mocks embed the array directly, the indexer populates the count field.
+export function tradeCountOf(l: MockLaunch): number {
+  return l.tradeCount ?? l.trades.length;
+}
+
+/// Bucket a launch as 'curve' or 'direct' regardless of whether the `kind` field is set —
+/// legacy mocks all use curve reserves and predate the enum, so we infer from the shape.
+export function launchKind(l: MockLaunch): LaunchKind {
+  return l.kind ?? (l.graduationTargetEth > 0n ? 'curve' : 'direct');
 }
 
 // Common defaults
@@ -349,11 +373,17 @@ export function mocksForChain(chainId: number): MockLaunch[] {
 
 export function mockProgressPct(l: MockLaunch): number {
   if (l.graduated) return 100;
+  // Direct-mint tokens indexed via `indexerLaunchToMock` come through with zeroed curve
+  // fields — there's no graduation target, so progress is undefined; render as 0.
+  if (l.graduationTargetEth === 0n) return 0;
   return Math.min(100, Number((l.ethReserve * 10_000n) / l.graduationTargetEth) / 100);
 }
 
 export function mockMarketCapEth(l: MockLaunch): bigint {
-  // Reconstruct spot price: (ethReserve + virtualEth) * 1e18 / (tokenReserve + virtualToken)
-  const spot = ((l.ethReserve + l.virtualEthReserve) * 10n ** 18n) / (l.tokenReserve + l.virtualTokenReserve);
+  // Same guard as above — a token with no curve reserves has no spot price to derive
+  // market cap from. Return 0 so LaunchCard can render the tile with a `—` placeholder.
+  const denom = l.tokenReserve + l.virtualTokenReserve;
+  if (denom === 0n) return 0n;
+  const spot = ((l.ethReserve + l.virtualEthReserve) * 10n ** 18n) / denom;
   return (spot * l.totalSupply) / 10n ** 18n;
 }

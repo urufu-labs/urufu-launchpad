@@ -72,7 +72,9 @@ contract LaunchE2EERC721ATest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: mode,
-            ownerTargetIfMultisig: mode == OwnershipMode.TransferToMultisig ? multisig : address(0)
+            ownerTargetIfMultisig: mode == OwnershipMode.TransferToMultisig ? multisig : address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
     }
 

@@ -22,6 +22,8 @@ contract MockGraduator {
     address public lastToken;
     uint256 public lastEth;
     uint256 public lastTokens;
+    uint32 public lastAntiSniper;
+    uint16 public lastBuybackBps;
     uint256 public calls;
 
     error MockGraduator__EthMismatch();
@@ -29,12 +31,16 @@ contract MockGraduator {
     function execute(
         address token,
         uint256 ethAmount,
-        uint256 tokenAmount
+        uint256 tokenAmount,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
     ) external payable {
         if (msg.value != ethAmount) revert MockGraduator__EthMismatch();
         lastToken = token;
         lastEth = ethAmount;
         lastTokens = tokenAmount;
+        lastAntiSniper = antiSniperBlocks;
+        lastBuybackBps = buybackBurnBps;
         calls += 1;
         IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
     }
@@ -118,7 +124,9 @@ contract CurveGraduatorWireTest is Test {
             installGovernance: false,
             installBondingCurve: true,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         vm.prank(launcher);
         token = router.launch{value: BASE_FEE}(p);

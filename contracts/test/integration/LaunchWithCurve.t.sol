@@ -91,7 +91,9 @@ contract LaunchWithCurveTest is Test {
             installGovernance: false,
             installBondingCurve: true,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
     }
 
@@ -180,7 +182,9 @@ contract LaunchWithCurveTest is Test {
             installGovernance: false,
             installBondingCurve: true,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         vm.deal(launcher, 5 ether);
         vm.expectRevert(Router.Router__CurveFactoryUnset.selector);
@@ -201,7 +205,9 @@ contract LaunchWithCurveTest is Test {
             installGovernance: false,
             installBondingCurve: false,
             ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0)
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
         });
         vm.prank(launcher);
         address token = router.launch{value: BASE_FEE}(p);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
@@ -8,32 +8,36 @@ import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import {
   MOCK_LAUNCHES,
-  mocksForChain,
   mockMarketCapEth,
   mockProgressPct,
+  launchKind,
+  tradeCountOf,
   type MockLaunch,
+  type LaunchKind,
 } from '@/lib/mockLaunches';
+import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { useAgo } from '@/lib/useAgo';
+import { fetchRecentTrades, fetchRecentV4Swaps, type IndexerTrade, type IndexerV4Swap } from '@/lib/indexer';
+import { loadMetadata } from '@/lib/metadata';
+import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import { CHAIN_LABELS } from '@/lib/config';
 
-type Tab = 'trending' | 'new' | 'near' | 'graduated';
+// 'direct' is a peer tab that switches the pool from curve tokens to direct-mint tokens —
+// the other tabs (trending / new / near / graduated) apply curve-centric sorts and implicitly
+// filter to curve-only, so users don't see graduation progress for a token that has no curve.
+type Tab = 'trending' | 'new' | 'near' | 'graduated' | 'direct';
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
   { id: 'new', label: 'new', jp: '新着' },
   { id: 'near', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
+  { id: 'direct', label: 'direct mint', jp: '直接' },
 ];
 
-// Static "now" so relative times match the deterministic mock timestamps.
-const NOW = 1_780_000_000;
-function ago(ts: number): string {
-  const s = NOW - ts;
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
+// Relative time now flows through the `useAgo` hook (returns null on SSR so live
+// timestamps don't cause hydration mismatch or negative deltas). Rendered by <AgoLabel />
+// below.
 
 export default function HomePage() {
   const activeChain = useActiveChain();
@@ -41,19 +45,24 @@ export default function HomePage() {
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
 
-  const chainMocks = useMemo(() => mocksForChain(chainId), [chainId]);
+  // Real indexer feed for chains with deployed contracts, mocks otherwise.
+  const feed = useLaunchFeed(chainId);
+  const chainMocks = feed.launches;
 
-  // Cross-chain aggregates so the stat strip stays meaningful even on an empty chain.
+  // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
+  // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
   const stats = useMemo(() => {
-    const total = MOCK_LAUNCHES.length;
-    const graduated = MOCK_LAUNCHES.filter((l) => l.graduated).length;
-    const totalEth = MOCK_LAUNCHES.reduce((acc, l) => acc + l.ethReserve, 0n);
-    const totalTrades = MOCK_LAUNCHES.reduce((acc, l) => acc + l.trades.length, 0);
+    const total = chainMocks.length;
+    const graduated = chainMocks.filter((l) => l.graduated).length;
+    const totalEth = chainMocks.reduce((acc, l) => acc + l.ethReserve, 0n);
+    const totalTrades = chainMocks.reduce((acc, l) => acc + tradeCountOf(l), 0);
     return { total, graduated, totalEth, totalTrades };
-  }, []);
+  }, [chainMocks]);
 
   const filtered = useMemo(() => {
-    let list = chainMocks.slice();
+    // 'direct' tab shows direct-mint tokens; every other tab implicitly filters to curve.
+    const wantKind: LaunchKind = tab === 'direct' ? 'direct' : 'curve';
+    let list = chainMocks.filter((l) => launchKind(l) === wantKind);
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -62,7 +71,7 @@ export default function HomePage() {
     }
     switch (tab) {
       case 'trending':
-        list.sort((a, b) => b.trades.length - a.trades.length);
+        list.sort((a, b) => tradeCountOf(b) - tradeCountOf(a));
         break;
       case 'new':
         list.sort((a, b) => b.launchedAt - a.launchedAt);
@@ -73,18 +82,96 @@ export default function HomePage() {
       case 'graduated':
         list = list.filter((l) => l.graduated);
         break;
+      case 'direct':
+        list.sort((a, b) => b.launchedAt - a.launchedAt);
+        break;
     }
     return list;
   }, [chainMocks, query, tab]);
 
-  // Cross-chain most-recent trades for the right-rail live activity list. Slice-per-launch
-  // caps the fan-in so a single hyper-active launch can't dominate the rail.
+  // Right-rail "live activity" — real trades from the indexer on chains with deployed
+  // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
+  // without a refresh. Falls back cleanly when the indexer is down (returns [] → we
+  // render the empty-state placeholder in the rail).
+  const [liveTradesReal, setLiveTradesReal] = useState<IndexerTrade[] | null>(null);
+  const [liveV4Real, setLiveV4Real] = useState<IndexerV4Swap[] | null>(null);
+  const liveIsRealChain = CONTRACTS[activeChain] !== null;
+  useEffect(() => {
+    if (!liveIsRealChain) return;
+    let cancelled = false;
+    const load = async () => {
+      const [curveRows, v4Rows] = await Promise.all([
+        fetchRecentTrades(20),
+        fetchRecentV4Swaps(20),
+      ]);
+      if (cancelled) return;
+      setLiveTradesReal(curveRows ? curveRows.filter((t) => t.chainId === chainId) : []);
+      setLiveV4Real(v4Rows ? v4Rows.filter((t) => t.chainId === chainId) : []);
+    };
+    load();
+    // 5s poll — Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
+    // should surface in ≤10s from confirm to render (indexer processing lag + one poll).
+    const id = setInterval(load, 5_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [liveIsRealChain, chainId]);
+
+  // Normalize both curve trades and v4 swaps to the shape the JSX rail expects: { l, t }.
+  // v4 swap direction is derived from the sign of amount0 (currency0 = ETH): amount0 < 0
+  // means the pool paid out ETH (user bought token), amount0 > 0 means the pool received
+  // ETH (user sold token). Amounts are absolute values of the pool-side delta.
   const liveTrades = useMemo(() => {
+    if (liveIsRealChain) {
+      const byToken = new Map(chainMocks.map((l) => [l.address.toLowerCase(), l] as const));
+      const curveRows = (liveTradesReal ?? [])
+        .map((t) => {
+          const l = byToken.get(t.tokenAddress.toLowerCase());
+          if (!l) return null;
+          return {
+            l,
+            t: {
+              isBuy: t.isBuy,
+              ethAmount: BigInt(t.ethAmount),
+              tokenAmount: BigInt(t.tokenAmount),
+              trader: t.trader,
+              timestamp: Number(t.blockTimestamp),
+              ethReserve: BigInt(t.ethReserveAfter),
+              tokenReserve: BigInt(t.tokenReserveAfter),
+            },
+          };
+        })
+        .filter(<T,>(x: T | null): x is T => x !== null);
+      const v4Rows = (liveV4Real ?? [])
+        .map((s) => {
+          if (!s.tokenAddress) return null;
+          const l = byToken.get(s.tokenAddress.toLowerCase());
+          if (!l) return null;
+          const amt0 = BigInt(s.amount0);
+          const amt1 = BigInt(s.amount1);
+          const isBuy = amt0 < 0n; // pool paid out ETH ⇒ user bought token
+          return {
+            l,
+            t: {
+              isBuy,
+              ethAmount: amt0 < 0n ? -amt0 : amt0,
+              tokenAmount: amt1 < 0n ? -amt1 : amt1,
+              trader: s.sender,
+              timestamp: Number(s.blockTimestamp),
+              ethReserve: 0n,
+              tokenReserve: 0n,
+            },
+          };
+        })
+        .filter(<T,>(x: T | null): x is T => x !== null);
+      return [...curveRows, ...v4Rows]
+        .sort((a, b) => b.t.timestamp - a.t.timestamp)
+        .slice(0, 14);
+    }
+    // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
     return MOCK_LAUNCHES
       .flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
-  }, []);
+  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
   return (
     <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
@@ -318,7 +405,7 @@ export default function HomePage() {
                         {Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ
                       </span>
                       <span style={{ color: 'var(--anchor-soft)', width: 24, textAlign: 'right' }}>
-                        {ago(row.t.timestamp)}
+                        <AgoLabel ts={row.t.timestamp} />
                       </span>
                     </li>
                   ))}
@@ -437,6 +524,12 @@ function StatTile({
 function LaunchTile({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
+  const kind = launchKind(launch);
+  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  useEffect(() => {
+    const m = loadMetadata(launch.chainId, launch.address);
+    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
+  }, [launch.chainId, launch.address]);
   return (
     <Link
       href={`/trade/${launch.address}`}
@@ -455,7 +548,9 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
             height: 40,
             borderRadius: 8,
             border: '1.5px solid var(--anchor)',
-            background: launch.logoBg,
+            background: logoDataUrl
+              ? `#fff url(${logoDataUrl}) center/cover no-repeat`
+              : launch.logoBg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -463,7 +558,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
             flexShrink: 0,
           }}
         >
-          {launch.logoEmoji}
+          {!logoDataUrl && launch.logoEmoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
@@ -502,7 +597,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
             <span>
               mcap <b style={{ color: 'var(--anchor)' }}>{Number(formatEther(mcap)).toFixed(3)}</b>Ξ
             </span>
-            <span>{launch.trades.length} tx</span>
+            <span>{tradeCountOf(launch)} tx</span>
           </div>
         </div>
       </div>
@@ -534,11 +629,16 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
           }}
         >
           <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(0)}% → v4`}</span>
-          <span>{ago(launch.launchedAt)} ago</span>
+          <span><AgoLabel ts={launch.launchedAt} /> ago</span>
         </div>
       </div>
     </Link>
   );
+}
+
+function AgoLabel({ ts }: { ts: number }) {
+  const label = useAgo(ts);
+  return <>{label ?? '—'}</>;
 }
 
 function StepTile({

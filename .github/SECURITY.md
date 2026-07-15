@@ -17,7 +17,9 @@ Timelines: acknowledgment within 72h, triage decision within 7 days, coordinated
 
 | Tool | Status | Owner |
 |---|---|---|
-| **Foundry tests** | ✅ 547 unit + integration + fork + invariant, all green | in-tree |
+| **Foundry tests** | ✅ 548 unit + integration + fork + invariant, all green | in-tree |
+| **MultiHookHost post-graduation fork test** | ✅ `MultiHookGraduationForkTest` — drives a curve to graduation on a real chain fork, then asserts LP-lock revert + fee-redirect accrual on the resulting v4 pool. Env-driven (`FORK_RPC_URL` / `BASE_SEPOLIA_RPC_URL`). | in-tree |
+| **Deploy wiring check** | ✅ `forge script VerifyWiring` — chain-parameterized read-only script that asserts every deployed contract is wired end-to-end (Router↔factories, CurveFactory.graduator, Graduator ctor args, MultiHookHost flag mask, ownership eyeball). Run via `pnpm contracts:verify:wiring`. | in-tree |
 | **Foundry fuzz** | ✅ 1,000 runs per property (default) | in-tree |
 | **Invariant tests** | ✅ `test/invariant/` — 7 curve invariants + 4 router invariants, 256 runs × 8192 calls each, 0 reverts | in-tree |
 | **Fork tests** | ✅ LPLockedHook init + full graduation against real Sepolia v4 + Graduator wire path | in-tree |

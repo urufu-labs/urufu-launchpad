@@ -139,7 +139,7 @@ contract BondingCurveInvariantTest is StdInvariant, Test {
         token = new InvariantToken();
         token.mint(address(curve), CURVE_SUPPLY);
         curve.initialize(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, FEE_BPS, address(0)
+            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, FEE_BPS, address(0), 0, 0
         );
 
         handler = new Handler(curve, token);

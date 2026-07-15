@@ -182,8 +182,19 @@ export function encodeModuleSlice(mod: ModuleSpec, params: Record<string, unknow
   // into required fields. Fall back to safe zero-values (zeroAddress, 0n, "") so viem doesn't
   // throw InvalidAddressError on an empty string — the launch button remains blocked by the
   // param-validation layer until the user actually fills the field.
-  const args = mod.params.map((p) => {
+  const args = mod.params.map((p, i) => {
+    const abiType = parsed[i]?.type ?? '';
     const raw = params[p.key];
+
+    // ABI-type-driven coercion for fixed-size bytes (bytes32 for merkle roots, etc.).
+    // The UI declares these as `string` because users paste hex — but viem needs a
+    // properly-sized `0x…` value or an empty encoding blows past the size check.
+    const fixedBytesMatch = abiType.match(/^bytes(\d+)$/);
+    if (fixedBytesMatch) {
+      const size = Number(fixedBytesMatch[1]);
+      return coerceFixedBytes(raw, size);
+    }
+
     if (p.type === 'address') {
       if (typeof raw === 'string' && isAddress(raw)) return raw;
       return zeroAddress;
@@ -203,6 +214,24 @@ export function encodeModuleSlice(mod: ModuleSpec, params: Record<string, unknow
     return Boolean(raw);
   }) as readonly unknown[];
   return encodeAbiParameters(parsed, args);
+}
+
+/// Coerce a possibly-empty user string into a valid fixed-size hex value for viem. Rules:
+///   - empty / non-hex → zero bytes of `size` (e.g. bytes32 → 0x0000…0000)
+///   - "0x" + exact hex chars → passed through
+///   - "0x" + shorter hex → right-padded to size (bytes32 for merkle roots this matches
+///     `bytes32(uint256(x))` casting behavior most callers expect)
+function coerceFixedBytes(raw: unknown, size: number): Hex {
+  const hexChars = size * 2;
+  const zero = ('0x' + '0'.repeat(hexChars)) as Hex;
+  if (typeof raw !== 'string') return zero;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return zero;
+  const stripped = trimmed.startsWith('0x') || trimmed.startsWith('0X') ? trimmed.slice(2) : trimmed;
+  if (!/^[0-9a-fA-F]*$/.test(stripped)) return zero;
+  if (stripped.length === 0) return zero;
+  const padded = stripped.length >= hexChars ? stripped.slice(0, hexChars) : stripped.padEnd(hexChars, '0');
+  return ('0x' + padded) as Hex;
 }
 
 /// Parse a Solidity-style tuple signature like `(uint16,uint16,uint16,address)` into viem
