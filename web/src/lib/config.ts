@@ -218,7 +218,14 @@ export const V4_STATE_VIEWS: Record<ChainKey, Address | null> = {
 export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
   mainnet: null,
   sepolia: null,
-  base: null,
+  base: {
+    FeeSplitter: '0xA4B874cCDeB780FaC684DbFFc408Ad2B4D7E44d5',
+    LoyaltyOracle: '0x31b723fe159fEaB1668DE6C08C6FbA5287A51ce7',
+    NftRevenueVault: '0xf40fa5a1b30d7933B89387F46E464DA0D9CC7543',
+    UruBuybackVault: '0xF68c7E6EF97676DD59690445aF7B237f1c9682a2',
+    RoyaltyRouterImpl: '0x998515dfB6A1C15c02F938FcC3EC290732A0C635',
+    RoyaltyRouterFactory: '0x8d6E1ef643cb287b7fd15108D0cB3933f0a9127A',
+  },
   'base-sepolia': null,
   robinhood: null,
   'robinhood-testnet': null,
