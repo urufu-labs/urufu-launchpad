@@ -105,8 +105,11 @@ export default function HomePage() {
         fetchRecentV4Swaps(20),
       ]);
       if (cancelled) return;
-      setLiveTradesReal(curveRows ? curveRows.filter((t) => t.chainId === chainId) : []);
-      setLiveV4Real(v4Rows ? v4Rows.filter((t) => t.chainId === chainId) : []);
+      // Keep the last-good state when a poll returns null (network hiccup, indexer
+      // transient). Otherwise the rail flickers empty for one poll cycle and users
+      // see sells vanish + reappear.
+      if (curveRows) setLiveTradesReal(curveRows.filter((t) => t.chainId === chainId));
+      if (v4Rows) setLiveV4Real(v4Rows.filter((t) => t.chainId === chainId));
     };
     load();
     // 5s poll — Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade

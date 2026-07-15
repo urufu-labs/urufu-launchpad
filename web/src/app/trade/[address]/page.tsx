@@ -71,8 +71,15 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const pickerContracts = CONTRACTS[picker];
   const walletChain = CHAIN_ID_TO_KEY[chainId] ?? null;
   const walletContracts = walletChain ? CONTRACTS[walletChain as ChainKey] : null;
-  const activeChain: ChainKey | null = pickerContracts ? picker : walletChain;
-  const contracts = pickerContracts ?? walletContracts;
+  // Last-resort fallback so anonymous visitors (no wallet, no picker override) still
+  // see live data. Picks the first CHAINS_ENABLED entry with CONTRACTS populated —
+  // usually base-sepolia today.
+  const fallbackChain: ChainKey | null =
+    (Object.keys(CONTRACTS) as ChainKey[]).find((k) => CONTRACTS[k] !== null) ?? null;
+  const activeChain: ChainKey | null =
+    pickerContracts ? picker : walletContracts ? walletChain : fallbackChain;
+  const contracts =
+    pickerContracts ?? walletContracts ?? (fallbackChain ? CONTRACTS[fallbackChain] : null);
   // Force every RPC read (curve lookup, reserves, token metadata) to hit the chain we
   // actually resolved contracts on — otherwise wagmi silently uses the wallet's chain and
   // returns zeros for a token that lives on a different chain (very common when the wallet

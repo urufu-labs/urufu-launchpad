@@ -25,7 +25,10 @@ export const CHAINS_ENABLED: readonly ChainKey[] = [
 ] as const;
 
 /// Default chain used when the wallet isn't connected or is on an unsupported chain.
-export const DEFAULT_CHAIN: ChainKey = 'sepolia';
+/// Set to whichever chain currently has live contracts + real activity — otherwise
+/// pages that fire reads before the user picks a chain hit a null CONTRACTS entry and
+/// silently show nothing.
+export const DEFAULT_CHAIN: ChainKey = 'base-sepolia';
 
 /// Human-readable emoji + JP label pairs so the chain switcher UI stays kawaii.
 export const CHAIN_META: Record<ChainKey, { emoji: string; jp: string }> = {

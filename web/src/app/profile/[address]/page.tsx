@@ -23,9 +23,11 @@ import {
   fetchLaunchesByCreator,
   fetchLaunchesByTokens,
   fetchTradesByTrader,
+  fetchV4SwapsByTrader,
   fetchHoldingsByAddress,
   type IndexerLaunch,
   type IndexerTrade,
+  type IndexerV4Swap,
   type IndexerHolding,
 } from '@/lib/indexer';
 import {
@@ -36,6 +38,7 @@ import {
   type UserProfile,
 } from '@/lib/profile';
 import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi';
+import { uploadImageToIpfs } from '@/lib/ipfs';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
 import { computePositions, type Position } from '@/lib/pnl';
@@ -72,9 +75,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         telegram: remote.telegram ?? prev.telegram,
         discord: remote.discord ?? prev.discord,
         website: remote.website ?? prev.website,
-        // Avatar stays local-only for now — full cross-browser avatars require
-        // uploading to IPFS on save, which lands in a follow-up.
-        avatarDataUrl: prev.avatarDataUrl,
+        // Prefer the remote avatar URL (pinned to IPFS) — shared across every browser.
+        // Fall back to whatever local snapshot this browser has so first-visit users
+        // see something immediately while the API is in flight.
+        avatarDataUrl: remote.avatarUrl ?? prev.avatarDataUrl,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || prev.savedAt,
       }));
     })();
@@ -82,6 +86,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
   const [trades, setTrades] = useState<IndexerTrade[] | null>(null);
+  const [v4Trades, setV4Trades] = useState<IndexerTrade[]>([]);
   const [holdings, setHoldings] = useState<IndexerHolding[] | null>(null);
   const [tokenMeta, setTokenMeta] = useState<Record<string, { name: string; ticker: string }>>({});
   const [loaded, setLoaded] = useState(false);
@@ -90,15 +95,46 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     if (!isValid) return;
     let cancelled = false;
     (async () => {
-      const [l, t, h] = await Promise.all([
+      const [l, t, v4, h] = await Promise.all([
         fetchLaunchesByCreator(address, 40),
         fetchTradesByTrader(address, 200),
+        fetchV4SwapsByTrader(address, 200),
         fetchHoldingsByAddress(address, 50),
       ]);
       if (cancelled) return;
       setLaunches(l);
       setTrades(t);
       setHoldings(h);
+
+      // Normalize v4 swaps to the IndexerTrade shape so downstream code (stats,
+      // activity list, PnL math) doesn't need a second branch. v4 Swap.amount0 is
+      // the swapper's ETH delta: negative = paid ETH (BUY), positive = received ETH
+      // (SELL). Same convention as the home page rail.
+      const v4Normalized: IndexerTrade[] = (v4 ?? [])
+        .filter((s) => !!s.tokenAddress)
+        .map((s) => {
+          const a0 = BigInt(s.amount0);
+          const a1 = BigInt(s.amount1);
+          const abs = (n: bigint) => (n < 0n ? -n : n);
+          const isBuy = a0 < 0n;
+          return {
+            id: s.id,
+            chainId: s.chainId,
+            curveAddress: '0x0000000000000000000000000000000000000000' as Address,
+            tokenAddress: s.tokenAddress as Address,
+            trader: s.sender,
+            isBuy,
+            ethAmount: abs(a0).toString(),
+            tokenAmount: abs(a1).toString(),
+            ethReserveAfter: '0',
+            tokenReserveAfter: '0',
+            priceWeiPerToken: s.priceWeiPerToken,
+            blockNumber: s.blockNumber,
+            blockTimestamp: s.blockTimestamp,
+            txHash: s.txHash,
+          };
+        });
+      setV4Trades(v4Normalized);
 
       // Build friendly name/ticker map for every token this wallet touches, so the
       // activity + positions + holdings lists render "URUFU" instead of "0x74…f462".
@@ -112,8 +148,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       };
       seed(l);
       const traded = new Set((t ?? []).map((tr) => tr.tokenAddress.toLowerCase()));
+      const v4Touched = new Set(v4Normalized.map((tr) => tr.tokenAddress.toLowerCase()));
       const held = new Set((h ?? []).map((hh) => hh.tokenAddress.toLowerCase()));
-      const missing = [...new Set([...traded, ...held])].filter((addr) => !meta[addr]) as Address[];
+      const missing = [...new Set([...traded, ...v4Touched, ...held])].filter((addr) => !meta[addr]) as Address[];
       if (missing.length > 0) {
         const extra = await fetchLaunchesByTokens(missing);
         if (cancelled) return;
@@ -126,6 +163,14 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return () => { cancelled = true; };
   }, [address, isValid]);
 
+  // All trades this wallet has done — curve + v4 — sorted newest first. Feeds stats,
+  // activity list, and PnL math without any downstream branching on trade source.
+  const allTrades = useMemo<IndexerTrade[]>(() => {
+    return [...(trades ?? []), ...v4Trades].sort(
+      (a, b) => Number(BigInt(b.blockTimestamp) - BigInt(a.blockTimestamp)),
+    );
+  }, [trades, v4Trades]);
+
   // Renders a friendly ticker (uppercase) for a token if the indexer has it, falling
   // back to the shortened address otherwise. Ticker fits the tight columns better than
   // name; hover shows the full name + address for disambiguation.
@@ -135,16 +180,15 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return { display: `${addr.slice(0, 6)}…${addr.slice(-4)}`, full: addr };
   }
 
-  const positions: Position[] = useMemo(() => computePositions(trades ?? []), [trades]);
+  const positions: Position[] = useMemo(() => computePositions(allTrades), [allTrades]);
   const realizedTotal = useMemo(() => positions.reduce((sum, p) => sum + p.realizedPnl, 0n), [positions]);
 
   const stats = useMemo(() => {
-    const tradesList = trades ?? [];
     let ethSpent = 0n;
     let ethReceived = 0n;
     let buyCount = 0;
     let sellCount = 0;
-    for (const tr of tradesList) {
+    for (const tr of allTrades) {
       const eth = BigInt(tr.ethAmount);
       if (tr.isBuy) { ethSpent += eth; buyCount += 1; }
       else { ethReceived += eth; sellCount += 1; }
@@ -152,14 +196,14 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     const netFlow = ethReceived - ethSpent;
     return {
       launched: launches?.length ?? 0,
-      tradeCount: tradesList.length,
+      tradeCount: allTrades.length,
       buyCount,
       sellCount,
       ethSpent,
       ethReceived,
       netFlow,
     };
-  }, [launches, trades]);
+  }, [launches, allTrades]);
 
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowingThis, setIsFollowingThis] = useState(false);
@@ -481,12 +525,12 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
           {/* activity */}
           <section>
-            <SectionHead label="activity" jp="取引" count={trades?.length} />
+            <SectionHead label="activity" jp="取引" count={allTrades.length} />
             {trades === null && !loaded && <LoadingRow />}
-            {loaded && trades && trades.length === 0 && (
+            {loaded && allTrades.length === 0 && (
               <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : "no trades yet"} />
             )}
-            {trades && trades.length > 0 && (
+            {allTrades.length > 0 && (
               <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
                 <div
                   style={{
@@ -509,7 +553,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                   <span style={{ textAlign: 'right' }}>ago</span>
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {trades.slice(0, 30).map((t, i) => (
+                  {allTrades.slice(0, 30).map((t, i) => (
                     <li
                       key={t.id}
                       style={{
@@ -520,7 +564,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         fontFamily: 'var(--font-pixel), monospace',
                         fontSize: 11,
                         padding: '5px 10px',
-                        borderBottom: i === Math.min(29, trades.length - 1) ? 'none' : '1px dotted var(--anchor)',
+                        borderBottom: i === Math.min(29, allTrades.length - 1) ? 'none' : '1px dotted var(--anchor)',
                       }}
                     >
                       <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
@@ -835,6 +879,24 @@ function EditProfileModal({
     // treat it as "local-only mode" for this session, no error banner.
     setSaving(true);
     try {
+      // Avatar: if it's still a base64 data URL (freshly picked or not yet pinned),
+      // upload it through the compile-service pin proxy. If it's already an http URL
+      // (loaded from a previous save), pass through. Empty → null.
+      let avatarUrl: string | null = null;
+      const av = next.avatarDataUrl;
+      if (av) {
+        if (av.startsWith('data:')) {
+          const pin = await uploadImageToIpfs(av);
+          if (pin) {
+            avatarUrl = pin.gatewayUrl;
+            // Persist the URL locally too so future paints skip the reupload cycle.
+            next.avatarDataUrl = pin.gatewayUrl;
+            saveProfile(next);
+          }
+        } else {
+          avatarUrl = av;
+        }
+      }
       const remote = await saveProfileRemote(
         initial.address as Address,
         {
@@ -844,8 +906,7 @@ function EditProfileModal({
           telegram: next.telegram ?? null,
           discord: next.discord ?? null,
           website: next.website ?? null,
-          // avatar stays local — real cross-browser avatar requires an IPFS upload path.
-          avatarUrl: null,
+          avatarUrl,
         },
         ({ message }) => signMessageAsync({ message }),
       );

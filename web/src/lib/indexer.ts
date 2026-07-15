@@ -276,6 +276,29 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
   return data?.launchess.items ?? null;
 }
 
+/// Every v4 swap this wallet has ever made (post-graduation trades). Feeds the profile
+/// activity feed alongside curve trades — without this, profile pages show 0 sells for
+/// anyone who traded a graduated token via V4SwapRouter.
+export async function fetchV4SwapsByTrader(trader: Address, limit = 200): Promise<IndexerV4Swap[] | null> {
+  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+    `query V4SwapsByTrader($trader: String!, $limit: Int!) {
+      v4Swapss(
+        where: { sender: $trader },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
+          tick fee priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { trader: trader.toLowerCase(), limit },
+  );
+  return data?.v4Swapss.items ?? null;
+}
+
 /// Every trade this wallet has ever made across every curve, newest first. Feeds the
 /// activity feed + is the raw input to PnL math.
 export async function fetchTradesByTrader(trader: Address, limit = 200): Promise<IndexerTrade[] | null> {
