@@ -43,10 +43,19 @@ After the first deploy Railway will assign a public URL like
 
 **Root Directory:** repo root
 **Config file:** `compile-service/railway.json`
-**Env vars:** none required for baseline. Optional:
+**Env vars:**
+
 ```
-COMPILE_SERVICE_RATE_LIMIT=60       # req/min per IP
+DATABASE_URL=${{Postgres.DATABASE_URL}}   # same Postgres addon; app schema for social tables
+PINATA_JWT=<Pinata JWT with pinFileToIPFS scope>
+PINATA_GATEWAY=<your-gateway>.mypinata.cloud
 ```
+
+- `PINATA_JWT` is **server-side ONLY** — never expose it as `NEXT_PUBLIC_*` in Vercel.
+  The frontend uploads via `POST /pin/file` on this service, which forwards to Pinata
+  using the server-held JWT. Prevents a leaked bundle from burning your Pinata quota.
+- `DATABASE_URL` is what unlocks the social endpoints (metadata / profile / chat).
+- Optional: `COMPILE_SERVICE_RATE_LIMIT=60` (req/min per IP, default 30).
 
 After first deploy, Railway URL → `NEXT_PUBLIC_COMPILE_SERVICE_URL` in Vercel.
 

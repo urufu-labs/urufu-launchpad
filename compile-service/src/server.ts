@@ -12,6 +12,7 @@ import { compose } from './compile.ts';
 import { runForgeTests } from './test-runner.ts';
 import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
+import { registerPinRoutes } from './routes/pin.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
 // Endpoints:
@@ -54,6 +55,10 @@ if (hasDb()) {
 } else {
   app.log.warn('DATABASE_URL not set — /token/*/metadata + /profile/* + /token/*/chat disabled');
 }
+
+// Pinata proxy — server-side so the JWT stays out of the client bundle. Skipped when
+// PINATA_JWT isn't set; the client falls back to the local-only metadata path.
+await registerPinRoutes(app);
 
 app.post('/compile', async (request, reply) => {
   const parsed = CompileRequestSchema.safeParse(request.body);
