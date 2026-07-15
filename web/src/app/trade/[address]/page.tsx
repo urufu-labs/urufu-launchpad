@@ -33,7 +33,7 @@ import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadat
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
-import { fetchTradesForCurve } from '@/lib/indexer';
+import { fetchLaunchesByTokens, fetchTradesForCurve } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -65,22 +65,45 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const connectedForRender = mounted && isConnected;
-  // Prefer the header-picker chain for READS so a disconnected wallet (or a wallet on a
-  // chain without contracts) still resolves the token's curve on its actual home chain.
-  // The wallet's own chain still gates writes downstream via wagmi's default chain switch.
+  // Ask the indexer which chain THIS token actually lives on. Every token is deployed
+  // on exactly one chain and the `launches` row records it — so we can force all reads
+  // to that chain regardless of what the header picker or the wallet's current chain
+  // are set to. Prior versions used the picker/wallet chain for reads which meant a
+  // trader viewing a Base-Sepolia token while their wallet was on Base mainnet saw
+  // zero everything (name/price/mcap/trades) because RPC reads at the token address
+  // on the wrong chain return empty. Falls back to the picker/wallet chain only when
+  // the indexer hasn't indexed this token yet (fresh launch mid-catchup).
+  const [tokenHomeChain, setTokenHomeChain] = useState<ChainKey | null>(null);
+  useEffect(() => {
+    if (!tokenAddress) return;
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchLaunchesByTokens([tokenAddress]);
+      if (cancelled) return;
+      const row = rows?.[0];
+      if (!row) return;
+      const key = CHAIN_ID_TO_KEY[row.chainId];
+      if (key) setTokenHomeChain(key);
+    })();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
+
   const picker = useActiveChain();
   const pickerContracts = CONTRACTS[picker];
   const walletChain = CHAIN_ID_TO_KEY[chainId] ?? null;
   const walletContracts = walletChain ? CONTRACTS[walletChain as ChainKey] : null;
   // Last-resort fallback so anonymous visitors (no wallet, no picker override) still
   // see live data. Picks the first CHAINS_ENABLED entry with CONTRACTS populated —
-  // usually base-sepolia today.
+  // usually Base today now that mainnet is up.
   const fallbackChain: ChainKey | null =
     (Object.keys(CONTRACTS) as ChainKey[]).find((k) => CONTRACTS[k] !== null) ?? null;
+  // Priority order: token's actual home chain (indexer-verified) > picker > wallet >
+  // fallback. This means once the indexer confirms where the token lives, we IGNORE
+  // the picker/wallet — the read chain is decided by the token itself.
   const activeChain: ChainKey | null =
-    pickerContracts ? picker : walletContracts ? walletChain : fallbackChain;
-  const contracts =
-    pickerContracts ?? walletContracts ?? (fallbackChain ? CONTRACTS[fallbackChain] : null);
+    tokenHomeChain ??
+    (pickerContracts ? picker : walletContracts ? walletChain : fallbackChain);
+  const contracts = activeChain ? CONTRACTS[activeChain] : null;
   // Force every RPC read (curve lookup, reserves, token metadata) to hit the chain we
   // actually resolved contracts on — otherwise wagmi silently uses the wallet's chain and
   // returns zeros for a token that lives on a different chain (very common when the wallet
