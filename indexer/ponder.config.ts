@@ -53,6 +53,14 @@ export const erc20Abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ]);
 
+/// ERC-721 has the SAME event signature/topic0 as ERC-20 (Transfer(address,address,uint256))
+/// but with `tokenId` in the third slot INDEXED instead of the ERC-20 `value` un-indexed.
+/// Ponder needs the correct ABI shape to decode the event args; treating gemu NFT as an
+/// ERC-20 would give the wrong decode.
+export const erc721Abi = parseAbi([
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
+]);
+
 export const v4SwapRouterAbi = parseAbi([
   'event Swapped(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut)',
 ]);
@@ -202,6 +210,20 @@ const networks = {
 // Contract keys are static literal strings so `ponder.on('Router:Launched', ...)`
 // in the handler file keeps its typed event args.
 
+/// Ecosystem token subscriptions — fixed addresses, Base only (URU + gemu NFT live on
+/// Base). Used by the flywheel snapshot service to compute per-holder gemu NFT
+/// allocations + surface URU balances on profile "URU holder" badges. Reads addresses
+/// from the flat `URU_TOKEN_ADDRESS` / `GEMU_NFT_ADDRESS` env vars (not the per-chain
+/// prefix pattern) since both are Base-native and were pre-existing before the
+/// launchpad. Empty-object network map disables the subscription without dropping the
+/// contract entry from the object literal — keeps TS-inferred event names stable so
+/// handlers below always typecheck.
+function ecosystemTokenNet(envKey: 'URU_TOKEN_ADDRESS' | 'GEMU_NFT_ADDRESS') {
+  const baseAddr = process.env[envKey] as `0x${string}` | undefined;
+  if (!baseAddr || !ENABLED.includes('base')) return {};
+  return { base: { address: baseAddr, startBlock: readStartBlock('base') } };
+}
+
 const contracts = {
   NameRegistry: { abi: nameRegistryAbi, network: netFor('NAME_REGISTRY') },
   Router: { abi: routerAbi, network: netFor('ROUTER') },
@@ -213,6 +235,8 @@ const contracts = {
   V4SwapRouter: { abi: v4SwapRouterAbi, network: netFor('V4_SWAP_ROUTER') },
   BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
   Token: { abi: erc20Abi, network: tokenNet() },
+  UruToken: { abi: erc20Abi, network: ecosystemTokenNet('URU_TOKEN_ADDRESS') },
+  GemuNft: { abi: erc721Abi, network: ecosystemTokenNet('GEMU_NFT_ADDRESS') },
 };
 
 // ---------------------------------------------------------------- database

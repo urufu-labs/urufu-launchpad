@@ -417,46 +417,45 @@ ponder.on('V4SwapRouter:Swapped', async ({ event, context }) => {
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`;
 
-ponder.on('Token:Transfer', async ({ event, context }) => {
-  const { from, to, value } = event.args;
+/// Shared Transfer indexer: writes a `transfers` row + bumps two `holders` rows.
+/// Called by every ERC-20 Transfer handler (launchpad tokens, URU) AND the gemu
+/// NFT ERC-721 handler — the balance-delta is passed in as `amount`, so ERC-721
+/// callers pass `1n` per token movement while ERC-20 callers pass the raw wei value.
+async function indexTransfer(
+  context: Parameters<Parameters<typeof ponder.on<'Token:Transfer'>>[1]>[0]['context'],
+  event: Parameters<Parameters<typeof ponder.on<'Token:Transfer'>>[1]>[0]['event'],
+  amount: bigint,
+): Promise<void> {
+  const { from, to } = event.args;
   const chainId = chainIdOf(context);
   const tokenAddress = event.log.address;
   const ts = event.block.timestamp;
 
-  // Per-transfer row for the per-token history feed. Same id shape as trades: chainId
-  // + txHash + logIndex so replays are idempotent.
   await context.db.insert(transfers).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,
     tokenAddress,
     from,
     to,
-    amount: value,
+    amount,
     blockNumber: event.block.number,
     blockTimestamp: ts,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
 
   // Balance deltas. Mint (from = 0x0) skips the decrement side, burn (to = 0x0) skips
-  // the increment side. Everything else is a wallet-to-wallet or wallet-to-pool move
-  // that adjusts both sides.
-  //
-  // Each side is a find-then-insert-or-update: existing holder → update balance,
-  // fresh holder → seed with the incoming amount. Clamped to zero on the update path
-  // as a defense-in-depth; a real ERC-20 can't burn what it doesn't hold, but if the
-  // indexer ever sees an out-of-order chunk the frontend shouldn't render negatives.
+  // the increment side. Clamp to zero on the update path — defense-in-depth against
+  // out-of-order chunks the frontend shouldn't render as negatives.
   if (from !== ZERO_ADDR) {
     const fromId = `${chainId}-${tokenAddress.toLowerCase()}-${from.toLowerCase()}`;
     const existing = await context.db.find(holders, { id: fromId });
     if (existing) {
-      const next = existing.balance - value;
+      const next = existing.balance - amount;
       await context.db.update(holders, { id: fromId }).set({
         balance: next < 0n ? 0n : next,
         updatedAt: ts,
       });
     } else {
-      // Shouldn't happen in practice (you can't send tokens without holding them),
-      // but seed a zero-balance row so the schema stays consistent.
       await context.db.insert(holders).values({
         id: fromId,
         chainId,
@@ -473,7 +472,7 @@ ponder.on('Token:Transfer', async ({ event, context }) => {
     const existing = await context.db.find(holders, { id: toId });
     if (existing) {
       await context.db.update(holders, { id: toId }).set({
-        balance: existing.balance + value,
+        balance: existing.balance + amount,
         updatedAt: ts,
       });
     } else {
@@ -482,7 +481,75 @@ ponder.on('Token:Transfer', async ({ event, context }) => {
         chainId,
         tokenAddress,
         holderAddress: to,
-        balance: value,
+        balance: amount,
+        updatedAt: ts,
+      }).onConflictDoNothing();
+    }
+  }
+}
+
+ponder.on('Token:Transfer', async ({ event, context }) => {
+  // Per-launchpad-ERC-20 Transfer — dynamic factory subscription via ERC20Factory.
+  await indexTransfer(context, event, event.args.value);
+});
+
+// URU token (Base only, fixed address, ERC-20). Same holder-tracking pipeline as our
+// launchpad tokens. Powers profile "URU holder" badge + analytics on ecosystem supply.
+ponder.on('UruToken:Transfer', async ({ event, context }) => {
+  await indexTransfer(context, event, event.args.value);
+});
+
+// gemu NFT (Base only, fixed address, ERC-721). Same holder-tracking pipeline but each
+// Transfer moves exactly ONE token, so we pass 1n as the balance delta. The `holders`
+// row's `balance` field then stores the current NFT count for a given wallet -- feeds
+// the flywheel snapshot service that publishes Merkle roots for NftRevenueVault.claim.
+ponder.on('GemuNft:Transfer', async ({ event, context }) => {
+  const { from, to } = event.args;
+  const chainId = chainIdOf(context);
+  const tokenAddress = event.log.address;
+  const ts = event.block.timestamp;
+
+  // Per-transfer row (uses transfers.amount = 1 as the "one NFT moved" marker; the
+  // actual tokenId lives in the tx receipt if anyone needs it later).
+  await context.db.insert(transfers).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    tokenAddress,
+    from,
+    to,
+    amount: 1n,
+    blockNumber: event.block.number,
+    blockTimestamp: ts,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  // Balance = NFT count. Same find-then-update logic as ERC-20 but with delta=1.
+  if (from !== ZERO_ADDR) {
+    const fromId = `${chainId}-${tokenAddress.toLowerCase()}-${from.toLowerCase()}`;
+    const existing = await context.db.find(holders, { id: fromId });
+    if (existing) {
+      const next = existing.balance - 1n;
+      await context.db.update(holders, { id: fromId }).set({
+        balance: next < 0n ? 0n : next,
+        updatedAt: ts,
+      });
+    }
+  }
+  if (to !== ZERO_ADDR) {
+    const toId = `${chainId}-${tokenAddress.toLowerCase()}-${to.toLowerCase()}`;
+    const existing = await context.db.find(holders, { id: toId });
+    if (existing) {
+      await context.db.update(holders, { id: toId }).set({
+        balance: existing.balance + 1n,
+        updatedAt: ts,
+      });
+    } else {
+      await context.db.insert(holders).values({
+        id: toId,
+        chainId,
+        tokenAddress,
+        holderAddress: to,
+        balance: 1n,
         updatedAt: ts,
       }).onConflictDoNothing();
     }
