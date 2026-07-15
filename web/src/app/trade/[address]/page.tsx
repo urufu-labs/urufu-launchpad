@@ -159,13 +159,18 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const curveAllowance = curveAllowanceQ.data;
 
   // ---------- Metadata (local snapshot + remote hydrate) ----------
+  // Keyed by `readChainId` (the resolved read chain) NOT the wallet's `chainId` — a
+  // disconnected visitor's wagmi chainId defaults to the first configured chain (usually
+  // mainnet), which would query /token/1/... instead of the chain the token actually
+  // lives on and come back empty. readChainId falls back through picker → wallet →
+  // first-with-contracts, so anonymous reads still hit the right chain.
   const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
   useEffect(() => {
-    if (!tokenAddress) return;
+    if (!tokenAddress || !readChainId) return;
     // Local paint first for offline / just-launched cases.
-    setMetadata(loadMetadata(chainId, tokenAddress));
+    setMetadata(loadMetadata(readChainId, tokenAddress));
     (async () => {
-      const remote = await fetchTokenMetadata(chainId, tokenAddress);
+      const remote = await fetchTokenMetadata(readChainId, tokenAddress);
       if (!remote) return;
       // Remote wins for shared fields; local avatarDataUrl (there isn't one here) is
       // moot. Store the remote imageUrl AS `logoDataUrl` since that's what the render
@@ -180,7 +185,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         savedAt: Number(new Date(remote.updatedAt).getTime()) || Date.now(),
       });
     })();
-  }, [tokenAddress, chainId]);
+  }, [tokenAddress, readChainId]);
 
   // ---------- Trade event stream → chart points ----------
   const publicClient = usePublicClient();
