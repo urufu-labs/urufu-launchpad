@@ -16,27 +16,32 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { formatEther, type Address } from 'viem';
-import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { nftRevenueVaultAbi } from '@/lib/abis';
 import { FLYWHEEL, type ChainKey } from '@/lib/config';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchEpochsForHolder, fetchVaultSummary, type EpochAllocation, type VaultSummary } from '@/lib/rewardsApi';
 
 interface Props {
   /// Wallet the profile is rendering for. Rewards only surface when this matches
   /// the currently-connected wallet (self view).
   visibleFor: Address;
-  /// Which chain to query. Currently only 'base' has a flywheel deploy; we skip
-  /// entirely for other chains.
-  chain: ChainKey;
+  /// Kept for API compatibility — no longer influences render. The section always
+  /// queries Base (that's where the vault lives), regardless of what chain the
+  /// user's wallet is currently on. Claim button prompts a wallet switch if needed.
+  chain?: ChainKey;
 }
 
-export function FlywheelRewards({ visibleFor, chain }: Props) {
-  const { address: wallet } = useAccount();
+const REWARDS_CHAIN: ChainKey = 'base';
+const REWARDS_CHAIN_ID = CHAIN_KEY_TO_ID[REWARDS_CHAIN];
+
+export function FlywheelRewards({ visibleFor }: Props) {
+  const { address: wallet, chainId: walletChainId } = useAccount();
   const isSelf = wallet?.toLowerCase() === visibleFor.toLowerCase();
 
-  const vaultAddress = FLYWHEEL[chain]?.NftRevenueVault ?? null;
-  const shouldRender = chain === 'base' && isSelf && vaultAddress !== null;
+  const vaultAddress = FLYWHEEL[REWARDS_CHAIN]?.NftRevenueVault ?? null;
+  const shouldRender = isSelf && vaultAddress !== null;
 
   const [summary, setSummary] = useState<VaultSummary | null>(null);
   const [epochs, setEpochs] = useState<EpochAllocation[]>([]);
@@ -65,7 +70,8 @@ export function FlywheelRewards({ visibleFor, chain }: Props) {
 
   // Batch-check on-chain `isClaimed` for each epoch the wallet has an allocation
   // in. useReadContracts fans one RPC round-trip → an isClaimed call per epoch;
-  // returned in the same order.
+  // returned in the same order. Force `chainId` to Base so reads work even when
+  // the wallet is currently on a different chain (base-sepolia, etc.).
   const claimedReads = useReadContracts({
     contracts: vaultAddress
       ? epochs.map((e) => ({
@@ -73,6 +79,7 @@ export function FlywheelRewards({ visibleFor, chain }: Props) {
           address: vaultAddress,
           functionName: 'isClaimed' as const,
           args: [BigInt(e.epochId), visibleFor] as const,
+          chainId: REWARDS_CHAIN_ID,
         }))
       : [],
     query: { enabled: epochs.length > 0 && !!vaultAddress },
@@ -92,8 +99,13 @@ export function FlywheelRewards({ visibleFor, chain }: Props) {
 
   // --- claim tx handling ------------------------------------------------
   const { writeContract, data: claimTxHash, isPending: isSubmitting, reset } = useWriteContract();
-  const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: claimTxHash });
+  const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({
+    hash: claimTxHash,
+    chainId: REWARDS_CHAIN_ID,
+  });
+  const { switchChain } = useSwitchChain();
   const [pendingEpoch, setPendingEpoch] = useState<number | null>(null);
+  const walletOnRewardsChain = walletChainId === REWARDS_CHAIN_ID;
 
   useEffect(() => {
     if (isMined) {
@@ -191,17 +203,26 @@ export function FlywheelRewards({ visibleFor, chain }: Props) {
                     disabled={isSubmitting || isMining || !vaultAddress}
                     onClick={() => {
                       if (!vaultAddress) return;
+                      // Prompt a chain switch first if the wallet isn't on Base —
+                      // wagmi's writeContract would otherwise submit the tx on the
+                      // wrong chain and revert against a nonexistent contract.
+                      if (!walletOnRewardsChain) {
+                        switchChain({ chainId: REWARDS_CHAIN_ID });
+                        return;
+                      }
                       setPendingEpoch(r.epochId);
                       writeContract({
                         abi: nftRevenueVaultAbi,
                         address: vaultAddress,
                         functionName: 'claim',
                         args: [BigInt(r.epochId), BigInt(r.amount), r.proof],
+                        chainId: REWARDS_CHAIN_ID,
                       });
                     }}
                     style={{ padding: '2px 8px', fontSize: 10 }}
+                    title={walletOnRewardsChain ? 'claim your share' : 'click to switch to Base + claim'}
                   >
-                    {pendingEpoch === r.epochId && (isSubmitting || isMining) ? 'claiming...' : 'claim'}
+                    {pendingEpoch === r.epochId && (isSubmitting || isMining) ? 'claiming...' : walletOnRewardsChain ? 'claim' : 'switch → claim'}
                   </button>
                 )}
               </li>

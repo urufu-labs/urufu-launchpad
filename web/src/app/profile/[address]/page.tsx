@@ -660,18 +660,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           </section>
 
           <FlywheelRewards visibleFor={address} chain={activeChain} />
-
-          <div
-            style={{
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-              textAlign: 'center',
-              lineHeight: 1.5,
-            }}
-          >
-            profile identity is local to ur browser for phase 1. followers + shared pnl ship w/ the backend ~
-          </div>
         </aside>
       </div>
 
