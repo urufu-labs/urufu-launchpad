@@ -391,6 +391,23 @@ export function mockProgressPct(l: MockLaunch): number {
   return Math.min(100, Number((l.ethReserve * 10_000n) / l.graduationTargetEth) / 100);
 }
 
+/// Spot price in wei-per-whole-token. Consistent across discover, trade page, and
+/// any future consumer:
+///   - graduated + pool sqrt known: derive from v4 pool sqrtPriceX96 (real price)
+///   - otherwise: curve virtual-reserves math (what BondingCurve.priceWeiPerToken uses)
+/// Previously discover computed its own version straight from curve reserves, which
+/// silently returned wrong numbers post-graduation (reserves are drained to 0).
+export function mockSpotPriceWei(l: MockLaunch): bigint {
+  if (l.graduated && l.poolLatestSqrtPriceX96 && l.poolLatestSqrtPriceX96 > 0n) {
+    const sqSq = l.poolLatestSqrtPriceX96 * l.poolLatestSqrtPriceX96;
+    if (sqSq === 0n) return 0n;
+    return ((10n ** 18n) << 192n) / sqSq;
+  }
+  const den = l.tokenReserve + l.virtualTokenReserve;
+  if (den === 0n) return 0n;
+  return ((l.ethReserve + l.virtualEthReserve) * 10n ** 18n) / den;
+}
+
 export function mockMarketCapEth(l: MockLaunch): bigint {
   // Graduated tokens: derive spot from the newest v4 pool sqrtPriceX96. The curve
   // reserves were drained to 0 during graduation, so the pre-grad math below would

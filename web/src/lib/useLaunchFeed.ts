@@ -132,7 +132,12 @@ async function indexerRowToLaunch(
     virtualTokenReserve: curve ? b(curve.virtualTokenReserve) : 0n,
     graduationTargetEth: curve ? b(curve.graduationTargetEth) : 0n,
     curveSupply: curve ? b(curve.curveSupply) : 0n,
-    totalSupply: parseEther('1000000000'),
+    // Real minted supply for our launched tokens equals the curve's initial supply
+    // (the launchpad templates never mint after init). Fall through to 1B only for
+    // tokens that never had a curve (edge case). Wrong before this: hardcoded 1B
+    // for every token, which made discover mcap disagree with trade page (which
+    // reads the actual ERC20 totalSupply from chain).
+    totalSupply: curve ? b(curve.curveSupply) : parseEther('1000000000'),
     tradeFeeBps: curve?.tradeFeeBps ?? 0,
     graduated: isGraduated,
     trades: [],

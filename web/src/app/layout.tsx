@@ -11,6 +11,7 @@ import { AudioBindings } from '@/components/AudioBindings';
 import { AudioToggle } from '@/components/AudioToggle';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
+import { PriceUnitToggle } from '@/components/PriceUnitToggle';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -156,6 +157,7 @@ export default function RootLayout({
                   is a nice-to-have that autoplay-blocks anyway on mobile). Chain switcher
                   + wallet are the two non-negotiables since they gate every interaction. */}
               <div className="hidden sm:contents">
+                <PriceUnitToggle />
                 <ThemeToggle />
                 <AudioToggle />
               </div>

@@ -9,6 +9,7 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import {
   mockMarketCapEth,
   mockProgressPct,
+  mockSpotPriceWei,
   launchKind,
   tradeCountOf,
   type MockLaunch,
@@ -19,7 +20,7 @@ import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata } from '@/lib/metadata';
-import { formatGweiPerToken } from '@/lib/priceFmt';
+import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
 // 'direct' switches the pool to direct-mint tokens; every other filter operates on curve
 // tokens only (progress / mcap / graduation are curve concepts).
@@ -236,11 +237,9 @@ export default function DiscoverPage() {
 function LaunchCard({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
-  const spotPriceWei = useMemo(() => {
-    const num = (launch.ethReserve + launch.virtualEthReserve) * 10n ** 18n;
-    const den = launch.tokenReserve + launch.virtualTokenReserve;
-    return den > 0n ? num / den : 0n;
-  }, [launch.ethReserve, launch.virtualEthReserve, launch.tokenReserve, launch.virtualTokenReserve]);
+  const spotPriceWei = useMemo(() => mockSpotPriceWei(launch), [launch]);
+  const unit = usePriceUnit();
+  const ethUsd = useEthUsd();
 
   // Prefer the indexer-supplied imageUrl (shared across every browser). Fall back to
   // the browser's localStorage snapshot only when the indexer hasn't got one yet —
@@ -344,16 +343,14 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
         <span>
           px{' '}
           <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
-            {spotPriceWei > 0n ? formatGweiPerToken(spotPriceWei) : '—'}
+            {formatPrice(spotPriceWei, unit, ethUsd)}
           </span>
-          {' '}gwei
         </span>
         <span>
           mcap{' '}
           <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
-            {Number(formatEther(mcap)).toFixed(3)}
+            {formatMcap(mcap, unit, ethUsd)}
           </span>
-          {' '}Ξ
         </span>
       </div>
 

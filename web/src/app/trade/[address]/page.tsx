@@ -36,6 +36,7 @@ import { mockLaunchByAddress } from '@/lib/mockLaunches';
 import { fetchTradesForCurve } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
+import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { Mascot } from '@/components/Mascot';
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
@@ -625,6 +626,18 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     return ((10n ** 18n) << 192n) / (src * src);
   }, [poolSqrtPriceX96, v4LatestSqrt]);
 
+  /// Single source of truth for the sidebar's price row. Post-graduation the curve's
+  /// priceWeiPerToken() reads virtual reserves (real ones were drained to the pool) so
+  /// it silently returns a wrong number — use the v4 pool spot instead. Pre-graduation
+  /// the curve's read IS the truth.
+  const effectiveSpotPrice = useMemo<bigint>(() => {
+    if (graduated) return poolSpotPriceEthPerToken;
+    return (spotPrice as bigint | undefined) ?? 0n;
+  }, [graduated, poolSpotPriceEthPerToken, spotPrice]);
+
+  const unit = usePriceUnit();
+  const ethUsd = useEthUsd();
+
   const marketCap = useMemo<bigint | null>(() => {
     if (!tokenTotalSupply) return null;
     // Post-graduation: use v4 pool spot × totalSupply. Pre-graduation: use curve spot.
@@ -770,7 +783,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               }}
             >
               <FlashCell value={marketCap ?? undefined}>
-                {typeof marketCap === 'bigint' ? Number(formatEther(marketCap)).toFixed(4) : '—'} Ξ
+                {marketCap ? formatMcap(marketCap, unit, ethUsd) : '—'}
               </FlashCell>
             </div>
           </div>
@@ -1152,9 +1165,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             >
               <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}>
                 <span>price</span>
-                <FlashCell value={spotPrice}>
+                <FlashCell value={effectiveSpotPrice}>
                   <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>
-                    {typeof spotPrice === 'bigint' ? formatGweiPerToken(spotPrice as bigint) : '—'} gw
+                    {effectiveSpotPrice > 0n ? formatPrice(effectiveSpotPrice, unit, ethUsd) : '—'}
                   </span>
                 </FlashCell>
               </li>
