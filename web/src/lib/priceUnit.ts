@@ -140,10 +140,35 @@ export function formatMcap(mcapWei: bigint, unit: PriceUnit, ethUsd: number | nu
 
 function formatUsdSmall(usd: number): string {
   if (usd >= 1) return `$${usd.toFixed(4)}`;
-  if (usd >= 0.01) return `$${usd.toFixed(6)}`;
-  if (usd >= 0.0001) return `$${usd.toFixed(8)}`;
-  // Sub-cent memecoin — use scientific style so it stays readable.
-  return `$${usd.toExponential(2)}`;
+  if (usd >= 0.01) return `$${usd.toFixed(4)}`;
+  if (usd >= 0.001) return `$${usd.toFixed(6)}`;
+  // Sub-tenth-cent memecoin territory — use the pump-style subscript notation
+  // (0.0₄934 = "0.0000934") instead of scientific/e-notation. Compact, readable,
+  // no exponent-math parsing required by the reader.
+  return `$${formatSubscript(usd)}`;
+}
+
+/// Pump-style tiny-number compression. 0.0000934 → "0.0₄934". Only used for very
+/// small positive numbers; caller handles the >= 0.001 range with plain decimals.
+function formatSubscript(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  // Count leading zeros after the decimal point. e.g. 0.0000934 has 4 leading zeros
+  // (the '0.' plus three zeros before hitting 9).
+  const exp = Math.floor(Math.log10(n));       // e.g. log10(0.0000934) = -4.03 → -5
+  const leadingZeros = -exp - 1;                // -(-5) - 1 = 4
+  if (leadingZeros < 4) {
+    // Not compressible enough — fall through to fixed decimals.
+    return n.toFixed(Math.min(18, leadingZeros + 4));
+  }
+  // Significant digits: n × 10^(leadingZeros+3) rounded → 3 sig figs.
+  const sig = Math.round(n * Math.pow(10, leadingZeros + 3));
+  const sub = subscriptDigits(leadingZeros);
+  return `0.0${sub}${sig}`;
+}
+
+const SUBSCRIPTS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+function subscriptDigits(n: number): string {
+  return String(n).split('').map((d) => SUBSCRIPTS[Number(d)] ?? d).join('');
 }
 
 function formatUsdLarge(usd: number): string {

@@ -29,27 +29,32 @@ import {
 } from 'lightweight-charts';
 
 import { playSfx } from '@/lib/audio/sfx';
+import { formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
 export interface TradePoint {
   timestamp: number; // seconds
   priceWeiPerToken: bigint;
 }
 
-/// Convert wei-per-token → gwei-per-token as a JS number. Safe because typical launched
-/// tokens sit in the 1e9–1e14 wei-per-token range, well within Number precision.
-function toGwei(weiPerToken: bigint): number {
+/// Convert wei-per-token to whichever display unit the toggle is set to. In ETH mode
+/// we plot gwei-per-token (× 1e9); in USD mode we plot USD-per-token (× ethUsd / 1e18).
+/// Both stay comfortably inside JS Number precision for typical launched-token ranges.
+function toDisplay(weiPerToken: bigint, useUsd: boolean, ethUsd: number | null): number {
+  if (useUsd && ethUsd) {
+    return (Number(weiPerToken) / 1e18) * ethUsd;
+  }
   return Number(weiPerToken) / 1e9;
 }
 
 /// lightweight-charts asserts data values fit in ±(2^53 / 100). Anything outside — from a
 /// broken oracle, an extreme AMM state, or an inverted math bug in the caller — would
 /// crash the whole chart. We clamp so a single bad point can't take the page down.
-const CHART_MAX_ABS = 9e13; // gwei per token; log the drop so bad data is still visible.
+const CHART_MAX_ABS = 9e13; // safe upper bound for both gwei-per-token AND USD ranges.
 
 /// Turn a Trade stream into a step-line series. De-dupes points that share a timestamp
 /// (multiple trades in the same block: keep the last one — that's the state observers
 /// see when reading the reserve). Sorted ascending by time.
-function toSeries(points: TradePoint[]): AreaData[] {
+function toSeries(points: TradePoint[], useUsd: boolean, ethUsd: number | null): AreaData[] {
   if (points.length === 0) return [];
   const sorted = [...points]
     .filter((p) => p.priceWeiPerToken > 0n)
@@ -57,7 +62,7 @@ function toSeries(points: TradePoint[]): AreaData[] {
   const byTime = new Map<number, number>();
   let dropped = 0;
   for (const p of sorted) {
-    const price = toGwei(p.priceWeiPerToken);
+    const price = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
     if (!Number.isFinite(price) || price <= 0) continue;
     if (Math.abs(price) > CHART_MAX_ABS) { dropped++; continue; }
     byTime.set(p.timestamp, price); // later trades at the same second overwrite
@@ -81,8 +86,11 @@ export function TradeChart({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const unit = usePriceUnit();
+  const ethUsd = useEthUsd();
+  const useUsd = unit === 'usd' && ethUsd !== null && ethUsd > 0;
 
-  const series = useMemo(() => toSeries(points), [points]);
+  const series = useMemo(() => toSeries(points, useUsd, ethUsd), [points, useUsd, ethUsd]);
 
   // Direction of the last move — colors the series green if up-only-or-flat, pink if
   // the latest trade dropped the price below its predecessor. Cheap eyeball signal.
@@ -145,7 +153,17 @@ export function TradeChart({
         vertLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
       },
       localization: {
-        priceFormatter: (p: number) => p.toFixed(precision),
+        // Convert the display value back to wei so formatPrice can use its adaptive
+        // ladder (subscript for tiny USD, gwei formatting for ETH). Keeps the chart's
+        // Y-axis + crosshair tooltip labeled in the same units + notation as every
+        // other price on the page.
+        priceFormatter: (p: number) => {
+          if (!Number.isFinite(p) || p <= 0) return '—';
+          const weiPerToken = useUsd && ethUsd
+            ? BigInt(Math.round((p / ethUsd) * 1e18))
+            : BigInt(Math.round(p * 1e9));
+          return formatPrice(weiPerToken, unit, ethUsd);
+        },
       },
     });
     const upColor = '#6bcb77';
@@ -226,7 +244,7 @@ export function TradeChart({
           pointerEvents: 'none',
         }}
       >
-        price ✿ gwei per token · step per trade
+        price ✿ {useUsd ? 'USD per token' : 'gwei per token'} · step per trade
       </div>
       {series.length === 0 && (
         <div

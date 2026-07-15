@@ -4,6 +4,7 @@ import { usePriceUnit, setPriceUnit } from '@/lib/priceUnit';
 
 /// Small header chip that flips the global $ / Ξ price display. Persists via
 /// localStorage; every price + market-cap widget subscribes to the same store.
+/// Sized to match ThemeToggle + AudioToggle so the header trio reads as one row.
 export function PriceUnitToggle() {
   const unit = usePriceUnit();
   const next = unit === 'usd' ? 'eth' : 'usd';
@@ -12,18 +13,24 @@ export function PriceUnitToggle() {
     <button
       type="button"
       onClick={() => setPriceUnit(next)}
-      title={`switch to ${next.toUpperCase()} display`}
+      aria-label={`Switch to ${next === 'usd' ? 'USD' : 'ETH'} display`}
+      title={`switch to ${next === 'usd' ? 'USD' : 'ETH'} display`}
       style={{
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 11,
-        fontWeight: 700,
-        padding: '2px 6px',
-        border: '1.5px solid var(--anchor)',
-        boxShadow: '1px 1px 0 var(--anchor)',
-        background: 'var(--cream)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        padding: 0,
+        background: unit === 'usd' ? 'var(--mint)' : 'var(--cream)',
         color: 'var(--anchor)',
+        border: '1.5px solid var(--anchor)',
+        boxShadow: '2px 2px 0 var(--anchor)',
+        fontFamily: 'var(--font-pixel), monospace',
+        fontSize: 14,
+        fontWeight: 700,
+        lineHeight: 1,
         cursor: 'pointer',
-        minWidth: 28,
       }}
     >
       {label}
