@@ -123,8 +123,7 @@ contract DeployHooks is Script {
             return predicted;
         }
         vm.startBroadcast();
-        AntiSniperHook deployed =
-            new AntiSniperHook{salt: bytes32(salt)}(IPoolManager(ctx.poolManager), gateBlocks);
+        AntiSniperHook deployed = new AntiSniperHook{salt: bytes32(salt)}(IPoolManager(ctx.poolManager), gateBlocks);
         vm.stopBroadcast();
         require(address(deployed) == predicted, "AntiSniper salt drift");
         addr = address(deployed);
