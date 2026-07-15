@@ -18,7 +18,10 @@ RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
 # Copy workspace root manifest + lockfile so pnpm resolves the workspace protocol.
 # --frozen-lockfile needs pnpm-lock.yaml present at the workspace root.
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+# tsconfig.base.json is `extends`-ed by compile-service/tsconfig.json — without it
+# the `build` step's `tsc --noEmit` falls back to bare defaults (ES5 target, no
+# node module resolution) and every top-level await / import.meta blows up.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
 COPY compile-service/package.json ./compile-service/
 RUN pnpm install --filter @vm/compile-service --frozen-lockfile
 

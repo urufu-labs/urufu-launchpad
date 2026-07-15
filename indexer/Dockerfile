@@ -13,7 +13,9 @@ RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
 # Workspace bootstrap — copy the manifests + lockfile first so `pnpm install`
 # layer caches. --frozen-lockfile requires pnpm-lock.yaml at the workspace root.
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+# tsconfig.base.json is `extends`-ed by indexer/tsconfig.json which ponder loads
+# at startup; without it the process exits before serving /health.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
 COPY indexer/package.json ./indexer/
 RUN pnpm install --filter @vm/indexer --frozen-lockfile
 
