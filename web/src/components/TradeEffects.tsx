@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatEther } from 'viem';
+import { useSignMessage } from 'wagmi';
+
+import { fetchChat, postChat } from '@/lib/socialApi';
 
 // ============================================================================
 // Small effects + helpers used by the trade page. Kept here so the page file
@@ -197,45 +200,71 @@ function saveChat(tokenAddress: string, msgs: ChatMessage[]) {
 /// backend later without touching the UI.
 export function ChatDrawer({
   tokenAddress,
+  chainId,
   wallet,
   seed,
 }: {
   tokenAddress: string;
+  /// Required for shared-chat mode. When set, the drawer pulls messages from the
+  /// compile-service API + posts new messages there (wallet signature required).
+  /// When absent, falls back to browser-local storage — used by MockTradeView / preview.
+  chainId?: number;
   wallet?: `0x${string}` | undefined;
-  /// Optional seed messages shown once when the local store is empty. Used by
-  /// preview/mock views to make the chat feel alive on first visit.
+  /// Optional seed messages shown once when the store is empty. Used by preview/mock
+  /// views to make the chat feel alive on first visit.
   seed?: Array<{ sender: string; text: string; minutesAgo: number }>;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
+  const [posting, setPosting] = useState(false);
   // Guest name is generated client-side only after mount so SSR + CSR agree on the first
   // paint (Math.random() would otherwise mismatch and trip Next's hydration checker).
   const [guestName, setGuestName] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const remoteMode = typeof chainId === 'number';
+  const { signMessageAsync } = useSignMessage();
   useEffect(() => {
     if (wallet || guestName) return;
     const rand = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, '0');
     setGuestName(`guest_${rand}`);
   }, [wallet, guestName]);
 
-  // Initial load — reads local store, falls back to seed for empty stores.
+  // Initial load + poll for new messages every 8s in remote mode.
   useEffect(() => {
-    const loaded = loadChat(tokenAddress);
-    if (loaded.length > 0 || !seed || seed.length === 0) {
-      setMessages(loaded);
-      return;
+    let cancelled = false;
+    const hydrateFromRemote = async () => {
+      if (!remoteMode) return;
+      const remote = await fetchChat(chainId, tokenAddress as `0x${string}`, 100);
+      if (cancelled) return;
+      const mapped: ChatMessage[] = remote.map((r) => ({
+        id: r.id,
+        sender: `${r.senderAddress.slice(0, 6)}…${r.senderAddress.slice(-4)}`,
+        text: r.text,
+        ts: r.ts * 1000,
+      }));
+      setMessages(mapped);
+    };
+
+    // Local-first paint so the UI isn't blank while the remote fetch is in flight.
+    const local = loadChat(tokenAddress);
+    if (local.length > 0) {
+      setMessages(local);
+    } else if (seed && seed.length > 0) {
+      const now = Date.now();
+      const seeded: ChatMessage[] = seed.map((s, i) => ({
+        id: `seed-${i}`,
+        sender: s.sender,
+        text: s.text,
+        ts: now - s.minutesAgo * 60_000,
+      }));
+      setMessages(seeded);
+      if (!remoteMode) saveChat(tokenAddress, seeded);
     }
-    const now = Date.now();
-    const seeded: ChatMessage[] = seed.map((s, i) => ({
-      id: `seed-${i}`,
-      sender: s.sender,
-      text: s.text,
-      ts: now - s.minutesAgo * 60_000,
-    }));
-    setMessages(seeded);
-    saveChat(tokenAddress, seeded);
+    hydrateFromRemote();
+    const id = remoteMode ? setInterval(hydrateFromRemote, 8_000) : null;
+    return () => { cancelled = true; if (id) clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokenAddress]);
+  }, [tokenAddress, chainId]);
 
   // Auto-scroll to bottom on new message.
   useEffect(() => {
@@ -246,19 +275,38 @@ export function ChatDrawer({
     ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}`
     : guestName ?? 'guest_…';
 
-  const send = () => {
+  const send = async () => {
     const text = draft.trim();
     if (text.length === 0 || text.length > 280) return;
+    // Optimistic local append so the UI feels instant. Remote mode replaces the local
+    // list on next poll with the server's canonical view.
     const msg: ChatMessage = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       sender: senderName,
       text,
       ts: Date.now(),
     };
-    const next = [...messages, msg];
-    setMessages(next);
-    saveChat(tokenAddress, next);
+    setMessages((prev) => [...prev, msg]);
     setDraft('');
+
+    if (remoteMode && wallet) {
+      setPosting(true);
+      try {
+        await postChat(
+          wallet,
+          { chainId, tokenAddress: tokenAddress as `0x${string}`, text },
+          ({ message }) => signMessageAsync({ message }),
+        );
+      } catch {
+        // Signature declined or network hiccup — leave the optimistic message in the
+        // local list so the user doesn't lose their draft, but don't retry silently.
+      } finally {
+        setPosting(false);
+      }
+    } else {
+      // Offline / guest / preview mode — just persist locally.
+      saveChat(tokenAddress, [...messages, msg]);
+    }
   };
 
   return (

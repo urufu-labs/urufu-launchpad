@@ -29,6 +29,7 @@ import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4Sta
 import { CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, type TokenMetadata } from '@/lib/metadata';
+import { fetchTokenMetadata } from '@/lib/socialApi';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
 import { fetchTradesForCurve } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -147,11 +148,28 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const walletBal = walletBalQ.data;
   const curveAllowance = curveAllowanceQ.data;
 
-  // ---------- Metadata (localStorage payload written at launch time) ----------
+  // ---------- Metadata (local snapshot + remote hydrate) ----------
   const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
   useEffect(() => {
     if (!tokenAddress) return;
+    // Local paint first for offline / just-launched cases.
     setMetadata(loadMetadata(chainId, tokenAddress));
+    (async () => {
+      const remote = await fetchTokenMetadata(chainId, tokenAddress);
+      if (!remote) return;
+      // Remote wins for shared fields; local avatarDataUrl (there isn't one here) is
+      // moot. Store the remote imageUrl AS `logoDataUrl` since that's what the render
+      // already reads.
+      setMetadata({
+        logoDataUrl: remote.imageUrl ?? undefined,
+        description: remote.description ?? undefined,
+        website: remote.website ?? undefined,
+        twitter: remote.twitter ?? undefined,
+        telegram: remote.telegram ?? undefined,
+        discord: remote.discord ?? undefined,
+        savedAt: Number(new Date(remote.updatedAt).getTime()) || Date.now(),
+      });
+    })();
   }, [tokenAddress, chainId]);
 
   // ---------- Trade event stream → chart points ----------
@@ -913,8 +931,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             )}
           </div>
 
-          {/* Local chat — dopamine layer. Ships as localStorage-backed for now. */}
-          <ChatDrawer tokenAddress={tokenAddress} wallet={wallet} />
+          {/* Chat — API-backed when chainId is known so posts are shared across
+              browsers; falls back to localStorage for the preview / mock modes. */}
+          <ChatDrawer tokenAddress={tokenAddress} chainId={readChainId} wallet={wallet} />
 
           {/* Info sidebar (metadata) */}
           {metadata && (metadata.description || metadata.website || metadata.twitter || metadata.telegram || metadata.discord) && (

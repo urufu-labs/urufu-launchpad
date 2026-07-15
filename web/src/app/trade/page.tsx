@@ -172,11 +172,14 @@ export default function TradeIndex() {
 }
 
 function TradeTile({ launch }: { launch: MockLaunch }) {
-  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  // Prefer indexer-supplied imageUrl (shared), fall back to browser local.
+  const [localImage, setLocalImage] = useState<string | undefined>();
   useEffect(() => {
+    if (launch.imageUrl) return;
     const m = loadMetadata(launch.chainId, launch.address);
-    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
-  }, [launch.chainId, launch.address]);
+    if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
+  }, [launch.imageUrl, launch.chainId, launch.address]);
+  const logoDataUrl = launch.imageUrl ?? localImage;
   return (
     <Link
       href={`/trade/${launch.address}`}

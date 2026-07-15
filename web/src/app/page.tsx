@@ -525,11 +525,15 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   const kind = launchKind(launch);
-  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
+  // for the seconds right after launch before the metadata POST completes.
+  const [localImage, setLocalImage] = useState<string | undefined>();
   useEffect(() => {
+    if (launch.imageUrl) return;
     const m = loadMetadata(launch.chainId, launch.address);
-    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
-  }, [launch.chainId, launch.address]);
+    if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
+  }, [launch.imageUrl, launch.chainId, launch.address]);
+  const logoDataUrl = launch.imageUrl ?? localImage;
   return (
     <Link
       href={`/trade/${launch.address}`}

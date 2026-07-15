@@ -242,11 +242,16 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
     return den > 0n ? num / den : 0n;
   }, [launch.ethReserve, launch.virtualEthReserve, launch.tokenReserve, launch.virtualTokenReserve]);
 
-  const [logoDataUrl, setLogoDataUrl] = useState<string | undefined>();
+  // Prefer the indexer-supplied imageUrl (shared across every browser). Fall back to
+  // the browser's localStorage snapshot only when the indexer hasn't got one yet —
+  // handles the moment right after a launch when the metadata POST is still in flight.
+  const [localImage, setLocalImage] = useState<string | undefined>();
   useEffect(() => {
+    if (launch.imageUrl) return;
     const m = loadMetadata(launch.chainId, launch.address);
-    if (m?.logoDataUrl) setLogoDataUrl(m.logoDataUrl);
-  }, [launch.chainId, launch.address]);
+    if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
+  }, [launch.imageUrl, launch.chainId, launch.address]);
+  const logoDataUrl = launch.imageUrl ?? localImage;
 
   return (
     <Link

@@ -5,6 +5,7 @@ import {
   useAccount,
   useChainId,
   useReadContract,
+  useSignMessage,
   useSimulateContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
@@ -46,6 +47,7 @@ import {
 } from '@/lib/modules';
 import { encodeModuleSlice } from '@/components/ModulePicker';
 import { persistMetadata, readFileAsDataUrl, type TokenMetadata } from '@/lib/metadata';
+import { saveTokenMetadata } from '@/lib/socialApi';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -431,13 +433,39 @@ export default function CreatePage() {
   // useRef, not useMemo — React 19 compiler treats memoized values as immutable; mutable
   // "did this happen already" flags belong in a ref. Refs also don't trigger re-renders.
   const savedRef = useRef(false);
+  const { signMessageAsync } = useSignMessage();
   if (launchedTokenAddress && !savedRef.current) {
     const hasAny = metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter;
     if (hasAny) {
       savedRef.current = true;
-      // Fire-and-forget. persistMetadata writes localStorage synchronously (best-effort) and
-      // tries an IPFS pin in the background when NEXT_PUBLIC_PINATA_JWT is set.
-      void persistMetadata(chainId, launchedTokenAddress, metadata);
+      // Two-phase persist:
+      //   1. persistMetadata — writes localStorage synchronously + kicks off Pinata pin (if
+      //      NEXT_PUBLIC_PINATA_JWT is set). Returns the { cid, gatewayUrl } once pinned.
+      //   2. saveTokenMetadata — POSTs the resulting gateway URL to compile-service so every
+      //      other browser can render the image. Requires one wallet signature; if the user
+      //      cancels, the local snapshot is still there so THEIR view is unaffected.
+      void (async () => {
+        const pinned = await persistMetadata(chainId, launchedTokenAddress, metadata);
+        if (!address) return;
+        try {
+          await saveTokenMetadata(
+            address as Address,
+            {
+              chainId,
+              tokenAddress: launchedTokenAddress,
+              imageUrl: pinned.gatewayUrl ?? null,
+              description: metadata.description ?? null,
+              website: metadata.website ?? null,
+              twitter: metadata.twitter ?? null,
+              telegram: metadata.telegram ?? null,
+              discord: metadata.discord ?? null,
+            },
+            ({ message }) => signMessageAsync({ message }),
+          );
+        } catch {
+          // User cancelled signature or network hiccup — local persistence still succeeded.
+        }
+      })();
     }
   }
 

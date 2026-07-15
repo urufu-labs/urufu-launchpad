@@ -31,6 +31,9 @@ export interface MockLaunch {
   description: string;
   logoBg: string;
   logoEmoji: string;
+  /// Optional token image URL (typically an IPFS gateway URL). When set, discover/home/trade
+  /// render the actual image; when null, we fall back to the emoji + bg color combo.
+  imageUrl?: string;
   creator: Address;
   launchedAt: number;
   kind?: LaunchKind;

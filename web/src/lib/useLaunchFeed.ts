@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import { parseEther } from 'viem';
 
+import type { Address } from 'viem';
 import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
 import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
+import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
 
 interface FeedState {
   source: 'indexer' | 'mock';
@@ -69,9 +71,16 @@ export function useLaunchFeed(chainId: number): FeedState {
         setState({ source: 'indexer', launches: [], ready: true });
         return;
       }
-      const mapped = await Promise.all(
-        rows.filter((r) => r.chainId === chainId).map(indexerRowToLaunch),
+      const forChain = rows.filter((r) => r.chainId === chainId);
+      // Batch-fetch social metadata (image, description, socials) for every token in this
+      // chain's window in one round-trip. Failures are silent — tokens without metadata
+      // just fall back to the default flower emoji.
+      const meta = await fetchTokenMetadataBatch(
+        chainId,
+        forChain.map((r) => r.tokenAddress as Address),
       );
+      if (cancelled) return;
+      const mapped = await Promise.all(forChain.map((r) => indexerRowToLaunch(r, meta)));
       if (cancelled) return;
       setState({
         source: 'indexer',
@@ -86,7 +95,10 @@ export function useLaunchFeed(chainId: number): FeedState {
   return state;
 }
 
-async function indexerRowToLaunch(row: IndexerLaunch): Promise<MockLaunch | null> {
+async function indexerRowToLaunch(
+  row: IndexerLaunch,
+  metadataMap: Record<string, RemoteTokenMetadata>,
+): Promise<MockLaunch | null> {
   const b = (s: string) => BigInt(s);
   // Always probe the curves table by tokenAddress, not just when the launches row has
   // installedBondingCurve set. A token can be launched direct and get its curve created
@@ -99,14 +111,19 @@ async function indexerRowToLaunch(row: IndexerLaunch): Promise<MockLaunch | null
   // indexed lookup per launch, only for the graduated subset.
   const isGraduated = curve?.graduated ?? false;
   const v4Summary = isGraduated ? await fetchV4SummaryForToken(row.tokenAddress) : null;
+  const meta = metadataMap[row.tokenAddress.toLowerCase()];
   return {
     chainId: row.chainId,
     address: row.tokenAddress,
     name: row.name || row.ticker || row.tokenAddress.slice(0, 8),
     ticker: row.ticker,
-    description: '',
+    description: meta?.description ?? '',
     logoBg: '#c9e6ff',
     logoEmoji: '✿',
+    imageUrl: meta?.imageUrl ?? undefined,
+    website: meta?.website ?? undefined,
+    twitter: meta?.twitter ?? undefined,
+    telegram: meta?.telegram ?? undefined,
     creator: row.launchedBy,
     launchedAt: Number(row.blockTimestamp),
     ethReserve: curve ? b(curve.ethReserve) : 0n,

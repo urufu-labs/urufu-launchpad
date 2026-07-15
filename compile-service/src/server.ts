@@ -10,6 +10,8 @@ import { CompileRequestSchema } from './types.ts';
 import { loadMatrix } from './matrix.ts';
 import { compose } from './compile.ts';
 import { runForgeTests } from './test-runner.ts';
+import { migrate, hasDb } from './db.ts';
+import { registerSocialRoutes } from './routes/social.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
 // Endpoints:
@@ -32,6 +34,26 @@ await app.register(rateLimit, {
   max: 30,
   timeWindow: '1 minute',
 });
+
+// Permissive CORS — the frontend on Vercel needs to POST from a different origin.
+// Rate limiting above bounds abuse; no cookies/credentials pass so a wide-open CORS
+// posture is safe here.
+app.addHook('onRequest', async (req, reply) => {
+  reply.header('access-control-allow-origin', '*');
+  reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+  reply.header('access-control-allow-headers', 'content-type, x-vm-deep-test');
+});
+app.options('/*', async (_req, reply) => reply.code(204).send());
+
+// Social / UGC routes (metadata, profile, chat) — backed by the Railway Postgres addon.
+// Skipped silently when DATABASE_URL isn't set (local dev without a Postgres running).
+if (hasDb()) {
+  await migrate();
+  await registerSocialRoutes(app);
+  app.log.info('social routes registered');
+} else {
+  app.log.warn('DATABASE_URL not set — /token/*/metadata + /profile/* + /token/*/chat disabled');
+}
 
 app.post('/compile', async (request, reply) => {
   const parsed = CompileRequestSchema.safeParse(request.body);

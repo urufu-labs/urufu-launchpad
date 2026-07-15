@@ -16,7 +16,7 @@
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatEther, formatUnits, isAddress, type Address } from 'viem';
-import { useAccount } from 'wagmi';
+import { useAccount, useSignMessage } from 'wagmi';
 
 import { Mascot } from '@/components/Mascot';
 import {
@@ -35,6 +35,7 @@ import {
   readAvatarFile,
   type UserProfile,
 } from '@/lib/profile';
+import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
 import { computePositions, type Position } from '@/lib/pnl';
@@ -55,7 +56,28 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [profile, setProfile] = useState<UserProfile>(() => ({ address: address.toLowerCase(), savedAt: 0 }));
   useEffect(() => {
     if (!isValid) return;
-    setProfile(loadProfile(address));
+    // Local snapshot first (instant paint, offline-friendly), then hydrate from the
+    // shared API — anyone else's profile only exists on the API since it was never
+    // written to *this* browser's localStorage.
+    const local = loadProfile(address);
+    setProfile(local);
+    (async () => {
+      const remote = await fetchProfile(address);
+      if (!remote) return;
+      setProfile((prev) => ({
+        address: prev.address,
+        username: remote.username ?? prev.username,
+        bio: remote.bio ?? prev.bio,
+        twitter: remote.twitter ?? prev.twitter,
+        telegram: remote.telegram ?? prev.telegram,
+        discord: remote.discord ?? prev.discord,
+        website: remote.website ?? prev.website,
+        // Avatar stays local-only for now — full cross-browser avatars require
+        // uploading to IPFS on save, which lands in a follow-up.
+        avatarDataUrl: prev.avatarDataUrl,
+        savedAt: Number(new Date(remote.updatedAt).getTime()) || prev.savedAt,
+      }));
+    })();
   }, [address, isValid]);
 
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
@@ -792,7 +814,9 @@ function EditProfileModal({
     }
   };
 
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+  const { signMessageAsync } = useSignMessage();
+  const save = async () => {
     const next: UserProfile = {
       address: initial.address,
       username: username || undefined,
@@ -804,8 +828,37 @@ function EditProfileModal({
       avatarDataUrl: avatarDataUrl || undefined,
       savedAt: Date.now(),
     };
-    const res = saveProfile(next);
-    if (!res.ok) { setError(res.error); playSfx('error'); return; }
+    // Local first — always succeeds, keeps offline UX intact.
+    const localRes = saveProfile(next);
+    if (!localRes.ok) { setError(localRes.error); playSfx('error'); return; }
+    // Shared save via API — signature-gated. If the user cancels the wallet popup we
+    // treat it as "local-only mode" for this session, no error banner.
+    setSaving(true);
+    try {
+      const remote = await saveProfileRemote(
+        initial.address as Address,
+        {
+          username: next.username ?? null,
+          bio: next.bio ?? null,
+          twitter: next.twitter ?? null,
+          telegram: next.telegram ?? null,
+          discord: next.discord ?? null,
+          website: next.website ?? null,
+          // avatar stays local — real cross-browser avatar requires an IPFS upload path.
+          avatarUrl: null,
+        },
+        ({ message }) => signMessageAsync({ message }),
+      );
+      if (!remote.ok) {
+        // Only surface a warning if the server rejected — user cancel throws before we
+        // get here and is handled by the catch below silently.
+        setError(`local saved; shared save failed (${remote.error})`);
+      }
+    } catch {
+      // Signature cancelled or network error — profile stays local for this session.
+    } finally {
+      setSaving(false);
+    }
     playSfx('coin');
     onSave(next);
   };
