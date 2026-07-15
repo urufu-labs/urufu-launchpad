@@ -232,7 +232,21 @@ const contracts = {
   ERC1155Factory: { abi: factoryAbi, network: netFor('ERC1155_FACTORY') },
   CurveFactory: { abi: curveFactoryAbi, network: netFor('CURVE_FACTORY') },
   PoolManager: { abi: poolManagerAbi, network: netFor('POOL_MANAGER') },
-  V4SwapRouter: { abi: v4SwapRouterAbi, network: netFor('V4_SWAP_ROUTER') },
+  // Explicit event filter — narrows the subscription to just the `Swapped` event we
+  // handle. Functionally identical to no-filter since Swapped is the only event we
+  // listen for from this contract, BUT adding the filter changes Ponder's per-source
+  // config hash. This is intentional: base-sepolia's V4SwapRouter subscription got
+  // stuck at block 44160111 with a stale cached sync pointer after multiple redeploys
+  // during the multi-chain refactor. Changing the hash forces Ponder to re-scan from
+  // startBlock as if it were a fresh subscription -- indexed rows past 44160111 land
+  // as they should. Existing rows are preserved via onConflictDoNothing() in the
+  // handler. Safe to leave the filter in place indefinitely; only removing it would
+  // trigger another re-sync.
+  V4SwapRouter: {
+    abi: v4SwapRouterAbi,
+    network: netFor('V4_SWAP_ROUTER'),
+    filter: { event: 'Swapped' as const },
+  },
   BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
   Token: { abi: erc20Abi, network: tokenNet() },
   UruToken: { abi: erc20Abi, network: ecosystemTokenNet('URU_TOKEN_ADDRESS') },
