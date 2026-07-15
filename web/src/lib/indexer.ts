@@ -169,25 +169,38 @@ export interface IndexerV4Swap {
 }
 
 export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | null> {
-  // Ponder's `<field>_not: null` filter doesn't work on nullable text columns —
-  // returns 0 rows even when non-null rows exist. Fetch wider (200) + filter client
-  // side to launchpad-mapped swaps only; on busy chains most PoolManager swaps
-  // aren't from launchpad tokens so 200 gives us plenty of headroom.
-  const OVERFETCH = 200;
+  // Two-step server-side filter: fetch known launchpad `poolId`s from `graduations`,
+  // then ask Ponder for `v4Swaps` where `poolId_in: [...]`. This replaces an earlier
+  // "overfetch 200 + client filter for non-null tokenAddress" approach that was
+  // squeezing older + rarer launchpad rows (specifically sells on quiet tokens) out
+  // of the 200-row window whenever the chain had heavy non-launchpad v4 traffic.
+  // Now the filter runs in Postgres so we always get the newest `limit` launchpad
+  // swaps regardless of how noisy the rest of the chain is.
+  const gradsData = await gql<{ graduationss: { items: Array<{ poolId: `0x${string}` | null }> } }>(
+    `query KnownPoolIds { graduationss(limit: 1000) { items { poolId } } }`,
+  );
+  const poolIds = (gradsData?.graduationss.items ?? [])
+    .map((g) => g.poolId)
+    .filter((p): p is `0x${string}` => !!p);
+  if (poolIds.length === 0) return [];
+
   const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
-    `query RecentV4Swaps($limit: Int!) {
-      v4Swapss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+    `query RecentV4Swaps($poolIds: [String!]!, $limit: Int!) {
+      v4Swapss(
+        where: { poolId_in: $poolIds },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
         items {
           id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
           tick fee priceWeiPerToken blockNumber blockTimestamp txHash
         }
       }
     }`,
-    { limit: OVERFETCH },
+    { poolIds, limit },
   );
-  const items = data?.v4Swapss.items ?? null;
-  if (!items) return null;
-  return items.filter((s) => !!s.tokenAddress).slice(0, limit);
+  return data?.v4Swapss.items ?? null;
 }
 
 /// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to

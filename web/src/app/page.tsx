@@ -106,10 +106,16 @@ export default function HomePage() {
       ]);
       if (cancelled) return;
       // Keep the last-good state when a poll returns null (network hiccup, indexer
-      // transient). Otherwise the rail flickers empty for one poll cycle and users
-      // see sells vanish + reappear.
-      if (curveRows) setLiveTradesReal(curveRows.filter((t) => t.chainId === chainId));
-      if (v4Rows) setLiveV4Real(v4Rows.filter((t) => t.chainId === chainId));
+      // transient) OR when the fresh page came back empty. An empty array is truthy
+      // in JS, so the old `if (v4Rows)` check happily wiped state whenever the
+      // overfetched-200 window happened to contain zero launchpad-mapped rows —
+      // and rare rows (sells on quiet tokens) were the ones that visibly vanished
+      // because they never got refilled by the next poll. Only replace state when
+      // the fresh response actually contains something.
+      const freshCurve = curveRows?.filter((t) => t.chainId === chainId) ?? null;
+      const freshV4 = v4Rows?.filter((t) => t.chainId === chainId) ?? null;
+      if (freshCurve && freshCurve.length > 0) setLiveTradesReal(freshCurve);
+      if (freshV4 && freshV4.length > 0) setLiveV4Real(freshV4);
     };
     load();
     // 5s poll — Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade

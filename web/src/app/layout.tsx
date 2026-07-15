@@ -59,6 +59,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  // Absolute URL base for OG image + canonical resolution — Twitter/Facebook/Discord
+  // won't fetch relative image paths, so social previews stay blank without this.
+  metadataBase: new URL('https://urufulabs.xyz'),
   title: TITLE,
   description: DESCRIPTION,
   icons: {
@@ -71,6 +74,8 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     images: ['/og.svg'],
     type: 'website',
+    url: 'https://urufulabs.xyz',
+    siteName: 'urufu labs',
   },
   twitter: {
     card: 'summary_large_image',
