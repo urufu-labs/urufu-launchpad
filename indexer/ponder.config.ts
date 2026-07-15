@@ -118,6 +118,31 @@ function bondingCurveNet() {
   return out;
 }
 
+/// Token (ERC-20) subscription: dynamic factory pattern rooted at ERC20Factory. Every
+/// token our factory launches gets its Transfer events indexed automatically, no per-
+/// token config change. Powers the `holders` table (profile page holdings list) and
+/// the `transfers` table (per-token transfer history).
+function tokenNet() {
+  const event = parseAbiItem(
+    'event Deployed(address indexed token, address indexed launcher, bytes32 indexed configHash, address impl, string name, string ticker)',
+  );
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof event; parameter: 'token' }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const f = readAddress(slug, 'ERC20_FACTORY');
+    if (!f) continue;
+    out[slug] = {
+      factory: { address: f, event, parameter: 'token' },
+      startBlock: readStartBlock(slug),
+    };
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- networks
 
 /// Build the Ponder `networks` map. Every chain in ENABLED gets a network entry
@@ -187,6 +212,7 @@ const contracts = {
   PoolManager: { abi: poolManagerAbi, network: netFor('POOL_MANAGER') },
   V4SwapRouter: { abi: v4SwapRouterAbi, network: netFor('V4_SWAP_ROUTER') },
   BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
+  Token: { abi: erc20Abi, network: tokenNet() },
 };
 
 // ---------------------------------------------------------------- database

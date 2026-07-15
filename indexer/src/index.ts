@@ -400,7 +400,91 @@ ponder.on('V4SwapRouter:Swapped', async ({ event, context }) => {
   }).onConflictDoNothing();
 });
 
-// Silence unused-import warnings — the tables are exposed so client apps can query them
-// via Ponder's GraphQL layer even before handlers land.
-void holders;
-void transfers;
+// =========================================================
+// Per-token ERC-20 Transfer — dynamically subscribed via the ERC20Factory pattern in
+// ponder.config.ts. Every ERC-20 the launchpad ships gets its Transfer events indexed
+// automatically, no per-launch config change.
+//
+// Two outputs per event:
+//   1. `transfers`: one row per Transfer log, for the per-token transfer history.
+//   2. `holders`:  per-address balance, incremented for `to` and decremented for `from`.
+//      Mint (from = 0x0) and burn (to = 0x0) skip the corresponding side.
+//
+// The `holders` upsert has to survive out-of-order historic backfills (Ponder replays
+// events in log order, so this is safe under normal operation) and the initial mint
+// creating a holder row that doesn't exist yet — handled by find-then-insert-or-update.
+// =========================================================
+
+const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`;
+
+ponder.on('Token:Transfer', async ({ event, context }) => {
+  const { from, to, value } = event.args;
+  const chainId = chainIdOf(context);
+  const tokenAddress = event.log.address;
+  const ts = event.block.timestamp;
+
+  // Per-transfer row for the per-token history feed. Same id shape as trades: chainId
+  // + txHash + logIndex so replays are idempotent.
+  await context.db.insert(transfers).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    tokenAddress,
+    from,
+    to,
+    amount: value,
+    blockNumber: event.block.number,
+    blockTimestamp: ts,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  // Balance deltas. Mint (from = 0x0) skips the decrement side, burn (to = 0x0) skips
+  // the increment side. Everything else is a wallet-to-wallet or wallet-to-pool move
+  // that adjusts both sides.
+  //
+  // Each side is a find-then-insert-or-update: existing holder → update balance,
+  // fresh holder → seed with the incoming amount. Clamped to zero on the update path
+  // as a defense-in-depth; a real ERC-20 can't burn what it doesn't hold, but if the
+  // indexer ever sees an out-of-order chunk the frontend shouldn't render negatives.
+  if (from !== ZERO_ADDR) {
+    const fromId = `${chainId}-${tokenAddress.toLowerCase()}-${from.toLowerCase()}`;
+    const existing = await context.db.find(holders, { id: fromId });
+    if (existing) {
+      const next = existing.balance - value;
+      await context.db.update(holders, { id: fromId }).set({
+        balance: next < 0n ? 0n : next,
+        updatedAt: ts,
+      });
+    } else {
+      // Shouldn't happen in practice (you can't send tokens without holding them),
+      // but seed a zero-balance row so the schema stays consistent.
+      await context.db.insert(holders).values({
+        id: fromId,
+        chainId,
+        tokenAddress,
+        holderAddress: from,
+        balance: 0n,
+        updatedAt: ts,
+      }).onConflictDoNothing();
+    }
+  }
+
+  if (to !== ZERO_ADDR) {
+    const toId = `${chainId}-${tokenAddress.toLowerCase()}-${to.toLowerCase()}`;
+    const existing = await context.db.find(holders, { id: toId });
+    if (existing) {
+      await context.db.update(holders, { id: toId }).set({
+        balance: existing.balance + value,
+        updatedAt: ts,
+      });
+    } else {
+      await context.db.insert(holders).values({
+        id: toId,
+        chainId,
+        tokenAddress,
+        holderAddress: to,
+        balance: value,
+        updatedAt: ts,
+      }).onConflictDoNothing();
+    }
+  }
+});
