@@ -30,6 +30,13 @@ const STORAGE_VOLUME = 'urufu-audio-vol';
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
+/// Tracks the in-flight `ctx.resume()` promise so simultaneous playSfx calls all await
+/// the same resume rather than each firing their own (Chrome tolerates that but it
+/// serializes weirdly). Cleared when the context reports `state === 'running'`.
+let resumePromise: Promise<void> | null = null;
+/// Set once we've wired the document-level visibility + pointer listeners that keep
+/// the context alive across Chrome's auto-suspend. Idempotent guard.
+let listenersWired = false;
 
 function getAudioEnabled(): boolean {
   if (typeof window === 'undefined') return false;
@@ -64,10 +71,7 @@ export function setVolume(v: number): void {
 
 function ensureCtx(): AudioContext | null {
   if (typeof window === 'undefined') return null;
-  if (ctx) {
-    if (ctx.state === 'suspended') void ctx.resume();
-    return ctx;
-  }
+  if (ctx) return ctx;
   try {
     const Ctx =
       window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -76,10 +80,51 @@ function ensureCtx(): AudioContext | null {
     masterGain = ctx.createGain();
     masterGain.gain.value = getVolume();
     masterGain.connect(ctx.destination);
+    wireLifecycleListeners();
     return ctx;
   } catch {
     return null;
   }
+}
+
+/// Chrome (and Safari to a lesser extent) auto-suspend AudioContext after ~30s of tab
+/// inactivity or when the tab backgrounds. Any sound scheduled during the suspended
+/// window is silently dropped. This wakes the context on ANY user gesture + when the
+/// tab regains visibility, so returning to the tab or clicking anything hydrates the
+/// audio pipeline before the next playSfx call fires.
+function wireLifecycleListeners(): void {
+  if (listenersWired || typeof document === 'undefined') return;
+  listenersWired = true;
+  const wake = () => {
+    if (ctx && ctx.state === 'suspended') void resumeCtx();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') wake();
+  });
+  document.addEventListener('pointerdown', wake, { passive: true, capture: true });
+  document.addEventListener('keydown', wake, { passive: true, capture: true });
+}
+
+/// Awaits ctx.resume() with dedup so parallel playSfx calls share one resume. Returns
+/// true once the context is actually running.
+async function resumeCtx(): Promise<boolean> {
+  if (!ctx) return false;
+  if (ctx.state === 'running') return true;
+  if (!resumePromise) {
+    resumePromise = ctx
+      .resume()
+      .catch(() => {
+        // Suspended-by-autoplay-policy AND no user gesture available — nothing to
+        // do; next click will call us again via wireLifecycleListeners.
+      })
+      .finally(() => {
+        resumePromise = null;
+      });
+  }
+  await resumePromise;
+  // Re-check nullness after await (TS narrows away otherwise). ctx.state widens to
+  // include 'interrupted' on Safari; treat anything non-'running' as failure.
+  return ctx !== null && (ctx.state as string) === 'running';
 }
 
 function playTone({
@@ -174,7 +219,19 @@ export function playSfx(name: SfxName): void {
   if (!getAudioEnabled()) return;
   const c = ensureCtx();
   if (!c) return;
+  // If the context auto-suspended (Chrome background/idle), fire-and-schedule via a
+  // resume-first Promise. Synchronous scheduling on a suspended ctx would land in
+  // the past once resume completes and get dropped.
+  if (c.state !== 'running') {
+    void resumeCtx().then((ok) => {
+      if (ok) scheduleSfx(name);
+    });
+    return;
+  }
+  scheduleSfx(name);
+}
 
+function scheduleSfx(name: SfxName): void {
   switch (name) {
     case 'click':
       playTone({ freq: 880, type: 'square', duration: 0.04, release: 0.04, attack: 0.001 });

@@ -698,8 +698,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     );
   }
 
-  // Chart flash — fires when the newest indexed trade changes. Side + timestamp drives it.
-  const newestTrade = recentTrades[0];
+  // Chart flash — fires when the newest indexed trade changes. Reads from the merged
+  // curve + v4 list so post-graduation buys/sells still flash the chart. Before this,
+  // it keyed off the curve-only list which is frozen after graduation → no flashes.
+  const newestTrade = mergedRecentTrades[0];
   const chartFlashKey = newestTrade ? `${newestTrade.timestamp}-${newestTrade.trader}` : null;
   const chartFlashSide: 'buy' | 'sell' = newestTrade?.isBuy ? 'buy' : 'sell';
 
