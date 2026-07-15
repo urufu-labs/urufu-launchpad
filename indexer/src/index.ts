@@ -5,6 +5,17 @@ import { keccak256, encodeAbiParameters } from 'viem';
 import { eq } from '@ponder/core';
 
 import { launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers } from '../ponder.schema.ts';
+import { hookHostForChainId } from '../chains';
+
+/// Ponder's multi-network context.network union is `{ name, chainId }` for each
+/// enabled chain, but TS widens `chainId` to `unknown` and marks the union member
+/// optional. Every event we handle has a network, so we assert non-null + coerce
+/// to number in one place so handler bodies stay clean.
+function chainIdOf(context: { network?: { chainId: unknown } | undefined }): number {
+  const raw = context.network?.chainId;
+  if (typeof raw !== 'number') throw new Error('ponder: missing network.chainId in event context');
+  return raw;
+}
 
 /// v4 PoolKey → PoolId. Every launchpad graduation opens an ETH/token pool with the
 /// same fixed fee + tick spacing + MultiHookHost hook — so given the token address we
@@ -25,8 +36,6 @@ function computeV4PoolId(tokenAddress: `0x${string}`, hookAddress: `0x${string}`
     ),
   );
 }
-
-const MULTI_HOOK_HOST = process.env.NEXT_PUBLIC_MULTI_HOOK_HOST_ADDRESS as `0x${string}` | undefined;
 
 // =========================================================
 // Launch pipeline — three correlated events per launch tx, plus an optional fourth for
@@ -57,7 +66,7 @@ const pendingDeployed = new Map<string, PendingDeployed>();
 ponder.on('Router:Launched', async ({ event, context }) => {
   const { token, launchedBy, base, nameHash, tickerHash, feePaid, installedHook, installedGovernance } =
     event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const id = `${chainId}-${token.toLowerCase()}`;
 
   const reserved = pendingReserved.get(id);
@@ -90,7 +99,7 @@ ponder.on('Router:Launched', async ({ event, context }) => {
 
 ponder.on('Router:CurveInstalled', async ({ event, context }) => {
   const { token, curve } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const launchId = `${chainId}-${token.toLowerCase()}`;
 
   // Mark the launch row as curve-backed and store the curve address for the join.
@@ -108,7 +117,7 @@ ponder.on('Router:CurveInstalled', async ({ event, context }) => {
 // (which fires on every curve, atomic or standalone) and upsert the same fields.
 ponder.on('CurveFactory:CurveCreated', async ({ event, context }) => {
   const { token, curve } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const launchId = `${chainId}-${token.toLowerCase()}`;
 
   await context.db
@@ -122,7 +131,7 @@ ponder.on('CurveFactory:CurveCreated', async ({ event, context }) => {
 
 ponder.on('NameRegistry:Reserved', async ({ event, context }) => {
   const { token, name, ticker } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const id = `${chainId}-${token.toLowerCase()}`;
 
   // Reserved fires FIRST in the tx, before the launches row exists — buffer for Router:Launched
@@ -137,7 +146,7 @@ ponder.on('NameRegistry:Reserved', async ({ event, context }) => {
 
 async function handleFactoryDeployed({ event, context }: { event: any; context: any }) {
   const { token, configHash, impl } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const id = `${chainId}-${token.toLowerCase()}`;
 
   // Same story as Reserved — Deployed fires before Launched, so buffer.
@@ -168,7 +177,7 @@ ponder.on('BondingCurve:CurveInitialized', async ({ event, context }) => {
     graduationTargetEth,
     tradeFeeBps,
   } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const curveAddress = event.log.address;
   const id = `${chainId}-${curveAddress.toLowerCase()}`;
 
@@ -215,7 +224,7 @@ ponder.on('BondingCurve:CurveInitialized', async ({ event, context }) => {
 
 ponder.on('BondingCurve:Trade', async ({ event, context }) => {
   const { trader, isBuy, ethAmount, tokenAmount, ethReserve, tokenReserve } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const curveAddress = event.log.address;
   const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
   const tradeId = `${chainId}-${event.transaction.hash}-${event.log.logIndex}`;
@@ -260,7 +269,7 @@ ponder.on('BondingCurve:Trade', async ({ event, context }) => {
 
 ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
   const { ethReserve, tokenReserve } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   const curveAddress = event.log.address;
   const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
 
@@ -269,11 +278,15 @@ ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
 
   // Precompute the v4 poolId — v4Swaps handler joins on this to backfill tokenAddress
   // for post-grad swaps (otherwise the home page live-trades rail can't render them).
-  // Only meaningful when the graduating token has a real address AND the deploy chain
-  // has a wired MultiHookHost — leave null otherwise so the schema stays truthful.
+  // Only meaningful when the graduating token has a real address AND the chain THIS
+  // graduation happened on has a wired MultiHookHost. Per-chain lookup so the multi-
+  // chain indexer computes each chain's poolId with that chain's own hook address —
+  // a Base graduation must not use the Base Sepolia hook or the poolId won't match
+  // the emitted Swap events.
+  const hookHost = hookHostForChainId(chainId);
   const poolId =
-    MULTI_HOOK_HOST && tokenAddress !== '0x0000000000000000000000000000000000000000'
-      ? computeV4PoolId(tokenAddress, MULTI_HOOK_HOST)
+    hookHost && tokenAddress !== '0x0000000000000000000000000000000000000000'
+      ? computeV4PoolId(tokenAddress, hookHost)
       : null;
 
   await context.db.insert(graduations).values({
@@ -316,7 +329,7 @@ ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
 
 ponder.on('PoolManager:Swap', async ({ event, context }) => {
   const { id: poolId, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
 
   // v4 sqrtPriceX96 = sqrt(amount1/amount0) × 2^96 — for ETH(currency0)/token(currency1)
   // that's sqrt(tokens/ETH) atomic. Invert to get wei-ETH per whole token:
@@ -372,7 +385,7 @@ ponder.on('PoolManager:Swap', async ({ event, context }) => {
 
 ponder.on('V4SwapRouter:Swapped', async ({ event, context }) => {
   const { user, token, isBuy, amountIn, amountOut } = event.args;
-  const chainId = context.network.chainId;
+  const chainId = chainIdOf(context);
   await context.db.insert(v4RouterSwaps).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,

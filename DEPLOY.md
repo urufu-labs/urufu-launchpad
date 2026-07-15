@@ -13,27 +13,55 @@ container-based, so mainnet-day cutover is only environment variables + a redepl
    `DATABASE_PRIVATE_URL` automatically. `ponder.config.ts` switches to Postgres
    when either is present.
 
-## Service A — indexer
+## Service A — indexer (multi-chain)
 
 **Root Directory:** repo root
 **Config file:** `indexer/railway.json` (points at `indexer/Dockerfile`)
-**Env vars to set in Railway:**
+
+One Ponder process handles every chain listed in `INDEXER_CHAINS`. Enabling a
+new chain is a Railway env-var change, not a new service. Env vars follow the
+pattern `<PREFIX>_<CONTRACT>_ADDRESS` where PREFIX is the chain slug uppercased
+(dashes → underscores): `BASE_SEPOLIA`, `BASE`, `SEPOLIA`, `MAINNET`,
+`ROBINHOOD`, `ROBINHOOD_TESTNET`.
+
+**Env vars — Base Sepolia only (current):**
 
 ```
-INDEXER_CHAIN=base-sepolia          # or `base` on mainnet day
-BASE_SEPOLIA_RPC_URL=<Alchemy URL>  # paid tier recommended
-NEXT_PUBLIC_NAME_REGISTRY_ADDRESS=...
-NEXT_PUBLIC_ROUTER_ADDRESS=...
-NEXT_PUBLIC_ERC20_FACTORY_ADDRESS=...
-NEXT_PUBLIC_ERC721A_FACTORY_ADDRESS=...
-NEXT_PUBLIC_ERC1155_FACTORY_ADDRESS=...
-NEXT_PUBLIC_CURVE_FACTORY_ADDRESS=...
-NEXT_PUBLIC_POOL_MANAGER_ADDRESS=...
-NEXT_PUBLIC_MULTI_HOOK_HOST_ADDRESS=...
+INDEXER_CHAINS=base-sepolia
+BASE_SEPOLIA_RPC_URL=<Alchemy URL>
+BASE_SEPOLIA_NAME_REGISTRY_ADDRESS=...
+BASE_SEPOLIA_ROUTER_ADDRESS=...
+BASE_SEPOLIA_ERC20_FACTORY_ADDRESS=...
+BASE_SEPOLIA_ERC721A_FACTORY_ADDRESS=...
+BASE_SEPOLIA_ERC1155_FACTORY_ADDRESS=...
+BASE_SEPOLIA_CURVE_FACTORY_ADDRESS=...
+BASE_SEPOLIA_POOL_MANAGER_ADDRESS=...
+BASE_SEPOLIA_V4_SWAP_ROUTER_ADDRESS=...
+BASE_SEPOLIA_MULTI_HOOK_HOST_ADDRESS=...
 PONDER_START_BLOCK_BASE_SEPOLIA=<deploy_block>
 ```
 
-(Copy the same block that `tools/sync-addresses.mjs base-sepolia` prints locally.)
+**Adding Base mainnet (day of):** append these to the same service, redeploy.
+
+```
+INDEXER_CHAINS=base-sepolia,base
+BASE_RPC_URL=<Alchemy mainnet URL>
+BASE_NAME_REGISTRY_ADDRESS=...
+BASE_ROUTER_ADDRESS=...
+BASE_ERC20_FACTORY_ADDRESS=...
+BASE_ERC721A_FACTORY_ADDRESS=...
+BASE_ERC1155_FACTORY_ADDRESS=...
+BASE_CURVE_FACTORY_ADDRESS=...
+BASE_POOL_MANAGER_ADDRESS=...
+BASE_V4_SWAP_ROUTER_ADDRESS=...
+BASE_MULTI_HOOK_HOST_ADDRESS=...
+PONDER_START_BLOCK_BASE=<mainnet_deploy_block>
+```
+
+**Backward-compat:** the unprefixed legacy `NEXT_PUBLIC_*_ADDRESS` env vars +
+`INDEXER_CHAIN=base-sepolia` still work — the indexer reads them as a fallback
+for whichever slug matches `INDEXER_CHAIN`. Prefer the prefixed pattern for new
+chains; the frontend + Vercel config are unaffected.
 
 After the first deploy Railway will assign a public URL like
 `https://indexer-production-xyz.up.railway.app` — that becomes
@@ -79,14 +107,13 @@ Once contracts are broadcast on Base mainnet:
 
 1. `pnpm contracts:deploy:mainnet` → writes `deployment.8453.json`
 2. `node tools/sync-addresses.mjs base` → patches `web/src/lib/config.ts`
-3. On Railway indexer service: flip `INDEXER_CHAIN=base-sepolia` → `base`, set
-   `BASE_RPC_URL`, set `PONDER_START_BLOCK_BASE=<mainnet_deploy_block>`, update
-   the `NEXT_PUBLIC_*_ADDRESS` block. Redeploy.
-   (Or: keep base-sepolia running on the current service, spin up a second
-   service pointed at mainnet, and give users a chain switcher.)
-4. On Vercel web: update the same address envs to mainnet values. Push a commit
-   to trigger the rebuild.
-5. On Vercel web: verify the shop can quote a launch against the new Router.
+3. On Railway indexer service: append the `BASE_*` env-var block from the
+   "Adding Base mainnet" section above, flip
+   `INDEXER_CHAINS=base-sepolia` → `base-sepolia,base`. Redeploy. The same
+   service now indexes both chains and exposes them via one GraphQL endpoint.
+4. On Vercel web: add BASE contract addresses to the frontend `web/src/lib/config.ts`
+   via the sync tool + push. No env changes needed for the indexer URL.
+5. Verify the shop can quote a launch against the new Router.
 
 No contract redeploys needed unless the launchpad ABIs change — the ABIs in this
 repo are the source of truth for both indexer + web, so a code-only shipping

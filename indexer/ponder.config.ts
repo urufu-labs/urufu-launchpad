@@ -1,99 +1,31 @@
 import { createConfig } from '@ponder/core';
 import { http, parseAbi, parseAbiItem } from 'viem';
-import { readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
 
-// Ponder's built-in dotenv only reads ./.env / ./.env.local relative to the indexer/
-// workspace. The launchpad keeps its single source of truth at the repo-root .env — pull
-// that in with a tiny parser (Vite's module graph can't reach dotenv as a transitive dep,
-// and we don't want to add it as an explicit dep). Only assigns keys not already in
-// process.env so shell overrides still win.
-const rootEnvPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.env');
-if (existsSync(rootEnvPath)) {
-  for (const line of readFileSync(rootEnvPath, 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (!match || match[1].startsWith('#')) continue;
-    const [, key, rawValue] = match;
-    const value = rawValue.replace(/^['"]|['"]$/g, '');
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
-}
+import {
+  CHAIN_CATALOG,
+  enabledChains,
+  readAddress,
+  readRpcUrl,
+  readStartBlock,
+  type AddressKey,
+  type ChainSlug,
+} from './chains';
 
-// Which chain this indexer instance runs against. In prod, spin up one indexer per chain
-// with `INDEXER_CHAIN=<slug>` set. Default is sepolia for local dev.
-const CHAIN_SLUG = (process.env.INDEXER_CHAIN ?? 'sepolia') as
-  | 'sepolia'
-  | 'mainnet'
-  | 'base'
-  | 'base-sepolia'
-  | 'robinhood'
-  | 'robinhood-testnet';
+/// Multi-chain Ponder config. One process subscribes to every chain in
+/// `enabledChains()` at once — no more one-service-per-chain on Railway.
+///
+/// Which chains actually get indexed is decided by two things:
+///   1. INDEXER_CHAINS=base-sepolia,base   (comma-separated slug list; opt-in)
+///      — or legacy INDEXER_CHAIN=base-sepolia (single slug, still honored)
+///   2. Env vars per chain: `<PREFIX>_RPC_URL` + at least one
+///      `<PREFIX>_<CONTRACT>_ADDRESS` (see indexer/chains.ts ADDRESS_KEYS).
+/// A chain listed in INDEXER_CHAINS but missing its RPC or address vars is
+/// silently skipped — enabling a new chain in prod is a Railway env-var change,
+/// not a redeploy.
 
-// Per-chain RPC + start-block. Start blocks are the deploy block of the FIRST Phase 1
-// contract (Router usually) — set via env when running against a new chain.
-const CHAIN_CONFIG = {
-  sepolia: {
-    id: 11_155_111,
-    rpc: process.env.SEPOLIA_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com',
-    startBlock: Number(process.env.PONDER_START_BLOCK_SEPOLIA ?? 6_000_000),
-  },
-  mainnet: {
-    id: 1,
-    rpc: process.env.MAINNET_RPC_URL ?? '',
-    startBlock: Number(process.env.PONDER_START_BLOCK_MAINNET ?? 0),
-  },
-  base: {
-    id: 8453,
-    rpc: process.env.BASE_RPC_URL ?? '',
-    startBlock: Number(process.env.PONDER_START_BLOCK_BASE ?? 0),
-  },
-  'base-sepolia': {
-    id: 84532,
-    rpc: process.env.BASE_SEPOLIA_RPC_URL ?? '',
-    startBlock: Number(process.env.PONDER_START_BLOCK_BASE_SEPOLIA ?? 0),
-  },
-  robinhood: {
-    id: 4663,
-    rpc: process.env.ROBINHOOD_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com',
-    startBlock: Number(process.env.PONDER_START_BLOCK_ROBINHOOD ?? 0),
-  },
-  'robinhood-testnet': {
-    id: 46630,
-    rpc: process.env.ROBINHOOD_TESTNET_RPC_URL ?? 'https://rpc.testnet.chain.robinhood.com',
-    startBlock: Number(process.env.PONDER_START_BLOCK_ROBINHOOD_TESTNET ?? 0),
-  },
-} as const;
+// ---------------------------------------------------------------- ABIs
+// Same shapes wagmi uses on the client side. Kept human-readable via parseAbi.
 
-const chain = CHAIN_CONFIG[CHAIN_SLUG];
-if (!chain) throw new Error(`Unknown INDEXER_CHAIN: ${CHAIN_SLUG}`);
-if (!chain.rpc) {
-  throw new Error(
-    `No RPC URL for ${CHAIN_SLUG}. Set the matching *_RPC_URL env var (see .env.example).`,
-  );
-}
-
-// Contract addresses — populate the matching NEXT_PUBLIC_*_ADDRESS env vars for the chain
-// this indexer is bound to. Undefined addresses skip indexing until set.
-const CONTRACTS = {
-  NameRegistry: process.env.NEXT_PUBLIC_NAME_REGISTRY_ADDRESS as `0x${string}` | undefined,
-  Router: process.env.NEXT_PUBLIC_ROUTER_ADDRESS as `0x${string}` | undefined,
-  ERC20Factory: process.env.NEXT_PUBLIC_ERC20_FACTORY_ADDRESS as `0x${string}` | undefined,
-  ERC721AFactory: process.env.NEXT_PUBLIC_ERC721A_FACTORY_ADDRESS as `0x${string}` | undefined,
-  ERC1155Factory: process.env.NEXT_PUBLIC_ERC1155_FACTORY_ADDRESS as `0x${string}` | undefined,
-  CurveFactory: process.env.NEXT_PUBLIC_CURVE_FACTORY_ADDRESS as `0x${string}` | undefined,
-  // Uniswap v4 PoolManager for this chain. Enables post-graduation Swap indexing so the
-  // home page's live-activity rail keeps ticking after tokens graduate. Optional — leave
-  // unset on chains where v4 isn't wired.
-  PoolManager: process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS as `0x${string}` | undefined,
-  // Our V4SwapRouter contract. Post-graduation swaps go through this — the router emits
-  // Swapped(user, token, isBuy, in, out), which is the ONLY event carrying the actual
-  // trader wallet (PoolManager's Swap.sender is the router itself). Profile pages depend
-  // on this feed for post-grad activity.
-  V4SwapRouter: process.env.NEXT_PUBLIC_V4_SWAP_ROUTER_ADDRESS as `0x${string}` | undefined,
-} as const;
-
-// ABIs — human-readable via parseAbi, same shape wagmi uses on the client side.
 export const nameRegistryAbi = parseAbi([
   'event Reserved(bytes32 indexed nameHash, bytes32 indexed tickerHash, address indexed token, address launchedBy, string name, string ticker, uint256 timestamp, uint256 chainId)',
 ]);
@@ -121,121 +53,152 @@ export const erc20Abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ]);
 
-/// V4SwapRouter emits this on every buy/sell. `user` is the actual EOA that initiated
-/// the swap — unlike PoolManager.Swap.sender which is the router itself. Signature must
-/// match contracts/src/router/V4SwapRouter.sol.
 export const v4SwapRouterAbi = parseAbi([
   'event Swapped(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut)',
 ]);
 
-/// Uniswap v4 PoolManager.Swap — one event per swap across every pool on the chain. On
-/// testnets that's manageable; on mainnet you'll want to switch to a per-poolId filter
-/// (Ponder doesn't support dynamic topic filters yet, so this is a TODO). We correlate
-/// each swap to a launched token in the handler by matching the poolId against known
-/// graduated launches.
 export const poolManagerAbi = parseAbi([
   'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
 ]);
 
-// Postgres in prod (Railway attaches DATABASE_URL from its Postgres plugin), pglite
-// for local dev. Ponder auto-detects DATABASE_URL when database is omitted, but making
-// it explicit keeps prod vs dev behaviour obvious from a single glance at this file.
+// ---------------------------------------------------------------- network + contract build
+
+const ENABLED = enabledChains();
+const has = (slug: ChainSlug) => ENABLED.includes(slug);
+const addr = (slug: ChainSlug, key: AddressKey) => readAddress(slug, key);
+
+if (ENABLED.length === 0) {
+  console.warn(
+    '[indexer] no chains enabled — set INDEXER_CHAINS=<slug1>,<slug2> + per-chain ' +
+      '<PREFIX>_RPC_URL and <PREFIX>_<CONTRACT>_ADDRESS env vars. Ponder will still ' +
+      'boot but won\'t subscribe to anything until env is populated.',
+  );
+}
+
+/// Build a per-chain network-override object for a given contract-address key.
+/// Ponder's contract `network` field accepts a string (single chain) OR a
+/// `{ [chainSlug]: { address, startBlock } }` map. Chains without an address
+/// for this key are omitted so Ponder doesn't subscribe to `undefined`.
+///
+/// The returned object is typed as `Partial<Record<ChainSlug, ...>>` so Ponder's
+/// generic inference sees the same key literals it sees in the `networks` map.
+function netFor(
+  key: AddressKey,
+): Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> {
+  const out: Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> = {};
+  for (const slug of ENABLED) {
+    const a = readAddress(slug, key);
+    if (!a) continue;
+    out[slug] = { address: a, startBlock: readStartBlock(slug) };
+  }
+  return out;
+}
+
+/// BondingCurve subscription: dynamic factory pattern. Each chain's CurveFactory
+/// emits `CurveCreated`; Ponder adds every new curve address as a Trade + Graduated
+/// + CurveInitialized source automatically. Chains without a CurveFactory drop out.
+function bondingCurveNet() {
+  const event = parseAbiItem(
+    'event CurveCreated(address indexed token, address indexed curve, address indexed launcher)',
+  );
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof event; parameter: 'curve' }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const cf = readAddress(slug, 'CURVE_FACTORY');
+    if (!cf) continue;
+    out[slug] = {
+      factory: { address: cf, event, parameter: 'curve' },
+      startBlock: readStartBlock(slug),
+    };
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- networks
+
+/// Build the Ponder `networks` map. Every chain in ENABLED gets a network entry
+/// with its own RPC + chainId + polling interval. Static conditional spreads
+/// preserve literal key types so Ponder's generic inference works.
+const networks = {
+  ...(has('sepolia') && {
+    sepolia: {
+      chainId: CHAIN_CATALOG.sepolia.id,
+      transport: http(readRpcUrl('sepolia')),
+      pollingInterval: 1_000,
+    },
+  }),
+  ...(has('mainnet') && {
+    mainnet: {
+      chainId: CHAIN_CATALOG.mainnet.id,
+      transport: http(readRpcUrl('mainnet')),
+      pollingInterval: 1_000,
+    },
+  }),
+  ...(has('base') && {
+    base: {
+      chainId: CHAIN_CATALOG.base.id,
+      transport: http(readRpcUrl('base')),
+      pollingInterval: 1_000,
+    },
+  }),
+  ...(has('base-sepolia') && {
+    'base-sepolia': {
+      chainId: CHAIN_CATALOG['base-sepolia'].id,
+      transport: http(readRpcUrl('base-sepolia')),
+      pollingInterval: 1_000,
+    },
+  }),
+  ...(has('robinhood') && {
+    robinhood: {
+      chainId: CHAIN_CATALOG.robinhood.id,
+      transport: http(readRpcUrl('robinhood')),
+      pollingInterval: 1_000,
+    },
+  }),
+  ...(has('robinhood-testnet') && {
+    'robinhood-testnet': {
+      chainId: CHAIN_CATALOG['robinhood-testnet'].id,
+      transport: http(readRpcUrl('robinhood-testnet')),
+      pollingInterval: 1_000,
+    },
+  }),
+};
+
+// ---------------------------------------------------------------- contracts
+//
+// Every contract entry follows the same shape: `{ abi, network: netFor(KEY) }`.
+// If a chain has no address for that key, netFor omits it — Ponder simply
+// doesn't subscribe on that chain.
+//
+// Contract keys are static literal strings so `ponder.on('Router:Launched', ...)`
+// in the handler file keeps its typed event args.
+
+const contracts = {
+  NameRegistry: { abi: nameRegistryAbi, network: netFor('NAME_REGISTRY') },
+  Router: { abi: routerAbi, network: netFor('ROUTER') },
+  ERC20Factory: { abi: factoryAbi, network: netFor('ERC20_FACTORY') },
+  ERC721AFactory: { abi: factoryAbi, network: netFor('ERC721A_FACTORY') },
+  ERC1155Factory: { abi: factoryAbi, network: netFor('ERC1155_FACTORY') },
+  CurveFactory: { abi: curveFactoryAbi, network: netFor('CURVE_FACTORY') },
+  PoolManager: { abi: poolManagerAbi, network: netFor('POOL_MANAGER') },
+  V4SwapRouter: { abi: v4SwapRouterAbi, network: netFor('V4_SWAP_ROUTER') },
+  BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
+};
+
+// ---------------------------------------------------------------- database
+
+/// Postgres in prod (Railway attaches DATABASE_URL from its Postgres plugin), pglite
+/// for local dev. Making the switch explicit keeps behaviour obvious at a glance.
 const pgUrl = process.env.DATABASE_PRIVATE_URL ?? process.env.DATABASE_URL;
 
 export default createConfig({
   database: pgUrl
     ? { kind: 'postgres', connectionString: pgUrl }
     : { kind: 'pglite' },
-  networks: {
-    [CHAIN_SLUG]: {
-      chainId: chain.id,
-      transport: http(chain.rpc),
-      // Poll the RPC every 1s for new blocks. Ponder's default backs off to keep public
-      // RPCs happy — fine for prod on a paid tier, painful for local dev where every
-      // extra second of lag is visible on the trade page. Base Sepolia has 2s blocks
-      // so 1s polling catches a new head within one block interval.
-      pollingInterval: 1_000,
-    },
-  },
-  contracts: {
-    NameRegistry: {
-      network: CHAIN_SLUG,
-      abi: nameRegistryAbi,
-      address: CONTRACTS.NameRegistry,
-      startBlock: chain.startBlock,
-    },
-    Router: {
-      network: CHAIN_SLUG,
-      abi: routerAbi,
-      address: CONTRACTS.Router,
-      startBlock: chain.startBlock,
-    },
-    ERC20Factory: {
-      network: CHAIN_SLUG,
-      abi: factoryAbi,
-      address: CONTRACTS.ERC20Factory,
-      startBlock: chain.startBlock,
-    },
-    ERC721AFactory: {
-      network: CHAIN_SLUG,
-      abi: factoryAbi,
-      address: CONTRACTS.ERC721AFactory,
-      startBlock: chain.startBlock,
-    },
-    ERC1155Factory: {
-      network: CHAIN_SLUG,
-      abi: factoryAbi,
-      address: CONTRACTS.ERC1155Factory,
-      startBlock: chain.startBlock,
-    },
-    CurveFactory: {
-      network: CHAIN_SLUG,
-      abi: curveFactoryAbi,
-      address: CONTRACTS.CurveFactory,
-      startBlock: chain.startBlock,
-    },
-    // PoolManager.Swap events — indexed to power the post-graduation chart + home page
-    // live-activity rail. Only registered when NEXT_PUBLIC_POOL_MANAGER_ADDRESS is set.
-    ...(CONTRACTS.PoolManager
-      ? {
-          PoolManager: {
-            network: CHAIN_SLUG,
-            abi: poolManagerAbi,
-            address: CONTRACTS.PoolManager,
-            startBlock: chain.startBlock,
-          },
-        }
-      : {}),
-    // V4SwapRouter.Swapped events — required for profile activity feeds because the
-    // PoolManager's Swap event has `sender = router`, not the actual trader.
-    ...(CONTRACTS.V4SwapRouter
-      ? {
-          V4SwapRouter: {
-            network: CHAIN_SLUG,
-            abi: v4SwapRouterAbi,
-            address: CONTRACTS.V4SwapRouter,
-            startBlock: chain.startBlock,
-          },
-        }
-      : {}),
-    // Every BondingCurve is a clone deployed by CurveFactory. Ponder's inline `factory` config
-    // subscribes to CurveCreated events and adds each new curve address as a Trade+Graduated
-    // source dynamically. No per-launch config change needed.
-    BondingCurve: {
-      network: CHAIN_SLUG,
-      abi: bondingCurveAbi,
-      ...(CONTRACTS.CurveFactory
-        ? {
-            factory: {
-              address: CONTRACTS.CurveFactory,
-              event: parseAbiItem(
-                'event CurveCreated(address indexed token, address indexed curve, address indexed launcher)',
-              ),
-              parameter: 'curve' as const,
-            },
-          }
-        : {}),
-      startBlock: chain.startBlock,
-    },
-  },
+  networks,
+  contracts,
 });
