@@ -125,7 +125,15 @@ export const poolManagerAbi = parseAbi([
   'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
 ]);
 
+// Postgres in prod (Railway attaches DATABASE_URL from its Postgres plugin), pglite
+// for local dev. Ponder auto-detects DATABASE_URL when database is omitted, but making
+// it explicit keeps prod vs dev behaviour obvious from a single glance at this file.
+const pgUrl = process.env.DATABASE_PRIVATE_URL ?? process.env.DATABASE_URL;
+
 export default createConfig({
+  database: pgUrl
+    ? { kind: 'postgres', connectionString: pgUrl }
+    : { kind: 'pglite' },
   networks: {
     [CHAIN_SLUG]: {
       chainId: chain.id,

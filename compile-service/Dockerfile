@@ -23,7 +23,11 @@ RUN pnpm install --filter @vm/compile-service --frozen-lockfile
 
 COPY compile-service/ ./compile-service/
 COPY shared/ ./shared/
+# `build` currently only typechecks (no emit). Run directly through tsx so we don't
+# depend on a dist/ output — swap to a real compile step when the surface stabilises.
 RUN pnpm --filter @vm/compile-service build
 
 EXPOSE 3001
-CMD ["node", "compile-service/dist/server.js"]
+# Railway sets $PORT; fall through to 3001 for local docker runs.
+ENV PORT=3001
+CMD ["pnpm", "--filter", "@vm/compile-service", "exec", "tsx", "src/server.ts"]
