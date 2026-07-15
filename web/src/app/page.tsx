@@ -391,10 +391,10 @@ export default function HomePage() {
                         style={{
                           color: row.t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)',
                           fontWeight: 700,
-                          width: 24,
+                          width: 30,
                         }}
                       >
-                        {row.t.isBuy ? 'BUY' : 'SEL'}
+                        {row.t.isBuy ? 'BUY' : 'SELL'}
                       </span>
                       <Link
                         href={`/trade/${row.l.address}`}
