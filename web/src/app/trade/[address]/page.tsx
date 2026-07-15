@@ -8,6 +8,7 @@ import {
   usePublicClient,
   useReadContract,
   useReadContracts,
+  useSignMessage,
   useSimulateContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
@@ -28,8 +29,9 @@ import {
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
 import { CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
-import { loadMetadata, type TokenMetadata } from '@/lib/metadata';
-import { fetchTokenMetadata } from '@/lib/socialApi';
+import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadata';
+import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
+import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
 import { fetchTradesForCurve } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -935,21 +937,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               browsers; falls back to localStorage for the preview / mock modes. */}
           <ChatDrawer tokenAddress={tokenAddress} chainId={readChainId} wallet={wallet} />
 
-          {/* Info sidebar (metadata) */}
-          {metadata && (metadata.description || metadata.website || metadata.twitter || metadata.telegram || metadata.discord) && (
-            <div className="uru-shell uru-shell-tight">
-              <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ about</div>
-              {metadata.description && (
-                <p style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 8 }}>{metadata.description}</p>
-              )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {metadata.website && <Socialz href={metadata.website} label="site" />}
-                {metadata.twitter && <Socialz href={metadata.twitter} label="twitter" />}
-                {metadata.telegram && <Socialz href={metadata.telegram} label="tg" />}
-                {metadata.discord && <Socialz href={metadata.discord} label="discord" />}
-              </div>
-            </div>
-          )}
+          {/* Info sidebar (metadata) — always renders when a wallet is connected, so
+              the launcher can back-fill an image / description after launch. Server
+              rejects the write if the signer isn't the launcher. */}
+          <MetadataPanel
+            metadata={metadata}
+            tokenAddress={tokenAddress}
+            chainId={chainId}
+            wallet={wallet as Address | undefined}
+            onSaved={(next) => setMetadata(next)}
+          />
         </div>
 
         {/* SIDEBAR — buy/sell panel */}
@@ -1193,6 +1190,219 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             </ul>
           </div>
         </aside>
+      </div>
+    </div>
+  );
+}
+
+/// Metadata sidebar + edit modal. Renders whatever the API knows about this token
+/// (image, description, socials). Any connected wallet can click "edit" — the API
+/// enforces launcher-only writes, so a non-launcher just gets a 403 back and sees an
+/// inline error. Enables the launcher to back-fill an image after launch (or update it
+/// later).
+function MetadataPanel({
+  metadata,
+  tokenAddress,
+  chainId,
+  wallet,
+  onSaved,
+}: {
+  metadata: TokenMetadata | null;
+  tokenAddress: Address;
+  chainId: number;
+  wallet: Address | undefined;
+  onSaved: (next: TokenMetadata | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const hasContent = !!(metadata && (
+    metadata.logoDataUrl || metadata.description || metadata.website ||
+    metadata.twitter || metadata.telegram || metadata.discord
+  ));
+
+  if (!hasContent && !wallet) return null;
+
+  return (
+    <div className="uru-shell uru-shell-tight">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <div className="uru-eyebrow">❀ about</div>
+        {wallet && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            style={{
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 10,
+              color: 'var(--link-blue)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            {hasContent ? 'edit ✿' : 'add image + info ✿'}
+          </button>
+        )}
+      </div>
+      {metadata?.description && (
+        <p style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 8 }}>{metadata.description}</p>
+      )}
+      {(metadata?.website || metadata?.twitter || metadata?.telegram || metadata?.discord) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {metadata.website && <Socialz href={metadata.website} label="site" />}
+          {metadata.twitter && <Socialz href={metadata.twitter} label="twitter" />}
+          {metadata.telegram && <Socialz href={metadata.telegram} label="tg" />}
+          {metadata.discord && <Socialz href={metadata.discord} label="discord" />}
+        </div>
+      )}
+      {editing && wallet && (
+        <EditMetadataModal
+          initial={metadata}
+          tokenAddress={tokenAddress}
+          chainId={chainId}
+          wallet={wallet}
+          onClose={() => setEditing(false)}
+          onSaved={(next) => { setEditing(false); onSaved(next); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditMetadataModal({
+  initial,
+  tokenAddress,
+  chainId,
+  wallet,
+  onClose,
+  onSaved,
+}: {
+  initial: TokenMetadata | null;
+  tokenAddress: Address;
+  chainId: number;
+  wallet: Address;
+  onClose: () => void;
+  onSaved: (next: TokenMetadata) => void;
+}) {
+  const [inputs, setInputs] = useState<MetadataInputs>({
+    logoDataUrl: initial?.logoDataUrl,
+    description: initial?.description,
+    website: initial?.website,
+    twitter: initial?.twitter,
+    telegram: initial?.telegram,
+    discord: initial?.discord,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { signMessageAsync } = useSignMessage();
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      // persistMetadata handles the Pinata upload (if NEXT_PUBLIC_PINATA_JWT is set)
+      // and returns { cid, gatewayUrl } once pinned. Without Pinata we'd only have
+      // the inline data URL, which the API refuses (imageUrl must be an http URL).
+      const pinned = await persistMetadata(chainId, tokenAddress, {
+        logoDataUrl: inputs.logoDataUrl,
+        description: inputs.description,
+        website: inputs.website,
+        twitter: inputs.twitter,
+        telegram: inputs.telegram,
+        discord: inputs.discord,
+      });
+      const remote = await saveTokenMetadata(
+        wallet,
+        {
+          chainId,
+          tokenAddress,
+          imageUrl: pinned.gatewayUrl ?? null,
+          description: inputs.description ?? null,
+          website: inputs.website ?? null,
+          twitter: inputs.twitter ?? null,
+          telegram: inputs.telegram ?? null,
+          discord: inputs.discord ?? null,
+        },
+        ({ message }) => signMessageAsync({ message }),
+      );
+      if (!remote.ok) {
+        setError(remote.error === 'NOT_LAUNCHER'
+          ? 'only the launcher wallet can edit this token'
+          : `save failed: ${remote.error}`);
+        return;
+      }
+      onSaved({ ...pinned, savedAt: Date.now() });
+    } catch (err) {
+      setError((err as Error).message || 'save cancelled');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(58,44,58,0.35)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        padding: 20,
+        overflowY: 'auto',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="uru-shell"
+        style={{ width: 'min(560px, 100%)', marginTop: 24, background: 'var(--paper-base)' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+          <div className="uru-h2">✿ edit metadata</div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              fontFamily: 'var(--font-pixel), monospace',
+              fontSize: 12,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--anchor-soft)',
+            }}
+          >
+            close ×
+          </button>
+        </div>
+        <MetadataForm value={inputs} onChange={setInputs} />
+        {error && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 8,
+              border: '1.5px dashed var(--pink-hot)',
+              background: 'var(--pink-warm)',
+              fontSize: 12,
+              fontFamily: 'var(--font-pixel), monospace',
+            }}
+          >
+            {error}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={onClose} className="uru-btn" disabled={saving}>
+            cancel
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            className="uru-btn uru-btn-primary"
+            disabled={saving}
+          >
+            {saving ? 'saving…' : 'save + sign ✦'}
+          </button>
+        </div>
       </div>
     </div>
   );
