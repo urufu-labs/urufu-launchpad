@@ -253,9 +253,7 @@ contract BondingCurve is ReentrancyGuard {
             ethReserve = 0;
             tokenReserve = 0;
             SafeTransferLib.safeApprove(token, graduator, tokenOut);
-            IGraduator(graduator).execute{value: ethOut}(
-                token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps
-            );
+            IGraduator(graduator).execute{value: ethOut}(token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps);
         }
     }
 

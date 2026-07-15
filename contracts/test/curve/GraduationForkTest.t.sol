@@ -108,7 +108,16 @@ contract GraduationForkTest is Test {
         token.mint(address(curve), CURVE_SUPPLY);
 
         curve.initialize(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100, address(graduator), 0, 0
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(graduator),
+            0,
+            0
         );
 
         vm.deal(alice, 10 ether);

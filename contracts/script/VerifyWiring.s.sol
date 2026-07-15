@@ -47,8 +47,7 @@ contract VerifyWiring is Script {
 
         // 1. Load the three address books this chain should have.
         string memory core = _readBook(string.concat("deployment.", vm.toString(chainId), ".json"), "phase1");
-        string memory hooksBook =
-            _readBook(string.concat("deployment-hooks.", vm.toString(chainId), ".json"), "hooks");
+        string memory hooksBook = _readBook(string.concat("deployment-hooks.", vm.toString(chainId), ".json"), "hooks");
         string memory gradBook =
             _readBook(string.concat("deployment-graduator.", vm.toString(chainId), ".json"), "graduator");
 
@@ -111,8 +110,8 @@ contract VerifyWiring is Script {
         require(perms.afterSwapReturnDelta, "MultiHookHost: missing afterSwapReturnDelta");
         console2.log("  permissions OK  (beforeRemove + afterSwap + afterSwapReturnDelta)");
 
-        uint160 wantMask = Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG
-            | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        uint160 wantMask =
+            Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         uint160 addrLowBits = uint160(multiHook) & uint160(0x3FFF); // v4 uses low 14 bits
         require(addrLowBits & wantMask == wantMask, "MultiHookHost: addr flag mask missing bits");
         console2.log("  addr flag mask OK (encodes 0x", vm.toString(bytes32(uint256(wantMask))));
@@ -127,7 +126,10 @@ contract VerifyWiring is Script {
         console2.log("======================================================");
     }
 
-    function _readBook(string memory path, string memory label) internal view returns (string memory) {
+    function _readBook(
+        string memory path,
+        string memory label
+    ) internal view returns (string memory) {
         try vm.readFile(path) returns (string memory data) {
             return data;
         } catch {
@@ -135,13 +137,20 @@ contract VerifyWiring is Script {
         }
     }
 
-    function _assertHasCode(string memory label, address a) internal view {
+    function _assertHasCode(
+        string memory label,
+        address a
+    ) internal view {
         require(a != address(0), string.concat(label, " address is zero"));
         require(a.code.length > 0, string.concat(label, " has no runtime code at ", vm.toString(a)));
         console2.log("  ", label, vm.toString(a));
     }
 
-    function _assertEq(string memory label, address got, address want) internal pure {
+    function _assertEq(
+        string memory label,
+        address got,
+        address want
+    ) internal pure {
         require(got == want, string.concat(label, ": mismatch"));
         // Log to give a trail even on success — cheap for a read-only script.
         console2.log("  ", label, vm.toString(got));

@@ -46,7 +46,16 @@ contract BondingCurveTest is Test {
         token.mint(address(curve), CURVE_SUPPLY);
 
         curve.initialize(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, FEE_BPS, address(0), 0, 0
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            FEE_BPS,
+            address(0),
+            0,
+            0
         );
 
         vm.deal(alice, 100 ether);
@@ -64,7 +73,16 @@ contract BondingCurveTest is Test {
     function test_Init_RevertsOnDoubleInit() public {
         vm.expectRevert(BondingCurve.BondingCurve__AlreadyInitialized.selector);
         curve.initialize(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, FEE_BPS, address(0), 0, 0
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            FEE_BPS,
+            address(0),
+            0,
+            0
         );
     }
 

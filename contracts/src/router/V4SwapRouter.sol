@@ -34,17 +34,13 @@ contract V4SwapRouter {
     error V4SwapRouter__InsufficientOutput(uint256 got, uint256 minOut);
     error V4SwapRouter__EthMismatch(uint256 sent, uint256 expected);
 
-    event Swapped(
-        address indexed user,
-        address indexed token,
-        bool isBuy,
-        uint256 amountIn,
-        uint256 amountOut
-    );
+    event Swapped(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut);
 
     IPoolManager public immutable poolManager;
 
-    constructor(IPoolManager _poolManager) {
+    constructor(
+        IPoolManager _poolManager
+    ) {
         poolManager = _poolManager;
     }
 
@@ -95,7 +91,9 @@ contract V4SwapRouter {
         address user;
     }
 
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert V4SwapRouter__NotPoolManager();
         SwapCtx memory c = abi.decode(data, (SwapCtx));
 

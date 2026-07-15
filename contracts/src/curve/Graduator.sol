@@ -18,7 +18,11 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 /// Slim interface for the deployed MultiHookHost — just the setter Graduator calls per
 /// graduation. Kept as a bare interface so we don't drag MultiHookHost's full ABI in.
 interface IHookConfig {
-    function setPoolConfig(PoolId id, uint32 antiSniperBlocks, uint16 buybackBurnBps) external;
+    function setPoolConfig(
+        PoolId id,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external;
 }
 
 /// @title  Graduator
@@ -110,8 +114,9 @@ contract Graduator is IUnlockCallback {
         // deployment mid-migration); the pool just launches without anti-sniper / buyback.
         if (antiSniperBlocks > 0 || buybackBurnBps > 0) {
             try IHookConfig(address(defaultHook)).setPoolConfig(key.toId(), antiSniperBlocks, buybackBurnBps) {
-                // config landed
-            } catch {
+            // config landed
+            }
+                catch {
                 // silently continue — the pool still opens without the extra behaviors.
             }
         }

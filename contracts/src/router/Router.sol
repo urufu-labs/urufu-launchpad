@@ -197,9 +197,8 @@ contract Router is Ownable, ReentrancyGuard {
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
-            address curve = ICurveFactoryLike(curveFactory).createCurveWithConfig(
-                token, params.antiSniperBlocks, params.buybackBurnBps
-            );
+            address curve = ICurveFactoryLike(curveFactory)
+                .createCurveWithConfig(token, params.antiSniperBlocks, params.buybackBurnBps);
             emit CurveInstalled(token, curve);
         }
 

@@ -31,7 +31,10 @@ contract MHMockToken is ERC20 {
         return "MCK";
     }
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         _mint(to, amount);
     }
 }
@@ -101,8 +104,8 @@ contract MultiHookGraduationForkTest is Test {
 
         // Deploy MultiHookHost at a mined address whose low bits match its permission mask.
         // v2 adds BEFORE_INITIALIZE (stamps launchBlock) + BEFORE_SWAP (anti-sniper gate).
-        uint160 required = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
-            | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        uint160 required = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
+            | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args = abi.encode(manager, platform, creator, PLATFORM_BPS, CREATOR_BPS);
         (uint256 salt,) = HookMiner.find(CREATE2_DEPLOYER, required, creation, args, 500_000);
@@ -113,7 +116,9 @@ contract MultiHookGraduationForkTest is Test {
             let ptr := mload(0x40)
             let cLen := mload(creation)
             let aLen := mload(args)
-            for { let i := 0 } lt(i, cLen) { i := add(i, 0x20) } { mstore(add(ptr, i), mload(add(add(creation, 0x20), i))) }
+            for { let i := 0 } lt(i, cLen) { i := add(i, 0x20) } {
+                mstore(add(ptr, i), mload(add(add(creation, 0x20), i)))
+            }
             for { let i := 0 } lt(i, aLen) { i := add(i, 0x20) } {
                 mstore(add(add(ptr, cLen), i), mload(add(add(args, 0x20), i)))
             }
@@ -138,7 +143,16 @@ contract MultiHookGraduationForkTest is Test {
         token.mint(address(curve), CURVE_SUPPLY);
 
         curve.initialize(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100, address(graduator), 0, 0
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(graduator),
+            0,
+            0
         );
 
         // Drive to graduation. 3 ETH sent → 2.97 ETH nets into reserve after 1% fee, past
@@ -310,21 +324,25 @@ contract Unlocker {
     IPoolManager public immutable manager;
     PoolKey internal storedKey;
 
-    constructor(IPoolManager _manager) {
+    constructor(
+        IPoolManager _manager
+    ) {
         manager = _manager;
     }
 
-    function tryRemoveLiquidity(PoolKey calldata key) external {
+    function tryRemoveLiquidity(
+        PoolKey calldata key
+    ) external {
         storedKey = key;
         manager.unlock("");
     }
 
-    function unlockCallback(bytes calldata) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata
+    ) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
         manager.modifyLiquidity(
-            storedKey,
-            ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}),
-            ""
+            storedKey, ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}), ""
         );
         return "";
     }
@@ -346,27 +364,33 @@ contract HookAwareSwapper {
         address recipient;
     }
 
-    constructor(IPoolManager _manager) {
+    constructor(
+        IPoolManager _manager
+    ) {
         manager = _manager;
     }
 
     receive() external payable {}
 
-    function swapEthForToken(PoolKey calldata key, uint256 ethIn, address recipient) external {
+    function swapEthForToken(
+        PoolKey calldata key,
+        uint256 ethIn,
+        address recipient
+    ) external {
         SwapArgs memory args = SwapArgs({key: key, ethIn: ethIn, recipient: recipient});
         manager.unlock(abi.encode(args));
     }
 
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
         SwapArgs memory args = abi.decode(data, (SwapArgs));
 
         manager.swap(
             args.key,
             SwapParams({
-                zeroForOne: true,
-                amountSpecified: -int256(args.ethIn),
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(args.ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             ""
         );

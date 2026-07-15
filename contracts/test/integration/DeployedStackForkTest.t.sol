@@ -34,7 +34,10 @@ contract DTMock is ERC20 {
         return "DEP";
     }
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         _mint(to, amount);
     }
 }
@@ -173,26 +176,32 @@ contract DTSwapHelper {
         address to;
     }
 
-    constructor(IPoolManager _m) {
+    constructor(
+        IPoolManager _m
+    ) {
         manager = _m;
     }
 
     receive() external payable {}
 
-    function buyToken(PoolKey calldata key, uint256 ethIn, address to) external {
+    function buyToken(
+        PoolKey calldata key,
+        uint256 ethIn,
+        address to
+    ) external {
         manager.unlock(abi.encode(Args({key: key, ethIn: ethIn, to: to})));
     }
 
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
         Args memory a = abi.decode(data, (Args));
 
         manager.swap(
             a.key,
             SwapParams({
-                zeroForOne: true,
-                amountSpecified: -int256(a.ethIn),
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+                zeroForOne: true, amountSpecified: -int256(a.ethIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             ""
         );
@@ -211,21 +220,25 @@ contract DTLockChecker {
     IPoolManager public immutable manager;
     PoolKey internal storedKey;
 
-    constructor(IPoolManager _m) {
+    constructor(
+        IPoolManager _m
+    ) {
         manager = _m;
     }
 
-    function tryRemove(PoolKey calldata key) external {
+    function tryRemove(
+        PoolKey calldata key
+    ) external {
         storedKey = key;
         manager.unlock("");
     }
 
-    function unlockCallback(bytes calldata) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata
+    ) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
         manager.modifyLiquidity(
-            storedKey,
-            ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}),
-            ""
+            storedKey, ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}), ""
         );
         return "";
     }
