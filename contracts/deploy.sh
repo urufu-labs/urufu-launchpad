@@ -19,14 +19,15 @@
 #   Phase1               → script/DeployPhase1.s.sol:DeployPhase1
 #   Hooks                → script/DeployHooks.s.sol:DeployHooks
 #   Graduator            → script/DeployGraduator.s.sol:DeployGraduator
+#   V4SwapRouter         → script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter
 #   Flywheel             → script/DeployFlywheel.s.sol:DeployFlywheel
 #   ConfigureFlywheel    → script/ConfigureFlywheel.s.sol:ConfigureFlywheel
 #   HandoffOwnership     → script/HandoffOwnership.s.sol:HandoffOwnership
 #   PostDeploySmoke      → script/PostDeploySmoke.s.sol:PostDeploySmoke
 #
 # Recommended deploy order for a fresh chain:
-#   Phase1 → Hooks → Graduator (WIRE_INTO_FACTORY=1) → Flywheel → ConfigureFlywheel
-#   → node tools/sync-addresses.mjs <chain> → HandoffOwnership
+#   Phase1 → Hooks → Graduator (WIRE_INTO_FACTORY=1) → V4SwapRouter → Flywheel
+#   → ConfigureFlywheel → node tools/sync-addresses.mjs <chain> → HandoffOwnership
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -79,6 +80,7 @@ case "$SCRIPT" in
   Phase1)             TARGET="script/DeployPhase1.s.sol:DeployPhase1" ;;
   Hooks)              TARGET="script/DeployHooks.s.sol:DeployHooks" ;;
   Graduator)          TARGET="script/DeployGraduator.s.sol:DeployGraduator" ;;
+  V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
   PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
   Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;

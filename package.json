@@ -38,6 +38,7 @@
     "contracts:deploy:phase1": "cd contracts && bash deploy.sh Phase1 ${CHAIN:-sepolia}",
     "contracts:deploy:hooks": "cd contracts && bash deploy.sh Hooks ${CHAIN:-sepolia}",
     "contracts:deploy:graduator": "cd contracts && bash deploy.sh Graduator ${CHAIN:-sepolia}",
+    "contracts:deploy:v4router": "cd contracts && bash deploy.sh V4SwapRouter ${CHAIN:-sepolia}",
     "contracts:handoff": "cd contracts && bash deploy.sh HandoffOwnership ${CHAIN:-sepolia}",
     "contracts:smoke": "cd contracts && bash deploy.sh PostDeploySmoke ${CHAIN:-sepolia}",
     "contracts:deploy:flywheel": "cd contracts && bash deploy.sh Flywheel ${CHAIN:-base}",
