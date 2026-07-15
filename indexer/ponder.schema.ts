@@ -115,6 +115,23 @@ export const holders = onchainTable('holders', (t) => ({
   updatedAt: t.bigint().notNull(),
 }));
 
+/// V4SwapRouter.Swapped rows — one per post-graduation trade done through our router.
+/// Complements `v4Swaps` (which is indexed at the PoolManager level where `sender` is
+/// the router itself, not the user). This table's `user` field is the actual EOA that
+/// initiated the swap — used by the profile page to list a wallet's post-grad activity.
+export const v4RouterSwaps = onchainTable('v4_router_swaps', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  user: t.hex().notNull(),                         // the wallet that initiated the swap
+  tokenAddress: t.hex().notNull(),                 // ERC20 token side of the pool
+  isBuy: t.boolean().notNull(),                    // true = user paid ETH → got tokens
+  amountIn: t.bigint().notNull(),                  // ETH in (buy) OR tokens in (sell)
+  amountOut: t.bigint().notNull(),                 // tokens out (buy) OR ETH out (sell)
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 /// Per-token transfer log. Powers the "recent transfers" widget on the token page.
 export const transfers = onchainTable('transfers', (t) => ({
   id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`

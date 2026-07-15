@@ -169,27 +169,25 @@ export interface IndexerV4Swap {
 }
 
 export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | null> {
-  // Filter to swaps whose poolId reverse-mapped to a launchpad token — anything else
-  // (random v4 activity on the same PoolManager) would just get dropped by the home
-  // page's `byToken` lookup anyway, and on busy chains that filter can eat the entire
-  // response before any of our tokens' swaps make the cut.
+  // Ponder's `<field>_not: null` filter doesn't work on nullable text columns —
+  // returns 0 rows even when non-null rows exist. Fetch wider (200) + filter client
+  // side to launchpad-mapped swaps only; on busy chains most PoolManager swaps
+  // aren't from launchpad tokens so 200 gives us plenty of headroom.
+  const OVERFETCH = 200;
   const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
     `query RecentV4Swaps($limit: Int!) {
-      v4Swapss(
-        where: { tokenAddress_not: null },
-        orderBy: "blockTimestamp",
-        orderDirection: "desc",
-        limit: $limit
-      ) {
+      v4Swapss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
           id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
           tick fee priceWeiPerToken blockNumber blockTimestamp txHash
         }
       }
     }`,
-    { limit },
+    { limit: OVERFETCH },
   );
-  return data?.v4Swapss.items ?? null;
+  const items = data?.v4Swapss.items ?? null;
+  if (!items) return null;
+  return items.filter((s) => !!s.tokenAddress).slice(0, limit);
 }
 
 /// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to
@@ -276,27 +274,44 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
   return data?.launchess.items ?? null;
 }
 
-/// Every v4 swap this wallet has ever made (post-graduation trades). Feeds the profile
-/// activity feed alongside curve trades — without this, profile pages show 0 sells for
-/// anyone who traded a graduated token via V4SwapRouter.
-export async function fetchV4SwapsByTrader(trader: Address, limit = 200): Promise<IndexerV4Swap[] | null> {
-  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+/// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps
+/// table which the indexer fills from V4SwapRouter.Swapped(user, token, isBuy, in, out) —
+/// PoolManager.Swap.sender is always the router, so filtering v4Swaps by sender never
+/// finds a user's own trades. This is the source of truth for profile activity.
+export interface IndexerV4RouterSwap {
+  id: string;
+  chainId: number;
+  user: Address;
+  tokenAddress: Address;
+  isBuy: boolean;
+  amountIn: string;
+  amountOut: string;
+  blockNumber: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+export async function fetchV4SwapsByTrader(
+  trader: Address,
+  limit = 200,
+): Promise<IndexerV4RouterSwap[] | null> {
+  const data = await gql<{ v4RouterSwapss: { items: IndexerV4RouterSwap[] } }>(
     `query V4SwapsByTrader($trader: String!, $limit: Int!) {
-      v4Swapss(
-        where: { sender: $trader },
+      v4RouterSwapss(
+        where: { user: $trader },
         orderBy: "blockTimestamp",
         orderDirection: "desc",
         limit: $limit
       ) {
         items {
-          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
-          tick fee priceWeiPerToken blockNumber blockTimestamp txHash
+          id chainId user tokenAddress isBuy amountIn amountOut
+          blockNumber blockTimestamp txHash
         }
       }
     }`,
     { trader: trader.toLowerCase(), limit },
   );
-  return data?.v4Swapss.items ?? null;
+  return data?.v4RouterSwapss.items ?? null;
 }
 
 /// Every trade this wallet has ever made across every curve, newest first. Feeds the

@@ -4,7 +4,7 @@ import { ponder } from '@/generated';
 import { keccak256, encodeAbiParameters } from 'viem';
 import { eq } from '@ponder/core';
 
-import { launches, curves, trades, v4Swaps, graduations, holders, transfers } from '../ponder.schema.ts';
+import { launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers } from '../ponder.schema.ts';
 
 /// v4 PoolKey → PoolId. Every launchpad graduation opens an ETH/token pool with the
 /// same fixed fee + tick spacing + MultiHookHost hook — so given the token address we
@@ -362,6 +362,30 @@ ponder.on('PoolManager:Swap', async ({ event, context }) => {
 // dynamic ERC-20 factory subscription driven by ERC20Factory.Deployed (same pattern as
 // BondingCurve above). Placeholder tables kept for post-launch upgrade.
 // =========================================================
+
+// =========================================================
+// V4SwapRouter.Swapped — one row per post-graduation trade tied to the actual user
+// wallet. PoolManager's Swap event has sender=router, so it's useless for per-user
+// activity feeds. This handler is the source of truth for "wallet X's post-grad
+// trades" (profile activity, PnL).
+// =========================================================
+
+ponder.on('V4SwapRouter:Swapped', async ({ event, context }) => {
+  const { user, token, isBuy, amountIn, amountOut } = event.args;
+  const chainId = context.network.chainId;
+  await context.db.insert(v4RouterSwaps).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    user,
+    tokenAddress: token,
+    isBuy,
+    amountIn,
+    amountOut,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
 
 // Silence unused-import warnings — the tables are exposed so client apps can query them
 // via Ponder's GraphQL layer even before handlers land.

@@ -86,6 +86,11 @@ const CONTRACTS = {
   // home page's live-activity rail keeps ticking after tokens graduate. Optional — leave
   // unset on chains where v4 isn't wired.
   PoolManager: process.env.NEXT_PUBLIC_POOL_MANAGER_ADDRESS as `0x${string}` | undefined,
+  // Our V4SwapRouter contract. Post-graduation swaps go through this — the router emits
+  // Swapped(user, token, isBuy, in, out), which is the ONLY event carrying the actual
+  // trader wallet (PoolManager's Swap.sender is the router itself). Profile pages depend
+  // on this feed for post-grad activity.
+  V4SwapRouter: process.env.NEXT_PUBLIC_V4_SWAP_ROUTER_ADDRESS as `0x${string}` | undefined,
 } as const;
 
 // ABIs — human-readable via parseAbi, same shape wagmi uses on the client side.
@@ -114,6 +119,13 @@ export const bondingCurveAbi = parseAbi([
 
 export const erc20Abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
+]);
+
+/// V4SwapRouter emits this on every buy/sell. `user` is the actual EOA that initiated
+/// the swap — unlike PoolManager.Swap.sender which is the router itself. Signature must
+/// match contracts/src/router/V4SwapRouter.sol.
+export const v4SwapRouterAbi = parseAbi([
+  'event Swapped(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut)',
 ]);
 
 /// Uniswap v4 PoolManager.Swap — one event per swap across every pool on the chain. On
@@ -190,6 +202,18 @@ export default createConfig({
             network: CHAIN_SLUG,
             abi: poolManagerAbi,
             address: CONTRACTS.PoolManager,
+            startBlock: chain.startBlock,
+          },
+        }
+      : {}),
+    // V4SwapRouter.Swapped events — required for profile activity feeds because the
+    // PoolManager's Swap event has `sender = router`, not the actual trader.
+    ...(CONTRACTS.V4SwapRouter
+      ? {
+          V4SwapRouter: {
+            network: CHAIN_SLUG,
+            abi: v4SwapRouterAbi,
+            address: CONTRACTS.V4SwapRouter,
             startBlock: chain.startBlock,
           },
         }

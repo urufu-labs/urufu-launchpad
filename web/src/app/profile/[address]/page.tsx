@@ -27,7 +27,6 @@ import {
   fetchHoldingsByAddress,
   type IndexerLaunch,
   type IndexerTrade,
-  type IndexerV4Swap,
   type IndexerHolding,
 } from '@/lib/indexer';
 import {
@@ -106,34 +105,31 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       setTrades(t);
       setHoldings(h);
 
-      // Normalize v4 swaps to the IndexerTrade shape so downstream code (stats,
-      // activity list, PnL math) doesn't need a second branch. v4 Swap.amount0 is
-      // the swapper's ETH delta: negative = paid ETH (BUY), positive = received ETH
-      // (SELL). Same convention as the home page rail.
-      const v4Normalized: IndexerTrade[] = (v4 ?? [])
-        .filter((s) => !!s.tokenAddress)
-        .map((s) => {
-          const a0 = BigInt(s.amount0);
-          const a1 = BigInt(s.amount1);
-          const abs = (n: bigint) => (n < 0n ? -n : n);
-          const isBuy = a0 < 0n;
-          return {
-            id: s.id,
-            chainId: s.chainId,
-            curveAddress: '0x0000000000000000000000000000000000000000' as Address,
-            tokenAddress: s.tokenAddress as Address,
-            trader: s.sender,
-            isBuy,
-            ethAmount: abs(a0).toString(),
-            tokenAmount: abs(a1).toString(),
-            ethReserveAfter: '0',
-            tokenReserveAfter: '0',
-            priceWeiPerToken: s.priceWeiPerToken,
-            blockNumber: s.blockNumber,
-            blockTimestamp: s.blockTimestamp,
-            txHash: s.txHash,
-          };
-        });
+      // Normalize router-swap rows to the IndexerTrade shape so downstream code
+      // (stats, activity list, PnL math) doesn't need a second branch. The router
+      // event carries `isBuy` + `amountIn`/`amountOut` directly:
+      //   BUY  → amountIn = ETH paid,  amountOut = tokens received
+      //   SELL → amountIn = tokens in, amountOut = ETH received
+      const v4Normalized: IndexerTrade[] = (v4 ?? []).map((s) => {
+        const ethAmount = s.isBuy ? s.amountIn : s.amountOut;
+        const tokenAmount = s.isBuy ? s.amountOut : s.amountIn;
+        return {
+          id: s.id,
+          chainId: s.chainId,
+          curveAddress: '0x0000000000000000000000000000000000000000' as Address,
+          tokenAddress: s.tokenAddress,
+          trader: s.user,
+          isBuy: s.isBuy,
+          ethAmount,
+          tokenAmount,
+          ethReserveAfter: '0',
+          tokenReserveAfter: '0',
+          priceWeiPerToken: '0',
+          blockNumber: s.blockNumber,
+          blockTimestamp: s.blockTimestamp,
+          txHash: s.txHash,
+        };
+      });
       setV4Trades(v4Normalized);
 
       // Build friendly name/ticker map for every token this wallet touches, so the
