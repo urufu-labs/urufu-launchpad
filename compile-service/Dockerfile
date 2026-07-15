@@ -16,8 +16,9 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
-# Copy workspace root manifest so pnpm resolves the workspace protocol
-COPY pnpm-workspace.yaml package.json ./
+# Copy workspace root manifest + lockfile so pnpm resolves the workspace protocol.
+# --frozen-lockfile needs pnpm-lock.yaml present at the workspace root.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY compile-service/package.json ./compile-service/
 RUN pnpm install --filter @vm/compile-service --frozen-lockfile
 

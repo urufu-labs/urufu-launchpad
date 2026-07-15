@@ -11,8 +11,9 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
-# Workspace bootstrap — copy the manifests first so `pnpm install` layer caches.
-COPY pnpm-workspace.yaml package.json ./
+# Workspace bootstrap — copy the manifests + lockfile first so `pnpm install`
+# layer caches. --frozen-lockfile requires pnpm-lock.yaml at the workspace root.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY indexer/package.json ./indexer/
 RUN pnpm install --filter @vm/indexer --frozen-lockfile
 
