@@ -66,4 +66,34 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS token_chat_token_idx ON app.token_chat (chain_id, token_address, id DESC)`;
+
+  // Flywheel Merkle-drop epochs. `rewards_epochs` is one row per publish (root goes
+  // on-chain via NftRevenueVault.addEpoch), `rewards_leaves` is one row per (epoch,
+  // holder) — the amount + proof the claim UI reads. Amount stored as text since
+  // Postgres numeric would lose precision on wei-scale bigints.
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.rewards_epochs (
+      chain_id     integer     NOT NULL,
+      epoch_id     integer     NOT NULL,
+      vault_addr   text        NOT NULL,
+      merkle_root  text        NOT NULL,
+      total_amount text        NOT NULL,
+      tx_hash      text        NOT NULL,
+      block_number bigint      NOT NULL,
+      published_at timestamptz NOT NULL DEFAULT now(),
+      holder_count integer     NOT NULL,
+      PRIMARY KEY (chain_id, epoch_id)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.rewards_leaves (
+      chain_id      integer     NOT NULL,
+      epoch_id      integer     NOT NULL,
+      holder        text        NOT NULL,
+      amount        text        NOT NULL,
+      proof_json    jsonb       NOT NULL,
+      PRIMARY KEY (chain_id, epoch_id, holder)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS rewards_leaves_holder_idx ON app.rewards_leaves (chain_id, holder, epoch_id DESC)`;
 }

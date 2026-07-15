@@ -15,6 +15,7 @@
     "@fastify/rate-limit": "^10.0.0",
     "@noble/hashes": "^1.5.0",
     "fastify": "^5.0.0",
+    "merkletreejs": "^0.3.11",
     "pino": "^9.0.0",
     "postgres": "^3.4.9",
     "viem": "^2.55.2",

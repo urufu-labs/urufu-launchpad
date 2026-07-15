@@ -13,6 +13,7 @@ import { runForgeTests } from './test-runner.ts';
 import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
+import { registerRewardsRoutes } from './routes/rewards.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
 // Endpoints:
@@ -59,6 +60,16 @@ if (hasDb()) {
 // Pinata proxy — server-side so the JWT stays out of the client bundle. Skipped when
 // PINATA_JWT isn't set; the client falls back to the local-only metadata path.
 await registerPinRoutes(app);
+
+// Flywheel rewards — public GETs for the claim UI, gated POST for publishing.
+// Read-only endpoints work even without KEEPER_PRIVATE_KEY set (they only query
+// on-chain + local Postgres); publishing 503s unless the trigger secret is set.
+if (hasDb()) {
+  await registerRewardsRoutes(app);
+  app.log.info('rewards routes registered');
+} else {
+  app.log.warn('DATABASE_URL not set — /rewards/* disabled (Postgres required for tree storage)');
+}
 
 app.post('/compile', async (request, reply) => {
   const parsed = CompileRequestSchema.safeParse(request.body);
