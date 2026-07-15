@@ -171,13 +171,13 @@ export const V4_ROUTERS: Record<ChainKey, Address | null> = {
 
 /// Uniswap v4 `StateView` — read-only helper that exposes packed pool slots (getSlot0,
 /// getLiquidity, etc.) with typed returns. Deployed by Uniswap per chain, not by us.
-/// Reference addresses at https://docs.uniswap.org/contracts/v4/deployments.
+/// Reference addresses at https://developers.uniswap.org/docs/protocols/v4/deployments.
 export const V4_STATE_VIEWS: Record<ChainKey, Address | null> = {
-  mainnet: null,
+  mainnet: '0x7ffe42c4a5deea5b0fec41c94c136cf115597227',
   sepolia: null,
-  base: null,
+  base: '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71',
   'base-sepolia': '0x571291b572eD32CE6751A2Cb2486EbEe8DEFB9b4',
-  robinhood: null,
+  robinhood: '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b',
   'robinhood-testnet': null,
 };
 
