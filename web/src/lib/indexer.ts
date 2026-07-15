@@ -203,6 +203,35 @@ export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | 
   return data?.v4Swapss.items ?? null;
 }
 
+/// Full v4 swap history for a specific token, newest-first. Used by the trade page as
+/// the source of truth for post-graduation trades (recent-trades list + chart points).
+/// Replaces client-side `publicClient.getLogs` scans that were capped at ~30k blocks
+/// lookback -- older swaps were silently invisible on the trade page even when the
+/// indexer had them. The indexer's RPC is paid-tier + a single query pulls the whole
+/// history from the graduated pool without chunk-walking.
+export async function fetchV4SwapsForToken(
+  tokenAddress: Address,
+  limit = 500,
+): Promise<IndexerV4Swap[] | null> {
+  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+    `query V4SwapsForToken($token: String!, $limit: Int!) {
+      v4Swapss(
+        where: { tokenAddress: $token },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
+          tick fee priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { token: tokenAddress.toLowerCase(), limit },
+  );
+  return data?.v4Swapss.items ?? null;
+}
+
 /// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to
 /// enrich graduated launches on the /discover feed so mcap + tx count reflect post-grad
 /// pool activity, not the frozen curve-side snapshot. Cheap enough to call per launch;

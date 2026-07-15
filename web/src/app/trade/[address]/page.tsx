@@ -33,7 +33,7 @@ import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadat
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
-import { fetchLaunchesByTokens, fetchTradesForCurve } from '@/lib/indexer';
+import { fetchLaunchesByTokens, fetchTradesForCurve, fetchV4SwapsForToken } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -339,143 +339,76 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   /// swap appears in recent trades + updates the chart within one block.
   const [v4RefetchTick, setV4RefetchTick] = useState(0);
   useEffect(() => {
-    if (!graduated || !poolId || !publicClient || !poolManagerAddr) return;
+    if (!graduated) return;
     let cancelled = false;
-    // Public RPCs (and even some Alchemy tiers) cap `eth_getLogs` at 2000 blocks per
-    // request. We chunk in 2000-block windows walking backwards from `current` for a
-    // bounded total lookback so we don't hammer the RPC with dozens of requests on a
-    // fresh curve. Kept small (~15 chunks = ~30k blocks ≈ 16h of Base traffic) — enough
-    // for near-realtime charts; the indexer covers the deep history for the home page.
-    const CHUNK = 2000n;
-    const MAX_CHUNKS = 15;
-    const swapEventAbi = {
-      type: 'event',
-      name: 'Swap',
-      inputs: [
-        { name: 'id', type: 'bytes32', indexed: true },
-        { name: 'sender', type: 'address', indexed: true },
-        { name: 'amount0', type: 'int128', indexed: false },
-        { name: 'amount1', type: 'int128', indexed: false },
-        { name: 'sqrtPriceX96', type: 'uint160', indexed: false },
-        { name: 'liquidity', type: 'uint128', indexed: false },
-        { name: 'tick', type: 'int24', indexed: false },
-        { name: 'fee', type: 'uint24', indexed: false },
-      ],
-    } as const;
-
+    // Pull the FULL post-graduation swap history from the indexer. Prior versions used
+    // client-side `publicClient.getLogs` with a bounded ~30k-block lookback, which
+    // silently hid swaps older than ~16h on Base (~30k * 2s block time). Tokens
+    // that graduated more than a day ago would show "no v4 swaps" on the trade page
+    // while the home rail / profile page correctly rendered them from the indexer.
+    // The indexer already parses sqrtPriceX96, blockTimestamp, amounts on ingest —
+    // so this replaces ~100 lines of RPC chunking + block-lookup with one query.
     const load = async () => {
-      try {
-        const current = await publicClient.getBlockNumber();
-        const allLogs: Array<{
-          blockNumber: bigint;
-          sqrtPriceX96: bigint;
-          amount0: bigint;
-          amount1: bigint;
-          sender: Address;
-        }> = [];
-        let toBlock = current;
-        for (let i = 0; i < MAX_CHUNKS; i++) {
-          if (cancelled) return;
-          const fromBlock = toBlock > CHUNK ? toBlock - CHUNK + 1n : 0n;
-          try {
-            const chunk = await publicClient.getLogs({
-              address: poolManagerAddr,
-              event: swapEventAbi,
-              args: { id: poolId },
-              fromBlock,
-              toBlock,
-            });
-            for (const log of chunk) {
-              const args = (log as unknown as { args: Record<string, unknown> }).args;
-              const sqrt = args.sqrtPriceX96 as bigint | undefined;
-              if (!sqrt || sqrt === 0n) continue;
-              allLogs.push({
-                blockNumber: log.blockNumber,
-                sqrtPriceX96: sqrt,
-                amount0: args.amount0 as bigint,
-                amount1: args.amount1 as bigint,
-                sender: args.sender as Address,
-              });
-            }
-          } catch (chunkErr) {
-            // Individual chunk failure isn't fatal — the pool might not have existed
-            // yet at that block range. Keep walking backwards until MAX_CHUNKS.
-            console.debug('v4 chunk failed', fromBlock, toBlock, chunkErr);
-          }
-          if (fromBlock === 0n) break;
-          toBlock = fromBlock - 1n;
-        }
-        if (cancelled) return;
-
-        // Convert to TradePoints. Batch-fetch block timestamps (avoid an RPC per event).
-        const uniqueBlocks = Array.from(new Set(allLogs.map((l) => l.blockNumber)));
-        const blockTs: Record<string, bigint> = {};
-        for (const bn of uniqueBlocks) {
-          if (cancelled) return;
-          try {
-            const b = await publicClient.getBlock({ blockNumber: bn });
-            blockTs[bn.toString()] = b.timestamp;
-          } catch {}
-        }
-        const enriched = allLogs
-          .map((l) => {
-            const ts = blockTs[l.blockNumber.toString()];
-            if (!ts) return null;
-            // Same inversion math as poolSpotPriceEthPerToken — v4 sqrtPriceX96 encodes
-            // sqr(tokens/ETH) for our ETH-token pools, so we invert to get wei-per-token.
-            const sqSq = l.sqrtPriceX96 * l.sqrtPriceX96;
-            if (sqSq === 0n) return null;
-            const weiPerToken = ((10n ** 18n) << 192n) / sqSq;
-            if (weiPerToken === 0n) return null;
-            // v4 Swap.amount* is the caller's delta: positive = tokens flowing OUT of the
-            // pool to the swapper, negative = tokens flowing IN from the swapper. For our
-            // ETH(currency0)/token(currency1) pools, a BUY is +token (amount1 > 0) and a
-            // SELL is +ETH (amount0 > 0). abs the values so recent-trades reads intuitively.
-            const abs = (n: bigint) => (n < 0n ? -n : n);
-            const isBuy = l.amount1 > 0n;
-            return {
-              timestamp: Number(ts),
-              priceWeiPerToken: weiPerToken,
-              sqrtPriceX96: l.sqrtPriceX96,
-              isBuy,
-              eth: abs(l.amount0),
-              tokens: abs(l.amount1),
-              trader: l.sender,
-              blockNumber: l.blockNumber,
-            };
-          })
-          .filter((p): p is NonNullable<typeof p> => p !== null)
-          .sort((a, b) => a.timestamp - b.timestamp);
-        if (cancelled) return;
-        setV4TradePoints(enriched.map((e) => ({ timestamp: e.timestamp, priceWeiPerToken: e.priceWeiPerToken })));
-        // Take the newest swaps first so the recent-trades list shows most recent on top.
-        setV4RecentTrades(
-          enriched
-            .slice()
-            .reverse()
-            .slice(0, 25)
-            .map((e) => ({
-              isBuy: e.isBuy,
-              eth: e.eth,
-              tokens: e.tokens,
-              trader: e.trader,
-              timestamp: e.timestamp,
-            })),
-        );
-        // Freshest v4 spot (highest block wins) — feeds the market-cap fallback.
-        const newest = enriched.reduce<typeof enriched[number] | null>(
-          (best, cur) => (!best || cur.blockNumber > best.blockNumber ? cur : best),
-          null,
-        );
-        if (newest) setV4LatestSqrt(newest.sqrtPriceX96);
-      } catch (err) {
-        console.warn('v4 swap fetch failed', err);
-      }
+      const rows = await fetchV4SwapsForToken(tokenAddress, 500);
+      if (cancelled || !rows) return;
+      // Rows arrive newest-first (order: blockTimestamp desc). For the chart we want
+      // oldest-first so the line reads left-to-right chronologically.
+      const enriched = rows
+        .map((r) => {
+          const sqrtPriceX96 = BigInt(r.sqrtPriceX96);
+          if (sqrtPriceX96 === 0n) return null;
+          const sqSq = sqrtPriceX96 * sqrtPriceX96;
+          if (sqSq === 0n) return null;
+          const weiPerToken = ((10n ** 18n) << 192n) / sqSq;
+          if (weiPerToken === 0n) return null;
+          const amt0 = BigInt(r.amount0);
+          const amt1 = BigInt(r.amount1);
+          const abs = (n: bigint) => (n < 0n ? -n : n);
+          // v4 Swap.amount* is the caller's delta: positive = tokens flowing OUT of
+          // the pool to the swapper, negative = flowing IN from the swapper. For our
+          // ETH(currency0)/token(currency1) pools a BUY is +token (amount1 > 0),
+          // a SELL is +ETH (amount0 > 0). abs the values so recent-trades reads clean.
+          const isBuy = amt1 > 0n;
+          return {
+            timestamp: Number(r.blockTimestamp),
+            priceWeiPerToken: weiPerToken,
+            sqrtPriceX96,
+            isBuy,
+            eth: abs(amt0),
+            tokens: abs(amt1),
+            trader: r.sender,
+            blockNumber: BigInt(r.blockNumber),
+          };
+        })
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      if (cancelled) return;
+      setV4TradePoints(enriched.map((e) => ({ timestamp: e.timestamp, priceWeiPerToken: e.priceWeiPerToken })));
+      // Newest swaps first for the recent-trades list.
+      setV4RecentTrades(
+        enriched
+          .slice()
+          .reverse()
+          .slice(0, 25)
+          .map((e) => ({
+            isBuy: e.isBuy,
+            eth: e.eth,
+            tokens: e.tokens,
+            trader: e.trader,
+            timestamp: e.timestamp,
+          })),
+      );
+      // Freshest v4 spot for the market-cap fallback when StateView.getSlot0 is lagging.
+      const newest = enriched.reduce<typeof enriched[number] | null>(
+        (best, cur) => (!best || cur.blockNumber > best.blockNumber ? cur : best),
+        null,
+      );
+      if (newest) setV4LatestSqrt(newest.sqrtPriceX96);
     };
     load();
-    const id = setInterval(load, 30_000);
+    const id = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [graduated, poolId, poolManagerAddr, publicClient, v4RefetchTick]);
+  }, [graduated, tokenAddress, v4RefetchTick]);
 
   // Chart consumes curve + v4 points, chronologically merged.
   const chartPoints = useMemo(() => {
