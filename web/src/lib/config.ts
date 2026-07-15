@@ -153,7 +153,34 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     CurveFactory: '0xB8Cf1418f7DF58d57bd9b37b986280de1D8f938B',
     BondingCurveImpl: '0x684bb1309C3f5270A42ccc4aBdC579d8c7052d95',
   },
-  robinhood: null,
+  robinhood: {
+    NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
+    Router: '0x50200Eda4693f4b839d8c436D42568B5e92EADE3',
+    FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
+    ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
+    ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
+    ERC20WithAntiBotImpl: '0x14b8132547d9e724Ce557F69897E66b9e699e64a',
+    ERC20WithAntiWhaleImpl: '0xdD7c50BEb82b53F8FFa746dd85cc3BcDa43BabcD',
+    ERC20WithFoTImpl: '0x19E133a55c45ce9195dd8F994C58dd97edff93BC',
+    ERC20WithPausableImpl: '0x1Ccbf53F79372fBb700b0779B1fEA1E43Ba2E3e8',
+    ERC20WithPermitImpl: '0xA46Af17d1B3C0DfeeD0E5D8d6CEb8d49698D4de1',
+    ERC20WithAirdropImpl: '0x7Eb2F7313557e0625Cc22De2c3EbBE879684C7AF',
+    ERC20WithVestingImpl: '0x203F3687dEf60bc54280b78E6fe0d66FD26Db731',
+    ERC20WithStakingImpl: '0x4601B97eE914FDcd571546D48d6D5330B28928e4',
+    ERC20WithVotesImpl: '0xf0a7AA9d95793DA05Ec07EAe5DDa23C1982AF0E8',
+    ERC721AFactory: '0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc',
+    ERC721ATemplateImpl: '0xb7b804F8dA3Be3F8159D5E1aE6c659a8e317ca78',
+    ERC721AWithDelayedRevealImpl: '0x45C36c475D29c4aA46Cc50569A09b57e6BdD018d',
+    ERC721AWithSvgImpl: '0xc7BB288008B1751D6F0b86897D614E52ECa38a60',
+    ERC721AWithRoyaltyImpl: '0x5F61f73a31e3A973177Dc6dd5b4CE51e75587801',
+    ERC721AWithSvgAndRoyaltyImpl: '0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac',
+    ERC721AWithSoulboundImpl: '0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A',
+    ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
+    ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
+    ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
+    CurveFactory: '0x14b2FFb9e183ba51fAaf880f89490484F25B9223',
+    BondingCurveImpl: '0x2207e3A3117F219636F42b9209d021b73811485C',
+  },
   'robinhood-testnet': null,
 };
 
@@ -176,7 +203,14 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     MultiHookHost: '0x75CF8eA5e271d73a69C498c3F2c57EFE9C6d22c4',
     BuybackBurnHook: '0x6Ee28706e839B8022435e075a2Ad37D3F70c0044',
   },
-  robinhood: null,
+  robinhood: {
+    PoolManager: '0x8366a39CC670B4001A1121B8F6A443A643e40951',
+    LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
+    FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
+    AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
+    MultiHookHost: '0x93c1B962F0d8066b769092c9a153D2D56D2BE2c4',
+    BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
+  },
   'robinhood-testnet': null,
 };
 
@@ -187,7 +221,7 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0x2c5C250bC54B9716a989929C04c2049BbA7283bb',
   'base-sepolia': '0x736D1280E30B0CCEEc7e3998E66620D9EB7fFa99',
-  robinhood: null,
+  robinhood: '0x3bdf97236d78c6AE5bAaa990a5553a46a9505572',
   'robinhood-testnet': null,
 };
 
@@ -199,7 +233,7 @@ export const V4_ROUTERS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288',
   'base-sepolia': '0x729844c9Cc23407BF400535B28F787344c3321c1',
-  robinhood: null,
+  robinhood: '0x96E040a16A8B8B17a7896BDbDf02978895368bf6',
   'robinhood-testnet': null,
 };
 
