@@ -52,12 +52,21 @@ export interface MockLaunch {
   /// history per launch. Falls back to `trades.length` when the indexer hasn't supplied it
   /// (legacy mocks, direct-mint tokens that never traded).
   tradeCount?: number;
+  /// v4 pool swap count for graduated tokens. `tradeCountOf` adds this on top of
+  /// `tradeCount` so discover shows total lifetime activity, not just pre-grad curve.
+  v4SwapCount?: number;
+  /// Newest v4 pool sqrtPriceX96 for graduated tokens. `mockMarketCapEth` prefers it
+  /// over the drained curve reserves so a graduated token still shows a real mcap.
+  poolLatestSqrtPriceX96?: bigint;
 }
 
 /// Prefer indexer-supplied tradeCount, otherwise fall back to the length of the trades
-/// array — mocks embed the array directly, the indexer populates the count field.
+/// array — mocks embed the array directly, the indexer populates the count field. For
+/// graduated tokens, add v4 swap count on top so discover reflects total lifetime
+/// activity (curve trades + post-grad pool swaps).
 export function tradeCountOf(l: MockLaunch): number {
-  return l.tradeCount ?? l.trades.length;
+  const base = l.tradeCount ?? l.trades.length;
+  return base + (l.v4SwapCount ?? 0);
 }
 
 /// Bucket a launch as 'curve' or 'direct' regardless of whether the `kind` field is set —
@@ -380,6 +389,16 @@ export function mockProgressPct(l: MockLaunch): number {
 }
 
 export function mockMarketCapEth(l: MockLaunch): bigint {
+  // Graduated tokens: derive spot from the newest v4 pool sqrtPriceX96. The curve
+  // reserves were drained to 0 during graduation, so the pre-grad math below would
+  // silently return 0 for every graduated token. Same inversion the trade page uses:
+  //   weiPerToken = (1e18 << 192) / sqrtPriceX96^2
+  if (l.graduated && l.poolLatestSqrtPriceX96 && l.poolLatestSqrtPriceX96 > 0n) {
+    const sqSq = l.poolLatestSqrtPriceX96 * l.poolLatestSqrtPriceX96;
+    if (sqSq === 0n) return 0n;
+    const weiPerToken = ((10n ** 18n) << 192n) / sqSq;
+    return (weiPerToken * l.totalSupply) / 10n ** 18n;
+  }
   // Same guard as above — a token with no curve reserves has no spot price to derive
   // market cap from. Return 0 so LaunchCard can render the tile with a `—` placeholder.
   const denom = l.tokenReserve + l.virtualTokenReserve;

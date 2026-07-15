@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { parseEther } from 'viem';
 
-import { fetchRecentLaunches, fetchCurveByToken, type IndexerLaunch } from './indexer';
+import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
 import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
@@ -94,6 +94,11 @@ async function indexerRowToLaunch(row: IndexerLaunch): Promise<MockLaunch | null
   // on the launches row but the curves row exists — the presence of a curve row is the
   // real source of truth for "this token has a bonding curve."
   const curve = await fetchCurveByToken(row.tokenAddress);
+  // Graduated tokens need a second query for their v4 pool activity — otherwise mcap
+  // reads 0 (curve drained) + tx count freezes at the last pre-grad trade. Cheap: one
+  // indexed lookup per launch, only for the graduated subset.
+  const isGraduated = curve?.graduated ?? false;
+  const v4Summary = isGraduated ? await fetchV4SummaryForToken(row.tokenAddress) : null;
   return {
     chainId: row.chainId,
     address: row.tokenAddress,
@@ -112,9 +117,11 @@ async function indexerRowToLaunch(row: IndexerLaunch): Promise<MockLaunch | null
     curveSupply: curve ? b(curve.curveSupply) : 0n,
     totalSupply: parseEther('1000000000'),
     tradeFeeBps: curve?.tradeFeeBps ?? 0,
-    graduated: curve?.graduated ?? false,
+    graduated: isGraduated,
     trades: [],
     tradeCount: curve?.tradeCount ?? 0,
+    v4SwapCount: v4Summary?.count ?? 0,
+    poolLatestSqrtPriceX96: v4Summary?.latestSqrtPriceX96 ?? 0n,
     kind: curve ? 'curve' : 'direct',
   };
 }

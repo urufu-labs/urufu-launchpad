@@ -169,9 +169,18 @@ export interface IndexerV4Swap {
 }
 
 export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | null> {
+  // Filter to swaps whose poolId reverse-mapped to a launchpad token — anything else
+  // (random v4 activity on the same PoolManager) would just get dropped by the home
+  // page's `byToken` lookup anyway, and on busy chains that filter can eat the entire
+  // response before any of our tokens' swaps make the cut.
   const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
     `query RecentV4Swaps($limit: Int!) {
-      v4Swapss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+      v4Swapss(
+        where: { tokenAddress_not: null },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
         items {
           id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
           tick fee priceWeiPerToken blockNumber blockTimestamp txHash
@@ -181,6 +190,31 @@ export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | 
     { limit },
   );
   return data?.v4Swapss.items ?? null;
+}
+
+/// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to
+/// enrich graduated launches on the /discover feed so mcap + tx count reflect post-grad
+/// pool activity, not the frozen curve-side snapshot. Cheap enough to call per launch;
+/// discover's launch pool is small (top 40) and each call is a single indexed lookup.
+export async function fetchV4SummaryForToken(
+  tokenAddress: Address,
+): Promise<{ latestSqrtPriceX96: bigint; count: number } | null> {
+  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+    `query V4SummaryForToken($token: String!) {
+      v4Swapss(
+        where: { tokenAddress: $token },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: 1000
+      ) {
+        items { sqrtPriceX96 blockNumber }
+      }
+    }`,
+    { token: tokenAddress.toLowerCase() },
+  );
+  const items = data?.v4Swapss.items ?? [];
+  if (items.length === 0) return { latestSqrtPriceX96: 0n, count: 0 };
+  return { latestSqrtPriceX96: BigInt(items[0].sqrtPriceX96), count: items.length };
 }
 
 /// Newest trades across every curve on the connected chain, most-recent first. Powers the
