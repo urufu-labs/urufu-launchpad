@@ -95,7 +95,34 @@ export interface FlywheelSet {
 }
 
 export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
-  mainnet: null,
+  mainnet: {
+    NameRegistry: '0x6d7F228A56A558F812054B21a2c0598437421C77',
+    Router: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
+    FeeReceiver: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
+    ERC20Factory: '0x50200Eda4693f4b839d8c436D42568B5e92EADE3',
+    ERC20TemplateImpl: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
+    ERC20WithAntiBotImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
+    ERC20WithAntiWhaleImpl: '0x14b8132547d9e724Ce557F69897E66b9e699e64a',
+    ERC20WithFoTImpl: '0xdD7c50BEb82b53F8FFa746dd85cc3BcDa43BabcD',
+    ERC20WithPausableImpl: '0x19E133a55c45ce9195dd8F994C58dd97edff93BC',
+    ERC20WithPermitImpl: '0x1Ccbf53F79372fBb700b0779B1fEA1E43Ba2E3e8',
+    ERC20WithAirdropImpl: '0xA46Af17d1B3C0DfeeD0E5D8d6CEb8d49698D4de1',
+    ERC20WithVestingImpl: '0x7Eb2F7313557e0625Cc22De2c3EbBE879684C7AF',
+    ERC20WithStakingImpl: '0x203F3687dEf60bc54280b78E6fe0d66FD26Db731',
+    ERC20WithVotesImpl: '0x4601B97eE914FDcd571546D48d6D5330B28928e4',
+    ERC721AFactory: '0x64E8DE0afc6fE16806abF3513294d5f643606799',
+    ERC721ATemplateImpl: '0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc',
+    ERC721AWithDelayedRevealImpl: '0xb7b804F8dA3Be3F8159D5E1aE6c659a8e317ca78',
+    ERC721AWithSvgImpl: '0x45C36c475D29c4aA46Cc50569A09b57e6BdD018d',
+    ERC721AWithRoyaltyImpl: '0xc7BB288008B1751D6F0b86897D614E52ECa38a60',
+    ERC721AWithSvgAndRoyaltyImpl: '0x5F61f73a31e3A973177Dc6dd5b4CE51e75587801',
+    ERC721AWithSoulboundImpl: '0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac',
+    ERC721AWithRefundableImpl: '0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A',
+    ERC1155Factory: '0x55356c5045Cb7F299A8F5b2a17a4C2f16b68E88b',
+    ERC1155TemplateImpl: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
+    CurveFactory: '0x2207e3A3117F219636F42b9209d021b73811485C',
+    BondingCurveImpl: '0x4D168e17443454590ff97206789E458e457dFB81',
+  },
   sepolia: null, // populate after DeployPhase1 broadcasts
   base: {
     NameRegistry: '0xC3e117CD904db351F919134adCee7237F3ebC2A7',
@@ -185,7 +212,14 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
 };
 
 export const HOOKS: Record<ChainKey, HookSet | null> = {
-  mainnet: null,
+  mainnet: {
+    PoolManager: '0x000000000004444c5dc75cB358380D2e3dE08A90',
+    LPLockedHook: '0x3345A99403bA5687B75d9c5b4B6f058ca35e0200',
+    FeeRedirectHook: '0x46D3367ee25B28A50a3c82533A9623e593b3C044',
+    AntiSniperHook: '0xd5530a2971699E340166b61e7A61a29Ce478A080',
+    MultiHookHost: '0x7BFf11155c9D85439D7A6CB34A638abbAfad22C4',
+    BuybackBurnHook: '0xD8Ff51EFAf5daAE757bf152034d96cd2D61F0044',
+  },
   sepolia: null,
   base: {
     PoolManager: '0x498581fF718922c3f8e6A244956aF099B2652b2b',
@@ -217,7 +251,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
 /// One Graduator per chain — routes graduated bonding curves into a v4 pool with
 /// `MultiHookHost` as the default hook. `null` until `DeployGraduator` broadcasts.
 export const GRADUATORS: Record<ChainKey, Address | null> = {
-  mainnet: null,
+  mainnet: '0xc706080AB0c9C066CcF213620B5CB8f6E9c259E4',
   sepolia: null,
   base: '0x2c5C250bC54B9716a989929C04c2049BbA7283bb',
   'base-sepolia': '0x736D1280E30B0CCEEc7e3998E66620D9EB7fFa99',
@@ -229,7 +263,7 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
 /// contract's swap functions once a curve has graduated. One per chain, wired to the
 /// same PoolManager as GRADUATORS. `null` until `DeployV4SwapRouter` broadcasts.
 export const V4_ROUTERS: Record<ChainKey, Address | null> = {
-  mainnet: null,
+  mainnet: '0x96dCf3eA38b319927554e518BD8e1899e0488a2e',
   sepolia: null,
   base: '0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288',
   'base-sepolia': '0x729844c9Cc23407BF400535B28F787344c3321c1',
