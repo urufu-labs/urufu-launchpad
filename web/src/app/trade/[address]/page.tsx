@@ -1375,7 +1375,7 @@ function EditMetadataModal({
             close ×
           </button>
         </div>
-        <MetadataForm value={inputs} onChange={setInputs} />
+        <MetadataForm value={inputs} onChange={setInputs} hideIntro />
         {error && (
           <div
             style={{

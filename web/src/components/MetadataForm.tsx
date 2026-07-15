@@ -16,11 +16,23 @@ export interface MetadataInputs {
 interface Props {
   value: MetadataInputs;
   onChange: (next: MetadataInputs) => void;
+  /// When true, hides the intro banner (used inside the trade-page edit modal where
+  /// the modal title already carries the context).
+  hideIntro?: boolean;
 }
 
-/// Pump.fun-style token metadata form: logo upload, description, socials. Stored locally on
-/// launch (localStorage). A proper Pinata + indexer pipeline lands in Phase 5.
-export function MetadataForm({ value, onChange }: Props) {
+const EYEBROW: React.CSSProperties = {
+  fontFamily: 'var(--font-pixel), monospace',
+  fontSize: 10,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--anchor-soft)',
+};
+
+/// Pump.fun-style token metadata form: logo upload, description, socials. Uses the
+/// site's cream/paper design tokens so it slots into the shop, launch flow, and the
+/// per-token edit modal without palette clashes.
+export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
   const [logoError, setLogoError] = useState<string | null>(null);
 
   async function handleLogo(file: File | null) {
@@ -39,84 +51,138 @@ export function MetadataForm({ value, onChange }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-neutral-800 bg-neutral-900/40 p-3 text-[11px] text-neutral-500">
-        Optional. Stored locally on your device for now — a proper metadata service (IPFS pinning
-        + indexer serve) lands in a later phase. Marketplaces will read logo/description/socials
-        once that's live.
-      </div>
+      {!hideIntro && (
+        <div
+          style={{
+            padding: 10,
+            border: '1.5px dashed var(--anchor)',
+            background: 'var(--mint)',
+            fontFamily: 'var(--font-round), Klee One, cursive',
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: 'var(--anchor)',
+          }}
+        >
+          ✿ pin an image + a lil description so ur token shows up right on discover, home,
+          and every trade page. everyone sees the same thing once u sign the save ~
+        </div>
+      )}
 
       {/* Logo */}
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-neutral-500">Logo</span>
-        <div className="mt-2 flex items-start gap-4">
-          <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-md border border-neutral-700 bg-neutral-950">
+      <label style={{ display: 'block' }}>
+        <span style={EYEBROW}>logo</span>
+        <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              flexShrink: 0,
+              border: '1.5px solid var(--anchor)',
+              boxShadow: '2px 2px 0 var(--anchor)',
+              overflow: 'hidden',
+              background: value.logoDataUrl ? '#fff' : 'var(--cream-deep)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             {value.logoDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={value.logoDataUrl}
                 alt="Token logo preview"
-                className="h-full w-full object-cover"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-widest text-neutral-600">
-                logo
-              </div>
+              <span style={{ ...EYEBROW, fontSize: 9 }}>logo</span>
             )}
           </div>
-          <div className="flex-1">
+          <div style={{ flex: 1, minWidth: 0 }}>
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp,image/svg+xml"
               onChange={(e) => void handleLogo(e.target.files?.[0] ?? null)}
-              className="block w-full text-xs text-neutral-400 file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-neutral-700 file:bg-neutral-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-neutral-200 hover:file:border-neutral-500"
+              style={{
+                display: 'block',
+                width: '100%',
+                fontFamily: 'var(--font-round), Klee One, cursive',
+                fontSize: 12,
+                color: 'var(--anchor)',
+              }}
             />
-            <div className="mt-1 text-[11px] text-neutral-500">
-              PNG / JPEG / WebP / SVG, up to 256 KB. Kept inline as a data URL until IPFS is
-              wired up.
+            <div
+              style={{
+                marginTop: 6,
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                color: 'var(--anchor-soft)',
+                lineHeight: 1.5,
+              }}
+            >
+              png / jpeg / webp / svg, up to 256 kb. gets pinned to ipfs on save ~
             </div>
-            {logoError && <div className="mt-1 text-[11px] text-red-400">{logoError}</div>}
+            {logoError && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 10,
+                  color: 'var(--pink-hot)',
+                }}
+              >
+                {logoError}
+              </div>
+            )}
           </div>
         </div>
       </label>
 
       {/* Description */}
-      <label className="block">
-        <span className="text-xs uppercase tracking-widest text-neutral-500">Description</span>
+      <label style={{ display: 'block' }}>
+        <span style={EYEBROW}>description</span>
         <textarea
+          className="uru-input"
           value={value.description ?? ''}
           onChange={(e) => onChange({ ...value, description: e.target.value })}
           rows={3}
           maxLength={500}
-          placeholder="A short pitch. Two or three sentences."
-          className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm focus:border-white focus:outline-none"
+          placeholder="a short pitch. two or three sentences ~"
+          style={{ marginTop: 6, width: '100%', resize: 'vertical', minHeight: 64, fontFamily: 'var(--font-round), Klee One, cursive' }}
         />
-        <div className="mt-1 text-[11px] text-neutral-500">
+        <div
+          style={{
+            marginTop: 4,
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 10,
+            color: 'var(--anchor-soft)',
+          }}
+        >
           {(value.description ?? '').length}/500
         </div>
       </label>
 
       {/* Socials */}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         <SocialInput
-          label="Website"
+          label="website"
           placeholder="https://…"
           value={value.website}
           onChange={(v) => onChange({ ...value, website: v })}
         />
         <SocialInput
-          label="Twitter / X"
+          label="twitter / x"
           placeholder="https://x.com/…"
           value={value.twitter}
           onChange={(v) => onChange({ ...value, twitter: v })}
         />
         <SocialInput
-          label="Telegram"
+          label="telegram"
           placeholder="https://t.me/…"
           value={value.telegram}
           onChange={(v) => onChange({ ...value, telegram: v })}
         />
         <SocialInput
-          label="Discord"
+          label="discord"
           placeholder="https://discord.gg/…"
           value={value.discord}
           onChange={(v) => onChange({ ...value, discord: v })}
@@ -138,14 +204,15 @@ function SocialInput({
   onChange: (v: string) => void;
 }) {
   return (
-    <label className="block">
-      <span className="text-xs uppercase tracking-widest text-neutral-500">{label}</span>
+    <label style={{ display: 'block' }}>
+      <span style={EYEBROW}>{label}</span>
       <input
+        className="uru-input"
         type="url"
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm font-mono focus:border-white focus:outline-none"
+        style={{ marginTop: 6, width: '100%', fontFamily: 'var(--font-round), Klee One, cursive' }}
       />
     </label>
   );
