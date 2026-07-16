@@ -59,22 +59,19 @@ export function useLaunchFeed(chainId: number): FeedState {
       return () => { cancelled = true; };
     }
 
-    // Reset immediately so we don't flash mocks from another chain while fetching.
+    // First run per chainId — clear so we don't flash mocks from another chain while
+    // fetching. Subsequent poll ticks reuse setState in place so the marquee doesn't
+    // clear on every refresh (that would blink every 15s).
     setState({ source: 'indexer', launches: [], ready: false });
 
-    (async () => {
+    const load = async () => {
       const rows = await fetchRecentLaunches(60);
       if (cancelled) return;
       if (!rows) {
-        // Indexer offline — leave the feed empty for this chain (real deployments should
-        // never fall back to unrelated mock tokens).
-        setState({ source: 'indexer', launches: [], ready: true });
+        setState((prev) => (prev.ready ? prev : { source: 'indexer', launches: [], ready: true }));
         return;
       }
       const forChain = rows.filter((r) => r.chainId === chainId);
-      // Batch-fetch social metadata (image, description, socials) for every token in this
-      // chain's window in one round-trip. Failures are silent — tokens without metadata
-      // just fall back to the default flower emoji.
       const meta = await fetchTokenMetadataBatch(
         chainId,
         forChain.map((r) => r.tokenAddress as Address),
@@ -87,9 +84,14 @@ export function useLaunchFeed(chainId: number): FeedState {
         launches: mapped.filter((l): l is MockLaunch => l !== null),
         ready: true,
       });
-    })();
-
-    return () => { cancelled = true; };
+    };
+    load();
+    // Poll so the ticker + home rail + discover feed pick up new launches and freshly
+    // mined trades (curve state + v4 spot are re-read per row inside indexerRowToLaunch)
+    // without a page refresh. 15s is a friendly cadence — indexer catch-up is usually
+    // sub-second so this feels near-real-time without hammering the backend.
+    const id = setInterval(load, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [chainId]);
 
   return state;

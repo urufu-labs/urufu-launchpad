@@ -527,9 +527,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         })),
       );
     })();
-    // Also nudge the wagmi cache so curve reserves + wallet balance update in the same beat.
+    // Also nudge the wagmi cache so curve reserves + wallet balance + allowance update in
+    // the same beat. Allowance refetch is what unlocks the sell button immediately after
+    // an approve tx confirms — without it the user waited on the 15s poll interval (or
+    // had to reload the page) before the button flipped from "approve first" to "sell".
     curveState.refetch();
     walletBalQ.refetch();
+    curveAllowanceQ.refetch();
     return () => { cancelled = true; };
   }, [receipt.data?.transactionHash, curveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
