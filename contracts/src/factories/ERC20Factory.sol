@@ -28,6 +28,7 @@ contract ERC20Factory is IVMFactory, Ownable {
 
     error ERC20Factory__NotRouter();
     error ERC20Factory__NotRegistrar();
+    error ERC20Factory__NotOwner();
     error ERC20Factory__UnknownConfig(bytes32 configHash);
     error ERC20Factory__AlreadyRegistered(bytes32 configHash);
     error ERC20Factory__ZeroAddress();
@@ -47,6 +48,10 @@ contract ERC20Factory is IVMFactory, Ownable {
         string ticker
     );
     event ImplRegistered(bytes32 indexed configHash, address indexed impl, address registrar);
+    /// Emitted when the owner rotates an already-registered impl to a new bytecode.
+    /// Existing tokens are immutable clones pinned to whichever impl was set at their
+    /// launch time — this only affects future launches through the same configHash.
+    event ImplUpdated(bytes32 indexed configHash, address indexed oldImpl, address indexed newImpl);
     event RegistrarSet(address indexed oldRegistrar, address indexed newRegistrar);
     event RouterSet(address indexed oldRouter, address indexed newRouter);
 
@@ -137,6 +142,30 @@ contract ERC20Factory is IVMFactory, Ownable {
 
         impls[configHash] = impl;
         emit ImplRegistered(configHash, impl, msg.sender);
+    }
+
+    /// @notice Rotate an already-registered impl in place. Owner-only. Emits the
+    ///         swap for auditability. Existing tokens don't move — they were
+    ///         immutable-cloned from whichever impl was set at their launch time.
+    ///         Only NEW launches through this configHash pick up the new bytecode.
+    ///
+    /// @dev    Introduced so V2 reserve-backed template refactors could roll out
+    ///         without minting a new configHash (and forcing frontend churn). The
+    ///         function is intentionally scoped to "same configHash, new impl" —
+    ///         it does NOT let the owner assign an arbitrary impl to any hash from
+    ///         scratch (that's registerImpl's job, which is one-shot per hash).
+    function updateImpl(
+        bytes32 configHash,
+        address newImpl
+    ) external {
+        if (msg.sender != owner()) revert ERC20Factory__NotOwner();
+        address oldImpl = impls[configHash];
+        if (oldImpl == address(0)) revert ERC20Factory__UnknownConfig(configHash);
+        if (newImpl == address(0)) revert ERC20Factory__ZeroAddress();
+        if (newImpl.code.length == 0) revert ERC20Factory__NotAContract();
+
+        impls[configHash] = newImpl;
+        emit ImplUpdated(configHash, oldImpl, newImpl);
     }
 
     // ============================================================

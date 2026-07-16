@@ -75,13 +75,17 @@ contract CurveFactoryTest is Test {
         factory.createCurve(address(token));
     }
 
-    function test_CreateCurve_RevertsIfInsufficientBalance() public {
+    /// V2 CurveFactory pulls the launcher's ACTUAL balance (whatever's left after
+    /// reserve modules carved out their share), not a hardcoded defaultCurveSupply.
+    /// If the launcher has 0 tokens after modules ate the whole supply, we still
+    /// revert loudly with NotEnoughSupply — no zero-supply curves. If they have
+    /// SOME tokens but haven't approved the factory to transfer them, the underlying
+    /// safeTransferFrom reverts with TransferFromFailed. Both are legit fail modes.
+    function test_CreateCurve_RevertsWhenLauncherHasZeroBalance() public {
         MockToken poor = new MockToken();
-        poor.mint(launcher, 10 ether); // way less than supply
+        // No mint to launcher at all — balance is 0.
         vm.expectRevert(
-            abi.encodeWithSelector(
-                CurveFactory.CurveFactory__NotEnoughSupply.selector, factory.defaultCurveSupply(), 10 ether
-            )
+            abi.encodeWithSelector(CurveFactory.CurveFactory__NotEnoughSupply.selector, factory.defaultCurveSupply(), 0)
         );
         vm.prank(launcher);
         factory.createCurve(address(poor));

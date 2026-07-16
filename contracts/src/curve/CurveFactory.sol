@@ -136,6 +136,14 @@ contract CurveFactory is Ownable {
         return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 
+    /// @notice Owner may reserve-carve future launches by adjusting `defaultCurveSupply`.
+    ///         Existing curves are unaffected (each stores its own curveSupply on-chain).
+    function setDefaultCurveSupply(
+        uint256 curveSupply_
+    ) external onlyOwner {
+        defaultCurveSupply = curveSupply_;
+    }
+
     function _createCurve(
         address token,
         uint32 antiSniperBlocks,
@@ -145,9 +153,16 @@ contract CurveFactory is Ownable {
         if (token == address(0)) revert CurveFactory__ZeroAddress();
         if (curveFor[token] != address(0)) revert CurveFactory__CurveExists(token);
 
-        uint256 supply = defaultCurveSupply;
-        uint256 bal = IERC20(token).balanceOf(msg.sender);
-        if (bal < supply) revert CurveFactory__NotEnoughSupply(supply, bal);
+        // V2 reserve-backed modules (Airdrop / Vesting / Staking) carve their
+        // allocation out of the token's initial supply during token.initialize(),
+        // BEFORE the tokens reach the curve. That means Router's balance here is
+        // (defaultCurveSupply - Σ module allocations), not the hardcoded default.
+        // Pull whatever is actually there — the curve auto-adjusts to a smaller pool
+        // with the same virtual reserves, so the initial curve price is
+        // proportionally higher (fewer tokens available → each is worth more), which
+        // is exactly what a launcher who carved out reserves is opting into.
+        uint256 supply = IERC20(token).balanceOf(msg.sender);
+        if (supply == 0) revert CurveFactory__NotEnoughSupply(defaultCurveSupply, 0);
 
         // Deterministic clone address per (token, chainid) — same predictability as
         // Phase 1's ImplRegistry.
