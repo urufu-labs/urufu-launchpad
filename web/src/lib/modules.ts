@@ -46,6 +46,12 @@ export interface ModuleSpec {
   requires: string[];
   incompatibleWith: string[];
   flagged: string | null;
+  /// True when the module exposes owner-callable functions that are only
+  /// meaningful post-launch (pause/unpause, add-to-allowlist, exempt-from-caps).
+  /// Bonding-curve launches auto-renounce ownership, so picking one of these
+  /// modules under a curve mechanic would silently disable those functions.
+  /// The create page uses this flag to grey the module out in that scenario.
+  requiresOwner?: boolean;
   description: string;
   /// Human-readable Solidity ABI signature for the module's initData slice, e.g. `(uint16)`.
   abiEncode: string;
@@ -63,6 +69,7 @@ export const MODULES: ModuleSpec[] = [
     requires: [],
     incompatibleWith: [],
     flagged: null,
+    requiresOwner: true,
     description:
       "keeps snipers out for the first few blocks. only wallets u trust can grab tokens while the gate is up ~ turns off on its own after the window",
     abiEncode: '(uint16)',
@@ -184,6 +191,7 @@ export const MODULES: ModuleSpec[] = [
     requires: [],
     incompatibleWith: [],
     flagged: null,
+    requiresOwner: true,
     description:
       'caps how much any wallet can hold + how much can move in one trade. runs for N blocks after launch then turns off ~ so whales cant just camp on ur launch',
     abiEncode: '(uint128,uint128,uint32)',
@@ -231,6 +239,7 @@ export const MODULES: ModuleSpec[] = [
     requires: [],
     incompatibleWith: [],
     flagged: 'u can freeze everyone\'s tokens at any time. ppl see this as centralization ~',
+    requiresOwner: true,
     description: "u can freeze all trades whenever. safety net for emergencies but ppl see the freeze switch and get spooked ~ think twice before adding",
     abiEncode: '()',
     params: [],

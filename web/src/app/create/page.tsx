@@ -159,8 +159,10 @@ export default function CreatePage() {
     [base, mechanic],
   );
 
-  /// True blockers only — module can't coexist with something already in the basket.
-  /// Missing `requires` is NOT a block; picking a module auto-adds its deps.
+  /// True blockers only — module can't coexist with something already in the basket
+  /// OR the module's post-launch admin functions would be uncallable in the current
+  /// launch config. Missing `requires` is NOT a block; picking a module auto-adds
+  /// its deps.
   const blockedReasons = useMemo(() => {
     const map: Record<string, string> = {};
     const labelOf = (id: string) => moduleById(id)?.label ?? id;
@@ -171,10 +173,33 @@ export default function CreatePage() {
       if (blocker) { map[mod.id] = `wont stack with ${labelOf(blocker)}`; continue; }
       const conflict = mod.incompatibleWith.find((iid) => selectedModules.includes(iid));
       if (conflict) { map[mod.id] = `wont stack with ${labelOf(conflict)}`; continue; }
+      // Curve mechanic auto-renounces ownership (Router forces OwnershipMode.Renounce
+      // when installBondingCurve is true — see create page's launch payload). That
+      // means every `onlyOwner` function on the token becomes dead after launch.
+      // Modules whose whole point is a post-launch owner action would silently
+      // ship broken. Grey them out here + surface the reason in the shelf tile.
+      // `useCurve` is declared further down — recompute inline to avoid TDZ.
+      const curveModeOn = mechanic === 'bonding-curve' && base === 'ERC20';
+      if (curveModeOn && mod.requiresOwner) {
+        map[mod.id] = 'needs an owner — bonding curve renounces at launch ~';
+        continue;
+      }
       map[mod.id] = '';
     }
     return map;
-  }, [available, selectedModules]);
+  }, [available, selectedModules, mechanic, base]);
+
+  /// Selected modules that are `requiresOwner` while the curve mechanic is on —
+  /// these would install fine on-chain but their admin functions would be dead.
+  /// Surfaced as a top-of-cart warning + used to block the launch button so users
+  /// don't ship a token whose "emergency pause" is uncallable.
+  const ownerlessDeadModules = useMemo(() => {
+    const curveModeOn = mechanic === 'bonding-curve' && base === 'ERC20';
+    if (!curveModeOn) return [];
+    return selectedModules
+      .map((id) => moduleById(id))
+      .filter((m): m is ModuleSpec => !!m && m.requiresOwner === true);
+  }, [mechanic, base, selectedModules]);
 
   /// Deps that a module would auto-pull in when picked — surfaces "+ pulls in Votes"
   /// hints on the tile so the user isn't surprised when the cart gains an extra item.
@@ -455,7 +480,13 @@ export default function CreatePage() {
   const canLaunch =
     !!contracts && isConnected && isOnEnabledChain &&
     (nameQuery.data ?? false) && (tickerQuery.data ?? false) &&
-    multisigValid && moduleParamsFilled && !!implRegistered && typeof quote.data === 'bigint';
+    multisigValid && moduleParamsFilled && !!implRegistered && typeof quote.data === 'bigint'
+    // Prevent shipping a token that would have dead owner-only functions. If the
+    // basket has any requiresOwner module while curve mechanic is on, the launch
+    // would silently install those admin functions with owner=address(0) at
+    // graduation — pause() etc. would revert forever. Force the user to remove
+    // one or the other before the button unlocks.
+    && ownerlessDeadModules.length === 0;
 
   const simulate = useSimulateContract({
     abi: routerAbi,
@@ -861,43 +892,67 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* STEP 4 — ownership */}
+            {/* STEP 4 — ownership. Curve mechanic force-renounces ownership on-chain
+                (see the launch payload's `ownership: useCurve ? Renounce : ...` line
+                below), so showing an interactive picker would silently lie to the
+                user. When curve is on we render a fixed "auto-renounced" card
+                instead. When direct-launch, the three-mode radio is live. */}
             <section className="uru-shell">
               <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 4 ✿ ownership</div>
               <div className="uru-shell-inner">
-                <ul className="uru-list-flower" style={{ display: 'grid', gap: 8 }}>
-                  {(
-                    [
-                      ['Renounce', 'renounce ownership (recommended ~ immutable behavior)'],
-                      ['TransferToMultisig', 'transfer to a multisig u control'],
-                      ['KeepEOA', 'keep it on ur launcher wallet'],
-                    ] as const
-                  ).map(([mode, desc]) => (
-                    <li key={mode}>
-                      <label style={{ display: 'flex', gap: 8, cursor: 'pointer', alignItems: 'flex-start' }}>
-                        <input
-                          type="radio"
-                          name="ownership"
-                          checked={ownership === mode}
-                          onChange={() => setOwnership(mode)}
-                          style={{ marginTop: 2 }}
-                        />
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontWeight: 700, fontSize: 13 }}>{mode}</div>
-                          <div style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>{desc}</div>
-                        </div>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-                {ownership === 'TransferToMultisig' && (
-                  <input
-                    className="uru-input mt-3"
-                    style={{ marginTop: 10 }}
-                    value={multisigTarget}
-                    onChange={(e) => setMultisigTarget(e.target.value)}
-                    placeholder="0x…"
-                  />
+                {useCurve ? (
+                  <div
+                    style={{
+                      padding: 10,
+                      background: 'var(--cream-deep)',
+                      border: '1.5px dashed var(--anchor)',
+                      fontFamily: 'var(--font-round), Klee One, cursive',
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <b>auto-renounced</b> ~ bonding-curve launches must renounce so the
+                    curve is trustless to trade. no admin, no pause switch, no owner-only
+                    knobs. pick <b>direct launch</b> back on step 1 if u want to keep
+                    ownership.
+                  </div>
+                ) : (
+                  <>
+                    <ul className="uru-list-flower" style={{ display: 'grid', gap: 8 }}>
+                      {(
+                        [
+                          ['Renounce', 'renounce ownership (recommended ~ immutable behavior)'],
+                          ['TransferToMultisig', 'transfer to a multisig u control'],
+                          ['KeepEOA', 'keep it on ur launcher wallet'],
+                        ] as const
+                      ).map(([mode, desc]) => (
+                        <li key={mode}>
+                          <label style={{ display: 'flex', gap: 8, cursor: 'pointer', alignItems: 'flex-start' }}>
+                            <input
+                              type="radio"
+                              name="ownership"
+                              checked={ownership === mode}
+                              onChange={() => setOwnership(mode)}
+                              style={{ marginTop: 2 }}
+                            />
+                            <div>
+                              <div style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontWeight: 700, fontSize: 13 }}>{mode}</div>
+                              <div style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>{desc}</div>
+                            </div>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                    {ownership === 'TransferToMultisig' && (
+                      <input
+                        className="uru-input mt-3"
+                        style={{ marginTop: 10 }}
+                        value={multisigTarget}
+                        onChange={(e) => setMultisigTarget(e.target.value)}
+                        placeholder="0x…"
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </section>
@@ -1028,6 +1083,32 @@ export default function CreatePage() {
               onRemove={removeModule}
               onParamsChange={(id, v) => setModuleParams((prev) => ({ ...prev, [id]: v }))}
             />
+
+            {/* Curve + owner-module conflict warning. Renders only when the basket
+                has a requiresOwner module while curve mechanic is on. The launch
+                button is already gated on this in canLaunch, so this is the
+                "why is my launch button greyed out?" explanation. */}
+            {ownerlessDeadModules.length > 0 && (
+              <div
+                style={{
+                  background: 'var(--pink-warm)',
+                  border: '1.5px solid var(--pink-hot)',
+                  padding: 10,
+                  fontFamily: 'var(--font-round), Klee One, cursive',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>~~ heads up ✿</div>
+                <span>
+                  ur basket has{' '}
+                  <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
+                  {' '}— these have owner-only functions (pause, allowlist, etc). bonding-curve
+                  launches auto-renounce ownership so those buttons would be dead forever.
+                  drop these modules, or switch to <b>direct launch</b> up top.
+                </span>
+              </div>
+            )}
 
             {/* Receipt + launch */}
             <div className="uru-shell uru-shell-tight">
