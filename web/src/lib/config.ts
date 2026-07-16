@@ -228,7 +228,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0xD0090A6ffc3D528D395f32152b982B5A3b844200',
     FeeRedirectHook: '0x7793Af471c3B2585CA123971edd0f6b4645A0044',
     AntiSniperHook: '0x402E046c57184A729901bcd28C8bc79FC843a080',
-    MultiHookHost: '0x6af35A106C9e3CD0c29Bd68385573a1B0D45A2C4',
+    MultiHookHost: '0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4',
     BuybackBurnHook: '0x8E0C4cDB00b6b8a9f20a1C8b5e854171f52A8044',
   },
   'base-sepolia': {
@@ -244,7 +244,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    MultiHookHost: '0xA122f2c9250c150aAa341D118803bEfFe8f722c4',
+    MultiHookHost: '0x5295Ee9c86A40667A46C525A99931a29c354e2C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -255,9 +255,9 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
 export const GRADUATORS: Record<ChainKey, Address | null> = {
   mainnet: '0x17E2572E148384cA484E274e9fF8365A50Eff17F',
   sepolia: null,
-  base: '0xEBBA7F6102e87493f80FE7c21C81aBC0Eb2c1eDB',
+  base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0x736D1280E30B0CCEEc7e3998E66620D9EB7fFa99',
-  robinhood: '0x7e26ea7173C0AbcfdB94d704238C2783cF89b641',
+  robinhood: '0x426294dC9afFEF39033412611433f91f59438Ac9',
   'robinhood-testnet': null,
 };
 

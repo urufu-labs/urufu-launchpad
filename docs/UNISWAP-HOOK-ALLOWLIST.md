@@ -35,24 +35,26 @@ Everything Uniswap's hook-review team asks for, in one place. Submit via:
 
 ---
 
-## Hook addresses (all V2 — the current production deployment)
+## Hook addresses (V3 — current production deployment)
 
 Same source contract compiled with `solc 0.8.26`, 10_000 optimizer runs.
-Constructor: `(IPoolManager, address platform, address defaultCreator, uint16 platformBps=100, uint16 creatorBps=100)`.
+Constructor: `(IPoolManager, address platform, address defaultCreator, uint16 platformBps=100, uint16 creatorBps=100, address deployer)`.
 
 | Chain      | Chain ID | Hook Address                                 | PoolManager (Uniswap-deployed)                | Verified |
 |---         |---       |---                                           |---                                            |---       |
-| Base       | 8453     | `0x6af35A106C9e3CD0c29Bd68385573a1B0D45A2C4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
-| Ethereum   | 1        | `0x6B2da7926e496577F13fb4f1e08E1BAFe1C2e2C4` | `0x000000000004444c5dc75cB358380D2e3dE08A90` | Etherscan ✅ |
-| Robinhood  | 4663     | `0xA122f2c9250c150aAa341D118803bEfFe8f722c4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
+| Base       | 8453     | `0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
+| Ethereum   | 1        | *pending V3 broadcast — top up needed*      | `0x000000000004444c5dc75cB358380D2e3dE08A90` | — |
+| Robinhood  | 4663     | `0x5295Ee9c86A40667A46C525A99931a29c354e2C4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
 
-All three hooks are byte-identical — same source, same compiler, same optimizer
-settings. Only the constructor args differ (platform + defaultCreator = urufu
-labs deploy wallet `0x6d606cc634F20f5534fba072757F2c2C7B835Bb9`).
+All hooks are byte-identical — same source, same compiler, same optimizer
+settings. Constructor args differ only in `_poolManager` (per chain) and `_deployer`
+(the urufu labs deploy wallet `0x6d606cc634F20f5534fba072757F2c2C7B835Bb9` — used
+once at deploy to wire the initializer gate, then has zero further authority).
 
-**Trailing `22C4` in every hook address is the packed permission-mask suffix**
-Uniswap v4 uses to encode hook flags into the address. See the "Hook flag
-verification" section below.
+**Trailing `e2c4` / `e2C4` in every V3 hook address encodes the same permission
+mask as V1/V2's `22C4` in the low 14 bits.** V3 was mined at a different salt to
+get fresh CREATE2 bytecode addresses; the flag suffix is the low 14 bits, not
+the full trailing hex. See "Hook flag verification" below.
 
 ---
 
@@ -98,11 +100,17 @@ validation. The salt was mined with CREATE2 via Foundry's canonical deployer
 
 ## What the hook does (line-by-line)
 
-### 1. `beforeInitialize` — freeze per-pool config
+### 1. `beforeInitialize` — freeze per-pool config + authorize gate
 
-Stamps `poolConfig[poolId].launchBlock = uint32(block.number)`. This is the
-"freeze" signal — after this hook fires, `setPoolConfig` and `setCreator` for
-this pool revert with `ConfigFrozen`.
+Enforces the `authorizedInitializer` gate (V3): reverts unless `sender` (the
+address that called `PoolManager.initialize`) equals the recorded `initializer`,
+and reverts with `InitializerNotSet` when `initializer == address(0)`. This
+closes a DoS class where an attacker front-runs `PoolManager.initialize` on a
+graduating pool's predictable pool key.
+
+On the authorized path, stamps `poolConfig[poolId].launchBlock = uint32(block.number)`.
+This is the "freeze" signal — after this hook fires, `setPoolConfig` and
+`setCreator` for this pool revert with `ConfigFrozen`.
 
 ### 2. `beforeRemoveLiquidity` — LP lock
 
@@ -151,10 +159,14 @@ dance, no admin.
 ## Security posture
 
 - **Immutable state** for `platform`, `creator` (fallback), `platformBps`,
-  `creatorBps`, and `poolManager` — no admin function can change them.
+  `creatorBps`, `poolManager`, and `deployer` — no admin function can change them.
+- **`initializer`** is settable exactly once via `setInitializer`, callable only
+  by `deployer`. After the first (and only) call, no wallet — including the
+  deployer — can change it. Locked forever.
 - **No `owner()`, no `Ownable`, no upgrade proxy** — the hook has no privileged
-  role. There is no way to change fee slices, redirect fees to a different
-  address, or unlock LP after deployment.
+  role that persists past bootstrap. `setInitializer` is a one-shot; every other
+  state change (`setPoolConfig`, `setCreator`) freezes at the next
+  `beforeInitialize`.
 - **`onlyPoolManager` guard** on every hook callback. External calls to
   `beforeSwap` / `afterSwap` / etc. from anyone other than the PoolManager
   revert.
