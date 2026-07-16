@@ -21,13 +21,22 @@ contract MultiHookHostTest is Test {
     address internal platform = makeAddr("platform");
     address internal creator = makeAddr("creator");
     address internal launcher = makeAddr("launcher");
+    /// Stand-in Graduator for tests — every beforeInitialize/mockPM call passes this
+    /// as the `sender` arg since the V3 hook requires an authorized initializer. When
+    /// a test wants to prove the gate REJECTS a stranger, it uses `swapper` instead.
+    address internal graduator = makeAddr("graduator");
     address internal swapper = makeAddr("swapper");
 
     Currency internal c0 = Currency.wrap(address(0x1));
     Currency internal c1 = Currency.wrap(address(0x2));
 
     function setUp() public {
-        hook = new MultiHookHost(IPoolManager(mockPM), platform, creator, 100, 100);
+        hook = new MultiHookHost(IPoolManager(mockPM), platform, creator, 100, 100, address(this));
+        // V3 requires the initializer to be wired before any pool init. Every test
+        // that stubs beforeInitialize uses `graduator` as the sender so the gate
+        // approves the call. Attack tests override the sender with `swapper` and
+        // assert UnauthorizedInitializer.
+        hook.setInitializer(graduator);
     }
 
     function _key() internal view returns (PoolKey memory) {
@@ -106,12 +115,12 @@ contract MultiHookHostTest is Test {
 
     function test_Init_RevertsOnBpsOverCap() public {
         vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__BpsTooHigh.selector, uint256(3001)));
-        new MultiHookHost(IPoolManager(mockPM), platform, creator, 1500, 1501);
+        new MultiHookHost(IPoolManager(mockPM), platform, creator, 1500, 1501, address(this));
     }
 
     function test_Init_RevertsOnZeroAddress() public {
         vm.expectRevert(MultiHookHost.MultiHookHost__ZeroAddress.selector);
-        new MultiHookHost(IPoolManager(mockPM), address(0), creator, 100, 100);
+        new MultiHookHost(IPoolManager(mockPM), address(0), creator, 100, 100, address(this));
     }
 
     // ---- setCreator: per-pool creator revenue ---------------------------------
@@ -128,7 +137,7 @@ contract MultiHookHostTest is Test {
 
         // After the pool initializes, setCreator becomes uncallable for this poolId.
         vm.prank(mockPM);
-        hook.beforeInitialize(swapper, _key(), 0);
+        hook.beforeInitialize(graduator, _key(), 0);
 
         vm.expectRevert(MultiHookHost.MultiHookHost__ConfigFrozen.selector);
         hook.setCreator(id, makeAddr("other"));
@@ -170,5 +179,44 @@ contract MultiHookHostTest is Test {
 
         // No setCreator was ever called for this poolId — creator share hits the fallback.
         assertEq(hook.owed(c1, creator), 10, "fallback creator not credited");
+    }
+
+    // ---- V3 initializer gate: block pool-init griefing ------------------------
+
+    /// beforeInitialize must revert for any sender other than the wired Graduator.
+    /// This is the DoS-defense: without the gate, an attacker who spots an imminent
+    /// graduation in mempool could front-run `PoolManager.initialize` on the
+    /// predictable pool key, permanently blocking the real graduation from working.
+    function test_BeforeInitialize_RevertsForUnauthorizedSender() public {
+        vm.prank(mockPM);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__UnauthorizedInitializer.selector, swapper));
+        hook.beforeInitialize(swapper, _key(), 0);
+    }
+
+    /// setInitializer is a one-shot bootstrap: after the first call the deployer has
+    /// no further authority. Second call reverts with InitializerAlreadySet.
+    function test_SetInitializer_LocksAfterFirstCall() public {
+        // setUp() already wired graduator — second call must revert.
+        vm.expectRevert(MultiHookHost.MultiHookHost__InitializerAlreadySet.selector);
+        hook.setInitializer(makeAddr("attackerGraduator"));
+    }
+
+    /// Only the wallet that deployed the hook can call setInitializer.
+    function test_SetInitializer_OnlyDeployer() public {
+        MultiHookHost fresh = new MultiHookHost(IPoolManager(mockPM), platform, creator, 100, 100, address(this));
+        vm.prank(swapper);
+        vm.expectRevert(MultiHookHost.MultiHookHost__NotDeployer.selector);
+        fresh.setInitializer(graduator);
+    }
+
+    /// Between hook deploy and setInitializer, the hook is intentionally unusable —
+    /// beforeInitialize reverts for everyone. This closes the race window: an
+    /// attacker cannot bootstrap a pool with rogue config before we wire the
+    /// Graduator.
+    function test_BeforeInitialize_RevertsBeforeInitializerSet() public {
+        MultiHookHost fresh = new MultiHookHost(IPoolManager(mockPM), platform, creator, 100, 100, address(this));
+        vm.prank(mockPM);
+        vm.expectRevert(MultiHookHost.MultiHookHost__InitializerNotSet.selector);
+        fresh.beforeInitialize(graduator, _key(), 0);
     }
 }

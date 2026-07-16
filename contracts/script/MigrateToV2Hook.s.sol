@@ -12,11 +12,19 @@ import {Graduator} from "src/curve/Graduator.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 
 /// @title  MigrateToV2Hook
-/// @notice Targeted migration from V1 MultiHookHost (immutable single-creator) to V2
-///         (per-pool `mapping(PoolId => address) creators` set at graduation). Only
-///         touches the two contracts whose semantics changed — the LP-lock,
-///         fee-redirect, anti-sniper, and buyback-burn hooks are byte-identical to
-///         their V1 deployments and stay at their current addresses.
+/// @notice Deploy a new MultiHookHost + Graduator + wire them into the local
+///         CurveFactory. Rewires new launches onto the freshly-deployed pair while
+///         legacy pools keep pointing at whichever hook they graduated against —
+///         nothing about existing tokens changes.
+///
+///         Ships whatever behaviors the current MultiHookHost source has. As of the
+///         "V3" pass this includes: per-pool creator revenue (`creators[poolId]`
+///         set at graduation), and an `authorizedInitializer` gate on
+///         `beforeInitialize` that blocks the "griefer front-runs
+///         PoolManager.initialize on a graduating pool's predictable pool key" DoS.
+///
+///         Historical: earlier passes of this script shipped the V1→V2 per-launcher
+///         creator migration; the file name is preserved for a clean git history.
 ///
 /// @dev    Idempotency: the V2 hook is mined at a fresh CREATE2 salt (its bytecode
 ///         differs from V1 → different predicted address). If the predicted V2 hook
@@ -52,7 +60,7 @@ contract MigrateToV2Hook is Script {
     /// @dev Canonical Foundry CREATE2 deployer, present on every EVM chain we care about.
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    function run() external returns (address v2Hook, address newGraduator) {
+    function run() external returns (address newHook, address newGraduator) {
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address platform = vm.envOr("PLATFORM", msg.sender);
         address creator = vm.envOr("CREATOR", msg.sender);
@@ -61,12 +69,16 @@ contract MigrateToV2Hook is Script {
         uint24 fee = uint24(vm.envOr("GRADUATOR_FEE", uint256(3000)));
         int24 tickSpacing = int24(int256(vm.envOr("GRADUATOR_TICK_SPACING", uint256(60))));
 
-        v2Hook = _deployMultiHookHostV2(poolManager, platform, creator, platformBps, creatorBps);
-        newGraduator = _deployGraduatorV2(poolManager, v2Hook, fee, tickSpacing);
+        newHook = _deployMultiHookHostV2(poolManager, platform, creator, platformBps, creatorBps);
+        newGraduator = _deployGraduatorV2(poolManager, newHook, fee, tickSpacing);
+        // Wire the hook's initializer gate to the freshly-deployed Graduator. Until
+        // this call, the hook rejects every beforeInitialize call — this closes the
+        // window between deploying the hook and having a legitimate Graduator ready.
+        _wireInitializerGate(newHook, newGraduator);
         _maybeWireFactory(newGraduator);
 
-        _logSummary(v2Hook, newGraduator, poolManager, platform, creator);
-        _writeAddressBook(v2Hook, newGraduator, poolManager, fee, tickSpacing);
+        _logSummary(newHook, newGraduator, poolManager, platform, creator);
+        _writeAddressBook(newHook, newGraduator, poolManager, fee, tickSpacing);
     }
 
     // ---------------------------------------------------------------- V2 MultiHookHost
@@ -83,7 +95,13 @@ contract MigrateToV2Hook is Script {
         uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
-        bytes memory args = abi.encode(IPoolManager(poolManager), platform, creator, platformBps, creatorBps);
+        // `msg.sender` here is the broadcaster wallet — stamped as the hook's
+        // `deployer` so it (and only it) can call `setInitializer` afterwards. Passed
+        // explicitly because CREATE2 deploys go through the Create2Deployer factory,
+        // making implicit msg.sender inside the constructor resolve to the factory,
+        // not the operator wallet.
+        bytes memory args =
+            abi.encode(IPoolManager(poolManager), platform, creator, platformBps, creatorBps, msg.sender);
         (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000);
         if (predicted.code.length > 0) {
             console2.log("  [skip] MultiHookHost V2 already at predicted address");
@@ -91,7 +109,7 @@ contract MigrateToV2Hook is Script {
         }
         vm.startBroadcast();
         MultiHookHost deployed = new MultiHookHost{salt: bytes32(salt)}(
-            IPoolManager(poolManager), platform, creator, platformBps, creatorBps
+            IPoolManager(poolManager), platform, creator, platformBps, creatorBps, msg.sender
         );
         vm.stopBroadcast();
         require(address(deployed) == predicted, "MultiHookHost V2 salt drift");
@@ -112,6 +130,31 @@ contract MigrateToV2Hook is Script {
         Graduator g = new Graduator(IPoolManager(poolManager), IHooks(hookAddr), fee, tickSpacing);
         vm.stopBroadcast();
         addr = address(g);
+    }
+
+    // ---------------------------------------------------------------- initializer gate
+    // The V3 hook rejects every beforeInitialize call until `setInitializer` runs.
+    // This closes the window between "hook deployed" and "graduator authorized" so
+    // an attacker cannot bootstrap a rogue pool with our hook attached. Runs as a
+    // separate broadcast tx after the Graduator address is known. If the hook was
+    // already initialized in a prior run (idempotency path), the call reverts with
+    // InitializerAlreadySet — silently ignored by the try/catch since re-running the
+    // migration should stay a no-op when both contracts already exist and are wired.
+    function _wireInitializerGate(
+        address hookAddr,
+        address newGraduator
+    ) internal {
+        vm.startBroadcast();
+        try MultiHookHost(payable(hookAddr)).setInitializer(newGraduator) {
+        // wire landed
+        }
+            catch {
+            // hook is either already wired (idempotent re-run) or not V3-capable
+            // (legacy contract compiled from a source without setInitializer). Both
+            // cases are safe to no-op — the operator can inspect logs and re-run
+            // manually if the state is unexpected.
+        }
+        vm.stopBroadcast();
     }
 
     // ---------------------------------------------------------------- Factory rewire

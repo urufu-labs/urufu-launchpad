@@ -138,8 +138,14 @@ contract DeployHooks is Script {
         uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
-        bytes memory args =
-            abi.encode(IPoolManager(ctx.poolManager), ctx.platform, ctx.creator, ctx.platformBps, ctx.creatorBps);
+        // `msg.sender` here is the broadcaster wallet — it's stamped as the hook's
+        // `deployer` (one-time authority to call setInitializer). Passed as an
+        // explicit ctor arg because CREATE2 deploys go through the canonical
+        // Create2Deployer factory, so an implicit msg.sender would resolve to the
+        // factory instead of the broadcaster.
+        bytes memory args = abi.encode(
+            IPoolManager(ctx.poolManager), ctx.platform, ctx.creator, ctx.platformBps, ctx.creatorBps, msg.sender
+        );
         (uint256 salt, address predicted) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000);
         if (predicted.code.length > 0) {
             console2.log("  [skip] MultiHookHost already at predicted address");
@@ -147,7 +153,7 @@ contract DeployHooks is Script {
         }
         vm.startBroadcast();
         MultiHookHost deployed = new MultiHookHost{salt: bytes32(salt)}(
-            IPoolManager(ctx.poolManager), ctx.platform, ctx.creator, ctx.platformBps, ctx.creatorBps
+            IPoolManager(ctx.poolManager), ctx.platform, ctx.creator, ctx.platformBps, ctx.creatorBps, msg.sender
         );
         vm.stopBroadcast();
         require(address(deployed) == predicted, "MultiHookHost salt drift");

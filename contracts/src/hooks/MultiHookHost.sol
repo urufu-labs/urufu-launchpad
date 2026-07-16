@@ -58,8 +58,21 @@ contract MultiHookHost is BaseHook {
     error MultiHookHost__BurnBpsTooHigh(uint256 bps);
     error MultiHookHost__AntiSniperGate(uint256 launchBlock, uint256 gateBlocks);
 
+    // ---- Init-authorization ----
+    /// Someone tried to initialize a pool through this hook without being the wired
+    /// Graduator. Blocks the "predictable poolKey griefing" attack where an outsider
+    /// front-runs `PoolManager.initialize` on a graduating pool, DoS'ing every future
+    /// graduation for that token.
+    error MultiHookHost__UnauthorizedInitializer(address sender);
+    /// The one-time `setInitializer` was called by a wallet other than the deployer
+    /// that constructed this hook, or an initializer address was already set.
+    error MultiHookHost__NotDeployer();
+    error MultiHookHost__InitializerAlreadySet();
+    error MultiHookHost__InitializerNotSet();
+
     event PoolConfigSet(PoolId indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps);
     event CreatorSet(PoolId indexed poolId, address indexed creator);
+    event InitializerSet(address indexed initializer);
     event BuybackBurned(Currency indexed currency, uint256 amount);
 
     /// Chain-wide caps.
@@ -91,20 +104,57 @@ contract MultiHookHost is BaseHook {
 
     mapping(PoolId => PoolConfig) public poolConfig;
 
+    /// Wallet allowed to call `setInitializer` exactly once. Stamped at deploy time
+    /// and never changes. Not an admin key — after `setInitializer` fires the
+    /// deployer has zero authority over this contract.
+    address public immutable deployer;
+
+    /// The one contract allowed to call `PoolManager.initialize` for a pool with this
+    /// hook. Set by the deployer via `setInitializer` before any pool is initialized
+    /// (typically the Graduator, in the same broadcast that deploys it). Once set,
+    /// `beforeInitialize` reverts for any other sender — this blocks the "griefer
+    /// initializes a graduating token's predictable pool key" DoS attack.
+    address public initializer;
+
     constructor(
         IPoolManager _poolManager,
         address _platform,
         address _creator,
         uint16 _platformBps,
-        uint16 _creatorBps
+        uint16 _creatorBps,
+        address _deployer
     ) BaseHook(_poolManager) {
-        if (_platform == address(0) || _creator == address(0)) revert MultiHookHost__ZeroAddress();
+        if (_platform == address(0) || _creator == address(0) || _deployer == address(0)) {
+            revert MultiHookHost__ZeroAddress();
+        }
         uint256 total = uint256(_platformBps) + uint256(_creatorBps);
         if (total == 0 || total > MAX_TOTAL_BPS) revert MultiHookHost__BpsTooHigh(total);
         platform = _platform;
         creator = _creator;
         platformBps = _platformBps;
         creatorBps = _creatorBps;
+        // Explicit deployer — must be a param because CREATE2-mined hook addresses
+        // are constructed through the canonical Create2Deployer, so `msg.sender`
+        // inside the constructor is the factory, not the wallet that broadcast the
+        // deploy tx. Locked-in permission to call `setInitializer` exactly once —
+        // a single-use setup key, not an admin, and useless after step 2.
+        deployer = _deployer;
+    }
+
+    /// Wire this hook to its authorized Graduator. Callable exactly once, only by
+    /// the address that deployed the hook. After this call, `beforeInitialize`
+    /// rejects any sender other than the recorded initializer — every future pool
+    /// init through this hook must come from the Graduator. Between deploy and this
+    /// call the hook is intentionally unusable (see `beforeInitialize`), so an
+    /// attacker cannot bootstrap a pool with a rogue configuration.
+    function setInitializer(
+        address _initializer
+    ) external {
+        if (msg.sender != deployer) revert MultiHookHost__NotDeployer();
+        if (initializer != address(0)) revert MultiHookHost__InitializerAlreadySet();
+        if (_initializer == address(0)) revert MultiHookHost__ZeroAddress();
+        initializer = _initializer;
+        emit InitializerSet(_initializer);
     }
 
     function getHookPermissions() public pure override returns (Permissions memory) {
@@ -161,13 +211,24 @@ contract MultiHookHost is BaseHook {
     }
 
     // ---------------------------------------------------------------- beforeInitialize
-    // Stamp the launch block. This is the freeze signal for setPoolConfig + setCreator —
-    // they can no longer be updated after this hook fires for a given poolId.
+    // Stamp the launch block AND enforce the initializer gate.
+    //
+    // `sender` here is the address that called `PoolManager.initialize` — which
+    // v4-core passes through as the first arg. For our launchpad it's the Graduator.
+    //
+    // The gate: any pool initialized through this hook MUST come from the recorded
+    // `initializer`. Before setInitializer is called, `initializer == address(0)` and
+    // beforeInitialize reverts for everyone (the hook is deliberately unusable) —
+    // this closes the window between deploy and setInitializer where a griefer could
+    // otherwise front-run the wire-up.
     function beforeInitialize(
-        address,
+        address sender,
         PoolKey calldata key,
         uint160
     ) external override onlyPoolManager returns (bytes4) {
+        address auth = initializer;
+        if (auth == address(0)) revert MultiHookHost__InitializerNotSet();
+        if (sender != auth) revert MultiHookHost__UnauthorizedInitializer(sender);
         poolConfig[key.toId()].launchBlock = uint32(block.number);
         return this.beforeInitialize.selector;
     }
