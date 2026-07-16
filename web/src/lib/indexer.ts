@@ -14,6 +14,8 @@
 
 import type { Address } from 'viem';
 
+import { isHiddenToken, notHidden } from './hiddenTokens';
+
 const FALLBACK_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:42069';
 
 /// Map chain id → per-chain indexer URL if set. Falls back to the shared URL when
@@ -185,9 +187,12 @@ export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] |
   );
   if (!data) return null;
   // Merged items may not be globally sorted (each service returns its own order).
-  // Sort by blockTimestamp desc + trim to the requested limit.
+  // Sort by blockTimestamp desc + trim to the requested limit. Hidden tokens
+  // (see lib/hiddenTokens.ts) are filtered out at this layer so every consumer —
+  // marquee, discover, home rail — sees a clean list.
   return data.launchess.items
     .slice()
+    .filter(notHidden)
     .sort((a, b) => Number(BigInt(b.blockTimestamp) - BigInt(a.blockTimestamp)))
     .slice(0, limit);
 }
@@ -283,7 +288,7 @@ export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | 
     }`,
     { poolIds, limit },
   );
-  return data?.v4Swapss.items ?? null;
+  return (data?.v4Swapss.items ?? []).filter((s) => s.tokenAddress && notHidden({ chainId: s.chainId, tokenAddress: s.tokenAddress }));
 }
 
 /// Full v4 swap history for a specific token, newest-first. Used by the trade page as
@@ -382,7 +387,9 @@ export async function fetchRecentTrades(limit = 25): Promise<IndexerTrade[] | nu
     }`,
     { limit },
   );
-  return data?.tradess.items ?? null;
+  // Filter out trades against hidden tokens so the home page's live-activity rail
+  // doesn't show TEST/BALLS trading history.
+  return (data?.tradess.items ?? []).filter(notHidden);
 }
 
 /// Health probe — used by pages to decide whether to try indexer queries at all before
@@ -424,7 +431,7 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
     }`,
     { creator: creator.toLowerCase(), limit },
   );
-  return data?.launchess.items ?? null;
+  return (data?.launchess.items ?? []).filter(notHidden);
 }
 
 /// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps
@@ -464,12 +471,16 @@ export async function fetchV4SwapsByTrader(
     }`,
     { trader: trader.toLowerCase(), limit },
   );
-  return data?.v4RouterSwapss.items ?? null;
+  return (data?.v4RouterSwapss.items ?? []).filter(notHidden);
 }
 
 /// Every trade this wallet has ever made across every curve, newest first. Feeds the
 /// activity feed + is the raw input to PnL math.
 export async function fetchTradesByTrader(trader: Address, limit = 200): Promise<IndexerTrade[] | null> {
+  return _fetchTradesByTraderInner(trader, limit);
+}
+
+async function _fetchTradesByTraderInner(trader: Address, limit: number): Promise<IndexerTrade[] | null> {
   const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
     `query TradesByTrader($trader: String!, $limit: Int!) {
       tradess(
@@ -486,7 +497,7 @@ export async function fetchTradesByTrader(trader: Address, limit = 200): Promise
     }`,
     { trader: trader.toLowerCase(), limit },
   );
-  return data?.tradess.items ?? null;
+  return (data?.tradess.items ?? []).filter(notHidden);
 }
 
 /// Batch-look-up launch metadata by tokenAddress. Used by the profile page to render
@@ -510,7 +521,7 @@ export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerL
     }`,
     { tokens: uniq },
   );
-  return data?.launchess.items ?? null;
+  return (data?.launchess.items ?? []).filter(notHidden);
 }
 
 /// Current per-token balances for a wallet. Used for the "holdings" strip on the profile.
@@ -530,5 +541,6 @@ export async function fetchHoldingsByAddress(holder: Address, limit = 100): Prom
     }`,
     { holder: holder.toLowerCase(), limit },
   );
-  return data?.holderss.items ?? null;
+  // Hide test-token balances from the profile "holdings" strip.
+  return (data?.holderss.items ?? []).filter(notHidden);
 }
