@@ -26,7 +26,10 @@ interface IHookConfig {
     /// Set the per-pool creator address. Introduced with MultiHookHost v2 (per-pool
     /// creator revenue). Older hook deployments don't implement this — Graduator
     /// wraps the call in try/catch so pre-v2 hooks still function without it.
-    function setCreator(PoolId id, address creator) external;
+    function setCreator(
+        PoolId id,
+        address creator
+    ) external;
 }
 
 /// @title  Graduator

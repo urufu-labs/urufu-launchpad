@@ -150,7 +150,10 @@ contract MultiHookHost is BaseHook {
     /// for this poolId, `launchBlock` is stamped and the creator is frozen — subsequent
     /// calls revert with `ConfigFrozen`. Same anti-front-run rationale as setPoolConfig:
     /// Graduator does this in the same tx as initialize.
-    function setCreator(PoolId id, address _creator) external {
+    function setCreator(
+        PoolId id,
+        address _creator
+    ) external {
         if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
         if (_creator == address(0)) revert MultiHookHost__ZeroAddress();
         creators[id] = _creator;
