@@ -154,16 +154,18 @@ function tokenNet() {
 // ---------------------------------------------------------------- networks
 
 /// Batched HTTP transport with keepalive. Bundles multiple JSON-RPC calls into one
-/// HTTP request -- Alchemy caps batches at ~1000 methods, and Ponder's parallel
-/// getLogs during historical sync easily fills that up. `wait: 16ms` gives Ponder's
-/// scheduler a moment to accumulate calls into the same batch. `keepalive` reuses
-/// TCP connections instead of tearing them down per RPC. Together these give ~3-5x
-/// historical sync speed on paid Alchemy tiers -- the previous config used raw
-/// http() with no batching, so every subscription's every getLogs was its own
-/// HTTP round-trip.
+/// HTTP request -- Ponder's parallel getLogs during historical sync easily fills
+/// batches. `wait: 16ms` gives Ponder's scheduler a moment to accumulate calls into
+/// the same batch. `keepalive` reuses TCP connections instead of tearing them down.
+///
+/// batchSize kept at 50 (down from an earlier 1000) because Alchemy's response body
+/// size cap kicks in with big batches -- getLogs replies can each carry hundreds of
+/// log entries, so a batch of 1000 getLogs blows past the ~10MB Alchemy response
+/// limit and viem throws ResponseBodyTooLargeError. 50 stays well under the limit
+/// while still giving 50x fewer HTTP round-trips than raw http().
 function batchedTransport(rpcUrl: string) {
   return http(rpcUrl, {
-    batch: { batchSize: 1000, wait: 16 },
+    batch: { batchSize: 50, wait: 16 },
     fetchOptions: { keepalive: true },
     retryCount: 3,
   });
