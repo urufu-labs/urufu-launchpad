@@ -13,11 +13,11 @@ type Section = { id: string; label: string; jp: string };
 const SECTIONS: Section[] = [
   { id: 'what', label: 'what is this', jp: '説明' },
   { id: 'launch', label: 'how to launch', jp: '発行' },
-  { id: 'trade', label: 'how trading works', jp: '取引' },
-  { id: 'grad', label: 'graduation', jp: '卒業' },
+  { id: 'trade', label: 'trading + graduation', jp: '取引' },
+  { id: 'creator', label: 'creator revenue', jp: '報酬' },
   { id: 'fees', label: 'fees + discounts', jp: '料金' },
+  { id: 'chains', label: 'which chain', jp: '鎖' },
   { id: 'safe', label: 'is it safe', jp: '安全' },
-  { id: 'terms', label: 'plain-english glossary', jp: '用語' },
   { id: 'faq', label: 'faq', jp: 'よくある' },
 ];
 
@@ -99,167 +99,180 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="what" title="what is urufu labs?" jp="説明">
         <p>
-          <b>urufu labs</b> is a launchpad. u come here to make ur own token, hit launch,
-          and immediately have a place where people can trade it.
+          a launchpad. pick a base (coin, nft, or mixed-item collection), drag features into
+          a cart, hit launch. u get a real ERC-20 or ERC-721/1155 on-chain in one tx, plus a
+          trade page + chart for anyone to trade it.
         </p>
-        <p style={{ marginTop: 10 }}>
-          most launchpads only let u launch one shape of token. urufu is different. u pick a
-          base (a plain coin, a picture-based collectible, or a mixed-item collection), then u
-          drag features into a cart: things like anti-bot protection, staking, royalties,
-          voting rights. every combo compiles to real solidity, ships from a factory u can
-          read on-chain, and is covered by our internal test suite. one click, one
-          transaction, done ✿
-        </p>
-        <Callout tone="pink" label="in one sentence">
-          make ur own token, drop in features, hit launch. the code is real solidity, the
-          liquidity locks itself, and every trade quietly rewards our community ~
+        <Callout tone="pink" label="what makes urufu different">
+          most launchpads only launch one shape of token. urufu launches every shape, each
+          with composable features (anti-bot, staking, royalties, voting) that compile from
+          the same audited primitives ~
         </Callout>
       </Section>
 
       {/* ================================================================
           HOW TO LAUNCH
           ================================================================ */}
-      <Section id="launch" title="how do i launch a token?" jp="発行">
+      <Section id="launch" title="how to launch" jp="発行">
         <ol style={numberedListStyle}>
+          <li><b>connect wallet</b> (top-right). fund w/ a little ETH.</li>
+          <li><b>pick a chain</b> in the switcher next to the wallet button.</li>
           <li>
-            <b>connect ur wallet.</b> top-right corner. u&apos;ll need a little ETH for the launch
-            fee and gas.
+            head to the <Link href="/create" style={linkStyle}>✿ shop</Link> and{' '}
+            <b>pick a base</b>: coin (like $DOGE) · collectible (like an NFT) ·
+            mixed items (like an in-game shop).
           </li>
           <li>
-            <b>go to the shop.</b> that&apos;s the <Link href="/create" style={linkStyle}>✿ shop</Link>{' '}
-            link in the header. it&apos;s where u build ur token.
+            <b>drag features</b> into ur cart — anti-bot cooldowns, staking, royalties,
+            deflation, voting. each one is optional; hover to see what it does.
           </li>
           <li>
-            <b>pick a base.</b> three options:
-            <ul style={bulletListStyle}>
-              <li><b>coin</b> — a fungible token like $DOGE. good for memes + utility.</li>
-              <li><b>collectible</b> — 1-of-1 or 1-of-many pictures. like NFTs.</li>
-              <li><b>mixed items</b> — a collection where each id has a supply. like an in-game shop.</li>
-            </ul>
-          </li>
-          <li>
-            <b>drag features into ur cart.</b> stuff like anti-bot cooldowns, staking rewards,
-            royalties, deflation, voting. each one is optional. mouse over any of them to see
-            what they do.
-          </li>
-          <li>
-            <b>hit launch.</b> approve the transaction, pay the fee, and ur token is live on
-            the chain u&apos;re on. u get an address u can share.
+            <b>hit launch.</b> approve the tx, pay the fee, get a token address. ur trade
+            page + chart is live immediately.
           </li>
         </ol>
-        <Callout tone="mint" label="no coding required">
-          u never touch code. u never wait for a team to review ur combo. the templates and
-          modules were built + tested once, when we shipped the features. ur job is picking,
-          not building.
-        </Callout>
       </Section>
 
       {/* ================================================================
-          HOW TRADING WORKS
+          TRADING + GRADUATION
           ================================================================ */}
-      <Section id="trade" title="how does trading work?" jp="取引">
+      <Section id="trade" title="trading + graduation" jp="取引">
         <p>
-          when u launch a token, it starts on something called a <b>bonding curve</b>.
-          that&apos;s a math formula that sets the price based on how much ETH is in the pool.
-          the more people buy, the higher the price. the more people sell, the lower it goes.
+          <b>every token starts on a bonding curve</b> — a math formula that sets price from
+          the ETH in the pool. more buys → higher price. more sells → lower. u can always
+          trade because the curve is the market; no market maker or LP providers needed.
         </p>
         <p style={{ marginTop: 10 }}>
-          this means <b>u can always trade</b>. u don&apos;t need a market maker. u don&apos;t need
-          liquidity providers. u don&apos;t need someone else to sell to. the curve is the market.
-        </p>
-        <p style={{ marginTop: 10 }}>
-          every trade goes through the curve, and a small fee (usually 1%) goes back to the
-          flywheel (see below).
-        </p>
-      </Section>
-
-      {/* ================================================================
-          GRADUATION
-          ================================================================ */}
-      <Section id="grad" title="what does &quot;graduation&quot; mean?" jp="卒業">
-        <p>
-          once ur token&apos;s pool hits a target amount of ETH (usually a few ETH), it{' '}
-          <b>graduates</b>. this is a big moment.
+          when the curve fills to its target ETH amount, the token <b>graduates</b>:
         </p>
         <ul style={bulletListStyle}>
-          <li>
-            <b>the ETH + tokens move onto Uniswap v4</b>, a real, permanent liquidity pool.
-          </li>
-          <li>
-            <b>the liquidity is locked forever.</b> the person who launched can&apos;t pull it.
-            we can&apos;t pull it. no one can. this is called a <i>rug pull</i> and graduated
-            urufu tokens can&apos;t be rugged.
-          </li>
-          <li>
-            <b>trading keeps going</b>, but now on Uniswap instead of the bonding curve.
-            it feels the same to u — same trade page, same interface — but under the hood
-            it&apos;s a bigger market with more liquidity.
-          </li>
-          <li>
-            <b>the creator starts earning</b> a small % of every trade on their token. this
-            is set at launch time and can never be changed. incentive-aligned ✿
-          </li>
+          <li>ETH + tokens migrate to a Uniswap v4 pool</li>
+          <li><b>the LP position is math-locked forever</b> — the contract literally reverts on
+            any removal attempt. not u, not the creator, not us can pull it.</li>
+          <li>trading continues on the same trade page — same UX, bigger market</li>
+          <li>the creator starts earning a % of every trade (see below)</li>
         </ul>
-        <Callout tone="mizuiro" label="locked forever means locked forever">
-          the LP-lock isn&apos;t a timer that runs out. it&apos;s not a promise. it&apos;s coded into the
-          contract so removing liquidity literally reverts (aka refuses to happen). if
-          someone tells u urufu tokens can be rugged, they are wrong ~~
+        <Callout tone="mizuiro" label="locked forever = coded in">
+          not a timer, not a promise. `LPLockedHook.beforeRemoveLiquidity` reverts on every
+          v4 removal call. graduated urufu tokens can&apos;t be rugged, period.
         </Callout>
 
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 12, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ opt-in extras u can turn on at launch</div>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ opt-in curve extras (pick at launch)</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>
-              <b>sniper gate</b> — first N blocks after ur pool opens, buys + sells revert. gives
-              real ppl a moment to catch up before bots front-run the launch. auto-expires ~
-            </li>
-            <li>
-              <b>buy → burn</b> — every buy on uniswap sends a slice (up to 20%) of the incoming
-              tokens straight to 0x…dead. supply shrinks a lil every trade — pure deflation
-              flywheel.
-            </li>
+            <li><b>sniper gate</b> — first N blocks after graduation, swaps revert. gives real
+              ppl a beat to catch up before bots front-run.</li>
+            <li><b>buy → burn</b> — up to 20% of tokens on each buy go to 0x…dead. deflation
+              on every trade.</li>
           </ul>
           <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-            u pick these in the shop when ur launching with a bonding curve. once the curve
-            graduates, the settings get baked into the uniswap pool + can&apos;t be changed ~
+            baked into the v4 pool at graduation; not changeable after ~
           </p>
         </div>
       </Section>
 
       {/* ================================================================
+          CREATOR REVENUE
+          ================================================================ */}
+      <Section id="creator" title="creator revenue" jp="報酬">
+        <p>
+          <b>if u launch a token that graduates, u earn ETH on every trade forever.</b>
+          this is set at launch and can never be changed.
+        </p>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it flows</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li><b>pre-graduation:</b> the 1% curve trade fee is split between platform + creator.</li>
+            <li><b>post-graduation:</b> uniswap v4 charges a 0.3% swap fee. our hook
+              redirects a slice of that fee stream to u as the creator, forever.</li>
+            <li>u don&apos;t claim manually — fees accumulate to ur address and u withdraw via the
+              MultiHookHost <code style={codeStyle}>claim()</code> function whenever u want.</li>
+          </ul>
+        </div>
+        <Callout tone="mint" label="a small example">
+          launch a coin, hit graduation, community trades $50k/day. at typical creator-share
+          rates, that&apos;s meaningful passive ETH monthly — no team required, no marketing tricks,
+          just from the pool doing what pools do ~
+        </Callout>
+        <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
+          exact split (platform / creator / flywheel) is set per launch by the hook config.
+          check the trade page for ur token&apos;s configured split.
+        </p>
+      </Section>
+
+      {/* ================================================================
           FEES + DISCOUNTS
           ================================================================ */}
-      <Section id="fees" title="what fees are there?" jp="料金">
-        <p>
-          there are two kinds of fees u&apos;ll see:
-        </p>
-        <ul style={bulletListStyle}>
-          <li>
-            <b>launch fee</b> — u pay this once when u launch a token. it&apos;s tiny — starts at
-            0.001 ETH for a bare token and stays under 0.005 ETH even with every optional
-            feature turned on. gets discounts if u hold URU or an urufu gemu nft (details below).
-          </li>
-          <li>
-            <b>trade fee</b> — every buy or sell on the curve takes a tiny slice (usually 1%).
-            u never pay this directly — it just comes out of the trade before u see the
-            output.
-          </li>
-        </ul>
+      <Section id="fees" title="fees + discounts" jp="料金">
+        <div className="uru-shell-tight" style={{ padding: 12, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch fee (paid once)</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>bare token: <b>0.001 ETH</b></li>
+            <li>full-loaded (hook + gov + modules): <b>~0.005 ETH</b></li>
+            <li>plus network gas (cheap on Base + Robinhood)</li>
+          </ul>
+        </div>
 
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 12, background: 'var(--cream)' }}>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>hold at least 1 urufu gemu nft → <b>20% off</b></li>
-            <li>hold at least 100,000 URU → <b>40% off</b></li>
+            <li>hold ≥ 1 urufu gemu nft → <b>20% off</b></li>
+            <li>hold ≥ 100,000 URU → <b>40% off</b></li>
             <li>hold both → <b>50% off</b> (capped)</li>
           </ul>
         </div>
 
-        <p style={{ marginTop: 12 }}>
-          the trade fee goes into the <b>flywheel</b>: 40% buys back URU (which is then paid
-          to urufu gemu nft holders), 35% goes directly to urufu gemu nft holders as ETH, and
-          25% keeps the lights on (servers, audits, us being able to build the next thing).
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ trade fee (paid per swap)</div>
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <b>1%</b> pre-graduation, <b>0.3%</b> post-graduation (uniswap v4 standard).
+            never paid directly — deducted from swap output.
+          </p>
+        </div>
+
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ where the trade fee goes (the flywheel)</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li><b>40%</b> → buys back URU on-market</li>
+            <li><b>35%</b> → paid to urufu gemu nft holders as ETH</li>
+            <li><b>25%</b> → treasury (servers, audits, next builds)</li>
+          </ul>
+        </div>
+      </Section>
+
+      {/* ================================================================
+          WHICH CHAIN
+          ================================================================ */}
+      <Section id="chains" title="which chain should i pick?" jp="鎖">
+        <p>
+          urufu launches identical contracts on 4 chains. all have the same launch fee.
+          differ mostly by gas + who&apos;s trading:
         </p>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>
+              <b>base mainnet</b> — the default. cheap gas, huge trading community, best for
+              memes + serious launches. flywheel + URU discounts live here.
+            </li>
+            <li>
+              <b>ethereum mainnet</b> — most credibility, most gas cost. pick for high-stakes
+              launches where u want L1 permanence.
+            </li>
+            <li>
+              <b>robinhood chain</b> — brand-new L2, near-zero gas. good for experiments +
+              first launches.
+            </li>
+            <li>
+              <b>base sepolia</b> — testnet. rehearse here w/ fake ETH before spending real ETH.
+              get testnet ETH from any base sepolia faucet.
+            </li>
+          </ul>
+        </div>
+        <Callout tone="yolk" label="switch chains anytime">
+          the chain switcher (top-right, next to the wallet button) affects what the shop
+          builds against + where new launches land. discover + trade pages show every chain&apos;s
+          activity.
+        </Callout>
       </Section>
 
       {/* ================================================================
@@ -267,146 +280,64 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="safe" title="is it safe?" jp="安全">
         <p>
-          real answer: <b>the code is safe. the tokens ppl launch are not always safe. those
-          are two different things.</b>
+          <b>the code is safe. the tokens people launch are not always safe.</b> those are
+          two different things.
         </p>
         <ul style={bulletListStyle}>
           <li>
-            <b>the contracts are open + testable.</b> every feature u can pick + every combo u
-            can build ships from a factory u can read on-chain, with an internal test suite
-            covering the shipped combos. we&apos;re working through external audits before
-            treating anything on urufu labs as bank-grade safe.
+            <b>contracts are open + tested</b> — every combo compiles from the same audited
+            primitives, factory addresses are on-chain readable, internal test suite covers
+            shipped combos. external audit in progress.
           </li>
           <li>
-            <b>the liquidity locks itself.</b> once a token graduates, the LP position is
-            math-locked. we could not remove it even if we wanted to.
+            <b>graduated LPs can&apos;t be rugged</b> — LPLockedHook makes removal impossible.
           </li>
           <li>
-            <b>u are still responsible for what u buy.</b> anyone can launch a token here.
-            some tokens are good ideas. some are jokes. some are scams. do ur own research
-            (dyor) on any token before u buy it ~~
+            <b>ur job: check what u&apos;re buying.</b> anyone can launch. always verify the
+            token address on the <Link href="/discover" style={linkStyle}>discover page</Link>.
           </li>
         </ul>
-        <Callout tone="yolk" label="things urufu can&apos;t protect u from">
-          <ul style={{ ...bulletListStyle, marginTop: 0 }}>
-            <li>buying a bad idea (u picked it, not us).</li>
-            <li>pre-graduation dumps by early buyers.</li>
-            <li>fake tokens that copy real ones — always check the address on{' '}
-              <Link href="/discover" style={linkStyle}>the discover page</Link>.
-            </li>
-          </ul>
+        <Callout tone="yolk" label="urufu can&apos;t save u from">
+          bad ideas u picked · pre-graduation dumps · fake tokens copying real ones.
         </Callout>
-      </Section>
-
-      {/* ================================================================
-          GLOSSARY
-          ================================================================ */}
-      <Section id="terms" title="plain-english glossary" jp="用語">
-        <dl style={glossaryStyle}>
-          <Term term="token">
-            a digital thing on the chain that u can own, send, trade. like a coin, but it can
-            also be a picture or a game item.
-          </Term>
-          <Term term="wallet">
-            the app u use to hold tokens + sign transactions. like a browser extension
-            (metamask, rabby) or a phone app.
-          </Term>
-          <Term term="ETH">
-            the native currency of ethereum. gas + trading pairs are usually priced in ETH.
-          </Term>
-          <Term term="gas">
-            a small fee u pay the chain to do anything. varies by network — Base, Base Sepolia,
-            and Robinhood are cheap (usually well under a cent). ethereum mainnet can be
-            expensive.
-          </Term>
-          <Term term="bonding curve">
-            a self-running market. price goes up as ppl buy, down as ppl sell. no market
-            maker needed.
-          </Term>
-          <Term term="graduation">
-            when a token&apos;s pool hits its ETH target and moves onto Uniswap v4 with locked
-            liquidity.
-          </Term>
-          <Term term="market cap">
-            price per token × total supply. a rough sense of how much the whole token is
-            worth right now.
-          </Term>
-          <Term term="LP / liquidity">
-            the ETH + tokens sitting in a pool that lets u trade. more LP → smoother trades
-            + less slippage.
-          </Term>
-          <Term term="LP lock">
-            when the LP is provably stuck. no one can withdraw it — not the creator, not us.
-            protects u from rug pulls.
-          </Term>
-          <Term term="rug pull">
-            when someone removes the LP + runs off with the ETH, leaving u with worthless
-            tokens. cannot happen to a graduated urufu token.
-          </Term>
-          <Term term="slippage">
-            the difference between the price u see and the price u actually get, because the
-            market moved between u clicking and the tx confirming. tolerate more slippage
-            for volatile tokens.
-          </Term>
-          <Term term="URU">
-            our ecosystem token. holding URU gets u launch-fee discounts + a slice of trade
-            fees via the flywheel.
-          </Term>
-          <Term term="urufu gemu nft">
-            our collectible nft. holders earn ETH directly from every trade on urufu labs +
-            get launch-fee discounts.
-          </Term>
-          <Term term="hook">
-            a small piece of code that runs on every uniswap trade after graduation. the
-            hooks urufu ships route fees back to holders (the flywheel).
-          </Term>
-        </dl>
       </Section>
 
       {/* ================================================================
           FAQ
           ================================================================ */}
       <Section id="faq" title="faq" jp="よくある">
-        <FAQ q="i&apos;ve never used a crypto wallet before. can i still use urufu?">
-          yes, but u&apos;ll want to install a wallet first (metamask, rabby, or coinbase wallet
-          are the easiest starts). then fund it with a little ETH. any beginner ETH guide
-          works — we don&apos;t reinvent that here.
+        <FAQ q="never used a crypto wallet — can i still use urufu?">
+          install metamask / rabby / coinbase wallet, fund with a little ETH, done. any
+          beginner ETH guide works.
         </FAQ>
         <FAQ q="do i need to code anything?">
-          no. u pick things, click launch, done. we handle every line of solidity.
-        </FAQ>
-        <FAQ q="how much does it cost to launch a token?">
-          a small launch fee (fractions of an ETH) + gas. u can get up to 50% off the launch
-          fee by holding URU + an urufu gemu nft.
-        </FAQ>
-        <FAQ q="can i make a token on a testnet first to try it?">
-          yes! use the chain switcher (top-right) to pick sepolia or base sepolia. testnet
-          ETH is free to get from a faucet. we recommend rehearsing at least once before
-          launching on mainnet.
+          no. pick, click launch, done. we handle every line of solidity.
         </FAQ>
         <FAQ q="what if my token doesn&apos;t graduate?">
-          totally fine — it just stays on the bonding curve. u can still trade it, but it
-          never gets locked liquidity + a v4 pool. no penalty.
+          totally fine — it stays on the curve forever. u can still trade it. no penalty, no
+          creator fees (those start post-graduation).
         </FAQ>
-        <FAQ q="which chains does urufu support?">
-          right now: ethereum mainnet, base, sepolia (testnet), base sepolia (testnet), and
-          robinhood chain (coming as soon as their v4 deployment is public). use the chain
-          switcher in the header.
+        <FAQ q="how do i claim creator fees?">
+          call <code style={codeStyle}>claim(currency)</code> on the MultiHookHost contract from
+          ur creator address. fees accumulate to u automatically on every swap — u just
+          withdraw when u want.
         </FAQ>
-        <FAQ q="where do i see my launches / trades?">
-          <Link href="/profile" style={linkStyle}>ur profile</Link>. it shows every token u
-          launched, every trade u made, ur current holdings, and ur pnl.
+        <FAQ q="where do i see my launches + trades?">
+          <Link href="/profile" style={linkStyle}>ur profile</Link>. every token u launched,
+          every trade, ur current holdings, ur PnL.
         </FAQ>
         <FAQ q="can i follow other people?">
-          yes. paste any wallet address into <code style={codeStyle}>/profile/0x…</code> and
-          hit follow. their activity shows up in <Link href="/feed" style={linkStyle}>ur feed</Link>.
+          yes — paste a wallet address into <code style={codeStyle}>/profile/0x…</code> and
+          hit follow. their activity shows up in{' '}
+          <Link href="/feed" style={linkStyle}>ur feed</Link>.
         </FAQ>
-        <FAQ q="how do i buy URU or an urufu gemu nft?">
-          URU trades on Uniswap on Base. urufu gemu nfts mint occasionally + trade on OpenSea.
-          check the community channels for links so u don&apos;t buy from a fake contract.
+        <FAQ q="how do i buy URU or a gemu nft?">
+          URU trades on Uniswap on Base. gemu nfts mint occasionally + trade on OpenSea. use
+          the community channels for the real contract addresses so u don&apos;t buy a fake.
         </FAQ>
         <FAQ q="where&apos;s the source code?">
-          github.com/urufu-labs — all the contracts + this website are open source.
+          <code style={codeStyle}>github.com/urufu-labs</code> — every contract + this website,
+          MIT-licensed.
         </FAQ>
       </Section>
 
@@ -510,25 +441,6 @@ function Callout({
   );
 }
 
-function Term({ term, children }: { term: string; children: React.ReactNode }) {
-  return (
-    <>
-      <dt
-        style={{
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontWeight: 700,
-          fontSize: 13,
-          color: 'var(--pink-hot)',
-          marginTop: 8,
-        }}
-      >
-        ✿ {term}
-      </dt>
-      <dd style={{ marginLeft: 16, fontSize: 12.5, lineHeight: 1.55 }}>{children}</dd>
-    </>
-  );
-}
-
 function FAQ({ q, children }: { q: string; children: React.ReactNode }) {
   return (
     <details
@@ -584,6 +496,3 @@ const codeStyle: React.CSSProperties = {
   border: '1px solid var(--anchor)',
 };
 
-const glossaryStyle: React.CSSProperties = {
-  margin: 0,
-};
