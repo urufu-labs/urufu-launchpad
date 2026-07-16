@@ -106,8 +106,9 @@ export default function DocsPage() {
           most launchpads only let u launch one shape of token. urufu is different. u pick a
           base (a plain coin, a picture-based collectible, or a mixed-item collection), then u
           drag features into a cart: things like anti-bot protection, staking, royalties,
-          voting rights. every combo is a real, audited contract. one click, one transaction,
-          done ✿
+          voting rights. every combo compiles to real solidity, ships from a factory u can
+          read on-chain, and is covered by our internal test suite. one click, one
+          transaction, done ✿
         </p>
         <Callout tone="pink" label="in one sentence">
           make ur own token, drop in features, hit launch. the code is real solidity, the
@@ -147,8 +148,9 @@ export default function DocsPage() {
           </li>
         </ol>
         <Callout tone="mint" label="no coding required">
-          u never touch code. u never wait for a team to audit ur combo. the audits happened
-          once, when we shipped the features. ur job is picking, not building.
+          u never touch code. u never wait for a team to review ur combo. the templates and
+          modules were built + tested once, when we shipped the features. ur job is picking,
+          not building.
         </Callout>
       </Section>
 
@@ -233,8 +235,9 @@ export default function DocsPage() {
         </p>
         <ul style={bulletListStyle}>
           <li>
-            <b>launch fee</b> — u pay this once when u launch a token. it&apos;s small (fractions
-            of an ETH) and gets discounts if u hold URU or an urufu gemu nft (details below).
+            <b>launch fee</b> — u pay this once when u launch a token. it&apos;s tiny — starts at
+            0.001 ETH for a bare token and stays under 0.005 ETH even with every optional
+            feature turned on. gets discounts if u hold URU or an urufu gemu nft (details below).
           </li>
           <li>
             <b>trade fee</b> — every buy or sell on the curve takes a tiny slice (usually 1%).
@@ -269,8 +272,10 @@ export default function DocsPage() {
         </p>
         <ul style={bulletListStyle}>
           <li>
-            <b>the contracts are audited.</b> every feature u can pick, and every combo u can
-            build with them, has been audited before it ships to the shelf.
+            <b>the contracts are open + testable.</b> every feature u can pick + every combo u
+            can build ships from a factory u can read on-chain, with an internal test suite
+            covering the shipped combos. we&apos;re working through external audits before
+            treating anything on urufu labs as bank-grade safe.
           </li>
           <li>
             <b>the liquidity locks itself.</b> once a token graduates, the LP position is
@@ -310,8 +315,9 @@ export default function DocsPage() {
             the native currency of ethereum. gas + trading pairs are usually priced in ETH.
           </Term>
           <Term term="gas">
-            a small fee u pay the chain to do anything. varies by network — Base + Sepolia
-            are cheap, mainnet can be expensive.
+            a small fee u pay the chain to do anything. varies by network — Base, Base Sepolia,
+            and Robinhood are cheap (usually well under a cent). ethereum mainnet can be
+            expensive.
           </Term>
           <Term term="bonding curve">
             a self-running market. price goes up as ppl buy, down as ppl sell. no market
