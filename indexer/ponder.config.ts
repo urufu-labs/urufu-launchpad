@@ -226,7 +226,17 @@ function ecosystemTokenNet(envKey: 'URU_TOKEN_ADDRESS' | 'GEMU_NFT_ADDRESS') {
 
 const contracts = {
   NameRegistry: { abi: nameRegistryAbi, network: netFor('NAME_REGISTRY') },
-  Router: { abi: routerAbi, network: netFor('ROUTER') },
+  // Filter narrows to just the Launched event -- Router:CurveInstalled fallback path is
+  // covered redundantly by CurveFactory:CurveCreated + BondingCurve:CurveInitialized, so
+  // dropping it here doesn't lose any linking. Adding this filter changes Ponder's config
+  // hash for the Router source, which forces a cache reset. Same technique used on
+  // V4SwapRouter to bust a stuck sync pointer -- Base mainnet's Router subscription got
+  // frozen at 0 launches indexed while PoolManager on the same chain kept working.
+  Router: {
+    abi: routerAbi,
+    network: netFor('ROUTER'),
+    filter: { event: 'Launched' as const },
+  },
   ERC20Factory: { abi: factoryAbi, network: netFor('ERC20_FACTORY') },
   ERC721AFactory: { abi: factoryAbi, network: netFor('ERC721A_FACTORY') },
   ERC1155Factory: { abi: factoryAbi, network: netFor('ERC1155_FACTORY') },

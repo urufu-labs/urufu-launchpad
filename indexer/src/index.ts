@@ -97,19 +97,17 @@ ponder.on('Router:Launched', async ({ event, context }) => {
   }).onConflictDoNothing();
 });
 
-ponder.on('Router:CurveInstalled', async ({ event, context }) => {
-  const { token, curve } = event.args;
-  const chainId = chainIdOf(context);
-  const launchId = `${chainId}-${token.toLowerCase()}`;
-
-  // Mark the launch row as curve-backed and store the curve address for the join.
-  await context.db
-    .update(launches, { id: launchId })
-    .set({ installedBondingCurve: true, curveAddress: curve })
-    .catch(() => {
-      // Router:Launched hasn't fired yet — the same tx will fill this in via the create path.
-    });
-});
+// Router.CurveInstalled handler removed as part of the Router filter narrowing (see
+// ponder.config.ts). Ponder's `filter: { event: 'Launched' }` on Router excludes
+// CurveInstalled from the listenable event set, so this handler couldn't type-check.
+//
+// Curve→launch linking is covered redundantly by two other paths:
+//   1. CurveFactory:CurveCreated (below) — fires atomically inside Router.launch() AND
+//      standalone via CurveFactory.createCurve()
+//   2. BondingCurve:CurveInitialized — fires on every curve boot; also updates launches
+//
+// Router.CurveInstalled was pure belt-and-suspenders. Both remaining paths cover both
+// atomic + standalone install flows, so no data quality loss from dropping it.
 
 // Router.CurveInstalled only fires when a curve is installed atomically via Router.launch().
 // If a launcher calls CurveFactory.createCurve() in a separate transaction *after* the token
