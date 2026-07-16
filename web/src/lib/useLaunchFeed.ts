@@ -16,6 +16,22 @@ interface FeedState {
   ready: boolean;
 }
 
+/// Tokens hidden from every UI display path (marquee, discover, home rail).
+/// Direct URLs (/trade/<addr>, /profile) still work — this filter is purely
+/// about not surfacing them in feed-style lists. Add entries as `chainId:token`
+/// lowercased so the lookup is O(1).
+///
+/// Populated with early test tokens that shouldn't be prominent post-launch:
+///   - TEST on Base (0xde1323b369b362bc1ad3d036bef964279e8eb1c7)
+///   - BALLS on Base Sepolia (0x92462af2c2c8d2a18dcbbddd66c8aa401ec2de6d)
+const HIDDEN_TOKENS = new Set<string>([
+  '8453:0xde1323b369b362bc1ad3d036bef964279e8eb1c7',
+  '84532:0x92462af2c2c8d2a18dcbbddd66c8aa401ec2de6d',
+]);
+function isHidden(chainId: number, tokenAddress: string): boolean {
+  return HIDDEN_TOKENS.has(`${chainId}:${tokenAddress.toLowerCase()}`);
+}
+
 // Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
 // no longer belongs on these because there are real launches to show. Kept as a lazy read so
 // tree-shaking of unused chain configs doesn't matter.
@@ -71,7 +87,9 @@ export function useLaunchFeed(chainId: number): FeedState {
         setState((prev) => (prev.ready ? prev : { source: 'indexer', launches: [], ready: true }));
         return;
       }
-      const forChain = rows.filter((r) => r.chainId === chainId);
+      const forChain = rows
+        .filter((r) => r.chainId === chainId)
+        .filter((r) => !isHidden(r.chainId, r.tokenAddress));
       const meta = await fetchTokenMetadataBatch(
         chainId,
         forChain.map((r) => r.tokenAddress as Address),
