@@ -58,9 +58,7 @@ contract ERC20WithPermitVestingGen is ERC20, Ownable {
     event PermitEnabled();
 
     // --- from Vesting.frag.sol ---
-    event VestingConfigured(
-        address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp
-    );
+    event VestingConfigured(address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp);
     event VestingReleased(address indexed beneficiary, uint256 amount);
     // ============================================================
     // Modules append events below this marker.
@@ -131,9 +129,17 @@ contract ERC20WithPermitVestingGen is ERC20, Ownable {
         _symbol = symbol_;
         _initializeOwner(initialOwner);
 
+        // Compute the mint destination once, before the mint itself. Modules that need
+        // to reserve a slice of the initial supply for post-launch payouts (Airdrop,
+        // Vesting, Staking) reference this local via `_transfer(mintTarget, address(this),
+        // allocation)` in their VM_INJECT_INIT block — this is what makes reserve-backed
+        // modules work on bonding-curve launches WITHOUT breaking the fixed-supply
+        // invariant. The transfers happen sequentially so an over-allocation reverts
+        // loudly the moment mintTarget runs dry (safety by construction).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
         if (initialSupply > 0) {
-            address to = initialRecipient == address(0) ? initialOwner : initialRecipient;
-            _mint(to, initialSupply);
+            _mint(mintTarget, initialSupply);
         }
 
         emit Initialized(name_, symbol_, initialOwner, initialSupply);
@@ -157,11 +163,17 @@ contract ERC20WithPermitVestingGen is ERC20, Ownable {
             _vestTotal = total_;
             _vestCliff = cliff_;
             _vestEnd = end_;
+            // Reserve the vesting pool out of the initial supply. If the launcher over-allocated
+            // (Σ module allocations > initialSupply), this reverts inside solady's _transfer
+            // when mintTarget's balance underflows — safety by construction.
+            _transfer(mintTarget, address(this), total_);
             emit VestingConfigured(beneficiary_, total_, cliff_, end_);
         }
         // ============================================================
-        // Modules decode their slice of `moduleData` here and set state.
+        // Modules decode their slice of `moduleData` here and set state. Reserve-
+        // backed modules also `_transfer(mintTarget, address(this), allocation)` here.
         moduleData; // silence unused-var warning in the bare template
+        mintTarget; // silence unused-var warning when no reserve-backed modules are spliced in
     }
 
     // ============================================================
@@ -218,7 +230,9 @@ contract ERC20WithPermitVestingGen is ERC20, Ownable {
         uint256 amount = vestingReleasable();
         if (amount == 0) revert Vesting__NothingToRelease();
         _vestReleased += amount;
-        _mint(_vestBeneficiary, amount);
+        // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+        // Total supply stays at whatever was minted in initialize() — no post-launch inflation.
+        _transfer(address(this), _vestBeneficiary, amount);
         emit VestingReleased(_vestBeneficiary, amount);
     }
 

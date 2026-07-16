@@ -45,7 +45,55 @@ contract ERC20WithStakingGenTest is Test {
         assertEq(token.stakingBalanceOf(alice), 100 ether);
         assertEq(token.stakingTotalStaked(), 100 ether);
         assertEq(token.balanceOf(alice), 900 ether);
-        assertEq(token.balanceOf(address(token)), 100 ether);
+        // V2 reserve-backed: address(this) already holds REWARDS_TOTAL from init.
+        // After alice stakes 100, it holds REWARDS_TOTAL + 100. _stakeBalance +
+        // _stakeTotal tracks the STAKED portion separately so withdraw is bounded.
+        assertEq(token.balanceOf(address(token)), REWARDS_TOTAL + 100 ether);
+    }
+
+    /// V2 invariant: reward claims transfer from the pre-reserved pool without
+    /// growing total supply. Before the refactor, `stakingClaim` called `_mint`
+    /// which inflated the supply post-launch — that broke bonding-curve economics.
+    function test_Claim_TransfersFromReserveWithoutInflation() public {
+        vm.prank(alice);
+        token.stake(100 ether);
+
+        // Fast-forward the full period so `earned` equals REWARDS_TOTAL (only alice
+        // staking, so she gets everything).
+        vm.warp(block.timestamp + DURATION);
+
+        uint256 supplyBefore = token.totalSupply();
+        uint256 stakingContractBalBefore = token.balanceOf(address(token));
+
+        vm.prank(alice);
+        token.stakingClaim();
+
+        // Supply UNCHANGED — payout came from the reserve, not from _mint.
+        assertEq(token.totalSupply(), supplyBefore, "total supply must not grow on claim");
+        // Alice got her rewards + still has her original balance (staked pool untouched).
+        // Reward is `rate * DURATION` where rate = REWARDS_TOTAL / DURATION (integer div)
+        // so a few wei of dust remains unclaimed — that's the classic Synthetix quirk,
+        // not a bug in the reserve refactor. Give it a wei-per-second tolerance.
+        assertApproxEqAbs(
+            token.balanceOf(alice), 900 ether + REWARDS_TOTAL, DURATION, "alice paid from reserve"
+        );
+        assertApproxEqAbs(
+            token.balanceOf(address(token)), stakingContractBalBefore - REWARDS_TOTAL, DURATION,
+            "reserve drained by claim"
+        );
+    }
+
+    /// Safety-by-construction: launcher can't over-allocate. If REWARDS_TOTAL >
+    /// initialSupply, init reverts inside solady's _transfer when mintTarget's
+    /// balance underflows. No way to launch a token whose reserve exceeds supply.
+    function test_Init_RevertsWhenRewardsExceedSupply() public {
+        ERC20WithStakingGen fresh = ERC20WithStakingGen(LibClone.clone(address(impl)));
+        bytes[] memory moduleData = new bytes[](1);
+        moduleData[0] = abi.encode(REWARDS_TOTAL, DURATION);
+        // Supply < REWARDS_TOTAL → init reverts.
+        bytes memory initData = abi.encode(owner, "Stake", "STK", REWARDS_TOTAL - 1, owner, moduleData);
+        vm.expectRevert();
+        fresh.initialize(initData);
     }
 
     function test_Stake_RevertsOnZero() public {

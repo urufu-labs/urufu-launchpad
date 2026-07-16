@@ -105,9 +105,13 @@ contract ERC20VotesTemplate is ERC20Votes, Ownable {
         _symbol = symbol_;
         _initializeOwner(initialOwner);
 
+        // Compute the mint destination once. Fragments reference `mintTarget` when they
+        // need to reserve a slice of the initial supply for post-launch payouts (see
+        // ERC20Template.sol for the pattern explanation).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
         if (initialSupply > 0) {
-            address to = initialRecipient == address(0) ? initialOwner : initialRecipient;
-            _mint(to, initialSupply);
+            _mint(mintTarget, initialSupply);
         }
 
         emit Initialized(name_, symbol_, initialOwner, initialSupply);
@@ -116,6 +120,7 @@ contract ERC20VotesTemplate is ERC20Votes, Ownable {
         // VM_INJECT_INIT
         // ============================================================
         moduleData;
+        mintTarget;
     }
 
     // ============================================================

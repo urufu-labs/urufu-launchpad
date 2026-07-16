@@ -1,7 +1,7 @@
 {
   "base": "ERC20",
   "modules": ["Airdrop"],
-  "params": { "Airdrop": { "merkleRoot": "0x0000000000000000000000000000000000000000000000000000000000000000" } },
+  "params": { "Airdrop": { "merkleRoot": "0x0000000000000000000000000000000000000000000000000000000000000000", "totalAllocation": "100000000000000000000" } },
   "contractName": "ERC20WithAirdropGen",
   "templatePath": "contracts/src/templates/ERC20Template.sol"
 }

@@ -72,7 +72,7 @@ contract ERC20WithStakingGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_STATE
     // --- from Staking.frag.sol ---
-    uint256 private _stakeRewardRate; // tokens per second, wei
+    uint256 private _stakeRewardRate;      // tokens per second, wei
     uint64 private _stakePeriodFinish;
     uint64 private _stakeLastUpdate;
     uint256 private _stakeRewardPerTokenStored;
@@ -131,9 +131,17 @@ contract ERC20WithStakingGen is ERC20, Ownable {
         _symbol = symbol_;
         _initializeOwner(initialOwner);
 
+        // Compute the mint destination once, before the mint itself. Modules that need
+        // to reserve a slice of the initial supply for post-launch payouts (Airdrop,
+        // Vesting, Staking) reference this local via `_transfer(mintTarget, address(this),
+        // allocation)` in their VM_INJECT_INIT block — this is what makes reserve-backed
+        // modules work on bonding-curve launches WITHOUT breaking the fixed-supply
+        // invariant. The transfers happen sequentially so an over-allocation reverts
+        // loudly the moment mintTarget runs dry (safety by construction).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
         if (initialSupply > 0) {
-            address to = initialRecipient == address(0) ? initialOwner : initialRecipient;
-            _mint(to, initialSupply);
+            _mint(mintTarget, initialSupply);
         }
 
         emit Initialized(name_, symbol_, initialOwner, initialSupply);
@@ -148,11 +156,20 @@ contract ERC20WithStakingGen is ERC20, Ownable {
             _stakeRewardRate = rate;
             _stakeLastUpdate = uint64(block.timestamp);
             _stakePeriodFinish = uint64(block.timestamp + duration_);
+            // Reserve the reward pool out of the initial supply. Reverts inside solady's
+            // _transfer when mintTarget's balance underflows — safety by construction. rate
+            // is naturally capped at `rewardsTotal_ / duration`, so total reward payouts
+            // over the full window are bounded by `rewardsTotal_`.
+            if (rewardsTotal_ > 0) {
+                _transfer(mintTarget, address(this), rewardsTotal_);
+            }
             emit StakingConfigured(rewardsTotal_, duration_, rate, _stakePeriodFinish);
         }
         // ============================================================
-        // Modules decode their slice of `moduleData` here and set state.
+        // Modules decode their slice of `moduleData` here and set state. Reserve-
+        // backed modules also `_transfer(mintTarget, address(this), allocation)` here.
         moduleData; // silence unused-var warning in the bare template
+        mintTarget; // silence unused-var warning when no reserve-backed modules are spliced in
     }
 
     // ============================================================
@@ -202,16 +219,12 @@ contract ERC20WithStakingGen is ERC20, Ownable {
         return _stakeRewardPerTokenStored + (elapsed * _stakeRewardRate * 1e18) / _stakeTotal;
     }
 
-    function stakingEarned(
-        address user
-    ) public view returns (uint256) {
+    function stakingEarned(address user) public view returns (uint256) {
         return (_stakeBalance[user] * (stakingRewardPerToken() - _stakeUserRewardPerTokenPaid[user])) / 1e18
             + _stakeReward[user];
     }
 
-    function stakingBalanceOf(
-        address user
-    ) external view returns (uint256) {
+    function stakingBalanceOf(address user) external view returns (uint256) {
         return _stakeBalance[user];
     }
 
@@ -227,9 +240,7 @@ contract ERC20WithStakingGen is ERC20, Ownable {
         return _stakePeriodFinish;
     }
 
-    function stake(
-        uint256 amount
-    ) external {
+    function stake(uint256 amount) external {
         if (amount == 0) revert Staking__ZeroAmount();
         _stakingUpdateReward(msg.sender);
         _stakeTotal += amount;
@@ -238,9 +249,7 @@ contract ERC20WithStakingGen is ERC20, Ownable {
         emit Staked(msg.sender, amount);
     }
 
-    function stakingWithdraw(
-        uint256 amount
-    ) external {
+    function stakingWithdraw(uint256 amount) external {
         if (amount == 0) revert Staking__ZeroAmount();
         uint256 bal = _stakeBalance[msg.sender];
         if (amount > bal) revert Staking__InsufficientStake(amount, bal);
@@ -256,19 +265,19 @@ contract ERC20WithStakingGen is ERC20, Ownable {
         uint256 reward = _stakeReward[msg.sender];
         if (reward == 0) revert Staking__NothingToClaim();
         _stakeReward[msg.sender] = 0;
-        _mint(msg.sender, reward);
+        // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+        // Total supply stays fixed. Stakers' deposits also live in address(this) but are
+        // tracked separately via _stakeBalance so they can't be paid out as rewards.
+        _transfer(address(this), msg.sender, reward);
         emit StakingRewardClaimed(msg.sender, reward);
     }
-
     // ============================================================
     // Modules append new external / public functions below this marker.
 
     // ============================================================
     // VM_INJECT_INTERNAL
     // --- from Staking.frag.sol ---
-    function _stakingUpdateReward(
-        address user
-    ) internal {
+    function _stakingUpdateReward(address user) internal {
         _stakeRewardPerTokenStored = stakingRewardPerToken();
         _stakeLastUpdate = stakingLastTimeApplicable();
         if (user != address(0)) {

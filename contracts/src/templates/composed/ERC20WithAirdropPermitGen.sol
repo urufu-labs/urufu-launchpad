@@ -42,6 +42,7 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
     // --- from Airdrop.frag.sol ---
     error Airdrop__AlreadyClaimed(address recipient);
     error Airdrop__InvalidProof();
+    error Airdrop__ZeroAllocation();
     // ============================================================
     // Modules append custom errors below this marker.
 
@@ -53,7 +54,7 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_EVENTS
     // --- from Airdrop.frag.sol ---
-    event AirdropConfigured(bytes32 merkleRoot);
+    event AirdropConfigured(bytes32 merkleRoot, uint256 totalAllocation);
     event AirdropClaimed(address indexed recipient, uint256 amount);
 
     // --- from Permit.frag.sol ---
@@ -72,6 +73,8 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
     // VM_INJECT_STATE
     // --- from Airdrop.frag.sol ---
     bytes32 private _airdropRoot;
+    uint256 private _airdropTotalAllocation;
+    uint256 private _airdropClaimedTotal;
     mapping(address => bool) private _airdropClaimed;
     // ============================================================
     // Modules append storage variables below this marker. Solidity assigns slots by
@@ -124,9 +127,17 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
         _symbol = symbol_;
         _initializeOwner(initialOwner);
 
+        // Compute the mint destination once, before the mint itself. Modules that need
+        // to reserve a slice of the initial supply for post-launch payouts (Airdrop,
+        // Vesting, Staking) reference this local via `_transfer(mintTarget, address(this),
+        // allocation)` in their VM_INJECT_INIT block — this is what makes reserve-backed
+        // modules work on bonding-curve launches WITHOUT breaking the fixed-supply
+        // invariant. The transfers happen sequentially so an over-allocation reverts
+        // loudly the moment mintTarget runs dry (safety by construction).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
         if (initialSupply > 0) {
-            address to = initialRecipient == address(0) ? initialOwner : initialRecipient;
-            _mint(to, initialSupply);
+            _mint(mintTarget, initialSupply);
         }
 
         emit Initialized(name_, symbol_, initialOwner, initialSupply);
@@ -135,9 +146,14 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
         // VM_INJECT_INIT
         // --- from Airdrop.frag.sol ---
         {
-            bytes32 root = abi.decode(moduleData[0], (bytes32));
+            (bytes32 root, uint256 totalAllocation_) = abi.decode(moduleData[0], (bytes32, uint256));
+            if (totalAllocation_ == 0) revert Airdrop__ZeroAllocation();
             _airdropRoot = root;
-            emit AirdropConfigured(root);
+            _airdropTotalAllocation = totalAllocation_;
+            // Reserve the airdrop pool out of the initial supply. Reverts inside solady's
+            // _transfer when mintTarget's balance underflows — safety by construction.
+            _transfer(mintTarget, address(this), totalAllocation_);
+            emit AirdropConfigured(root, totalAllocation_);
         }
 
         // --- from Permit.frag.sol ---
@@ -146,8 +162,10 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
             emit PermitEnabled();
         }
         // ============================================================
-        // Modules decode their slice of `moduleData` here and set state.
+        // Modules decode their slice of `moduleData` here and set state. Reserve-
+        // backed modules also `_transfer(mintTarget, address(this), allocation)` here.
         moduleData; // silence unused-var warning in the bare template
+        mintTarget; // silence unused-var warning when no reserve-backed modules are spliced in
     }
 
     // ============================================================
@@ -186,15 +204,16 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from Airdrop.frag.sol ---
-    function airdropClaim(
-        uint256 amount,
-        bytes32[] calldata proof
-    ) external {
+    function airdropClaim(uint256 amount, bytes32[] calldata proof) external {
         if (_airdropClaimed[msg.sender]) revert Airdrop__AlreadyClaimed(msg.sender);
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
         if (!MerkleProofLib.verifyCalldata(proof, _airdropRoot, leaf)) revert Airdrop__InvalidProof();
         _airdropClaimed[msg.sender] = true;
-        _mint(msg.sender, amount);
+        _airdropClaimedTotal += amount;
+        // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+        // Total supply stays fixed. If the launcher misconfigured (merkle sum >
+        // totalAllocation) claims eventually revert here when the reserve runs dry.
+        _transfer(address(this), msg.sender, amount);
         emit AirdropClaimed(msg.sender, amount);
     }
 
@@ -202,9 +221,15 @@ contract ERC20WithAirdropPermitGen is ERC20, Ownable {
         return _airdropRoot;
     }
 
-    function airdropHasClaimed(
-        address user
-    ) external view returns (bool) {
+    function airdropTotalAllocation() external view returns (uint256) {
+        return _airdropTotalAllocation;
+    }
+
+    function airdropClaimedTotal() external view returns (uint256) {
+        return _airdropClaimedTotal;
+    }
+
+    function airdropHasClaimed(address user) external view returns (bool) {
         return _airdropClaimed[user];
     }
     // ============================================================

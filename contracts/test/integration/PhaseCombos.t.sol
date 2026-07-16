@@ -312,7 +312,9 @@ contract PhaseCombosTest is Test {
 
     function test_Combo_ERC20_Airdrop() public {
         bytes[] memory m = new bytes[](1);
-        m[0] = abi.encode(bytes32(uint256(0xdeadbeef)));
+        // V2 airdrop signature: (bytes32 merkleRoot, uint256 totalAllocation). Reserve
+        // 100 ether out of the 1000 ether initial supply for airdrop claimants.
+        m[0] = abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100 ether));
         _launch(BaseType.ERC20, "Combo Airdrop", "CDROP", AIRDROP, _erc20InitData(1000 ether, m), 2);
     }
 
@@ -419,7 +421,10 @@ contract PhaseCombosTest is Test {
     }
 
     function _dropData() internal pure returns (bytes memory) {
-        return abi.encode(bytes32(uint256(0xdeadbeef)));
+        // V2 airdrop signature: (bytes32 merkleRoot, uint256 totalAllocation). All
+        // multi-module combos share this same allocation (100 ether) so the initial
+        // 1000-ether supply comfortably covers overlapping reserves.
+        return abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100 ether));
     }
 
     function _vestData() internal returns (bytes memory) {
