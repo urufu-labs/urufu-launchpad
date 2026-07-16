@@ -296,7 +296,16 @@ const pgUrl = process.env.DATABASE_PRIVATE_URL ?? process.env.DATABASE_URL;
 
 export default createConfig({
   database: pgUrl
-    ? { kind: 'postgres', connectionString: pgUrl }
+    ? {
+        kind: 'postgres',
+        connectionString: pgUrl,
+        // Cap the pg pool at 10 connections per Ponder instance. Default is 30. With
+        // 4 per-chain services running against the same shared Railway Postgres,
+        // 4 × 30 = 120 connections exceeds Railway's default max_connections (100)
+        // and causes "sorry, too many clients already" crashes. 4 × 10 = 40 stays
+        // comfortably under the limit.
+        poolConfig: { max: 10 },
+      }
     : { kind: 'pglite' },
   networks,
   contracts,
