@@ -253,11 +253,11 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
 /// One Graduator per chain — routes graduated bonding curves into a v4 pool with
 /// `MultiHookHost` as the default hook. `null` until `DeployGraduator` broadcasts.
 export const GRADUATORS: Record<ChainKey, Address | null> = {
-  mainnet: '0xc706080AB0c9C066CcF213620B5CB8f6E9c259E4',
+  mainnet: '0x17E2572E148384cA484E274e9fF8365A50Eff17F',
   sepolia: null,
-  base: '0x2c5C250bC54B9716a989929C04c2049BbA7283bb',
+  base: '0xEBBA7F6102e87493f80FE7c21C81aBC0Eb2c1eDB',
   'base-sepolia': '0x736D1280E30B0CCEEc7e3998E66620D9EB7fFa99',
-  robinhood: '0x3bdf97236d78c6AE5bAaa990a5553a46a9505572',
+  robinhood: '0x7e26ea7173C0AbcfdB94d704238C2783cF89b641',
   'robinhood-testnet': null,
 };
 
