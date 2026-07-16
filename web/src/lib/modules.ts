@@ -564,11 +564,23 @@ export function moduleById(id: string): ModuleSpec | undefined {
   return MODULES.find((m) => m.id === id);
 }
 
-/// Client-side config hash. Must exactly match `DeployPhase1.s.sol` formula:
-///   keccak256(abi.encode(base, sortedModulesJoinedByComma))
+/// Client-side config hash. Two paths:
+///   1. Tuples with ONLY v1 modules (no reserve-backed): legacy formula
+///      `keccak256(abi.encode(base, sortedModuleIds.join(',')))`.
+///      Matches every impl DeployPhase1.s.sol registered — existing tokens
+///      launched under these hashes keep working, existing impls stay pinned.
+///   2. Tuples containing ANY v2+ module: version-tagged formula
+///      `keccak256(abi.encode(base, sortedModuleIdsWithVersion.join(',')))`
+///      where each id becomes `${id}@${version}`. The @-suffix produces a
+///      different hash so V2 impls register cleanly without colliding with the
+///      existing v1 impls on the same factory (`registerImpl` reverts on
+///      duplicate). Backward-compatible by construction.
 export function configHashFor(base: BaseType, moduleIds: readonly string[]): `0x${string}` {
-  const sorted = [...moduleIds].sort((a, b) => a.localeCompare(b));
-  const modulesStr = sorted.join(',');
+  const specs = moduleIds.map((id) => moduleById(id)).filter((s): s is ModuleSpec => !!s);
+  const hasV2 = specs.some((s) => s.version >= 2);
+  const modulesStr = hasV2
+    ? specs.map((s) => `${s.id}@${s.version}`).sort((a, b) => a.localeCompare(b)).join(',')
+    : [...moduleIds].sort((a, b) => a.localeCompare(b)).join(',');
   return keccak256(
     encodeAbiParameters(
       [{ type: 'string' }, { type: 'string' }],

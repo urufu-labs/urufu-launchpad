@@ -83,6 +83,7 @@ case "$SCRIPT" in
   Hooks)              TARGET="script/DeployHooks.s.sol:DeployHooks" ;;
   Graduator)          TARGET="script/DeployGraduator.s.sol:DeployGraduator" ;;
   MigrateToV2Hook)    TARGET="script/MigrateToV2Hook.s.sol:MigrateToV2Hook" ;;
+  MigrateToV2Templates) TARGET="script/MigrateToV2Templates.s.sol:MigrateToV2Templates" ;;
   V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
   PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
