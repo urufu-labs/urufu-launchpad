@@ -184,21 +184,29 @@ export default function CreatePage() {
         map[mod.id] = 'needs an owner — bonding curve renounces at launch ~';
         continue;
       }
+      // Transfer-tax modules (FoT) hook into every ERC-20 transfer. Bonding curve
+      // buys are ERC-20 transfers from the curve to the buyer, so a fee would drain
+      // curve reserves on every trade + break graduation. Direct-launch is fine.
+      if (curveModeOn && mod.taxesTransfers) {
+        map[mod.id] = 'transfer tax — would break curve trading + graduation ~';
+        continue;
+      }
       map[mod.id] = '';
     }
     return map;
   }, [available, selectedModules, mechanic, base]);
 
-  /// Selected modules that are `requiresOwner` while the curve mechanic is on —
-  /// these would install fine on-chain but their admin functions would be dead.
-  /// Surfaced as a top-of-cart warning + used to block the launch button so users
-  /// don't ship a token whose "emergency pause" is uncallable.
+  /// Selected modules that would silently break on curve mechanic:
+  ///   - `requiresOwner`: admin functions dead (curve auto-renounces)
+  ///   - `taxesTransfers`: FoT would tax curve trades + break graduation
+  /// Surfaced as a top-of-cart warning + used to block the launch button so
+  /// users don't ship a token whose modules don't work with their mechanic.
   const ownerlessDeadModules = useMemo(() => {
     const curveModeOn = mechanic === 'bonding-curve' && base === 'ERC20';
     if (!curveModeOn) return [];
     return selectedModules
       .map((id) => moduleById(id))
-      .filter((m): m is ModuleSpec => !!m && m.requiresOwner === true);
+      .filter((m): m is ModuleSpec => !!m && (m.requiresOwner === true || m.taxesTransfers === true));
   }, [mechanic, base, selectedModules]);
 
   /// Deps that a module would auto-pull in when picked — surfaces "+ pulls in Votes"

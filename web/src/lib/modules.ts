@@ -52,6 +52,14 @@ export interface ModuleSpec {
   /// modules under a curve mechanic would silently disable those functions.
   /// The create page uses this flag to grey the module out in that scenario.
   requiresOwner?: boolean;
+  /// True when the module hooks into every ERC-20 transfer to burn or route a
+  /// slice of the transfer amount (e.g. FeeOnTransfer). Bonding-curve trading
+  /// itself goes through the ERC-20 transfer path — the curve calls
+  /// `token.transfer(buyer, amount)` on every buy — so this class of module
+  /// would corrupt the curve's math, drain reserves on every trade, and mess up
+  /// graduation. The create page blocks these on curve mechanic (users can still
+  /// use them on direct-launch, where transfers are user-driven).
+  taxesTransfers?: boolean;
   description: string;
   /// Human-readable Solidity ABI signature for the module's initData slice, e.g. `(uint16)`.
   abiEncode: string;
@@ -95,6 +103,7 @@ export const MODULES: ModuleSpec[] = [
     requires: [],
     incompatibleWith: [],
     flagged: null,
+    taxesTransfers: true,
     description:
       'every trade pays a small tax. u decide how much gets burned forever (deflation ~) vs sent to a wallet u control',
     abiEncode: '(uint16,uint16,uint16,address)',
@@ -315,19 +324,27 @@ export const MODULES: ModuleSpec[] = [
     label: '✿ airdrop list',
     category: 'allocation',
     status: 'shipped',
-    version: 1,
+    version: 2,
     bases: ['ERC20'],
     requires: [],
     incompatibleWith: [],
     flagged: null,
-    description: 'give tokens to a big list of ppl by uploading one hash. recipients claim their own share, u dont pay gas for each drop ~',
-    abiEncode: '(bytes32)',
+    description:
+      'give tokens to a big list of ppl by uploading one hash + total. recipients claim their own share, u dont pay gas for each drop. reserve-backed — no dilution ✿',
+    abiEncode: '(bytes32,uint256)',
     params: [
       {
         key: 'merkleRoot',
         label: 'airdrop list hash',
         type: 'string',
         description: '0x… output from ur airdrop tool. all the wallets + amounts collapse into one hash ✿',
+      },
+      {
+        key: 'totalAllocation',
+        label: 'total tokens for the drop',
+        type: 'eth',
+        description:
+          'sum of every amount in ur merkle list. these tokens get carved out of ur launch supply and held on the token contract til claimed — no post-launch inflation ~',
       },
     ],
   },
