@@ -226,16 +226,19 @@ function ecosystemTokenNet(envKey: 'URU_TOKEN_ADDRESS' | 'GEMU_NFT_ADDRESS') {
 
 const contracts = {
   NameRegistry: { abi: nameRegistryAbi, network: netFor('NAME_REGISTRY') },
-  // Filter narrows to just the Launched event -- Router:CurveInstalled fallback path is
-  // covered redundantly by CurveFactory:CurveCreated + BondingCurve:CurveInitialized, so
-  // dropping it here doesn't lose any linking. Adding this filter changes Ponder's config
-  // hash for the Router source, which forces a cache reset. Same technique used on
-  // V4SwapRouter to bust a stuck sync pointer -- Base mainnet's Router subscription got
-  // frozen at 0 launches indexed while PoolManager on the same chain kept working.
+  // includeTransactionReceipts toggle is a real cache-key change in Ponder 0.7 -- unlike
+  // the `filter: { event }` trick which is silently no-op (the cache key uses handler-
+  // derived topic0, not filter config, so filters that match already-registered events
+  // don't change the fragment id). Setting this to true actually invalidates the cached
+  // sync pointer for Router across all networks and forces a fresh scan from each
+  // chain's startBlock. Base mainnet's Router was stuck at 0 rows despite verified env
+  // vars; base-sepolia's may also benefit. The receipts are indexed but no handler reads
+  // them -- tiny extra DB write per Launched event, negligible.
   Router: {
     abi: routerAbi,
     network: netFor('ROUTER'),
     filter: { event: 'Launched' as const },
+    includeTransactionReceipts: true,
   },
   ERC20Factory: { abi: factoryAbi, network: netFor('ERC20_FACTORY') },
   ERC721AFactory: { abi: factoryAbi, network: netFor('ERC721A_FACTORY') },
@@ -256,6 +259,12 @@ const contracts = {
     abi: v4SwapRouterAbi,
     network: netFor('V4_SWAP_ROUTER'),
     filter: { event: 'Swapped' as const },
+    // Same real cache-bust as Router -- the filter above doesn't actually invalidate
+    // Ponder's cached sync pointer (topic0 is derived from registered handlers, not
+    // filter config). includeTransactionReceipts IS part of the cache key though, so
+    // toggling this forces a fresh sync. Base-sepolia's V4SwapRouter was stuck at
+    // block 44160111 -- this should finally clear it.
+    includeTransactionReceipts: true,
   },
   BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
   Token: { abi: erc20Abi, network: tokenNet() },
