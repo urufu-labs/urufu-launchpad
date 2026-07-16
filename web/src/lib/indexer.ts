@@ -2,21 +2,67 @@
 /// `${INDEXER_URL}/graphql`. Every helper here is defensive: if the indexer isn't reachable,
 /// or returns an error, or returns empty data, the caller falls back to the mock feed.
 ///
-/// Env var: `NEXT_PUBLIC_INDEXER_URL`. Default `http://localhost:42069` matches Ponder dev.
-/// After broadcast, set this to the deployed indexer URL (Vercel / Railway / self-hosted).
+/// Supports TWO deployment modes:
+///   1. Single indexer service (legacy): NEXT_PUBLIC_INDEXER_URL points at one Ponder
+///      instance that syncs every chain. All fetches hit that URL.
+///   2. Per-chain indexer services (recommended for prod): each chain gets its own
+///      Ponder service on Railway. Set NEXT_PUBLIC_INDEXER_URL_<CHAIN> per chain, e.g.
+///      NEXT_PUBLIC_INDEXER_URL_BASE. Isolates one chain's config-change reindex from
+///      the others; each service has its own dedicated Alchemy CU quota so historical
+///      sync is 3-5x faster. Fallback: any function that doesn't know the chain uses
+///      NEXT_PUBLIC_INDEXER_URL as a shared fallback.
 
 import type { Address } from 'viem';
 
-const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:42069';
-const GRAPHQL_URL = `${INDEXER_URL.replace(/\/$/, '')}/graphql`;
+const FALLBACK_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:42069';
 
-async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T | null> {
+/// Map chain id → per-chain indexer URL if set. Falls back to the shared URL when
+/// no per-chain URL is configured. This lets deployers start with the single-service
+/// pattern and migrate to per-chain later without touching frontend code.
+const PER_CHAIN_URLS: Record<number, string | undefined> = {
+  1: process.env.NEXT_PUBLIC_INDEXER_URL_MAINNET,
+  8453: process.env.NEXT_PUBLIC_INDEXER_URL_BASE,
+  84532: process.env.NEXT_PUBLIC_INDEXER_URL_BASE_SEPOLIA,
+  4663: process.env.NEXT_PUBLIC_INDEXER_URL_ROBINHOOD,
+  11155111: process.env.NEXT_PUBLIC_INDEXER_URL_SEPOLIA,
+  46630: process.env.NEXT_PUBLIC_INDEXER_URL_ROBINHOOD_TESTNET,
+};
+
+function graphqlUrlFor(chainId?: number): string {
+  const url = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+  return `${url.replace(/\/$/, '')}/graphql`;
+}
+
+/// Return every configured indexer URL (per-chain + fallback), deduped. Used by cross-
+/// chain aggregate queries (`fetchRecentLaunches`, `fetchRecentTrades`, etc.) that
+/// want data from all chains at once. Callers merge the per-URL responses client-side.
+function allConfiguredUrls(): string[] {
+  const urls = new Set<string>();
+  urls.add(FALLBACK_URL);
+  for (const u of Object.values(PER_CHAIN_URLS)) if (u) urls.add(u);
+  return Array.from(urls).map((u) => `${u.replace(/\/$/, '')}/graphql`);
+}
+
+/// Send a GraphQL query to a specific URL. When chainId is provided, uses the per-
+/// chain URL if configured; otherwise falls back to the shared indexer URL.
+async function gql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+  chainId?: number,
+): Promise<T | null> {
+  return gqlAt<T>(graphqlUrlFor(chainId), query, variables);
+}
+
+async function gqlAt<T>(
+  url: string,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T | null> {
   try {
-    const res = await fetch(GRAPHQL_URL, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ query, variables }),
-      // Ponder is expected on-network but we don't want a page to hang forever if it's down.
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return null;
@@ -26,10 +72,39 @@ async function gql<T>(query: string, variables?: Record<string, unknown>): Promi
       return null;
     }
     return json.data ?? null;
-  } catch (err) {
+  } catch {
     // AbortError / network error / DNS failure — silent, caller falls back.
     return null;
   }
+}
+
+/// Fan out a GraphQL query across every configured indexer URL in parallel, merging
+/// the items[] arrays into a single result. Used by chain-agnostic feeds (home page
+/// live trades rail, discover feed) that show data from all chains at once. Each URL
+/// only returns its own chain's data in the per-chain deploy pattern, so merging is
+/// just concatenating arrays.
+async function gqlFanout<T extends { [key: string]: { items: unknown[] } }>(
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T | null> {
+  const urls = allConfiguredUrls();
+  if (urls.length === 1) {
+    // Single-service pattern — no fanout needed.
+    return gqlAt<T>(urls[0]!, query, variables);
+  }
+  const results = await Promise.all(urls.map((u) => gqlAt<T>(u, query, variables)));
+  const nonNull: T[] = [];
+  for (const r of results) if (r !== null) nonNull.push(r);
+  if (nonNull.length === 0) return null;
+  const first = nonNull[0]!;
+  // Merge: for each top-level key in the response, concat all items[] arrays.
+  const merged = { ...first };
+  const keys = Object.keys(first) as Array<keyof T>;
+  for (const key of keys) {
+    const allItems = nonNull.flatMap((r) => r[key].items);
+    (merged[key] as { items: unknown[] }) = { ...first[key], items: allItems };
+  }
+  return merged;
 }
 
 // ---- Row shapes matching ponder.schema.ts ----
@@ -91,10 +166,12 @@ export interface IndexerTrade {
 
 // ---- Queries ----
 
-/// Fetch the most recent launches. Returns `null` if the indexer is unreachable so the caller
-/// can fall back to the mock feed cleanly.
+/// Fetch the most recent launches. Fans out across every configured indexer URL and
+/// merges results — under per-chain deploys each Ponder service only knows its own
+/// chain's launches, so merging is required for a chain-agnostic feed. Returns `null`
+/// if EVERY indexer is unreachable; caller falls back to mocks.
 export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] | null> {
-  const data = await gql<{ launchess: { items: IndexerLaunch[] } }>(
+  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query RecentLaunches($limit: Int!) {
       launchess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
@@ -106,12 +183,18 @@ export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] |
     }`,
     { limit },
   );
-  return data?.launchess.items ?? null;
+  if (!data) return null;
+  // Merged items may not be globally sorted (each service returns its own order).
+  // Sort by blockTimestamp desc + trim to the requested limit.
+  return data.launchess.items
+    .slice()
+    .sort((a, b) => Number(BigInt(b.blockTimestamp) - BigInt(a.blockTimestamp)))
+    .slice(0, limit);
 }
 
 /// Curve state for a token address (case-insensitive). Returns null when nothing indexed.
 export async function fetchCurveByToken(token: Address): Promise<IndexerCurve | null> {
-  const data = await gql<{ curvess: { items: IndexerCurve[] } }>(
+  const data = await gqlFanout<{ curvess: { items: IndexerCurve[] } }>(
     `query CurveByToken($token: String!) {
       curvess(where: { tokenAddress: $token }, limit: 1) {
         items {
@@ -128,7 +211,7 @@ export async function fetchCurveByToken(token: Address): Promise<IndexerCurve | 
 
 /// Chronological trades for a curve. Returned oldest → newest for chart aggregation.
 export async function fetchTradesForCurve(curve: Address, limit = 500): Promise<IndexerTrade[] | null> {
-  const data = await gql<{ tradess: { items: IndexerTrade[] } }>(
+  const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
     `query TradesForCurve($curve: String!, $limit: Int!) {
       tradess(
         where: { curveAddress: $curve },
@@ -176,7 +259,7 @@ export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | 
   // of the 200-row window whenever the chain had heavy non-launchpad v4 traffic.
   // Now the filter runs in Postgres so we always get the newest `limit` launchpad
   // swaps regardless of how noisy the rest of the chain is.
-  const gradsData = await gql<{ graduationss: { items: Array<{ poolId: `0x${string}` | null }> } }>(
+  const gradsData = await gqlFanout<{ graduationss: { items: Array<{ poolId: `0x${string}` | null }> } }>(
     `query KnownPoolIds { graduationss(limit: 1000) { items { poolId } } }`,
   );
   const poolIds = (gradsData?.graduationss.items ?? [])
@@ -184,7 +267,7 @@ export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | 
     .filter((p): p is `0x${string}` => !!p);
   if (poolIds.length === 0) return [];
 
-  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+  const data = await gqlFanout<{ v4Swapss: { items: IndexerV4Swap[] } }>(
     `query RecentV4Swaps($poolIds: [String!]!, $limit: Int!) {
       v4Swapss(
         where: { poolId_in: $poolIds },
@@ -213,7 +296,7 @@ export async function fetchV4SwapsForToken(
   tokenAddress: Address,
   limit = 500,
 ): Promise<IndexerV4Swap[] | null> {
-  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+  const data = await gqlFanout<{ v4Swapss: { items: IndexerV4Swap[] } }>(
     `query V4SwapsForToken($token: String!, $limit: Int!) {
       v4Swapss(
         where: { tokenAddress: $token },
@@ -239,7 +322,7 @@ export async function fetchV4SwapsForToken(
 export async function fetchV4SummaryForToken(
   tokenAddress: Address,
 ): Promise<{ latestSqrtPriceX96: bigint; count: number } | null> {
-  const data = await gql<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+  const data = await gqlFanout<{ v4Swapss: { items: IndexerV4Swap[] } }>(
     `query V4SummaryForToken($token: String!) {
       v4Swapss(
         where: { tokenAddress: $token },
@@ -261,7 +344,7 @@ export async function fetchV4SummaryForToken(
 /// home page's "live activity" rail so users see fresh buys/sells landing without opening
 /// a specific trade page.
 export async function fetchRecentTrades(limit = 25): Promise<IndexerTrade[] | null> {
-  const data = await gql<{ tradess: { items: IndexerTrade[] } }>(
+  const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
     `query RecentTrades($limit: Int!) {
       tradess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
@@ -278,6 +361,7 @@ export async function fetchRecentTrades(limit = 25): Promise<IndexerTrade[] | nu
 /// Health probe — used by pages to decide whether to try indexer queries at all before
 /// falling back to mocks. Cheap: hits the GraphQL endpoint's introspection.
 export async function isIndexerReachable(): Promise<boolean> {
+  // Introspection query — no items[] arrays to merge, use plain gql() to fallback URL.
   const data = await gql<{ __schema: unknown }>(`query { __schema { queryType { name } } }`);
   return data !== null;
 }
@@ -296,7 +380,7 @@ export interface IndexerHolding {
 /// All launches created by a given wallet, newest first. Feeds the "creations" grid on a
 /// profile — each row is a token this address launched via Router.launch.
 export async function fetchLaunchesByCreator(creator: Address, limit = 40): Promise<IndexerLaunch[] | null> {
-  const data = await gql<{ launchess: { items: IndexerLaunch[] } }>(
+  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query LaunchesByCreator($creator: String!, $limit: Int!) {
       launchess(
         where: { launchedBy: $creator },
@@ -337,7 +421,7 @@ export async function fetchV4SwapsByTrader(
   trader: Address,
   limit = 200,
 ): Promise<IndexerV4RouterSwap[] | null> {
-  const data = await gql<{ v4RouterSwapss: { items: IndexerV4RouterSwap[] } }>(
+  const data = await gqlFanout<{ v4RouterSwapss: { items: IndexerV4RouterSwap[] } }>(
     `query V4SwapsByTrader($trader: String!, $limit: Int!) {
       v4RouterSwapss(
         where: { user: $trader },
@@ -359,7 +443,7 @@ export async function fetchV4SwapsByTrader(
 /// Every trade this wallet has ever made across every curve, newest first. Feeds the
 /// activity feed + is the raw input to PnL math.
 export async function fetchTradesByTrader(trader: Address, limit = 200): Promise<IndexerTrade[] | null> {
-  const data = await gql<{ tradess: { items: IndexerTrade[] } }>(
+  const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
     `query TradesByTrader($trader: String!, $limit: Int!) {
       tradess(
         where: { trader: $trader },
@@ -387,7 +471,7 @@ export async function fetchTradesByTrader(trader: Address, limit = 200): Promise
 export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerLaunch[] | null> {
   const uniq = Array.from(new Set(tokens.map((t) => t.toLowerCase()))) as Address[];
   if (uniq.length === 0) return [];
-  const data = await gql<{ launchess: { items: IndexerLaunch[] } }>(
+  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query LaunchesByTokens($tokens: [String!]!) {
       launchess(where: { tokenAddress_in: $tokens }, limit: 1000) {
         items {
@@ -404,7 +488,7 @@ export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerL
 
 /// Current per-token balances for a wallet. Used for the "holdings" strip on the profile.
 export async function fetchHoldingsByAddress(holder: Address, limit = 100): Promise<IndexerHolding[] | null> {
-  const data = await gql<{ holderss: { items: IndexerHolding[] } }>(
+  const data = await gqlFanout<{ holderss: { items: IndexerHolding[] } }>(
     `query HoldingsByAddress($holder: String!, $limit: Int!) {
       holderss(
         where: { holderAddress: $holder },

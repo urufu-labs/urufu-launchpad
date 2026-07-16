@@ -1,28 +1,104 @@
 # Deploy — indexer + compile service on Railway
 
-Two services need public HTTPS URLs so users can hit them from their browsers: the
-Ponder **indexer** and the Foundry-backed **compile service**. The web front-end runs
-on Vercel and just reads their URLs from `NEXT_PUBLIC_*` envs. Everything is
-container-based, so mainnet-day cutover is only environment variables + a redeploy.
+The web frontend on Vercel needs two backends: **Ponder indexer(s)** for on-chain
+data + **compile-service** for social/UGC + IPFS pinning.
+
+## Recommended: per-chain indexer services (isolation + speed)
+
+Rather than one Ponder process syncing every chain, run **one Railway service per
+chain**. Reasons this matters in prod:
+
+- **Each service gets its own Alchemy CU quota** — historical sync runs 3-5× faster
+  because subscriptions don't compete for RPC bandwidth
+- **Config changes are isolated per chain** — a schema change on Base doesn't force
+  Ethereum + Robinhood to re-sync
+- **A stuck subscription on one chain doesn't block the others** from indexing
+  real-time events
+- **Failures are isolated** — if Base RPC has an outage, other chains keep working
+
+Trade-off: 4 services instead of 1 (~$5-10/mo extra on Railway). Frontend uses
+`NEXT_PUBLIC_INDEXER_URL_<CHAIN>` per chain to route GraphQL queries.
+
+The code supports BOTH patterns — you can migrate from single-service to per-chain
+without touching frontend code, just by adding the per-chain URL env vars on Vercel.
 
 ## One-time Railway project setup
 
 1. `railway init` in the repo root (or use the Railway UI to create a new project).
-2. Add **two services** (one for each Dockerfile) inside that project.
-3. Add the **Postgres** plugin — Railway injects `DATABASE_URL` +
-   `DATABASE_PRIVATE_URL` automatically. `ponder.config.ts` switches to Postgres
-   when either is present.
+2. Add **one Postgres plugin** — shared across all indexer services. Railway
+   auto-injects `DATABASE_URL` + `DATABASE_PRIVATE_URL`.
+3. Create additional databases in Postgres (one per chain — isolates the on-chain
+   data + Ponder's cached sync pointers between chains):
+   ```sql
+   -- Connect to Postgres via Railway's shell, then:
+   CREATE DATABASE indexer_base;
+   CREATE DATABASE indexer_mainnet;
+   CREATE DATABASE indexer_robinhood;
+   CREATE DATABASE indexer_base_sepolia;
+   ```
+4. Add **N services** (one per chain + one compile-service). Each indexer service
+   points at the same repo but with a different `INDEXER_CHAINS` + `DATABASE_URL`
+   (see below).
 
-## Service A — indexer (multi-chain)
+## Per-chain indexer services
 
-**Root Directory:** repo root
-**Config file:** `indexer/railway.json` (points at `indexer/Dockerfile`)
+Each chain gets its own Railway service. All point at the same
+`indexer/Dockerfile` from the repo root. What differs per service:
 
-One Ponder process handles every chain listed in `INDEXER_CHAINS`. Enabling a
-new chain is a Railway env-var change, not a new service. Env vars follow the
-pattern `<PREFIX>_<CONTRACT>_ADDRESS` where PREFIX is the chain slug uppercased
-(dashes → underscores): `BASE_SEPOLIA`, `BASE`, `SEPOLIA`, `MAINNET`,
-`ROBINHOOD`, `ROBINHOOD_TESTNET`.
+- `INDEXER_CHAINS` — single chain slug (e.g. `base`)
+- `DATABASE_URL` — points to its own database (e.g. `${{Postgres.DATABASE_URL}}` with
+  `?schema=public` swapped for the chain-specific database name via
+  `${{Postgres.HOST}}:${{Postgres.PORT}}/indexer_base` in Railway's syntax)
+- `<PREFIX>_RPC_URL` + address vars for that chain only
+
+Environment variable pattern: `<PREFIX>_<CONTRACT>_ADDRESS` where PREFIX is the
+chain slug uppercased (dashes → underscores): `BASE`, `MAINNET`, `ROBINHOOD`,
+`BASE_SEPOLIA`, `SEPOLIA`, `ROBINHOOD_TESTNET`.
+
+### Service: indexer-base
+
+```
+INDEXER_CHAINS=base
+DATABASE_URL=<Postgres URL pointed at indexer_base database>
+BASE_RPC_URL=<your paid Alchemy Base URL>
+BASE_NAME_REGISTRY_ADDRESS=0xC3e117CD904db351F919134adCee7237F3ebC2A7
+BASE_ROUTER_ADDRESS=0x38461D94d6f84204399132AEc891E3B90563939a
+BASE_ERC20_FACTORY_ADDRESS=0x347c9567bf379a5a046f925498FD805a9A34457A
+BASE_ERC721A_FACTORY_ADDRESS=0x330e6c63d4c976D63029fA65f21bA4218157c6e6
+BASE_ERC1155_FACTORY_ADDRESS=0xb0F341CB55FcD23c1BE08d2D1CcAe5829CF2FE7a
+BASE_CURVE_FACTORY_ADDRESS=0x7d89aa4AE1f53bB185e905a005D0673014220a61
+BASE_POOL_MANAGER_ADDRESS=0x498581fF718922c3f8e6A244956aF099B2652b2b
+BASE_V4_SWAP_ROUTER_ADDRESS=0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288
+BASE_MULTI_HOOK_HOST_ADDRESS=0x38d9a33fE38f9cd8b0334fA51A6C7417B51822c4
+PONDER_START_BLOCK_BASE=48674693
+URU_TOKEN_ADDRESS=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac
+GEMU_NFT_ADDRESS=0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A
+```
+
+Replicate this pattern for `indexer-mainnet`, `indexer-robinhood`, and
+`indexer-base-sepolia` — each with its own `INDEXER_CHAINS=<slug>`,
+`DATABASE_URL` (pointing at its own database), and per-chain address block.
+
+### Vercel — wire the per-chain URLs
+
+Set these on Vercel so the frontend routes queries to the right service:
+
+```
+NEXT_PUBLIC_INDEXER_URL_BASE=https://indexer-base-xxx.up.railway.app
+NEXT_PUBLIC_INDEXER_URL_MAINNET=https://indexer-mainnet-xxx.up.railway.app
+NEXT_PUBLIC_INDEXER_URL_ROBINHOOD=https://indexer-robinhood-xxx.up.railway.app
+NEXT_PUBLIC_INDEXER_URL_BASE_SEPOLIA=https://indexer-base-sepolia-xxx.up.railway.app
+```
+
+Frontend automatically fans out cross-chain queries (home page live rail,
+discover feed) to all four services in parallel and merges results.
+
+## Legacy: single indexer service (still supported)
+
+If you want to start with one indexer service that syncs all chains, the code
+still supports it — just set `INDEXER_CHAINS=base,mainnet,robinhood,base-sepolia`
++ every chain's env vars on one service. Not recommended for prod but fine for
+local dev / initial rollout.
 
 **Env vars — Base Sepolia only (current):**
 
