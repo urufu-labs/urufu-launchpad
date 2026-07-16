@@ -43,7 +43,7 @@ Constructor: `(IPoolManager, address platform, address defaultCreator, uint16 pl
 | Chain      | Chain ID | Hook Address                                 | PoolManager (Uniswap-deployed)                | Verified |
 |---         |---       |---                                           |---                                            |---       |
 | Base       | 8453     | `0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
-| Ethereum   | 1        | *pending V3 broadcast — top up needed*      | `0x000000000004444c5dc75cB358380D2e3dE08A90` | — |
+| Ethereum   | 1        | `0x629b2cD1641958B677A0106087CcBB89966262C4` | `0x000000000004444c5dc75cB358380D2e3dE08A90` | Etherscan ✅ |
 | Robinhood  | 4663     | `0x5295Ee9c86A40667A46C525A99931a29c354e2C4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
 
 All hooks are byte-identical — same source, same compiler, same optimizer

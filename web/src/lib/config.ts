@@ -219,7 +219,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x3345A99403bA5687B75d9c5b4B6f058ca35e0200',
     FeeRedirectHook: '0x46D3367ee25B28A50a3c82533A9623e593b3C044',
     AntiSniperHook: '0xd5530a2971699E340166b61e7A61a29Ce478A080',
-    MultiHookHost: '0x6B2da7926e496577F13fb4f1e08E1BAFe1C2e2C4',
+    MultiHookHost: '0x629b2cD1641958B677A0106087CcBB89966262C4',
     BuybackBurnHook: '0xD8Ff51EFAf5daAE757bf152034d96cd2D61F0044',
   },
   sepolia: null,
@@ -253,7 +253,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
 /// One Graduator per chain — routes graduated bonding curves into a v4 pool with
 /// `MultiHookHost` as the default hook. `null` until `DeployGraduator` broadcasts.
 export const GRADUATORS: Record<ChainKey, Address | null> = {
-  mainnet: '0x17E2572E148384cA484E274e9fF8365A50Eff17F',
+  mainnet: '0xfCadca2f846533e50c6f9A7126535aBA54b6854c',
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0x736D1280E30B0CCEEc7e3998E66620D9EB7fFa99',
