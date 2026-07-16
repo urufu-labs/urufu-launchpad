@@ -443,6 +443,30 @@ export default function HomePage() {
                 >
                   hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
                 </div>
+                {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
+                    URU link opens Uniswap on Base with the pre-selected outputCurrency so the
+                    swap widget is pre-filled — no chain-picker fumbling. NFT link goes to the
+                    collection page on OpenSea where the cheapest listing is one tap away. */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                  <a
+                    href="https://app.uniswap.org/swap?chain=base&outputCurrency=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="uru-btn uru-btn-mint"
+                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
+                  >
+                    ✿ buy URU
+                  </a>
+                  <a
+                    href="https://opensea.io/collection/urufugemu"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="uru-btn uru-btn-primary"
+                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
+                  >
+                    ✿ buy gemu nft
+                  </a>
+                </div>
               </div>
             </aside>
       </div>
