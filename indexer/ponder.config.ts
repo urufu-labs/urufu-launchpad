@@ -126,6 +126,35 @@ function bondingCurveNet() {
   return out;
 }
 
+/// PoolManager per-network config: filter Swap events to only those where sender is
+/// our V4SwapRouter. Uniswap v4's PoolManager fires Swap for every pool on the chain;
+/// without a filter, indexing on high-activity chains (Ethereum mainnet, Base) pulls
+/// tens of thousands of unrelated swaps per block into the getLogs response and
+/// blows past Alchemy's 10MB response body cap. Filtering to sender=<our router>
+/// narrows it to only launchpad swaps + is the same set of trades users care about
+/// (buy/sell via the trade page always goes through our router). Buybacks that go
+/// via Universal Router don't get captured here, but that's a separate flow with
+/// its own tracking. Requires V4SwapRouter address to be set per-chain.
+function poolManagerNet() {
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { address: `0x${string}`; startBlock: number; filter: { event: 'Swap'; args: { sender: `0x${string}` } } }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const pm = readAddress(slug, 'POOL_MANAGER');
+    const router = readAddress(slug, 'V4_SWAP_ROUTER');
+    if (!pm || !router) continue;
+    out[slug] = {
+      address: pm,
+      startBlock: readStartBlock(slug),
+      filter: { event: 'Swap', args: { sender: router } },
+    };
+  }
+  return out;
+}
+
 /// Token (ERC-20) subscription: dynamic factory pattern rooted at ERC20Factory. Every
 /// token our factory launches gets its Transfer events indexed automatically, no per-
 /// token config change. Powers the `holders` table (profile page holdings list) and
@@ -262,7 +291,7 @@ const contracts = {
   ERC721AFactory: { abi: factoryAbi, network: netFor('ERC721A_FACTORY') },
   ERC1155Factory: { abi: factoryAbi, network: netFor('ERC1155_FACTORY') },
   CurveFactory: { abi: curveFactoryAbi, network: netFor('CURVE_FACTORY') },
-  PoolManager: { abi: poolManagerAbi, network: netFor('POOL_MANAGER') },
+  PoolManager: { abi: poolManagerAbi, network: poolManagerNet() },
   // Explicit event filter — narrows the subscription to just the `Swapped` event we
   // handle. Functionally identical to no-filter since Swapped is the only event we
   // listen for from this contract, BUT adding the filter changes Ponder's per-source
