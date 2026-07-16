@@ -11,6 +11,7 @@ export interface MetadataInputs {
   twitter?: string;
   telegram?: string;
   discord?: string;
+  tiktok?: string;
 }
 
 interface Props {
@@ -186,6 +187,12 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
           placeholder="https://discord.gg/…"
           value={value.discord}
           onChange={(v) => onChange({ ...value, discord: v })}
+        />
+        <SocialInput
+          label="tiktok"
+          placeholder="https://tiktok.com/@…"
+          value={value.tiktok}
+          onChange={(v) => onChange({ ...value, tiktok: v })}
         />
       </div>
     </div>

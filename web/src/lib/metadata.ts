@@ -10,6 +10,7 @@ export interface TokenMetadata {
   twitter?: string;
   telegram?: string;
   discord?: string;
+  tiktok?: string;
   /// Set when the metadata has been uploaded to IPFS. `gatewayUrl` is the CDN read path.
   cid?: string;
   gatewayUrl?: string;
@@ -21,6 +22,22 @@ const MAX_LOGO_BYTES = 256 * 1024; // 256 KB — small enough for a data URL, la
 
 export function keyFor(chainId: number | string, tokenAddress: Address): string {
   return `${LOCAL_STORAGE_PREFIX}${chainId}:${tokenAddress.toLowerCase()}`;
+}
+
+/// Safely build a CSS `background` value for a user-supplied image URL. The metadata
+/// API accepts arbitrary `imageUrl` strings passing zod's `.url()` check, which lets
+/// characters like `);` through unescaped — interpolated raw into `url(${x})` they
+/// close the CSS function and inject arbitrary declarations (positioned overlays,
+/// hidden clickjack layers). Wrapping in single quotes + percent-encoding blocks
+/// both the escape and quote-injection paths. Returns a full `background` value that
+/// keeps the paper-cream fallback when the URL is falsy.
+export function safeBackgroundImage(imageUrl: string | undefined | null, fallback = 'var(--cream-deep)'): string {
+  if (!imageUrl) return fallback;
+  // encodeURI leaves : / ? # &, all safe inside quotes. Backslash + quote get through
+  // encodeURI (they're valid URL chars) but not through the quote wrapper, so also
+  // strip any embedded single-quotes defensively.
+  const clean = encodeURI(imageUrl).replace(/'/g, '%27');
+  return `#fff url('${clean}') center/cover no-repeat`;
 }
 
 export function saveMetadata(

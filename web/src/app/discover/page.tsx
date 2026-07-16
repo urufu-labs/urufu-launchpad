@@ -19,7 +19,7 @@ import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
-import { loadMetadata } from '@/lib/metadata';
+import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
 // 'direct' switches the pool to direct-mint tokens; every other filter operates on curve
@@ -270,9 +270,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
             height: 44,
             borderRadius: 8,
             border: '1.5px solid var(--anchor)',
-            background: logoDataUrl
-              ? `#fff url(${logoDataUrl}) center/cover no-repeat`
-              : launch.logoBg,
+            background: safeBackgroundImage(logoDataUrl, launch.logoBg),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

@@ -18,7 +18,7 @@ import {
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
 import { fetchRecentTrades, fetchRecentV4Swaps, type IndexerTrade, type IndexerV4Swap } from '@/lib/indexer';
-import { loadMetadata } from '@/lib/metadata';
+import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
@@ -561,9 +561,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
             height: 40,
             borderRadius: 8,
             border: '1.5px solid var(--anchor)',
-            background: logoDataUrl
-              ? `#fff url(${logoDataUrl}) center/cover no-repeat`
-              : launch.logoBg,
+            background: safeBackgroundImage(logoDataUrl, launch.logoBg),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

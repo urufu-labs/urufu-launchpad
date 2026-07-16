@@ -47,7 +47,7 @@ import {
   type ModuleSpec,
 } from '@/lib/modules';
 import { encodeModuleSlice } from '@/components/ModulePicker';
-import { persistMetadata, readFileAsDataUrl, type TokenMetadata } from '@/lib/metadata';
+import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { saveTokenMetadata } from '@/lib/socialApi';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
@@ -367,13 +367,35 @@ export default function CreatePage() {
     [base, name, ticker, configHash, initData, templateModuleIds.length, ownership, multisigTarget, multisigValid, useCurve, antiSniperBlocks, buybackBurnBps],
   );
 
-  const quote = useReadContract({
+  // Quote paths:
+  //   grossQuote  — Router.quote(params) → pre-discount fee, drives the display of
+  //                 "gross" so users can see how much the loyalty discount saved them.
+  //   quote       — Router.quoteFor(params, wallet) → actual fee they'll pay. When
+  //                 wallet isn't connected yet, falls through to grossQuote so first-
+  //                 paint still shows a price. This is what msg.value + button disable
+  //                 gate on so the on-chain check matches what we display.
+  const grossQuote = useReadContract({
     abi: routerAbi,
     address: contracts?.Router,
     functionName: 'quote',
     args: [params],
     query: { enabled: !!contracts && name.length > 0 && ticker.length >= 2 },
   });
+  const discountedQuote = useReadContract({
+    abi: routerAbi,
+    address: contracts?.Router,
+    functionName: 'quoteFor',
+    args: address ? [params, address] : undefined,
+    query: { enabled: !!contracts && !!address && name.length > 0 && ticker.length >= 2 },
+  });
+  const quote = (discountedQuote.data !== undefined ? discountedQuote : grossQuote);
+  const discountBps = useMemo(() => {
+    if (!grossQuote.data || !discountedQuote.data) return 0;
+    const gross = grossQuote.data as bigint;
+    const net = discountedQuote.data as bigint;
+    if (gross === 0n) return 0;
+    return Number(((gross - net) * 10_000n) / gross);
+  }, [grossQuote.data, discountedQuote.data]);
 
   // Live fee schedule — the receipt breakdown reads from these so the display always
   // matches what Router.quote() actually charges, even after owner-side setFee /
@@ -488,6 +510,7 @@ export default function CreatePage() {
               twitter: metadata.twitter ?? null,
               telegram: metadata.telegram ?? null,
               discord: metadata.discord ?? null,
+              tiktok: metadata.tiktok ?? null,
             },
             ({ message }) => signMessageAsync({ message }),
           );
@@ -896,7 +919,7 @@ export default function CreatePage() {
                         borderRadius: 12,
                         border: '1.5px solid var(--anchor)',
                         boxShadow: '2px 2px 0 var(--anchor)',
-                        background: metadata.logoDataUrl ? `#fff url(${metadata.logoDataUrl}) center/cover no-repeat` : 'var(--cream-deep)',
+                        background: safeBackgroundImage(metadata.logoDataUrl),
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -973,6 +996,9 @@ export default function CreatePage() {
                   <Field label="discord">
                     <input className="uru-input" value={metadata.discord ?? ''} onChange={(e) => setMetadata({ ...metadata, discord: e.target.value })} placeholder="https://discord.gg/…" />
                   </Field>
+                  <Field label="tiktok">
+                    <input className="uru-input" value={metadata.tiktok ?? ''} onChange={(e) => setMetadata({ ...metadata, tiktok: e.target.value })} placeholder="https://tiktok.com/@…" />
+                  </Field>
                 </FieldGrid>
               </div>
             </section>
@@ -1015,6 +1041,16 @@ export default function CreatePage() {
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
                 <li>✿ base fee: {formatEther(feeSchedule.base)} ETH</li>
                 <li>✿ module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
+                {discountBps > 0 && grossQuote.data && (
+                  <>
+                    <li style={{ marginTop: 4, color: 'var(--anchor-soft)', textDecoration: 'line-through' }}>
+                      subtotal: {formatEther(grossQuote.data as bigint)} ETH
+                    </li>
+                    <li style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
+                      ✿ loyalty discount: −{(discountBps / 100).toFixed(0)}% (holding urufu gemu nft {'&'} URU)
+                    </li>
+                  </>
+                )}
               </ul>
 
               <button

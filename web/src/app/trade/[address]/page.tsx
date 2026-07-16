@@ -29,7 +29,7 @@ import {
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
-import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadata';
+import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
@@ -205,6 +205,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         twitter: remote.twitter ?? undefined,
         telegram: remote.telegram ?? undefined,
         discord: remote.discord ?? undefined,
+        tiktok: remote.tiktok ?? undefined,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || Date.now(),
       });
     })();
@@ -749,9 +750,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             height: 52,
             borderRadius: 10,
             border: '1.5px solid var(--anchor)',
-            background: metadata?.logoDataUrl
-              ? `#fff url(${metadata.logoDataUrl}) center/cover no-repeat`
-              : 'var(--cream-deep)',
+            background: safeBackgroundImage(metadata?.logoDataUrl),
             flexShrink: 0,
             display: 'flex',
             alignItems: 'center',
@@ -1260,7 +1259,7 @@ function MetadataPanel({
   const [editing, setEditing] = useState(false);
   const hasContent = !!(metadata && (
     metadata.logoDataUrl || metadata.description || metadata.website ||
-    metadata.twitter || metadata.telegram || metadata.discord
+    metadata.twitter || metadata.telegram || metadata.discord || metadata.tiktok
   ));
 
   if (!hasContent && !wallet) return null;
@@ -1290,12 +1289,13 @@ function MetadataPanel({
       {metadata?.description && (
         <p style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 8 }}>{metadata.description}</p>
       )}
-      {(metadata?.website || metadata?.twitter || metadata?.telegram || metadata?.discord) && (
+      {(metadata?.website || metadata?.twitter || metadata?.telegram || metadata?.discord || metadata?.tiktok) && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {metadata.website && <Socialz href={metadata.website} label="site" />}
           {metadata.twitter && <Socialz href={metadata.twitter} label="twitter" />}
           {metadata.telegram && <Socialz href={metadata.telegram} label="tg" />}
           {metadata.discord && <Socialz href={metadata.discord} label="discord" />}
+          {metadata.tiktok && <Socialz href={metadata.tiktok} label="tiktok" />}
         </div>
       )}
       {editing && wallet && (
@@ -1334,6 +1334,7 @@ function EditMetadataModal({
     twitter: initial?.twitter,
     telegram: initial?.telegram,
     discord: initial?.discord,
+    tiktok: initial?.tiktok,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1353,6 +1354,7 @@ function EditMetadataModal({
         twitter: inputs.twitter,
         telegram: inputs.telegram,
         discord: inputs.discord,
+        tiktok: inputs.tiktok,
       });
       const remote = await saveTokenMetadata(
         wallet,
@@ -1365,6 +1367,7 @@ function EditMetadataModal({
           twitter: inputs.twitter ?? null,
           telegram: inputs.telegram ?? null,
           discord: inputs.discord ?? null,
+          tiktok: inputs.tiktok ?? null,
         },
         ({ message }) => signMessageAsync({ message }),
       );

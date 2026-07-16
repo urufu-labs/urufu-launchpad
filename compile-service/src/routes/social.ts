@@ -25,7 +25,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       }
       const rows = await sql!`
         SELECT chain_id AS "chainId", token_address AS "tokenAddress", image_url AS "imageUrl",
-               description, website, twitter, telegram, discord, updated_at AS "updatedAt", owner
+               description, website, twitter, telegram, discord, tiktok, updated_at AS "updatedAt", owner
         FROM app.token_metadata
         WHERE chain_id = ${chainId} AND token_address = ${addr}
         LIMIT 1
@@ -40,21 +40,33 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     timestamp: z.number(),
     payload: z.object({
       chainId: z.number().int().positive(),
-      tokenAddress: z.string(),
+      // Enforce 20-byte hex — prior z.string() accepted any garbage which polluted
+      // token_metadata rows with junk keys AND let a valid signature for token X
+      // be redirected to token Y's row by just re-writing payload.tokenAddress.
+      tokenAddress: z.string().refine(isAddress, { message: 'not an address' }),
       imageUrl: z.string().url().nullable().optional(),
       description: z.string().max(500).nullable().optional(),
       website: z.string().url().nullable().optional(),
       twitter: z.string().max(80).nullable().optional(),
       telegram: z.string().max(80).nullable().optional(),
       discord: z.string().max(80).nullable().optional(),
+      tiktok: z.string().max(80).nullable().optional(),
     }),
   });
 
-  app.post('/token/:chainId/:address/metadata', async (req, reply) => {
+  app.post<{ Params: { chainId: string; address: string } }>('/token/:chainId/:address/metadata', async (req, reply) => {
     if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const parsed = MetadataSaveBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ code: 'BAD_BODY', errors: parsed.error.flatten() });
     const { address, signature, timestamp, payload } = parsed.data;
+    // Belt-and-suspenders: the URL params must agree with the body payload. Without
+    // this a wallet could sign a valid envelope for token X but POST it against
+    // token Y's URL — routing tools that key on the URL (rate-limits, audit logs)
+    // would attribute the write to the wrong resource.
+    if (Number(req.params.chainId) !== payload.chainId
+      || req.params.address.toLowerCase() !== payload.tokenAddress.toLowerCase()) {
+      return reply.code(400).send({ code: 'URL_PAYLOAD_MISMATCH' });
+    }
     const envelope: AuthEnvelope = { address, signature: signature as `0x${string}`, timestamp };
     const auth = await verifyEnvelope('metadata:save', payload, envelope);
     if (!auth.ok) return reply.code(401).send({ code: 'UNAUTHORIZED', reason: auth.reason });
@@ -70,16 +82,24 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       LIMIT 1
     `;
     const launcherRow = launcherRows[0];
-    if (launcherRow) {
-      const launcher = String(launcherRow.launched_by).toLowerCase();
-      if (launcher !== auth.address) {
-        return reply.code(403).send({ code: 'NOT_LAUNCHER', launcher, signer: auth.address });
-      }
+    if (!launcherRow) {
+      // Prior behavior: allow any signed wallet to write metadata when the indexer
+      // hadn't caught up yet. That opened a defacement window on every fresh launch —
+      // an attacker who saw a launch in mempool could plant a phishing image + socials
+      // before the indexer added the launches row. Now the endpoint waits for the
+      // indexer to confirm the launcher; the launcher retries a few seconds later. This
+      // trades a small usability blip on fresh launches for eliminating the exploit
+      // class entirely.
+      return reply.code(409).send({ code: 'INDEXER_PENDING', message: 'launch not indexed yet — retry in a few seconds' });
+    }
+    const launcher = String(launcherRow.launched_by).toLowerCase();
+    if (launcher !== auth.address) {
+      return reply.code(403).send({ code: 'NOT_LAUNCHER', launcher, signer: auth.address });
     }
 
     await sql!`
-      INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, owner, updated_at)
-      VALUES (${payload.chainId}, ${tokenAddr}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${auth.address}, now())
+      INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, tiktok, owner, updated_at)
+      VALUES (${payload.chainId}, ${tokenAddr}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.tiktok ?? null}, ${auth.address}, now())
       ON CONFLICT (chain_id, token_address) DO UPDATE SET
         image_url = EXCLUDED.image_url,
         description = EXCLUDED.description,
@@ -87,6 +107,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
         twitter = EXCLUDED.twitter,
         telegram = EXCLUDED.telegram,
         discord = EXCLUDED.discord,
+        tiktok = EXCLUDED.tiktok,
         owner = EXCLUDED.owner,
         updated_at = now()
     `;
@@ -109,7 +130,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     if (tokens.length === 0) return reply.send({ items: [] });
     const rows = await sql!`
       SELECT chain_id AS "chainId", token_address AS "tokenAddress", image_url AS "imageUrl",
-             description, website, twitter, telegram, discord, updated_at AS "updatedAt"
+             description, website, twitter, telegram, discord, tiktok, updated_at AS "updatedAt"
       FROM app.token_metadata
       WHERE chain_id = ${body.chainId} AND token_address IN ${sql!(tokens)}
     `;

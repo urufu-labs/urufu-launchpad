@@ -14,6 +14,8 @@
 /// The keeper trigger secret should be a long random string, rotated any time
 /// the compile-service logs might have leaked (Railway ships them by default).
 
+import { timingSafeEqual } from 'node:crypto';
+
 import type { FastifyInstance } from 'fastify';
 import { isAddress, type Address } from 'viem';
 import { z } from 'zod';
@@ -75,7 +77,17 @@ export async function registerRewardsRoutes(app: FastifyInstance): Promise<void>
     const expected = process.env.KEEPER_TRIGGER_SECRET;
     if (!expected) return reply.code(503).send({ code: 'PUBLISH_DISABLED' });
     const got = req.headers['x-keeper-secret'];
-    if (got !== expected) return reply.code(401).send({ code: 'UNAUTHORIZED' });
+    // Constant-time compare so an attacker with rate-limited-but-many attempts can't
+    // side-channel the secret via response-time skew on partial-match. Length mismatch
+    // is handled explicitly since timingSafeEqual requires equal-length buffers.
+    if (typeof got !== 'string' || got.length !== expected.length) {
+      return reply.code(401).send({ code: 'UNAUTHORIZED' });
+    }
+    const gotBuf = Buffer.from(got, 'utf8');
+    const expBuf = Buffer.from(expected, 'utf8');
+    if (!timingSafeEqual(gotBuf, expBuf)) {
+      return reply.code(401).send({ code: 'UNAUTHORIZED' });
+    }
 
     const chain = CHAIN_PATH.safeParse(req.params.chain);
     if (!chain.success) return reply.code(400).send({ code: 'BAD_CHAIN' });

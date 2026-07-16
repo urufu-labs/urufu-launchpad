@@ -64,6 +64,7 @@ export interface RemoteTokenMetadata {
   twitter: string | null;
   telegram: string | null;
   discord: string | null;
+  tiktok: string | null;
   updatedAt: string;
   owner: Address;
 }
@@ -109,6 +110,7 @@ export async function saveTokenMetadata(
     twitter?: string | null;
     telegram?: string | null;
     discord?: string | null;
+    tiktok?: string | null;
   },
   sign: SignFn,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

@@ -36,6 +36,13 @@ export const nameRegistryAbi = parseAbi([
 export const routerAbi = parseAbi([
   `struct LaunchParams { uint8 base; string name; string ticker; bytes32 configHash; bytes initData; uint256 moduleCount; bool installHook; bool installGovernance; bool installBondingCurve; uint8 ownership; address ownerTargetIfMultisig; uint32 antiSniperBlocks; uint16 buybackBurnBps; }`,
   `function quote(LaunchParams params) view returns (uint256)`,
+  /// Discount-aware quote — reads the wired LoyaltyOracle and applies the launcher's
+  /// discount slice. Returns 0 when discount is 100% (staff/promo). Every launch
+  /// path should prefer this over `quote()` so the receipt matches what Router
+  /// actually charges — otherwise users pay less than the UI showed and never learn
+  /// the flywheel rewarded them.
+  `function quoteFor(LaunchParams params, address launcher) view returns (uint256)`,
+  `function loyaltyOracle() view returns (address)`,
   `function launch(LaunchParams params) payable returns (address token)`,
   `function fees(uint8 base) view returns (uint256)`,
   `function moduleAddOnFee() view returns (uint256)`,

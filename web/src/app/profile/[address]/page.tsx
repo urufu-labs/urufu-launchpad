@@ -37,6 +37,7 @@ import {
   type UserProfile,
 } from '@/lib/profile';
 import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi';
+import { safeBackgroundImage } from '@/lib/metadata';
 import { uploadImageToIpfs } from '@/lib/ipfs';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
@@ -257,9 +258,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             borderRadius: 12,
             border: '1.5px solid var(--anchor)',
             boxShadow: '2px 2px 0 var(--anchor)',
-            background: profile.avatarDataUrl
-              ? `#fff url(${profile.avatarDataUrl}) center/cover no-repeat`
-              : 'var(--cream-deep)',
+            background: safeBackgroundImage(profile.avatarDataUrl),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -948,7 +947,7 @@ function EditProfileModal({
                 style={{
                   width: 72, height: 72, borderRadius: 12,
                   border: '1.5px solid var(--anchor)', boxShadow: '2px 2px 0 var(--anchor)',
-                  background: avatarDataUrl ? `#fff url(${avatarDataUrl}) center/cover no-repeat` : 'var(--cream-deep)',
+                  background: safeBackgroundImage(avatarDataUrl),
                   flexShrink: 0,
                 }}
               />
