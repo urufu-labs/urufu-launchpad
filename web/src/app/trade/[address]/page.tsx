@@ -33,7 +33,7 @@ import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadat
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
-import { fetchLaunchesByTokens, fetchTradesForCurve, fetchV4SwapsForToken } from '@/lib/indexer';
+import { fetchGraduationForToken, fetchLaunchesByTokens, fetchTradesForCurve, fetchV4SwapsForToken } from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -311,7 +311,26 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   //
   // poolId + hookAddr are re-used by the market-cap section further down; compute once
   // here so the effect can reference them before that section runs.
-  const hookAddr = activeChain ? HOOKS[activeChain]?.MultiHookHost : undefined;
+  //
+  // Per-token hook resolution: prefer the hook address the indexer recorded at
+  // graduation time. That way a future hook redeploy (MultiHookHost v2 with per-pool
+  // creator revenue, etc.) doesn't break trade pages for tokens that graduated
+  // against the OLD hook — every token remembers its own hook forever. Falls back to
+  // the chain's current config hook for (a) tokens indexed before this column existed
+  // and (b) freshly-graduated tokens the indexer hasn't caught up on yet.
+  const [indexedHookAddr, setIndexedHookAddr] = useState<Address | undefined>();
+  useEffect(() => {
+    if (!tokenAddress) return;
+    let cancelled = false;
+    (async () => {
+      const g = await fetchGraduationForToken(tokenAddress);
+      if (cancelled) return;
+      if (g?.hookAddress) setIndexedHookAddr(g.hookAddress as Address);
+    })();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
+  const configHookAddr = activeChain ? HOOKS[activeChain]?.MultiHookHost : undefined;
+  const hookAddr = indexedHookAddr ?? configHookAddr;
   const poolManagerAddr = activeChain ? HOOKS[activeChain]?.PoolManager : undefined;
   const poolId = useMemo(() => {
     if (!hookAddr) return undefined;

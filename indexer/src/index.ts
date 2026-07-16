@@ -293,6 +293,10 @@ ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
     curveAddress,
     tokenAddress,
     poolId,
+    // Persist the hook that was used at graduation — frontend reads this per-token
+    // so trade pages keep working after any future hook redeploy (V2 with per-pool
+    // creators, etc). Null only when the graduating chain didn't have a wired hook.
+    hookAddress: hookHost ?? null,
     ethReserveFinal: ethReserve,
     tokenReserveFinal: tokenReserve,
     blockNumber: event.block.number,

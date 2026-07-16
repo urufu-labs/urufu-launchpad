@@ -18,6 +18,14 @@ interface ICurveFactoryLike {
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external returns (address curve);
+    /// Router-facing variant that records an explicit launcher address, since msg.sender
+    /// on the CurveFactory side is Router — not the human triggering `launch`.
+    function createCurveWithConfigFor(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher
+    ) external returns (address curve);
     function defaultCurveSupply() external view returns (uint256);
 }
 
@@ -197,8 +205,11 @@ contract Router is Ownable, ReentrancyGuard {
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
+            // Pass msg.sender explicitly — otherwise CurveFactory would record Router as
+            // the launcher, and the post-graduation v4 pool would route the creator
+            // share to Router (which can't claim) instead of the actual EOA.
             address curve = ICurveFactoryLike(curveFactory)
-                .createCurveWithConfig(token, params.antiSniperBlocks, params.buybackBurnBps);
+                .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
             emit CurveInstalled(token, curve);
         }
 

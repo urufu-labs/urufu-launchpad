@@ -15,7 +15,7 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
-/// Slim interface for the deployed MultiHookHost — just the setter Graduator calls per
+/// Slim interface for the deployed MultiHookHost — just the setters Graduator calls per
 /// graduation. Kept as a bare interface so we don't drag MultiHookHost's full ABI in.
 interface IHookConfig {
     function setPoolConfig(
@@ -23,6 +23,10 @@ interface IHookConfig {
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external;
+    /// Set the per-pool creator address. Introduced with MultiHookHost v2 (per-pool
+    /// creator revenue). Older hook deployments don't implement this — Graduator
+    /// wraps the call in try/catch so pre-v2 hooks still function without it.
+    function setCreator(PoolId id, address creator) external;
 }
 
 /// @title  Graduator
@@ -81,12 +85,17 @@ contract Graduator is IUnlockCallback {
     /// @notice Graduate a curve. Caller must have already approved `tokenAmount` of `token`.
     /// @param  antiSniperBlocks  swaps on the new pool revert for N blocks after init. 0 = disabled.
     /// @param  buybackBurnBps    slice of every BUY's token output sent to 0xdead. 0 = disabled.
+    /// @param  launcher          address that gets installed as the pool's per-pool creator
+    ///                           on the v4 hook — receives the creator share of post-grad
+    ///                           swap fees. Zero-address falls back to hook's default
+    ///                           creator (typical for pre-launcher-tracking curves).
     function execute(
         address token,
         uint256 ethAmount,
         uint256 tokenAmount,
         uint32 antiSniperBlocks,
-        uint16 buybackBurnBps
+        uint16 buybackBurnBps,
+        address launcher
     ) external payable {
         if (ethAmount == 0 || tokenAmount == 0) revert Graduator__ZeroAmount();
         if (msg.value != ethAmount) revert Graduator__EthMismatch(msg.value, ethAmount);
@@ -112,12 +121,28 @@ contract Graduator is IUnlockCallback {
         // ConfigFrozen. Wrapped in try/catch so a graduation still succeeds even if the
         // hook contract doesn't implement setPoolConfig (e.g. an older MultiHookHost
         // deployment mid-migration); the pool just launches without anti-sniper / buyback.
+        PoolId poolId = key.toId();
         if (antiSniperBlocks > 0 || buybackBurnBps > 0) {
-            try IHookConfig(address(defaultHook)).setPoolConfig(key.toId(), antiSniperBlocks, buybackBurnBps) {
+            try IHookConfig(address(defaultHook)).setPoolConfig(poolId, antiSniperBlocks, buybackBurnBps) {
             // config landed
             }
                 catch {
                 // silently continue — the pool still opens without the extra behaviors.
+            }
+        }
+
+        // Assign the per-pool creator BEFORE initialize — same freeze window as
+        // setPoolConfig. Zero-address launcher (legacy path) skips the setter so the
+        // hook's constructor fallback receives the creator share. Try/catch keeps
+        // graduations working against pre-v2 MultiHookHost deployments that don't
+        // implement setCreator — they'll accrue the whole creator share to their
+        // immutable `creator` slot like before.
+        if (launcher != address(0)) {
+            try IHookConfig(address(defaultHook)).setCreator(poolId, launcher) {
+            // creator landed
+            }
+                catch {
+                // pre-v2 hook — creator share flows to the immutable fallback.
             }
         }
 

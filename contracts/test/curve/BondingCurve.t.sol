@@ -55,7 +55,8 @@ contract BondingCurveTest is Test {
             FEE_BPS,
             address(0),
             0,
-            0
+            0,
+            address(0)
         );
 
         vm.deal(alice, 100 ether);
@@ -82,7 +83,8 @@ contract BondingCurveTest is Test {
             FEE_BPS,
             address(0),
             0,
-            0
+            0,
+            address(0)
         );
     }
 

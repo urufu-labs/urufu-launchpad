@@ -8,15 +8,19 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {BaseHook} from "src/hooks/BaseHook.sol";
 
 contract MultiHookHostTest is Test {
+    using PoolIdLibrary for PoolKey;
+
     MultiHookHost internal hook;
     address internal mockPM = makeAddr("poolManager");
     address internal platform = makeAddr("platform");
     address internal creator = makeAddr("creator");
+    address internal launcher = makeAddr("launcher");
     address internal swapper = makeAddr("swapper");
 
     Currency internal c0 = Currency.wrap(address(0x1));
@@ -108,5 +112,63 @@ contract MultiHookHostTest is Test {
     function test_Init_RevertsOnZeroAddress() public {
         vm.expectRevert(MultiHookHost.MultiHookHost__ZeroAddress.selector);
         new MultiHookHost(IPoolManager(mockPM), address(0), creator, 100, 100);
+    }
+
+    // ---- setCreator: per-pool creator revenue ---------------------------------
+
+    /// setCreator populates the `creators[poolId]` slot before the pool is initialized.
+    /// After beforeInitialize fires (stamps launchBlock), further setCreator calls for
+    /// that same poolId revert with ConfigFrozen — same freeze contract as setPoolConfig.
+    function test_SetCreator_StoresPerPoolAndFreezesAfterInit() public {
+        PoolId id = _key().toId();
+        assertEq(hook.creators(id), address(0));
+
+        hook.setCreator(id, launcher);
+        assertEq(hook.creators(id), launcher);
+
+        // After the pool initializes, setCreator becomes uncallable for this poolId.
+        vm.prank(mockPM);
+        hook.beforeInitialize(swapper, _key(), 0);
+
+        vm.expectRevert(MultiHookHost.MultiHookHost__ConfigFrozen.selector);
+        hook.setCreator(id, makeAddr("other"));
+    }
+
+    function test_SetCreator_RevertsOnZeroAddress() public {
+        vm.expectRevert(MultiHookHost.MultiHookHost__ZeroAddress.selector);
+        hook.setCreator(_key().toId(), address(0));
+    }
+
+    /// After setCreator(launcher), afterSwap must accrue the creator share to
+    /// `launcher` instead of the constructor-provided fallback `creator`. This is the
+    /// core V2 behavior — per-launch creator revenue.
+    function test_AfterSwap_AccruesToPerPoolCreator() public {
+        PoolId id = _key().toId();
+        hook.setCreator(id, launcher);
+
+        BalanceDelta delta = toBalanceDelta(-1000, 1000);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -1000, sqrtPriceLimitX96: 0});
+        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
+        vm.prank(mockPM);
+        hook.afterSwap(swapper, _key(), params, delta, "");
+
+        // Creator share goes to launcher — the constructor fallback `creator` stays at 0.
+        assertEq(hook.owed(c1, launcher), 10, "per-pool launcher not credited");
+        assertEq(hook.owed(c1, creator), 0, "constructor fallback should not have accrued");
+        assertEq(hook.owed(c1, platform), 10);
+    }
+
+    /// A pool that never called setCreator (e.g. manual init outside the launchpad)
+    /// must not lose its creator share — it falls back to the constructor `creator` so
+    /// funds don't get stuck in an unclaimable slot.
+    function test_AfterSwap_FallsBackToConstructorCreatorWhenUnset() public {
+        BalanceDelta delta = toBalanceDelta(-1000, 1000);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: -1000, sqrtPriceLimitX96: 0});
+        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
+        vm.prank(mockPM);
+        hook.afterSwap(swapper, _key(), params, delta, "");
+
+        // No setCreator was ever called for this poolId — creator share hits the fallback.
+        assertEq(hook.owed(c1, creator), 10, "fallback creator not credited");
     }
 }

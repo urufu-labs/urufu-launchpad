@@ -148,7 +148,8 @@ contract BondingCurveInvariantTest is StdInvariant, Test {
             FEE_BPS,
             address(0),
             0,
-            0
+            0,
+            address(0)
         );
 
         handler = new Handler(curve, token);

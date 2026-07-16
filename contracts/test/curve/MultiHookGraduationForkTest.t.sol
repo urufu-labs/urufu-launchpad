@@ -152,7 +152,8 @@ contract MultiHookGraduationForkTest is Test {
             100,
             address(graduator),
             0,
-            0
+            0,
+            address(0)
         );
 
         // Drive to graduation. 3 ETH sent → 2.97 ETH nets into reserve after 1% fee, past
@@ -234,7 +235,8 @@ contract MultiHookGraduationForkTest is Test {
             100,
             address(graduator),
             gateBlocks,
-            0
+            0,
+            address(0)
         );
 
         vm.deal(alice, 10 ether);
@@ -286,7 +288,8 @@ contract MultiHookGraduationForkTest is Test {
             100,
             address(graduator),
             0,
-            burnBps
+            burnBps,
+            address(0)
         );
 
         vm.deal(alice, 10 ether);

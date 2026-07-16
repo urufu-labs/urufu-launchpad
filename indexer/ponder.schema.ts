@@ -97,6 +97,12 @@ export const graduations = onchainTable('graduations', (t) => ({
   curveAddress: t.hex().notNull(),
   tokenAddress: t.hex().notNull(),
   poolId: t.hex(),                                 // keccak256(abi.encode(PoolKey))
+  /// MultiHookHost address that was used at pool initialization for this graduation.
+  /// Persisted per-row so that a future hook redeploy (e.g. MultiHookHost v2 with
+  /// per-pool creator addresses) doesn't break trade pages for tokens that graduated
+  /// against the OLD hook — the frontend reads this to compute poolId + route
+  /// claim/read calls to the correct hook contract per token.
+  hookAddress: t.hex(),
   ethReserveFinal: t.bigint().notNull(),
   tokenReserveFinal: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),

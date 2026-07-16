@@ -340,6 +340,33 @@ export async function fetchV4SummaryForToken(
   return { latestSqrtPriceX96: BigInt(items[0].sqrtPriceX96), count: items.length };
 }
 
+/// Per-token graduation record — includes the exact `hookAddress` the pool was
+/// initialized against so the trade page can compute poolId / route claim reads to
+/// the correct MultiHookHost even after a future hook redeploy. Legacy graduations
+/// (indexed before this column existed) return `hookAddress: null` and callers
+/// should fall back to the chain's current config hook.
+export interface IndexerGraduation {
+  tokenAddress: Address;
+  poolId: string | null;
+  hookAddress: Address | null;
+  chainId: number;
+  blockTimestamp: string;
+}
+
+export async function fetchGraduationForToken(
+  tokenAddress: Address,
+): Promise<IndexerGraduation | null> {
+  const data = await gqlFanout<{ graduationss: { items: IndexerGraduation[] } }>(
+    `query GraduationForToken($token: String!) {
+      graduationss(where: { tokenAddress: $token }, limit: 1) {
+        items { tokenAddress poolId hookAddress chainId blockTimestamp }
+      }
+    }`,
+    { token: tokenAddress.toLowerCase() },
+  );
+  return data?.graduationss.items?.[0] ?? null;
+}
+
 /// Newest trades across every curve on the connected chain, most-recent first. Powers the
 /// home page's "live activity" rail so users see fresh buys/sells landing without opening
 /// a specific trade page.

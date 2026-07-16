@@ -11,7 +11,8 @@ interface IGraduator {
         uint256 ethAmount,
         uint256 tokenAmount,
         uint32 antiSniperBlocks,
-        uint16 buybackBurnBps
+        uint16 buybackBurnBps,
+        address launcher
     ) external payable;
 }
 
@@ -80,6 +81,15 @@ contract BondingCurve is ReentrancyGuard {
     uint32 public antiSniperBlocks;
     uint16 public buybackBurnBps;
 
+    /// The wallet that launched this curve — Router forwards `msg.sender` from
+    /// `Router.launch(...)` down through CurveFactory.createCurveWithConfigFor.
+    /// At graduation, this address is passed to the Graduator and installed as the
+    /// per-pool creator on the v4 hook, so post-graduation swap fees route the
+    /// creator share to the actual launcher instead of a shared platform address.
+    /// May be zero for legacy or direct-init curves that predate this field — in
+    /// that case, the hook's constructor fallback creator receives the share.
+    address public launcher;
+
     // ============================================================
     // Live state
     // ============================================================
@@ -101,7 +111,8 @@ contract BondingCurve is ReentrancyGuard {
         uint16 tradeFeeBps_,
         address graduator_,
         uint32 antiSniperBlocks_,
-        uint16 buybackBurnBps_
+        uint16 buybackBurnBps_,
+        address launcher_
     ) external {
         if (_initialized != 0) revert BondingCurve__AlreadyInitialized();
         _initialized = 1;
@@ -117,6 +128,7 @@ contract BondingCurve is ReentrancyGuard {
         graduator = graduator_;
         antiSniperBlocks = antiSniperBlocks_;
         buybackBurnBps = buybackBurnBps_;
+        launcher = launcher_;
 
         tokenReserve = curveSupply_;
         ethReserve = 0;
@@ -253,7 +265,9 @@ contract BondingCurve is ReentrancyGuard {
             ethReserve = 0;
             tokenReserve = 0;
             SafeTransferLib.safeApprove(token, graduator, tokenOut);
-            IGraduator(graduator).execute{value: ethOut}(token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps);
+            IGraduator(graduator).execute{value: ethOut}(
+                token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps, launcher
+            );
         }
     }
 

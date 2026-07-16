@@ -117,7 +117,8 @@ contract GraduationForkTest is Test {
             100,
             address(graduator),
             0,
-            0
+            0,
+            address(0)
         );
 
         vm.deal(alice, 10 ether);

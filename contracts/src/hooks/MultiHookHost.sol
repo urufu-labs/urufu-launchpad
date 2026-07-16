@@ -24,13 +24,20 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol
 ///         | AFTER_SWAP_FLAG                  (1 << 6)
 ///         | AFTER_SWAP_RETURNS_DELTA_FLAG    (1 << 2)
 ///
-///         Per-pool config (anti-sniper window + buyback burn bps) is set via
-///         `setPoolConfig` BEFORE the pool is initialized; once `beforeInitialize` fires,
-///         `launchBlock` is stamped and config is frozen for that pool forever.
+///         Per-pool config (anti-sniper window + buyback burn bps + creator address)
+///         is set via `setPoolConfig` + `setCreator` BEFORE the pool is initialized;
+///         once `beforeInitialize` fires, `launchBlock` is stamped and both are frozen
+///         for that pool forever.
 ///
-///         Anyone can call `setPoolConfig` in principle — but in practice the Graduator
-///         calls it atomically in the same tx as `initialize`, so there's no window for a
-///         front-runner to plant bad config against a real launch.
+///         Anyone can call `setPoolConfig`/`setCreator` in principle — but in practice
+///         the Graduator calls them atomically in the same tx as `initialize`, so
+///         there's no window for a front-runner to plant bad config against a real
+///         launch.
+///
+///         Creator revenue is per-pool: each launched token's pool records its own
+///         `creators[poolId]` at graduation (== the wallet that called Router.launch).
+///         If a pool skips `setCreator` (e.g. a manual init outside the launchpad),
+///         the `creator` fallback keeps the creator share from getting stuck.
 contract MultiHookHost is BaseHook {
     using PoolIdLibrary for PoolKey;
 
@@ -52,6 +59,7 @@ contract MultiHookHost is BaseHook {
     error MultiHookHost__AntiSniperGate(uint256 launchBlock, uint256 gateBlocks);
 
     event PoolConfigSet(PoolId indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps);
+    event CreatorSet(PoolId indexed poolId, address indexed creator);
     event BuybackBurned(Currency indexed currency, uint256 amount);
 
     /// Chain-wide caps.
@@ -60,11 +68,20 @@ contract MultiHookHost is BaseHook {
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     address public immutable platform;
+    /// Fallback creator address for pools that were initialized without calling
+    /// `setCreator` first (e.g. manual initialize outside the Graduator). Real
+    /// launchpad pools are set via `setCreator(poolId, launcher)` in the same tx as
+    /// the Graduator's `initialize` so this fallback rarely fires in practice.
     address public immutable creator;
     uint16 public immutable platformBps;
     uint16 public immutable creatorBps;
 
     mapping(Currency => mapping(address => uint256)) public owed;
+
+    /// Per-pool creator address — set exactly once by `setCreator` before the pool is
+    /// initialized. Once `beforeInitialize` fires, this entry is frozen. If unset at
+    /// swap time, the constructor-provided `creator` is used instead.
+    mapping(PoolId => address) public creators;
 
     struct PoolConfig {
         uint32 launchBlock; // set exactly once at beforeInitialize, freezes config
@@ -129,9 +146,20 @@ contract MultiHookHost is BaseHook {
         emit PoolConfigSet(id, antiSniperBlocks, buybackBurnBps);
     }
 
+    /// Assign a creator to a pool BEFORE it initializes. After `beforeInitialize` fires
+    /// for this poolId, `launchBlock` is stamped and the creator is frozen — subsequent
+    /// calls revert with `ConfigFrozen`. Same anti-front-run rationale as setPoolConfig:
+    /// Graduator does this in the same tx as initialize.
+    function setCreator(PoolId id, address _creator) external {
+        if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
+        if (_creator == address(0)) revert MultiHookHost__ZeroAddress();
+        creators[id] = _creator;
+        emit CreatorSet(id, _creator);
+    }
+
     // ---------------------------------------------------------------- beforeInitialize
-    // Stamp the launch block. This is the freeze signal for setPoolConfig — it can no
-    // longer be updated after this hook fires for a given poolId.
+    // Stamp the launch block. This is the freeze signal for setPoolConfig + setCreator —
+    // they can no longer be updated after this hook fires for a given poolId.
     function beforeInitialize(
         address,
         PoolKey calldata key,
@@ -200,7 +228,8 @@ contract MultiHookHost is BaseHook {
         // Buyback-burn only on BUYs — where the swapper receives the token side.
         // Comparing addresses via `Currency.unwrap` (v4 doesn't overload ==).
         uint256 burn = 0;
-        PoolConfig storage cfg = poolConfig[key.toId()];
+        PoolId id = key.toId();
+        PoolConfig storage cfg = poolConfig[id];
         if (cfg.buybackBurnBps > 0 && Currency.unwrap(unspecCurrency) == Currency.unwrap(key.currency1)) {
             burn = (outAmount * uint256(cfg.buybackBurnBps)) / 10_000;
         }
@@ -217,8 +246,14 @@ contract MultiHookHost is BaseHook {
         if (fee > 0) {
             uint256 platformShare = (fee * platformBps) / totalBps;
             uint256 creatorShare = fee - platformShare;
+            // Per-pool creator lookup with the constructor-set `creator` as fallback.
+            // A pool that skipped setCreator (manual init outside the Graduator)
+            // accrues to `creator` so the creator share never becomes stuck in an
+            // unclaimable slot.
+            address creatorAddr = creators[id];
+            if (creatorAddr == address(0)) creatorAddr = creator;
             owed[unspecCurrency][platform] += platformShare;
-            owed[unspecCurrency][creator] += creatorShare;
+            owed[unspecCurrency][creatorAddr] += creatorShare;
             emit FeeAccrued(unspecCurrency, platformShare, creatorShare);
         }
 

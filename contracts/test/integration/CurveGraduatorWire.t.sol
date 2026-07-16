@@ -24,6 +24,7 @@ contract MockGraduator {
     uint256 public lastTokens;
     uint32 public lastAntiSniper;
     uint16 public lastBuybackBps;
+    address public lastLauncher;
     uint256 public calls;
 
     error MockGraduator__EthMismatch();
@@ -33,7 +34,8 @@ contract MockGraduator {
         uint256 ethAmount,
         uint256 tokenAmount,
         uint32 antiSniperBlocks,
-        uint16 buybackBurnBps
+        uint16 buybackBurnBps,
+        address launcher
     ) external payable {
         if (msg.value != ethAmount) revert MockGraduator__EthMismatch();
         lastToken = token;
@@ -41,6 +43,7 @@ contract MockGraduator {
         lastTokens = tokenAmount;
         lastAntiSniper = antiSniperBlocks;
         lastBuybackBps = buybackBurnBps;
+        lastLauncher = launcher;
         calls += 1;
         IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
     }
@@ -184,6 +187,33 @@ contract CurveGraduatorWireTest is Test {
         assertGt(graduator.lastTokens(), 0);
         assertEq(address(graduator).balance, graduator.lastEth());
         assertEq(IERC20(token).balanceOf(address(graduator)), graduator.lastTokens());
+    }
+
+    /// End-to-end proof that the launcher address propagates through the full stack:
+    /// Router.launch(msg.sender=launcher) → CurveFactory.createCurveWithConfigFor →
+    /// BondingCurve.launcher → BondingCurve._graduate → Graduator.execute(..., launcher).
+    ///
+    /// This is the critical wire-up for V2 hook per-pool creator revenue — if any link
+    /// in the chain drops the launcher, post-grad swap fees would route the "creator"
+    /// share to whichever wrong address (Router, curve, 0x0), and every launcher would
+    /// silently earn nothing on their own token.
+    function test_Graduation_PassesLauncherThroughToGraduator() public {
+        vm.prank(admin);
+        cf.setGraduator(address(graduator));
+
+        (, address curveAddr) = _launchWithCurve();
+        BondingCurve curve = BondingCurve(payable(curveAddr));
+
+        // Launcher is recorded on the curve at init time — must equal the tx.origin-style
+        // human that called Router.launch, NOT the Router or CurveFactory itself.
+        assertEq(curve.launcher(), launcher, "curve stored wrong launcher");
+
+        vm.prank(buyer);
+        curve.buy{value: 3 ether}(0);
+
+        // Graduator got the same launcher forwarded from the curve — this is what it
+        // installs on the v4 hook as the per-pool creator via setCreator.
+        assertEq(graduator.lastLauncher(), launcher, "graduator did not receive launcher");
     }
 
     function test_Graduation_NoGraduatorLeavesReservesOnCurve() public {

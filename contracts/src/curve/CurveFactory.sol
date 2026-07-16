@@ -99,28 +99,48 @@ contract CurveFactory is Ownable {
 
     /// @notice Deploy a curve for `token` with default (no-op) hook config. Convenience
     ///         wrapper for callers that don't care about anti-sniper / buyback-burn.
+    ///         Launcher defaults to `msg.sender` — right for direct callers, wrong for
+    ///         Router-mediated launches (Router should use `createCurveWithConfigFor`
+    ///         to pass the actual user address).
     function createCurve(
         address token
     ) external returns (address curve) {
-        return _createCurve(token, 0, 0);
+        return _createCurve(token, 0, 0, msg.sender);
     }
 
     /// @notice Deploy a curve for `token` with per-launch hook config. `antiSniperBlocks`
     ///         and `buybackBurnBps` are forwarded to the Graduator at graduation time and
     ///         from there into MultiHookHost.setPoolConfig for the resulting v4 pool.
     ///         Bounded server-side by MultiHookHost's MAX_BUYBACK_BPS (2000 = 20%).
+    ///         Launcher defaults to `msg.sender` — Router callers must use
+    ///         `createCurveWithConfigFor` instead so the actual EOA is recorded.
     function createCurveWithConfig(
         address token,
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external returns (address curve) {
-        return _createCurve(token, antiSniperBlocks, buybackBurnBps);
+        return _createCurve(token, antiSniperBlocks, buybackBurnBps, msg.sender);
+    }
+
+    /// @notice Router-facing variant that records an explicit launcher address rather
+    ///         than the immediate `msg.sender`. Called by Router.launch so the launcher
+    ///         is the actual end-user, not the Router contract itself. The recorded
+    ///         launcher is passed to the Graduator at graduation and becomes the pool's
+    ///         per-pool creator on the v4 hook.
+    function createCurveWithConfigFor(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher
+    ) external returns (address curve) {
+        return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 
     function _createCurve(
         address token,
         uint32 antiSniperBlocks,
-        uint16 buybackBurnBps
+        uint16 buybackBurnBps,
+        address launcher
     ) internal returns (address curve) {
         if (token == address(0)) revert CurveFactory__ZeroAddress();
         if (curveFor[token] != address(0)) revert CurveFactory__CurveExists(token);
@@ -150,10 +170,11 @@ contract CurveFactory is Ownable {
                 defaultTradeFeeBps,
                 graduator,
                 antiSniperBlocks,
-                buybackBurnBps
+                buybackBurnBps,
+                launcher
             );
 
-        emit CurveCreated(token, curve, msg.sender);
+        emit CurveCreated(token, curve, launcher);
     }
 
     function predictCurveAddress(
