@@ -75,7 +75,7 @@ contract ERC20WithPermitStakingGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_STATE
     // --- from Staking.frag.sol ---
-    uint256 private _stakeRewardRate;      // tokens per second, wei
+    uint256 private _stakeRewardRate; // tokens per second, wei
     uint64 private _stakePeriodFinish;
     uint64 private _stakeLastUpdate;
     uint256 private _stakeRewardPerTokenStored;
@@ -228,12 +228,16 @@ contract ERC20WithPermitStakingGen is ERC20, Ownable {
         return _stakeRewardPerTokenStored + (elapsed * _stakeRewardRate * 1e18) / _stakeTotal;
     }
 
-    function stakingEarned(address user) public view returns (uint256) {
+    function stakingEarned(
+        address user
+    ) public view returns (uint256) {
         return (_stakeBalance[user] * (stakingRewardPerToken() - _stakeUserRewardPerTokenPaid[user])) / 1e18
             + _stakeReward[user];
     }
 
-    function stakingBalanceOf(address user) external view returns (uint256) {
+    function stakingBalanceOf(
+        address user
+    ) external view returns (uint256) {
         return _stakeBalance[user];
     }
 
@@ -249,7 +253,9 @@ contract ERC20WithPermitStakingGen is ERC20, Ownable {
         return _stakePeriodFinish;
     }
 
-    function stake(uint256 amount) external {
+    function stake(
+        uint256 amount
+    ) external {
         if (amount == 0) revert Staking__ZeroAmount();
         _stakingUpdateReward(msg.sender);
         _stakeTotal += amount;
@@ -258,7 +264,9 @@ contract ERC20WithPermitStakingGen is ERC20, Ownable {
         emit Staked(msg.sender, amount);
     }
 
-    function stakingWithdraw(uint256 amount) external {
+    function stakingWithdraw(
+        uint256 amount
+    ) external {
         if (amount == 0) revert Staking__ZeroAmount();
         uint256 bal = _stakeBalance[msg.sender];
         if (amount > bal) revert Staking__InsufficientStake(amount, bal);
@@ -280,13 +288,16 @@ contract ERC20WithPermitStakingGen is ERC20, Ownable {
         _transfer(address(this), msg.sender, reward);
         emit StakingRewardClaimed(msg.sender, reward);
     }
+
     // ============================================================
     // Modules append new external / public functions below this marker.
 
     // ============================================================
     // VM_INJECT_INTERNAL
     // --- from Staking.frag.sol ---
-    function _stakingUpdateReward(address user) internal {
+    function _stakingUpdateReward(
+        address user
+    ) internal {
         _stakeRewardPerTokenStored = stakingRewardPerToken();
         _stakeLastUpdate = stakingLastTimeApplicable();
         if (user != address(0)) {

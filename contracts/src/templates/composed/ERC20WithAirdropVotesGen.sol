@@ -200,7 +200,10 @@ contract ERC20WithAirdropVotesGen is ERC20Votes, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from Airdrop.frag.sol ---
-    function airdropClaim(uint256 amount, bytes32[] calldata proof) external {
+    function airdropClaim(
+        uint256 amount,
+        bytes32[] calldata proof
+    ) external {
         if (_airdropClaimed[msg.sender]) revert Airdrop__AlreadyClaimed(msg.sender);
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
         if (!MerkleProofLib.verifyCalldata(proof, _airdropRoot, leaf)) revert Airdrop__InvalidProof();
@@ -225,7 +228,9 @@ contract ERC20WithAirdropVotesGen is ERC20Votes, Ownable {
         return _airdropClaimedTotal;
     }
 
-    function airdropHasClaimed(address user) external view returns (bool) {
+    function airdropHasClaimed(
+        address user
+    ) external view returns (bool) {
         return _airdropClaimed[user];
     }
     // ============================================================

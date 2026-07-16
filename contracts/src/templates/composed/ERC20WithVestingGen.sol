@@ -55,7 +55,9 @@ contract ERC20WithVestingGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_EVENTS
     // --- from Vesting.frag.sol ---
-    event VestingConfigured(address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp);
+    event VestingConfigured(
+        address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp
+    );
     event VestingReleased(address indexed beneficiary, uint256 amount);
     // ============================================================
     // Modules append events below this marker.

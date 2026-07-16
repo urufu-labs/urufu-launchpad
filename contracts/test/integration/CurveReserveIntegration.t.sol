@@ -103,7 +103,9 @@ contract CurveReserveIntegrationTest is Test {
 
     function _launchWithVesting() internal returns (address token, address curve) {
         bytes[] memory m = new bytes[](1);
-        m[0] = abi.encode(beneficiary, VESTING_ALLOCATION, uint64(block.timestamp + 1 days), uint64(block.timestamp + 365 days));
+        m[0] = abi.encode(
+            beneficiary, VESTING_ALLOCATION, uint64(block.timestamp + 1 days), uint64(block.timestamp + 365 days)
+        );
         LaunchParams memory p = LaunchParams({
             base: BaseType.ERC20,
             name: "VestingCurve",
@@ -219,8 +221,7 @@ contract CurveReserveIntegrationTest is Test {
         //   buyer   → tokens bought off the curve
         //   token   → reserve (should be 0 after full release)
         //   beneficiary → all VESTING_ALLOCATION
-        uint256 accounted =
-            t.balanceOf(curve) + t.balanceOf(buyer) + t.balanceOf(token) + t.balanceOf(beneficiary);
+        uint256 accounted = t.balanceOf(curve) + t.balanceOf(buyer) + t.balanceOf(token) + t.balanceOf(beneficiary);
         assertEq(accounted, CURVE_SUPPLY, "every wei accounted for");
         assertEq(t.balanceOf(token), 0, "reserve empty after full vest");
     }
@@ -235,7 +236,9 @@ contract CurveReserveIntegrationTest is Test {
     function test_Launch_RevertsWhenAllocationExceedsSupply() public {
         bytes[] memory m = new bytes[](1);
         // Try to reserve MORE than the entire supply.
-        m[0] = abi.encode(beneficiary, CURVE_SUPPLY + 1, uint64(block.timestamp + 1 days), uint64(block.timestamp + 365 days));
+        m[0] = abi.encode(
+            beneficiary, CURVE_SUPPLY + 1, uint64(block.timestamp + 1 days), uint64(block.timestamp + 365 days)
+        );
         LaunchParams memory p = LaunchParams({
             base: BaseType.ERC20,
             name: "Bad",

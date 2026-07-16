@@ -64,7 +64,9 @@ contract ERC20WithAirdropVestingGen is ERC20, Ownable {
     event AirdropClaimed(address indexed recipient, uint256 amount);
 
     // --- from Vesting.frag.sol ---
-    event VestingConfigured(address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp);
+    event VestingConfigured(
+        address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp
+    );
     event VestingReleased(address indexed beneficiary, uint256 amount);
     // ============================================================
     // Modules append events below this marker.
@@ -230,7 +232,10 @@ contract ERC20WithAirdropVestingGen is ERC20, Ownable {
     // ============================================================
     // VM_INJECT_EXTERNAL
     // --- from Airdrop.frag.sol ---
-    function airdropClaim(uint256 amount, bytes32[] calldata proof) external {
+    function airdropClaim(
+        uint256 amount,
+        bytes32[] calldata proof
+    ) external {
         if (_airdropClaimed[msg.sender]) revert Airdrop__AlreadyClaimed(msg.sender);
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
         if (!MerkleProofLib.verifyCalldata(proof, _airdropRoot, leaf)) revert Airdrop__InvalidProof();
@@ -255,7 +260,9 @@ contract ERC20WithAirdropVestingGen is ERC20, Ownable {
         return _airdropClaimedTotal;
     }
 
-    function airdropHasClaimed(address user) external view returns (bool) {
+    function airdropHasClaimed(
+        address user
+    ) external view returns (bool) {
         return _airdropClaimed[user];
     }
 

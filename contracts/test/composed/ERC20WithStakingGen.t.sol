@@ -74,11 +74,11 @@ contract ERC20WithStakingGenTest is Test {
         // Reward is `rate * DURATION` where rate = REWARDS_TOTAL / DURATION (integer div)
         // so a few wei of dust remains unclaimed — that's the classic Synthetix quirk,
         // not a bug in the reserve refactor. Give it a wei-per-second tolerance.
+        assertApproxEqAbs(token.balanceOf(alice), 900 ether + REWARDS_TOTAL, DURATION, "alice paid from reserve");
         assertApproxEqAbs(
-            token.balanceOf(alice), 900 ether + REWARDS_TOTAL, DURATION, "alice paid from reserve"
-        );
-        assertApproxEqAbs(
-            token.balanceOf(address(token)), stakingContractBalBefore - REWARDS_TOTAL, DURATION,
+            token.balanceOf(address(token)),
+            stakingContractBalBefore - REWARDS_TOTAL,
+            DURATION,
             "reserve drained by claim"
         );
     }
