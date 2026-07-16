@@ -19,6 +19,8 @@
 #   Phase1               → script/DeployPhase1.s.sol:DeployPhase1
 #   Hooks                → script/DeployHooks.s.sol:DeployHooks
 #   Graduator            → script/DeployGraduator.s.sol:DeployGraduator
+#   MigrateToV2Hook      → script/MigrateToV2Hook.s.sol:MigrateToV2Hook
+#                          (new MultiHookHost with per-pool creator + new Graduator wired to it)
 #   V4SwapRouter         → script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter
 #   Flywheel             → script/DeployFlywheel.s.sol:DeployFlywheel
 #   ConfigureFlywheel    → script/ConfigureFlywheel.s.sol:ConfigureFlywheel
@@ -31,7 +33,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SCRIPT="${1:?script name required (NameRegistry | Phase1 | Hooks | Graduator | Flywheel | ConfigureFlywheel | HandoffOwnership | PostDeploySmoke)}"
+SCRIPT="${1:?script name required (NameRegistry | Phase1 | Hooks | Graduator | MigrateToV2Hook | Flywheel | ConfigureFlywheel | HandoffOwnership | PostDeploySmoke)}"
 CHAIN="${2:-${CHAIN:-sepolia}}"
 
 # Chain → RPC, chain-id, and verifier settings for inline `--verify`.
@@ -80,6 +82,7 @@ case "$SCRIPT" in
   Phase1)             TARGET="script/DeployPhase1.s.sol:DeployPhase1" ;;
   Hooks)              TARGET="script/DeployHooks.s.sol:DeployHooks" ;;
   Graduator)          TARGET="script/DeployGraduator.s.sol:DeployGraduator" ;;
+  MigrateToV2Hook)    TARGET="script/MigrateToV2Hook.s.sol:MigrateToV2Hook" ;;
   V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
   PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
