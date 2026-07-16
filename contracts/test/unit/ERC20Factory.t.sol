@@ -94,6 +94,50 @@ contract ERC20FactoryTest is Test {
     }
 
     // =========================================================
+    // updateImpl — owner-gated in-place rotation for V2 template refactors
+    // =========================================================
+
+    function test_UpdateImpl_HappyPath() public {
+        ERC20Template newImpl = new ERC20Template();
+        vm.expectEmit(true, true, true, true, address(factory));
+        emit ERC20Factory.ImplUpdated(BARE_CONFIG, address(impl), address(newImpl));
+        vm.prank(owner);
+        factory.updateImpl(BARE_CONFIG, address(newImpl));
+        assertEq(factory.implFor(BARE_CONFIG), address(newImpl), "impl swapped");
+    }
+
+    function test_UpdateImpl_RevertsIfNotOwner() public {
+        ERC20Template newImpl = new ERC20Template();
+        vm.expectRevert(ERC20Factory.ERC20Factory__NotOwner.selector);
+        vm.prank(registrar);
+        factory.updateImpl(BARE_CONFIG, address(newImpl));
+
+        vm.expectRevert(ERC20Factory.ERC20Factory__NotOwner.selector);
+        vm.prank(stranger);
+        factory.updateImpl(BARE_CONFIG, address(newImpl));
+    }
+
+    function test_UpdateImpl_RevertsIfHashNotRegistered() public {
+        ERC20Template newImpl = new ERC20Template();
+        bytes32 unknown = keccak256("never-registered");
+        vm.expectRevert(abi.encodeWithSelector(ERC20Factory.ERC20Factory__UnknownConfig.selector, unknown));
+        vm.prank(owner);
+        factory.updateImpl(unknown, address(newImpl));
+    }
+
+    function test_UpdateImpl_RevertsOnZeroImpl() public {
+        vm.expectRevert(ERC20Factory.ERC20Factory__ZeroAddress.selector);
+        vm.prank(owner);
+        factory.updateImpl(BARE_CONFIG, address(0));
+    }
+
+    function test_UpdateImpl_RevertsIfNewImplHasNoCode() public {
+        vm.expectRevert(ERC20Factory.ERC20Factory__NotAContract.selector);
+        vm.prank(owner);
+        factory.updateImpl(BARE_CONFIG, makeAddr("eoa-not-a-contract"));
+    }
+
+    // =========================================================
     // deploy
     // =========================================================
 

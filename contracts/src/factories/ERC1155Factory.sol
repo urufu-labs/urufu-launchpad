@@ -25,6 +25,7 @@ contract ERC1155Factory is IVMFactory, Ownable {
     error ERC1155Factory__NotRegistrar();
     error ERC1155Factory__UnknownConfig(bytes32 configHash);
     error ERC1155Factory__AlreadyRegistered(bytes32 configHash);
+    error ERC1155Factory__NotOwner();
     error ERC1155Factory__ZeroAddress();
     error ERC1155Factory__NotAContract();
     error ERC1155Factory__InitFailed();
@@ -42,6 +43,8 @@ contract ERC1155Factory is IVMFactory, Ownable {
         string ticker
     );
     event ImplRegistered(bytes32 indexed configHash, address indexed impl, address registrar);
+    /// See ERC20Factory.ImplUpdated for the rotation contract.
+    event ImplUpdated(bytes32 indexed configHash, address indexed oldImpl, address indexed newImpl);
     event RegistrarSet(address indexed oldRegistrar, address indexed newRegistrar);
     event RouterSet(address indexed oldRouter, address indexed newRouter);
 
@@ -128,6 +131,21 @@ contract ERC1155Factory is IVMFactory, Ownable {
 
         impls[configHash] = impl;
         emit ImplRegistered(configHash, impl, msg.sender);
+    }
+
+    /// @notice Owner-only in-place impl rotation. See ERC20Factory.updateImpl.
+    function updateImpl(
+        bytes32 configHash,
+        address newImpl
+    ) external {
+        if (msg.sender != owner()) revert ERC1155Factory__NotOwner();
+        address oldImpl = impls[configHash];
+        if (oldImpl == address(0)) revert ERC1155Factory__UnknownConfig(configHash);
+        if (newImpl == address(0)) revert ERC1155Factory__ZeroAddress();
+        if (newImpl.code.length == 0) revert ERC1155Factory__NotAContract();
+
+        impls[configHash] = newImpl;
+        emit ImplUpdated(configHash, oldImpl, newImpl);
     }
 
     // ============================================================

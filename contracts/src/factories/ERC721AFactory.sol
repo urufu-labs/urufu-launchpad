@@ -27,6 +27,7 @@ contract ERC721AFactory is IVMFactory, Ownable {
     error ERC721AFactory__NotRegistrar();
     error ERC721AFactory__UnknownConfig(bytes32 configHash);
     error ERC721AFactory__AlreadyRegistered(bytes32 configHash);
+    error ERC721AFactory__NotOwner();
     error ERC721AFactory__ZeroAddress();
     error ERC721AFactory__NotAContract();
     error ERC721AFactory__InitFailed();
@@ -44,6 +45,8 @@ contract ERC721AFactory is IVMFactory, Ownable {
         string ticker
     );
     event ImplRegistered(bytes32 indexed configHash, address indexed impl, address registrar);
+    /// See ERC20Factory.ImplUpdated for the rotation contract.
+    event ImplUpdated(bytes32 indexed configHash, address indexed oldImpl, address indexed newImpl);
     event RegistrarSet(address indexed oldRegistrar, address indexed newRegistrar);
     event RouterSet(address indexed oldRouter, address indexed newRouter);
 
@@ -134,6 +137,22 @@ contract ERC721AFactory is IVMFactory, Ownable {
 
         impls[configHash] = impl;
         emit ImplRegistered(configHash, impl, msg.sender);
+    }
+
+    /// @notice Owner-only in-place impl rotation. See ERC20Factory.updateImpl for the
+    ///         full contract; the shape is identical here.
+    function updateImpl(
+        bytes32 configHash,
+        address newImpl
+    ) external {
+        if (msg.sender != owner()) revert ERC721AFactory__NotOwner();
+        address oldImpl = impls[configHash];
+        if (oldImpl == address(0)) revert ERC721AFactory__UnknownConfig(configHash);
+        if (newImpl == address(0)) revert ERC721AFactory__ZeroAddress();
+        if (newImpl.code.length == 0) revert ERC721AFactory__NotAContract();
+
+        impls[configHash] = newImpl;
+        emit ImplUpdated(configHash, oldImpl, newImpl);
     }
 
     // ============================================================
