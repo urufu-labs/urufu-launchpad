@@ -33,7 +33,13 @@ import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata 
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
-import { fetchGraduationForToken, fetchLaunchesByTokens, fetchTradesForCurve, fetchV4SwapsForToken } from '@/lib/indexer';
+import {
+  fetchCurveByToken,
+  fetchGraduationForToken,
+  fetchLaunchesByTokens,
+  fetchTradesForCurve,
+  fetchV4SwapsForToken,
+} from '@/lib/indexer';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -112,18 +118,41 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const walletOnActiveChain = walletChain === activeChain;
   const { switchChain, isPending: switchPending } = useSwitchChain();
 
-  // ---------- Look up the curve for this token via the factory ----------
+  // ---------- Look up the curve for this token ----------
+  // Two paths, in priority order:
+  //   1. Indexer's curves table (populated from BondingCurve.CurveInitialized events)
+  //      — factory-agnostic, survives a CurveFactory redeploy since the launches +
+  //      curves rows key off the token address, not the factory address.
+  //   2. Fallback: on-chain factory.curveFor(token) via the CURRENT CurveFactory in
+  //      config. Only used for tokens the indexer hasn't caught up on yet (fresh
+  //      launch mid-catchup).
+  const [indexedCurveAddress, setIndexedCurveAddress] = useState<Address | null>(null);
+  const [indexerChecked, setIndexerChecked] = useState(false);
+  useEffect(() => {
+    if (!tokenAddress) return;
+    let cancelled = false;
+    (async () => {
+      const c = await fetchCurveByToken(tokenAddress);
+      if (cancelled) return;
+      if (c?.curveAddress) setIndexedCurveAddress(c.curveAddress as Address);
+      setIndexerChecked(true);
+    })();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
   const curveQuery = useReadContract({
     abi: curveFactoryAbi,
     address: contracts?.CurveFactory,
     functionName: 'curveFor',
     args: [tokenAddress],
     chainId: readChainId,
-    query: { enabled: !!contracts, staleTime: 15_000 },
+    // Only ask the current factory if the indexer had no answer — spares an RPC
+    // round-trip on every trade-page hit for tokens the indexer already knows about.
+    query: { enabled: !!contracts && indexerChecked && !indexedCurveAddress, staleTime: 15_000 },
   });
-  const curveAddress = curveQuery.data && curveQuery.data !== '0x0000000000000000000000000000000000000000'
+  const factoryCurveAddress = curveQuery.data && curveQuery.data !== '0x0000000000000000000000000000000000000000'
     ? (curveQuery.data as Address)
     : null;
+  const curveAddress: Address | null = indexedCurveAddress ?? factoryCurveAddress;
 
   // ---------- Live curve + token state ----------
   const curveState = useReadContracts({
