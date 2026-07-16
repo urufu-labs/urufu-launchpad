@@ -27,7 +27,7 @@ import {
 } from 'viem';
 
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
-import { CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
+import { CHAIN_LABELS, CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
@@ -666,8 +666,46 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const chartFlashKey = newestTrade ? `${newestTrade.timestamp}-${newestTrade.trader}` : null;
   const chartFlashSide: 'buy' | 'sell' = newestTrade?.isBuy ? 'buy' : 'sell';
 
+  // Cross-chain banner: when the token's home chain (from indexer) differs from the
+  // wallet's current chain, show a prominent one-click switch prompt. Data still loads
+  // for the token's actual chain regardless -- this is purely a "prompt to trade" nudge
+  // so users don't hit the buy/sell widget disabled and wonder why.
+  const showCrossChainBanner =
+    connectedForRender && tokenHomeChain !== null && walletChain !== tokenHomeChain;
+
   return (
     <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
+      {showCrossChainBanner && tokenHomeChain && (
+        <div
+          className="uru-shell-tight"
+          style={{
+            marginBottom: 10,
+            padding: '10px 14px',
+            background: 'var(--yolk)',
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            fontFamily: 'var(--font-round), Klee One, cursive',
+            fontSize: 13,
+          }}
+        >
+          <span>
+            ✿ this token lives on <b>{CHAIN_LABELS[tokenHomeChain]}</b>. all data is real — just
+            switch to trade.
+          </span>
+          <button
+            type="button"
+            className="uru-btn uru-btn-primary"
+            onClick={() => switchChain({ chainId: CHAIN_KEY_TO_ID[tokenHomeChain] })}
+            disabled={switchPending}
+            style={{ padding: '4px 12px', fontSize: 12 }}
+          >
+            {switchPending ? 'switching…' : `switch to ${CHAIN_LABELS[tokenHomeChain]} →`}
+          </button>
+        </div>
+      )}
       {/* ================================================================
           COMPACT HEADER — identity + mcap + address + fee, one row
           ================================================================ */}
