@@ -40,6 +40,7 @@ import {
   fetchTradesForCurve,
   fetchV4SwapsForToken,
 } from '@/lib/indexer';
+import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -54,6 +55,12 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
   const resolved = use(params);
   const tokenAddress = (isAddress(resolved.address) ? resolved.address : '0x0000000000000000000000000000000000000000') as Address;
 
+  // Retired-token check: if the address is in the hide list (TEST/BALLS etc.),
+  // render a "retired" splash instead of routing to the live trade UI. Bookmarks +
+  // pasted URLs land here too, so the block is comprehensive — not just the
+  // feed-side filter.
+  if (isHiddenAddressAnywhere(tokenAddress)) return <RetiredTokenView />;
+
   // Preview-mode fallback: if the address matches a mock fixture, render the mock UI so the
   // page is browsable without any contracts deployed. Dispatch happens via a sibling
   // component so rules-of-hooks stay clean — early-returning before the wagmi hooks below
@@ -61,6 +68,21 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
   const mock = mockLaunchByAddress(tokenAddress);
   if (mock) return <MockTradeView launch={mock} />;
   return <LiveTradeView tokenAddress={tokenAddress} />;
+}
+
+function RetiredTokenView() {
+  return (
+    <div className="mx-auto max-w-4xl px-4 py-14 text-center">
+      <Mascot size={80} mood="sleepy" />
+      <div className="uru-h1 mt-4" style={{ fontSize: 24 }}>this token is retired ~~</div>
+      <p style={{ marginTop: 8, color: 'var(--anchor-soft)' }}>
+        an early test token, no longer surfaced.
+      </p>
+      <Link href="/discover" className="uru-btn uru-btn-primary" style={{ marginTop: 16 }}>
+        back to discover
+      </Link>
+    </div>
+  );
 }
 
 function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {

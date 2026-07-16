@@ -119,7 +119,15 @@ contract CurveFactory is Ownable {
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external returns (address curve) {
-        return _createCurve(token, antiSniperBlocks, buybackBurnBps, msg.sender);
+        // Router-compatibility fallback: when a contract (Router) calls us via the
+        // legacy 3-arg API, using `msg.sender` as the launcher would record Router
+        // as the launcher — which cascades into the V3 hook stamping Router as the
+        // per-pool creator at graduation, and creator-share swap fees getting
+        // stuck (Router has no claim function). Using tx.origin here records the
+        // actual EOA that initiated the tx. NOT used for auth — only for
+        // creator-recording — so tx.origin's usual caveats don't apply.
+        address launcher = msg.sender.code.length > 0 ? tx.origin : msg.sender;
+        return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 
     /// @notice Router-facing variant that records an explicit launcher address rather

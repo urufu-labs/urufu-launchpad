@@ -27,3 +27,15 @@ export function isHiddenToken(chainId: number, tokenAddress: Address | string): 
 /// Curried filter for `.filter()` callbacks on rows that carry both fields.
 export const notHidden = <T extends { chainId: number; tokenAddress: Address | string }>(row: T): boolean =>
   !isHiddenToken(row.chainId, row.tokenAddress);
+
+/// Chain-agnostic address check — for the trade page which resolves the token's
+/// home chain asynchronously (via indexer or wallet chain) and needs a same-frame
+/// answer to decide whether to render the "retired" splash vs the live UI.
+/// Matches any HIDDEN_TOKENS entry whose address suffix matches the input.
+export function isHiddenAddressAnywhere(tokenAddress: Address | string): boolean {
+  const addr = (typeof tokenAddress === 'string' ? tokenAddress : (tokenAddress as string)).toLowerCase();
+  for (const key of HIDDEN_TOKENS) {
+    if (key.endsWith(':' + addr)) return true;
+  }
+  return false;
+}

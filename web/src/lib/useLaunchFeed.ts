@@ -42,7 +42,9 @@ export function useLaunchFeed(chainId: number): FeedState {
     if (!hasLiveContracts(chainId)) {
       return {
         source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId),
+        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
+          (l) => !isHiddenToken(l.chainId, l.address),
+        ),
         ready: true,
       };
     }
@@ -55,7 +57,9 @@ export function useLaunchFeed(chainId: number): FeedState {
     if (!hasLiveContracts(chainId)) {
       setState({
         source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId),
+        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
+          (l) => !isHiddenToken(l.chainId, l.address),
+        ),
         ready: true,
       });
       return () => { cancelled = true; };
