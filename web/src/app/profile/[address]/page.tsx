@@ -41,6 +41,7 @@ import { uploadImageToIpfs } from '@/lib/ipfs';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
 import { computePositions, type Position } from '@/lib/pnl';
+import { CreatorEarnings } from '@/components/CreatorEarnings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
@@ -659,6 +660,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             )}
           </section>
 
+          <CreatorEarnings visibleFor={address} chain={activeChain} />
           <FlywheelRewards visibleFor={address} chain={activeChain} />
         </aside>
       </div>

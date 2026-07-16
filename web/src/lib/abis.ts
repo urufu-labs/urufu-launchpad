@@ -140,3 +140,15 @@ export const nftRevenueVaultAbi = parseAbi([
   `function isClaimed(uint256 epochId, address holder) view returns (bool)`,
   `function claim(uint256 epochId, uint256 amount, bytes32[] calldata proof)`,
 ] as const);
+
+/// Subset of `MultiHookHost` — the read + claim path the profile "creator
+/// earnings" widget needs. `owed(currency, recipient)` is the accumulator the hook
+/// credits during afterSwap; `claim(currency)` pulls msg.sender's whole balance
+/// out. V1 hook: creator is a single immutable address (deploy wallet). V2 hook:
+/// per-pool creators via setCreator — each launcher earns from their own tokens.
+export const multiHookHostAbi = parseAbi([
+  `function owed(address currency, address recipient) view returns (uint256)`,
+  `function claim(address currency)`,
+  `function platform() view returns (address)`,
+  `function creator() view returns (address)`,
+] as const);
