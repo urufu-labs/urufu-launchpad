@@ -205,7 +205,7 @@ export default function HomePage() {
             a launchpad <span style={{ color: 'var(--pink-hot)' }}>u</span> can compose
           </div>
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--anchor-soft)' }}>
-            compose a token, ship real solidity, own the liquidity forever ✿
+            compose a token, ship real solidity, LP locked + earn creator fees forever ✿
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

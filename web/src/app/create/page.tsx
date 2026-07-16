@@ -5,6 +5,7 @@ import {
   useAccount,
   useChainId,
   useReadContract,
+  useReadContracts,
   useSignMessage,
   useSimulateContract,
   useSwitchChain,
@@ -373,6 +374,34 @@ export default function CreatePage() {
     args: [params],
     query: { enabled: !!contracts && name.length > 0 && ticker.length >= 2 },
   });
+
+  // Live fee schedule — the receipt breakdown reads from these so the display always
+  // matches what Router.quote() actually charges, even after owner-side setFee /
+  // setAddOnFees calls. Prior version hardcoded 0.05 ETH base / 0.01 ETH module which
+  // silently drifted whenever fees were tuned on-chain.
+  const feeReads = useReadContracts({
+    contracts: contracts?.Router
+      ? [
+          { abi: routerAbi, address: contracts.Router, functionName: 'fees' as const, args: [BASE_TYPE_TO_UINT[base]] },
+          { abi: routerAbi, address: contracts.Router, functionName: 'moduleAddOnFee' as const },
+          { abi: routerAbi, address: contracts.Router, functionName: 'hookAddOnFee' as const },
+          { abi: routerAbi, address: contracts.Router, functionName: 'governanceAddOnFee' as const },
+        ]
+      : [],
+    query: { enabled: !!contracts?.Router, staleTime: 30_000 },
+  });
+  const feeSchedule = useMemo(() => {
+    const r = feeReads.data;
+    return {
+      base: (r?.[0]?.result as bigint | undefined) ?? 0n,
+      module: (r?.[1]?.result as bigint | undefined) ?? 0n,
+      hook: (r?.[2]?.result as bigint | undefined) ?? 0n,
+      gov: (r?.[3]?.result as bigint | undefined) ?? 0n,
+    };
+  }, [feeReads.data]);
+  // Modules array in the launch params: first N-1 modules are the payable ones per
+  // Router.quote math. Templates + base module don't get charged separately.
+  const moduleCount = Math.max(0, selectedModules.length - 1);
 
   const implRegistered = implQuery.data && implQuery.data !== zeroAddress;
 
@@ -984,9 +1013,8 @@ export default function CreatePage() {
                 </div>
               </div>
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
-                <li>✿ base fee: 0.05 ETH</li>
-                <li>✿ module add-on: 0.01 ea × {Math.max(0, selectedModules.length - 1)}</li>
-                <li>✿ hook add-on: — (phase 2~)</li>
+                <li>✿ base fee: {formatEther(feeSchedule.base)} ETH</li>
+                <li>✿ module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
               </ul>
 
               <button
