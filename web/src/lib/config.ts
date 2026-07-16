@@ -122,7 +122,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A',
     ERC1155Factory: '0x55356c5045Cb7F299A8F5b2a17a4C2f16b68E88b',
     ERC1155TemplateImpl: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
-    CurveFactory: '0x2207e3A3117F219636F42b9209d021b73811485C',
+    CurveFactory: '0x6dC84fbaD0B4005ebc4E9c366Dc342eC26536a9C',
     BondingCurveImpl: '0x4D168e17443454590ff97206789E458e457dFB81',
   },
   sepolia: null, // populate after DeployPhase1 broadcasts
@@ -151,7 +151,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0xB4a1999d1045671D9177c69f70fd8A74eEE67464',
     ERC1155Factory: '0xb0F341CB55FcD23c1BE08d2D1CcAe5829CF2FE7a',
     ERC1155TemplateImpl: '0x5A0D5596389F7efc55424C95bf4313b405A01345',
-    CurveFactory: '0x7d89aa4AE1f53bB185e905a005D0673014220a61',
+    CurveFactory: '0x12813B82C5dD5D07a2E02F6065C3De54B7402A64',
     BondingCurveImpl: '0x7B56640d2610D5ac278E834670a0752d1341Ede1',
   },
   'base-sepolia': {
@@ -207,7 +207,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
     ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0x14b2FFb9e183ba51fAaf880f89490484F25B9223',
+    CurveFactory: '0x771957b899bF8D2363d4FE7C103cb0bb980D4Da1',
     BondingCurveImpl: '0x2207e3A3117F219636F42b9209d021b73811485C',
   },
   'robinhood-testnet': null,
