@@ -112,9 +112,17 @@ contract ERC20Template is ERC20, Ownable {
         _symbol = symbol_;
         _initializeOwner(initialOwner);
 
+        // Compute the mint destination once, before the mint itself. Modules that need
+        // to reserve a slice of the initial supply for post-launch payouts (Airdrop,
+        // Vesting, Staking) reference this local via `_transfer(mintTarget, address(this),
+        // allocation)` in their VM_INJECT_INIT block — this is what makes reserve-backed
+        // modules work on bonding-curve launches WITHOUT breaking the fixed-supply
+        // invariant. The transfers happen sequentially so an over-allocation reverts
+        // loudly the moment mintTarget runs dry (safety by construction).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
         if (initialSupply > 0) {
-            address to = initialRecipient == address(0) ? initialOwner : initialRecipient;
-            _mint(to, initialSupply);
+            _mint(mintTarget, initialSupply);
         }
 
         emit Initialized(name_, symbol_, initialOwner, initialSupply);
@@ -122,8 +130,10 @@ contract ERC20Template is ERC20, Ownable {
         // ============================================================
         // VM_INJECT_INIT
         // ============================================================
-        // Modules decode their slice of `moduleData` here and set state.
+        // Modules decode their slice of `moduleData` here and set state. Reserve-
+        // backed modules also `_transfer(mintTarget, address(this), allocation)` here.
         moduleData; // silence unused-var warning in the bare template
+        mintTarget; // silence unused-var warning when no reserve-backed modules are spliced in
     }
 
     // ============================================================

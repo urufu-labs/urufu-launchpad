@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: MIT
 // VM_MODULE_ID: Staking
-// VM_MODULE_VERSION: 1
+// VM_MODULE_VERSION: 2
 // VM_MODULE_BASES: ERC20
 // VM_MODULE_REQUIRES:
 // VM_MODULE_INCOMPATIBLE_WITH: FeeOnTransfer
 // VM_MODULE_FLAGGED:
 //
 // Single-asset staking pool inlined into the token. Users transfer tokens into the
-// contract to stake; rewards (denominated in the same token, lazy-minted) accrue linearly
-// over `durationSeconds` starting at init. Classic Synthetix-style `rewardPerToken`
-// accumulator — no compounding, no unbonding.
+// contract to stake; rewards (denominated in the same token) accrue linearly over
+// `durationSeconds` starting at init. Classic Synthetix-style `rewardPerToken` accumulator
+// — no compounding, no unbonding.
+//
+// Reserve-backed: at init the `rewardsTotal` is transferred from `mintTarget` (Router
+// when launching via Router) into `address(this)`. Stakers' deposits ALSO sit in
+// `address(this)`, but each user's staked balance is tracked separately, so withdraw is
+// capped by their balance and never touches reward pool tokens. Claims move from the
+// reserve to the caller — total supply NEVER grows post-launch. Init reverts (via
+// _transfer's underflow revert) if the launcher tries to allocate more than mintTarget
+// can spare.
 //
 // Incompatible with `FeeOnTransfer` (fees would corrupt the staked balance accounting).
 //
@@ -53,6 +61,13 @@ mapping(address => uint256) private _stakeReward;
     _stakeRewardRate = rate;
     _stakeLastUpdate = uint64(block.timestamp);
     _stakePeriodFinish = uint64(block.timestamp + duration_);
+    // Reserve the reward pool out of the initial supply. Reverts inside solady's
+    // _transfer when mintTarget's balance underflows — safety by construction. rate
+    // is naturally capped at `rewardsTotal_ / duration`, so total reward payouts
+    // over the full window are bounded by `rewardsTotal_`.
+    if (rewardsTotal_ > 0) {
+        _transfer(mintTarget, address(this), rewardsTotal_);
+    }
     emit StakingConfigured(rewardsTotal_, duration_, rate, _stakePeriodFinish);
 }
 
@@ -116,7 +131,10 @@ function stakingClaim() external {
     uint256 reward = _stakeReward[msg.sender];
     if (reward == 0) revert Staking__NothingToClaim();
     _stakeReward[msg.sender] = 0;
-    _mint(msg.sender, reward);
+    // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+    // Total supply stays fixed. Stakers' deposits also live in address(this) but are
+    // tracked separately via _stakeBalance so they can't be paid out as rewards.
+    _transfer(address(this), msg.sender, reward);
     emit StakingRewardClaimed(msg.sender, reward);
 }
 

@@ -9,9 +9,13 @@
 // Single-beneficiary linear vesting schedule stored on the token. `totalAmount` tokens
 // vest linearly from `cliffTimestamp` through `endTimestamp`. Before the cliff nothing is
 // releasable. Anyone can trigger `vestingRelease()` — the beneficiary is fixed at init and
-// the mint always goes to them. Tokens are lazy-minted at release time (they do not exist
-// in supply until claimed), so the launch's initial supply does NOT need to include the
-// vesting pool.
+// the transfer always goes to them.
+//
+// Reserve-backed: at init the `totalAmount` is transferred from `mintTarget` (Router when
+// launching via Router) to `address(this)`, carving the vesting pool out of the initial
+// supply BEFORE the curve or direct recipient gets its tokens. Release just moves from the
+// reserve to the beneficiary — supply never inflates. Init reverts (via _transfer's
+// underflow revert) if the launcher tries to allocate more than mintTarget can spare.
 //
 // Params: (address beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp)
 
@@ -51,6 +55,10 @@ uint64 private _vestEnd;
     _vestTotal = total_;
     _vestCliff = cliff_;
     _vestEnd = end_;
+    // Reserve the vesting pool out of the initial supply. If the launcher over-allocated
+    // (Σ module allocations > initialSupply), this reverts inside solady's _transfer
+    // when mintTarget's balance underflows — safety by construction.
+    _transfer(mintTarget, address(this), total_);
     emit VestingConfigured(beneficiary_, total_, cliff_, end_);
 }
 
@@ -75,7 +83,9 @@ function vestingRelease() external {
     uint256 amount = vestingReleasable();
     if (amount == 0) revert Vesting__NothingToRelease();
     _vestReleased += amount;
-    _mint(_vestBeneficiary, amount);
+    // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+    // Total supply stays at whatever was minted in initialize() — no post-launch inflation.
+    _transfer(address(this), _vestBeneficiary, amount);
     emit VestingReleased(_vestBeneficiary, amount);
 }
 

@@ -26,7 +26,10 @@ contract ERC20WithVestingGenTest is Test {
 
         bytes[] memory moduleData = new bytes[](1);
         moduleData[0] = abi.encode(beneficiary, TOTAL, cliff, endTs);
-        bytes memory initData = abi.encode(owner, "Vest", "VEST", 500 ether, owner, moduleData);
+        // initialSupply must cover the vesting allocation. V2 reserve-backed vesting
+        // transfers `TOTAL` from mintTarget into the token contract at init, so setting
+        // supply to below TOTAL would revert with InsufficientBalance.
+        bytes memory initData = abi.encode(owner, "Vest", "VEST", 2000 ether, owner, moduleData);
         token.initialize(initData);
     }
 
@@ -60,12 +63,20 @@ contract ERC20WithVestingGenTest is Test {
         assertEq(token.vestingReleasable(), TOTAL);
     }
 
-    function test_Release_MintsToBeneficiary() public {
+    /// V2 semantics: release transfers from the pre-reserved pool held on the token
+    /// contract, so total supply STAYS CONSTANT before/after release — no post-launch
+    /// inflation. This is the whole point of the reserve-backed refactor: modules can
+    /// coexist with bonding curves without silently minting new tokens.
+    function test_Release_TransfersFromReserveWithoutInflation() public {
         vm.warp(endTs);
         uint256 supplyBefore = token.totalSupply();
+        uint256 reserveBefore = token.balanceOf(address(token));
         token.vestingRelease();
         assertEq(token.balanceOf(beneficiary), TOTAL);
-        assertEq(token.totalSupply(), supplyBefore + TOTAL);
+        // Total supply unchanged — payout came from the reserve, not from _mint.
+        assertEq(token.totalSupply(), supplyBefore, "total supply must not grow on release");
+        // The reserve on address(this) shrank by exactly the released amount.
+        assertEq(token.balanceOf(address(token)), reserveBefore - TOTAL, "reserve must drop by TOTAL");
         assertEq(token.vestingReleased(), TOTAL);
     }
 
