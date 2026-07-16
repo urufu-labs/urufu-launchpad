@@ -148,6 +148,32 @@ export const nftRevenueVaultAbi = parseAbi([
   `function claim(uint256 epochId, uint256 amount, bytes32[] calldata proof)`,
 ] as const);
 
+/// Ownable + module-specific owner reads/writes probed by the profile page's
+/// "your tokens" widget. Owner detection: try each module's marker view — if it
+/// reverts, that module isn't installed. Owner-write functions have `onlyOwner`
+/// on-chain, so an unauthorized sender's tx reverts before it lands. See
+/// `web/src/components/TokenOwnerControls.tsx`.
+export const tokenOwnerAbi = parseAbi([
+  // Ownable (present on every launched token)
+  `function owner() view returns (address)`,
+  `function transferOwnership(address newOwner)`,
+  `function renounceOwnership()`,
+  // Pausable
+  `function pausablePaused() view returns (bool)`,
+  `function pause()`,
+  `function unpause()`,
+  // AntiBot
+  `function antiBotIsAllowed(address who) view returns (bool)`,
+  `function antiBotGateEndsAtBlock() view returns (uint256)`,
+  `function antiBotIsGated() view returns (bool)`,
+  `function setAntiBotAllowed(address who, bool allowed)`,
+  // AntiWhale
+  `function antiWhaleConfig() view returns (uint128 maxWallet, uint128 maxTx, uint32 expiresAtBlock)`,
+  `function antiWhaleIsExcluded(address who) view returns (bool)`,
+  `function antiWhaleIsActive() view returns (bool)`,
+  `function setAntiWhaleExcluded(address who, bool excluded)`,
+] as const);
+
 /// Subset of `MultiHookHost` — the read + claim path the profile "creator
 /// earnings" widget needs. `owed(currency, recipient)` is the accumulator the hook
 /// credits during afterSwap; `claim(currency)` pulls msg.sender's whole balance

@@ -44,6 +44,7 @@ import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
+import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
@@ -660,6 +661,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           </section>
 
           <CreatorEarnings visibleFor={address} chain={activeChain} />
+          <TokenOwnerControls visibleFor={address} chain={activeChain} />
           <FlywheelRewards visibleFor={address} chain={activeChain} />
         </aside>
       </div>

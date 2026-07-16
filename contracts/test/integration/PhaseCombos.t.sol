@@ -270,6 +270,40 @@ contract PhaseCombosTest is Test {
         _launch(BaseType.ERC20, "Combo Pausable", "CPAUSE", PAUSABLE, _erc20InitData(1000 ether, m), 2);
     }
 
+    /// End-to-end proof of the profile-page owner-controls widget's assumption:
+    /// launching an owner-gated module (Pausable) with KeepEOA leaves the launcher
+    /// as the sole owner, and only they can call the owner-gated function. This is
+    /// the exact flow the widget exercises — read `owner()` to gate rendering, then
+    /// submit `pause()` from the same wallet.
+    function test_Widget_Pausable_LauncherOwnsAndCanPause() public {
+        bytes[] memory m = new bytes[](1);
+        m[0] = "";
+        address token = _launch(BaseType.ERC20, "Widget Pause", "WPAUSE", PAUSABLE, _erc20InitData(1000 ether, m), 2);
+        ERC20WithPausableGen p = ERC20WithPausableGen(token);
+
+        // Widget precondition #1: launcher is owner.
+        assertEq(p.owner(), launcher, "launcher must be owner after KeepEOA launch");
+
+        // Widget precondition #2: current pause state readable, defaults false.
+        assertFalse(p.pausablePaused(), "should start unpaused");
+
+        // Widget action: owner calls pause() — succeeds.
+        vm.prank(launcher);
+        p.pause();
+        assertTrue(p.pausablePaused(), "launcher pause() should succeed");
+
+        // Widget guarantee: a stranger cannot pause (would revert with Unauthorized).
+        address stranger = makeAddr("widgetStranger");
+        vm.prank(stranger);
+        vm.expectRevert(bytes4(keccak256("Unauthorized()")));
+        p.pause();
+
+        // Widget action: owner calls unpause() — succeeds and returns to live.
+        vm.prank(launcher);
+        p.unpause();
+        assertFalse(p.pausablePaused(), "launcher unpause() should succeed");
+    }
+
     function test_Combo_ERC20_Permit() public {
         bytes[] memory m = new bytes[](1);
         m[0] = "";
