@@ -252,7 +252,9 @@ export default function CreatePage() {
       const reason = blockedReasons[id];
       setRejectStamp((prev) => ({ modLabel: mod.label, reason, key: (prev?.key ?? 0) + 1 }));
       if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
-      rejectClearRef.current = setTimeout(() => setRejectStamp(null), 2600);
+      // Stays until user dismisses via backdrop click — no auto-clear. Popup
+      // is loud enough that a soft 3s window felt too quick to read on first
+      // encounter.
       // Same rejection thud the sidebar tile plays — surface the blocked action
       // through sound too so keyboard-only users get feedback.
       playSfx('stamp');
@@ -514,7 +516,7 @@ export default function CreatePage() {
       key: (prev?.key ?? 0) + 1,
     }));
     if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
-    rejectClearRef.current = setTimeout(() => setRejectStamp(null), 3400);
+    // No auto-clear — user dismisses via backdrop click.
     playSfx('stamp');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [implRegistered, implQuery.isLoading, implQuery.data, selectedModules.join(',')]);
@@ -635,64 +637,121 @@ export default function CreatePage() {
           via rejectClearRef in addModule). Pointer-events off so the popup
           doesn't steal clicks. */}
       {rejectStamp && (
-        <div
-          key={rejectStamp.key}
-          aria-live="polite"
-          role="status"
-          className="uru-pop"
-          style={{
-            position: 'fixed',
-            top: '32%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 9999,
-            pointerEvents: 'none',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 8,
-            maxWidth: 380,
-          }}
-        >
-          {/* Urufu the wolf with the confused mood — matching the "why did that
-              get rejected" beat. Idle-bobs so it feels alive during the 3.4s
-              display window. */}
-          <div className="uru-idle-bob" style={{ flexShrink: 0 }}>
-            <Mascot size={72} mood="confused" />
-          </div>
-          {/* Speech bubble using the site-standard uru-bubble class (see
-              globals.css) — cream background, anchor border, tail pointing
-              left toward the wolf. Same font as trade widget hover-callouts
-              and the mascot in the launch confirmation. */}
+        <>
+          {/* Dim backdrop — click anywhere to dismiss. Pointer-events on so it
+              actually catches clicks; the popup body sits above it. */}
           <div
-            className="uru-bubble"
+            role="button"
+            aria-label="close notification"
+            onClick={() => {
+              if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
+              setRejectStamp(null);
+            }}
             style={{
-              marginTop: 14,
-              maxWidth: 260,
-              transform: 'rotate(-1.5deg)',
-              position: 'relative',
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9998,
+              background: 'rgba(58, 44, 58, 0.35)',
+              backdropFilter: 'blur(2px)',
+              cursor: 'pointer',
+            }}
+          />
+          <div
+            key={rejectStamp.key}
+            aria-live="polite"
+            role="status"
+            className="uru-pop"
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 9999,
+              pointerEvents: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12,
+              maxWidth: '92vw',
+              width: 'min(520px, 92vw)',
             }}
           >
-            <span
-              className="uru-stamp uru-stamp-pink"
+            {/* Urufu the wolf, confused. Sized big for center-screen presence. */}
+            <div className="uru-idle-bob">
+              <Mascot size={140} mood="confused" />
+            </div>
+            {/* Cream speech-bubble w/ tail pointing UP toward the wolf. Custom
+                inline styling so the tail sits on top rather than the default
+                left-side position from .uru-bubble. */}
+            <div
               style={{
-                position: 'absolute',
-                top: -14,
-                right: -12,
-                transform: 'rotate(9deg)',
-                fontSize: 10,
-                letterSpacing: 0.5,
+                position: 'relative',
+                background: 'var(--cream)',
+                border: '2.5px solid var(--anchor)',
+                borderRadius: 16,
+                padding: '22px 28px',
+                boxShadow: '5px 5px 0 var(--anchor)',
+                fontFamily: 'var(--font-round), "Klee One", cursive',
+                textAlign: 'center',
+                width: '100%',
+                transform: 'rotate(-1deg)',
               }}
             >
-              ✗ nope~
-            </span>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--anchor)' }}>
-              {rejectStamp.modLabel}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, fontStyle: 'italic' }}>
-              {rejectStamp.reason}
+              {/* Tail pointing up */}
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  top: -14,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: 0,
+                  height: 0,
+                  borderLeft: '12px solid transparent',
+                  borderRight: '12px solid transparent',
+                  borderBottom: '14px solid var(--anchor)',
+                }}
+              />
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  top: -10,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: 0,
+                  height: 0,
+                  borderLeft: '9px solid transparent',
+                  borderRight: '9px solid transparent',
+                  borderBottom: '11px solid var(--cream)',
+                }}
+              />
+              {/* Corner stamp — hand-placed */}
+              <span
+                className="uru-stamp uru-stamp-pink"
+                style={{
+                  position: 'absolute',
+                  top: -18,
+                  right: -14,
+                  transform: 'rotate(11deg)',
+                  fontSize: 12,
+                  letterSpacing: 0.5,
+                }}
+              >
+                ✗ nope~
+              </span>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--anchor)', lineHeight: 1.2 }}>
+                {rejectStamp.modLabel}
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--anchor-soft)', marginTop: 10, fontStyle: 'italic', lineHeight: 1.4 }}>
+                {rejectStamp.reason}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 14, opacity: 0.6 }}>
+                (click anywhere to dismiss)
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className="mx-auto max-w-6xl px-4 py-4">
