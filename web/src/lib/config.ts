@@ -180,7 +180,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC1155Factory: '0x0b57D35F7BAed17436C7c3AE21aE3FD38620E3aa',
     ERC1155TemplateImpl: '0x9B484f026D1f0670b81689d3B7e0e5D6F1180B62',
     CurveFactory: '0xB30aD1F812E3dE3ED696e8F60513804425314EB1',
-    BondingCurveImpl: '0x684bb1309C3f5270A42ccc4aBdC579d8c7052d95',
+    BondingCurveImpl: '0x1C9e35B67524d56C1fAE5037dC86fc8946fB733C',
   },
   robinhood: {
     NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
@@ -236,6 +236,9 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x809f3BADA85D0a489320296fEE4578451a3F0200',
     FeeRedirectHook: '0xE44fB149edbfF3E67270e5CE0441e5Cad7AAc044',
     AntiSniperHook: '0x07526068b5Ae79178296B19f484Ca9aC3627E080',
+    // Was 0x5295Ee9c86A40667A46C525A99931a29c354e2C4 — that entry (dead on Sepolia,
+    // live on Robinhood) had been swapped with Robinhood's. Real Sepolia hook is
+    // the one Graduator.defaultHook() returns.
     MultiHookHost: '0xe7462359E59E7CF6e5c78B7D3b01a685D468A2c4',
     BuybackBurnHook: '0x6Ee28706e839B8022435e075a2Ad37D3F70c0044',
   },
