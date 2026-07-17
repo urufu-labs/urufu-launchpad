@@ -119,7 +119,7 @@ contract CurveFactoryTest is Test {
         assertEq(factory.feeReceiver(), launcher);
     }
 
-    // ─── trustedRouters + tx.origin fallback ──────────────────────────
+    // trustedRouters + tx.origin fallback
 
     function test_SetTrustedRouter_OnlyOwner() public {
         address router = makeAddr("router");

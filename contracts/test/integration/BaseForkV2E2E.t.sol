@@ -428,9 +428,7 @@ contract BaseForkV2E2ETest is Test {
         // Bare curve — no reserve modules — so the whole 800M ends up on the
         // curve and the graduation math matches CurveFactory defaults exactly.
         bytes[] memory moduleData = new bytes[](0);
-        LaunchParams memory p = _params(
-            _uniqueName("Grad"), _uniqueTicker("GRD"), BARE_HASH, moduleData, true
-        );
+        LaunchParams memory p = _params(_uniqueName("Grad"), _uniqueTicker("GRD"), BARE_HASH, moduleData, true);
         uint256 fee = ROUTER.quote(p);
         vm.prank(launcher, launcher);
         token = ROUTER.launch{value: fee}(p);
