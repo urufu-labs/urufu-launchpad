@@ -21,6 +21,36 @@ import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
+/// @notice Minimal Safe-like proxy for the smart-wallet fork test. Real Safe is
+///         `GnosisSafeProxy` calling into a mastercopy with owner-signature
+///         verification. What matters for launcher-recording semantics is just:
+///         "a contract calls Router.launch". This does exactly that.
+contract MinimalSafe {
+    address public immutable owner;
+
+    constructor(
+        address _owner
+    ) {
+        owner = _owner;
+    }
+
+    /// Owner-gated execTransaction analog. Forwards `data` to `target` with
+    /// `value` ETH. Returns the ABI-decoded address the target returned (used
+    /// by the fork test to get the token address back from Router.launch).
+    function exec(
+        address target,
+        bytes calldata data,
+        uint256 value
+    ) external payable returns (address) {
+        require(msg.sender == owner, "MinimalSafe: not owner");
+        (bool ok, bytes memory ret) = target.call{value: value}(data);
+        require(ok, "MinimalSafe: call failed");
+        return abi.decode(ret, (address));
+    }
+
+    receive() external payable {}
+}
+
 /// @title  BaseForkV2E2E — end-to-end validation of the V3 hook + V2 templates stack
 ///         against production Base contracts, no gas cost.
 ///
@@ -733,6 +763,65 @@ contract BaseForkV2E2ETest is Test {
             tickSpacing: GRADUATOR_V3.tickSpacing(),
             hooks: IHooks(address(HOOK_V3))
         });
+    }
+
+    // ============================================================================
+    // Assertion 13: smart-wallet launcher (Safe / ERC-4337) launcher recording
+    // ============================================================================
+
+    /// Simulates a Safe-style multisig calling Router.launch. Verifies what
+    /// address gets recorded as the on-curve launcher (= future creator).
+    ///
+    /// Real-world flow:
+    ///   1. EOA signs Safe.execTransaction(target=Router, data=Router.launch(...))
+    ///   2. Safe calls Router.launch. msg.sender to Router = Safe. tx.origin = EOA.
+    ///   3. Router calls CurveFactory.createCurveWithConfig via 3-arg legacy path.
+    ///      CF sees msg.sender = Router (trustedRouters=true) → uses tx.origin.
+    ///   4. Recorded launcher = tx.origin = the individual EOA that signed.
+    ///
+    /// **Design tension surfaced by this test:** Safe users who launch through
+    /// their multisig will have their PERSONAL EOA credited as launcher, not the
+    /// Safe address. Post-grad creator earnings flow to the individual, not the
+    /// team-managed Safe. May or may not be what the launcher intended.
+    function test_SmartWallet_SafeLaunchers_RecordEOAAsLauncher() public {
+        // Deploy a bare-bones Safe stand-in. Real Safe is far more complex but
+        // for launcher-recording semantics, only "contract calls Router" matters.
+        MinimalSafe safe = new MinimalSafe(launcher);
+        vm.deal(address(safe), 5 ether);
+
+        bytes[] memory moduleData = new bytes[](0);
+        LaunchParams memory p = LaunchParams({
+            base: BaseType.ERC20,
+            name: _uniqueName("SafeLaunch"),
+            ticker: _uniqueTicker("SFE"),
+            configHash: BARE_HASH,
+            initData: abi.encode(CURVE_DEFAULT_SUPPLY, address(ROUTER), moduleData),
+            moduleCount: 1,
+            installHook: false,
+            installGovernance: false,
+            installBondingCurve: true,
+            ownership: OwnershipMode.Renounce,
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
+        });
+        uint256 fee = ROUTER.quote(p);
+
+        // EOA signs a Safe execTransaction targeting Router. On-chain that means:
+        //   msg.sender(Router.launch) = safe (contract)
+        //   tx.origin                 = launcher (EOA that submitted the tx)
+        vm.prank(launcher, launcher);
+        address token = safe.exec{value: fee}(address(ROUTER), abi.encodeWithSelector(Router.launch.selector, p), fee);
+        address curve = CURVE_FACTORY_V2.curveFor(token);
+
+        // The critical assertion: recorded launcher is the EOA, not the Safe.
+        // This is the tx.origin fallback path — Router (trusted) → CF uses tx.origin.
+        address recordedLauncher = BondingCurve(payable(curve)).launcher();
+        assertEq(recordedLauncher, launcher, "Safe launcher: recorded should be EOA (tx.origin)");
+        assertTrue(recordedLauncher != address(safe), "recorded MUST NOT be the Safe address");
+
+        // Confirm the value ends up right: Safe paid the fee, EOA gets creator credit.
+        assertGt(IERC20(token).totalSupply(), 0, "Safe-launched token minted normally");
     }
 
     /// Sanity: post-grad SELLs also accrue — this time the unspecified currency
