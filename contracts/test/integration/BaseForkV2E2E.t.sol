@@ -10,12 +10,15 @@ import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {Graduator} from "src/curve/Graduator.sol";
+import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
 import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
 import {ERC20WithAirdropVestingGen} from "src/templates/composed/ERC20WithAirdropVestingGen.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 /// @title  BaseForkV2E2E — end-to-end validation of the V3 hook + V2 templates stack
@@ -47,14 +50,17 @@ import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 ///
 ///   (skipped without a fork so `forge test` in local dev doesn't require an RPC)
 contract BaseForkV2E2ETest is Test {
+    using PoolIdLibrary for PoolKey;
+
     // Production Base mainnet addresses (verified in web/src/lib/config.ts + on
     // the block explorer). Sourced from the latest V3 hook + V2 templates deploy.
     Router internal constant ROUTER = Router(payable(0x38461D94d6f84204399132AEc891E3B90563939a));
     ERC20Factory internal constant ERC20_FACTORY = ERC20Factory(0x347c9567bf379a5a046f925498FD805a9A34457A);
-    CurveFactory internal constant CURVE_FACTORY_V2 = CurveFactory(0x3Ac6737141c77498d645836e5652Cc5b091B9b02);
+    CurveFactory internal constant CURVE_FACTORY_V2 = CurveFactory(0xD903f09c2464B83f2F3A7e285F41b3dEFd994e81);
     MultiHookHost internal constant HOOK_V3 = MultiHookHost(payable(0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4));
     Graduator internal constant GRADUATOR_V3 = Graduator(payable(0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715));
     address internal constant POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+    V4SwapRouter internal constant V4_SWAP_ROUTER = V4SwapRouter(payable(0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288));
 
     // V2 impl addresses (registered on ERC20_FACTORY under @2 configHashes).
     address internal constant AIRDROP_V2_IMPL = 0x22C9D5640b30afC5cD935b30F59d0C5eA9FA32af;
@@ -63,6 +69,13 @@ contract BaseForkV2E2ETest is Test {
 
     // Bare ERC20 impl for the direct-launch path — registered under legacy hash.
     address internal constant BARE_ERC20_IMPL = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
+
+    // ERC721A + ERC1155 launches are intentionally UI-gated off
+    // (NFT_BASES_ENABLED=false) and coverage for those launch paths is deferred
+    // to when the flag flips. Known-issue for later: web/src/lib/config.ts has
+    // ERC721AFactory/ERC1155Factory addresses swapped between base↔mainnet and
+    // robinhood↔sepolia — Router.factories() on each chain is correct, but the
+    // config.ts constants are wrong. Fix before enabling the flag.
 
     // ConfigHashes matching web/src/lib/modules.ts:configHashFor logic. V2 modules
     // get @version tags; v1-only tuples keep the legacy formula.
@@ -403,8 +416,208 @@ contract BaseForkV2E2ETest is Test {
         moduleData[0] = abi.encode(merkleRoot, AIRDROP_ALLOCATION);
         LaunchParams memory p = _params("V2E2E Fixture", "V2EF", AIRDROP_V2_HASH, moduleData, true);
         uint256 fee = ROUTER.quote(p);
-        vm.prank(launcher);
+        vm.prank(launcher, launcher);
         token = ROUTER.launch{value: fee}(p);
         curve = CURVE_FACTORY_V2.curveFor(token);
+    }
+
+    /// Launches a bare V2 curve (no airdrop reserve) and buys through it until
+    /// graduation fires. Used by every post-grad test — this is the "graduated"
+    /// starting fixture. Returns the token, curve, and the resulting PoolKey.
+    function _launchAndGraduateBareCurve() internal returns (address token, address curve, PoolKey memory poolKey) {
+        // Bare curve — no reserve modules — so the whole 800M ends up on the
+        // curve and the graduation math matches CurveFactory defaults exactly.
+        bytes[] memory moduleData = new bytes[](0);
+        LaunchParams memory p = _params(
+            _uniqueName("Grad"), _uniqueTicker("GRD"), BARE_HASH, moduleData, true
+        );
+        uint256 fee = ROUTER.quote(p);
+        vm.prank(launcher, launcher);
+        token = ROUTER.launch{value: fee}(p);
+        curve = CURVE_FACTORY_V2.curveFor(token);
+
+        // Buy through the curve at >graduationTargetEth so _graduate fires. The
+        // curve stores gradTarget at init from CF defaults (4 ETH on Base). Use
+        // 5 ETH to be safely over. buyer has 100 ETH from setUp.
+        vm.prank(buyer);
+        BondingCurve(payable(curve)).buy{value: 5 ether}(0);
+        assertTrue(BondingCurve(payable(curve)).graduated(), "curve did not graduate");
+
+        // Reconstruct the PoolKey the Graduator used. currency0 = ETH (address 0),
+        // currency1 = token, fee/tickSpacing from Graduator constants.
+        poolKey = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(token),
+            fee: GRADUATOR_V3.fee(),
+            tickSpacing: GRADUATOR_V3.tickSpacing(),
+            hooks: IHooks(address(HOOK_V3))
+        });
+    }
+
+    // Salt uniquifiers to avoid NameRegistry collisions between tests when
+    // multiple tests call _launch* in the same fork snapshot.
+    uint256 internal _nameSalt;
+
+    function _uniqueName(
+        string memory prefix
+    ) internal returns (string memory) {
+        _nameSalt++;
+        return string.concat(prefix, " ", vm.toString(_nameSalt));
+    }
+
+    function _uniqueTicker(
+        string memory prefix
+    ) internal view returns (string memory) {
+        return string.concat(prefix, vm.toString(_nameSalt));
+    }
+
+    // ============================================================================
+    // Assertion 9: graduation fires, V4 pool exists, launcher is stamped as creator
+    // ============================================================================
+
+    /// End-to-end graduation on the fork. Launcher launches a bare V2 curve, a
+    /// buyer crosses the graduation target, the curve calls Graduator.execute,
+    /// which:
+    ///   - Initializes a v4 pool for (ETH, token) with our V3 hook attached
+    ///   - Calls hook.setCreator(poolId, launcher) BEFORE initialize (so the
+    ///     creator can never be overwritten later — beforeInitialize freezes it)
+    ///   - Adds locked liquidity
+    ///
+    /// This is the money test for per-launcher creator revenue — proves the
+    /// launcher EOA (not Router, not deploy wallet) is recorded as the creator
+    /// on the hook. Without this, post-grad swap fees route to the wrong address.
+    function test_Graduation_WiresLauncherAsCreatorOnHook() public {
+        (,, PoolKey memory poolKey) = _launchAndGraduateBareCurve();
+        PoolId id = poolKey.toId();
+
+        // The BIG invariant: hook records launcher as this pool's creator.
+        assertEq(HOOK_V3.creators(id), launcher, "hook.creators[poolId] != launcher EOA");
+
+        // Sanity: launchBlock was stamped by beforeInitialize, so setCreator is
+        // now frozen and can't be overwritten by anyone. PoolConfig struct order
+        // is (launchBlock, antiSniperBlocks, buybackBurnBps).
+        (uint32 launchBlock,,) = HOOK_V3.poolConfig(id);
+        assertGt(launchBlock, 0, "launchBlock not stamped -> initialize never fired");
+
+        // A follow-up setCreator call should revert with ConfigFrozen. Prove the
+        // creator address is now immutable — no downstream contract (or attacker)
+        // can flip the destination address of the launcher's future fees.
+        vm.expectRevert(MultiHookHost.MultiHookHost__ConfigFrozen.selector);
+        HOOK_V3.setCreator(id, address(0xdeadbeef));
+    }
+
+    // ============================================================================
+    // Assertion 10: post-grad swap accrues fees; launcher can claim their creator share
+    // ============================================================================
+
+    /// The V2 launch value-prop. Launcher launches → curve graduates → someone
+    /// swaps on the resulting v4 pool → hook.afterSwap accrues fees split between
+    /// platform + creator (launcher) → launcher calls hook.claim(currency) and
+    /// receives their share directly.
+    ///
+    /// Before V2 this share went to a shared deploy wallet. If any wiring is
+    /// broken (creator stamped as Router, unclaimed via wrong caller, hook fees
+    /// not accruing), THIS is where it surfaces. Exercises the full post-grad
+    /// user-facing revenue loop.
+    function test_PostGrad_LauncherClaimsCreatorFeesFromSwap() public {
+        // Skip if V4SwapRouter isn't deployed on this fork (any chain that lags
+        // the V4Router broadcast). Base mainnet has it.
+        if (address(V4_SWAP_ROUTER).code.length == 0) {
+            console2.log("[skip] V4SwapRouter not deployed on this fork");
+            return;
+        }
+
+        (address token,, PoolKey memory poolKey) = _launchAndGraduateBareCurve();
+        PoolId id = poolKey.toId();
+        assertEq(HOOK_V3.creators(id), launcher, "precondition: hook stamped launcher");
+
+        // Fee state pre-swap. Should be zero to start; anything already there
+        // would leak into our assertion.
+        Currency tokenCur = Currency.wrap(token);
+        uint256 launcherOwedBefore = HOOK_V3.owed(tokenCur, launcher);
+        assertEq(launcherOwedBefore, 0, "launcher owed=0 pre-swap");
+
+        // A buyer swaps ETH -> token via the V4SwapRouter. The unspecified
+        // currency for an ETH->token exact-in is `token` (currency1), so hook
+        // accrues its cut in TOKEN. That means the launcher's claim will be in
+        // TOKEN, not ETH — verify token balance below.
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+        assertGt(tokensReceived, 0, "swap returned zero tokens");
+
+        // Hook accrued creator's share in TOKEN currency.
+        uint256 launcherOwedAfter = HOOK_V3.owed(tokenCur, launcher);
+        assertGt(launcherOwedAfter, 0, "launcher owed=0 post-swap -> hook did NOT accrue to launcher");
+
+        // Launcher claims their share. hook.claim uses msg.sender as the recipient
+        // so no explicit address is passed — this proves the accrual-slot was
+        // keyed to the launcher (not the Router, not the deploy wallet).
+        uint256 launcherTokBefore = IERC20(token).balanceOf(launcher);
+        vm.prank(launcher);
+        HOOK_V3.claim(tokenCur);
+
+        uint256 launcherTokAfter = IERC20(token).balanceOf(launcher);
+        assertEq(launcherTokAfter - launcherTokBefore, launcherOwedAfter, "launcher received the exact owed amount");
+        assertEq(HOOK_V3.owed(tokenCur, launcher), 0, "owed slot zeroed after claim");
+    }
+
+    /// Complements the creator-claim test — verifies platform's share also
+    /// accrues correctly on the same swap. Both slices come from the same fee
+    /// calc; if one drifts and the other doesn't, the split math is broken.
+    function test_PostGrad_PlatformClaimsFeeShareFromSwap() public {
+        if (address(V4_SWAP_ROUTER).code.length == 0) return;
+
+        (address token,, PoolKey memory poolKey) = _launchAndGraduateBareCurve();
+        address platform = HOOK_V3.platform();
+        Currency tokenCur = Currency.wrap(token);
+        uint256 platformOwedBefore = HOOK_V3.owed(tokenCur, platform);
+
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+
+        uint256 platformOwedAfter = HOOK_V3.owed(tokenCur, platform);
+        assertGt(platformOwedAfter - platformOwedBefore, 0, "platform did not accrue on swap");
+
+        uint256 platformTokBefore = IERC20(token).balanceOf(platform);
+        vm.prank(platform);
+        HOOK_V3.claim(tokenCur);
+        assertEq(
+            IERC20(token).balanceOf(platform) - platformTokBefore,
+            platformOwedAfter - platformOwedBefore,
+            "platform received exact accrual delta"
+        );
+    }
+
+    /// Sanity: post-grad SELLs also accrue — this time the unspecified currency
+    /// is ETH (currency0), so hook.owed is keyed to Currency.wrap(0). Different
+    /// storage slot from the buy-side accrual; if _unspecified is broken this
+    /// path silently drops fees.
+    function test_PostGrad_SellAccruesEthSideFees() public {
+        if (address(V4_SWAP_ROUTER).code.length == 0) return;
+
+        (address token,, PoolKey memory poolKey) = _launchAndGraduateBareCurve();
+
+        // Buyer first BUYs so they have tokens to sell.
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+
+        // Now SELL those tokens back — accrues fees in ETH.
+        Currency ethCur = Currency.wrap(address(0));
+        uint256 launcherEthOwedBefore = HOOK_V3.owed(ethCur, launcher);
+        vm.startPrank(buyer);
+        IERC20(token).approve(address(V4_SWAP_ROUTER), tokensReceived);
+        V4_SWAP_ROUTER.swapExactTokenForETH(poolKey, tokensReceived, 1, buyer);
+        vm.stopPrank();
+        uint256 launcherEthOwedAfter = HOOK_V3.owed(ethCur, launcher);
+        assertGt(launcherEthOwedAfter - launcherEthOwedBefore, 0, "sell did not accrue ETH-side to launcher");
+
+        // Launcher claims — receives native ETH.
+        uint256 launcherEthBefore = launcher.balance;
+        vm.prank(launcher);
+        HOOK_V3.claim(ethCur);
+        assertEq(launcher.balance - launcherEthBefore, launcherEthOwedAfter, "launcher didn't receive ETH");
     }
 }

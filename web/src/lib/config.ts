@@ -122,8 +122,8 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A',
     ERC1155Factory: '0x55356c5045Cb7F299A8F5b2a17a4C2f16b68E88b',
     ERC1155TemplateImpl: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
-    CurveFactory: '0x06734Ed9Bbe88BF36ebaf7bef194eAe8c92F7301',
-    BondingCurveImpl: '0xa13D8DC8fE5b11920877a744Ce96046d45867382',
+    CurveFactory: '0x1235cfafe5fDeA2d277Ddc5c58e9D79E2C98c223',
+    BondingCurveImpl: '0x986d175E5F822451CaDEaF88b2605df791eea5f8',
   },
   sepolia: null, // populate after DeployPhase1 broadcasts
   base: {
@@ -151,8 +151,8 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0xB4a1999d1045671D9177c69f70fd8A74eEE67464',
     ERC1155Factory: '0xb0F341CB55FcD23c1BE08d2D1CcAe5829CF2FE7a',
     ERC1155TemplateImpl: '0x5A0D5596389F7efc55424C95bf4313b405A01345',
-    CurveFactory: '0x3Ac6737141c77498d645836e5652Cc5b091B9b02',
-    BondingCurveImpl: '0xfD4192F51b9D3d6A905738dcFcA24b9965b7B2f2',
+    CurveFactory: '0xD903f09c2464B83f2F3A7e285F41b3dEFd994e81',
+    BondingCurveImpl: '0x22A2299aCC918952FA78b597f941f879Ace96785',
   },
   'base-sepolia': {
     NameRegistry: '0xBca595B8B2176A9493e444befeB272b6Be0298BF',
@@ -179,7 +179,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x616462099AE1a40DA8327D2af2797c540507DBB2',
     ERC1155Factory: '0x0b57D35F7BAed17436C7c3AE21aE3FD38620E3aa',
     ERC1155TemplateImpl: '0x9B484f026D1f0670b81689d3B7e0e5D6F1180B62',
-    CurveFactory: '0xFd7F68d922d3155cdF22dD59fa9C12dd967F92C4',
+    CurveFactory: '0xB30aD1F812E3dE3ED696e8F60513804425314EB1',
     BondingCurveImpl: '0x684bb1309C3f5270A42ccc4aBdC579d8c7052d95',
   },
   robinhood: {
@@ -207,8 +207,8 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
     ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0x7B117e5207928DA67e4aA58A3D43642184485Fc8',
-    BondingCurveImpl: '0x06734Ed9Bbe88BF36ebaf7bef194eAe8c92F7301',
+    CurveFactory: '0xFF0b02818B0d39Bd43019b2ceb2d952C29dD851c',
+    BondingCurveImpl: '0x1235cfafe5fDeA2d277Ddc5c58e9D79E2C98c223',
   },
   'robinhood-testnet': null,
 };

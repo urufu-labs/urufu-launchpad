@@ -32,6 +32,7 @@ contract CurveFactory is Ownable {
     );
     event FeeReceiverSet(address feeReceiver);
     event GraduatorSet(address graduator);
+    event TrustedRouterSet(address indexed router, bool trusted);
 
     address public immutable implementation;
 
@@ -44,6 +45,14 @@ contract CurveFactory is Ownable {
     uint16 public defaultTradeFeeBps;
 
     mapping(address token => address curve) public curveFor;
+
+    /// Owner-maintained whitelist of trusted routers that are allowed to trigger
+    /// the tx.origin launcher-recording fallback in `createCurveWithConfig`. A
+    /// contract NOT on this list calling `createCurveWithConfig` gets recorded as
+    /// the launcher itself (msg.sender) — preventing an arbitrary intermediate
+    /// contract from spoofing tx.origin to smear a doxxed address as the
+    /// launcher of a scam token.
+    mapping(address router => bool trusted) public trustedRouters;
 
     constructor(
         address owner_,
@@ -97,6 +106,19 @@ contract CurveFactory is Ownable {
         emit GraduatorSet(graduator_);
     }
 
+    /// @notice Add or remove a router from the tx.origin-fallback whitelist.
+    ///         Only whitelisted routers may cause `createCurveWithConfig` to
+    ///         record `tx.origin` (rather than `msg.sender`) as the launcher.
+    ///         Any non-whitelisted contract calling `createCurveWithConfig`
+    ///         records itself as the launcher — safe by construction.
+    function setTrustedRouter(
+        address router_,
+        bool trusted_
+    ) external onlyOwner {
+        trustedRouters[router_] = trusted_;
+        emit TrustedRouterSet(router_, trusted_);
+    }
+
     /// @notice Deploy a curve for `token` with default (no-op) hook config. Convenience
     ///         wrapper for callers that don't care about anti-sniper / buyback-burn.
     ///         Launcher defaults to `msg.sender` — right for direct callers, wrong for
@@ -119,14 +141,15 @@ contract CurveFactory is Ownable {
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external returns (address curve) {
-        // Router-compatibility fallback: when a contract (Router) calls us via the
-        // legacy 3-arg API, using `msg.sender` as the launcher would record Router
-        // as the launcher — which cascades into the V3 hook stamping Router as the
-        // per-pool creator at graduation, and creator-share swap fees getting
-        // stuck (Router has no claim function). Using tx.origin here records the
-        // actual EOA that initiated the tx. NOT used for auth — only for
-        // creator-recording — so tx.origin's usual caveats don't apply.
-        address launcher = msg.sender.code.length > 0 ? tx.origin : msg.sender;
+        // Router-compatibility fallback for the legacy 3-arg API. If the caller
+        // is a contract on the trusted-routers whitelist, record `tx.origin`
+        // (the real EOA that initiated the tx) as launcher — otherwise Router
+        // itself would be stored, cascading into the V3 hook stamping Router as
+        // per-pool creator at graduation and creator-share swap fees getting
+        // stuck. WHITELIST-GATED so an arbitrary intermediate contract cannot
+        // spoof tx.origin: a non-whitelisted contract calling us records itself
+        // as launcher, harmless. NOT used for auth — only for creator recording.
+        address launcher = trustedRouters[msg.sender] ? tx.origin : msg.sender;
         return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 

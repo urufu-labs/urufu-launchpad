@@ -71,7 +71,16 @@ contract FixV2CurveFactory is Script {
         fixed_.setDefaults(curveSupply, virtualToken, virtualEth, gradTarget, tradeFeeBps);
         fixed_.setGraduator(graduator);
 
-        // 3. Point Router at the fixed CF. Every launch from this tx forward uses
+        // 3. Whitelist the Router for tx.origin launcher-recording. The deployed
+        //    Router uses the legacy 3-arg createCurveWithConfig API — without this
+        //    whitelist, CF would record Router itself as launcher (creator fees
+        //    stuck) instead of the real EOA. Only whitelisted routers may cause
+        //    tx.origin to be used; any other contract calling the 3-arg API is
+        //    recorded as itself, so an arbitrary intermediate contract cannot
+        //    spoof a doxxed EOA as launcher of a scam token.
+        fixed_.setTrustedRouter(router, true);
+
+        // 4. Point Router at the fixed CF. Every launch from this tx forward uses
         //    the correct V2 BondingCurve impl via the correct V2 CurveFactory.
         IRouter(router).setCurveFactory(newCurveFactory);
 
@@ -86,6 +95,7 @@ contract FixV2CurveFactory is Script {
         console2.log("  new fixed CurveFactory:     ", newCurveFactory);
         console2.log("  V3 Graduator wired:         ", graduator);
         console2.log("  Router.curveFactory now:    ", IRouter(router).curveFactory());
+        console2.log("  Router whitelisted (txOrig):", fixed_.trustedRouters(router));
 
         // Persist for sync-addresses / manual inspection.
         string memory obj = "fixCf";
