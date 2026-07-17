@@ -494,6 +494,31 @@ export default function CreatePage() {
 
   const implRegistered = implQuery.data && implQuery.data !== zeroAddress;
 
+  // Popup for "combo not shipped". Fires when the user has added modules that
+  // individually pass compat checks but combine into a configHash the
+  // ERC20Factory doesn't have an impl for. The launch button also greys out
+  // (canLaunch gates on !!implRegistered), but a small "impl: not registered"
+  // line at the cart bottom is easy to miss — the loud stamp explains it.
+  // Skips: the initial render (implQuery.isLoading), the bare-token case
+  // (no modules selected), and when a combo is registered.
+  useEffect(() => {
+    if (implQuery.isLoading || implQuery.data === undefined) return;
+    if (selectedModules.length === 0) return;
+    if (implRegistered) return;
+    // What modules got combined into the unregistered hash? Show all of them
+    // in the popup so the user knows exactly which selection tripped it.
+    const label = selectedModules.map((id) => moduleById(id)?.label ?? id).join(' + ');
+    setRejectStamp((prev) => ({
+      modLabel: label,
+      reason: 'this combo isn\'t shipped yet — try fewer modules or a different mix',
+      key: (prev?.key ?? 0) + 1,
+    }));
+    if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
+    rejectClearRef.current = setTimeout(() => setRejectStamp(null), 3400);
+    playSfx('stamp');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implRegistered, implQuery.isLoading, implQuery.data, selectedModules.join(',')]);
+
   // Cart preview silently substitutes zeroAddress / 0 for empty required fields so viem
   // doesn't crash on every keystroke. That safety valve must NOT propagate into a real
   // launch — walk the selected modules and block if anything required is still blank.
@@ -619,7 +644,7 @@ export default function CreatePage() {
             top: '38%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            zIndex: 60,
+            zIndex: 9999,
             pointerEvents: 'none',
             display: 'flex',
             flexDirection: 'column',
