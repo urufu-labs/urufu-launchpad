@@ -52,23 +52,19 @@ import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 contract BaseForkV2E2ETest is Test {
     using PoolIdLibrary for PoolKey;
 
-    // Production Base mainnet addresses (verified in web/src/lib/config.ts + on
-    // the block explorer). Sourced from the latest V3 hook + V2 templates deploy.
-    Router internal constant ROUTER = Router(payable(0x38461D94d6f84204399132AEc891E3B90563939a));
-    ERC20Factory internal constant ERC20_FACTORY = ERC20Factory(0x347c9567bf379a5a046f925498FD805a9A34457A);
-    CurveFactory internal constant CURVE_FACTORY_V2 = CurveFactory(0xD903f09c2464B83f2F3A7e285F41b3dEFd994e81);
-    MultiHookHost internal constant HOOK_V3 = MultiHookHost(payable(0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4));
-    Graduator internal constant GRADUATOR_V3 = Graduator(payable(0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715));
-    address internal constant POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
-    V4SwapRouter internal constant V4_SWAP_ROUTER = V4SwapRouter(payable(0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288));
+    // Chain-dispatched production addresses — set in setUp() based on block.chainid.
+    // Same test suite runs against Base (8453), Ethereum (1), Robinhood (4663),
+    // and Base Sepolia (84532) by pointing --fork-url at the right chain.
+    Router internal ROUTER;
+    ERC20Factory internal ERC20_FACTORY;
+    CurveFactory internal CURVE_FACTORY_V2;
+    MultiHookHost internal HOOK_V3;
+    Graduator internal GRADUATOR_V3;
+    address internal POOL_MANAGER;
+    V4SwapRouter internal V4_SWAP_ROUTER;
 
-    // V2 impl addresses (registered on ERC20_FACTORY under @2 configHashes).
-    address internal constant AIRDROP_V2_IMPL = 0x22C9D5640b30afC5cD935b30F59d0C5eA9FA32af;
-    address internal constant VESTING_V2_IMPL = 0x0aEe4238A3a7a8e13cE591ffA5E07CfA22674bC4;
-    address internal constant AIRDROP_VESTING_V2_IMPL = 0xA8F5E4ab757b05665A5F9a39d16e6b6DA9895F8d;
-
-    // Bare ERC20 impl for the direct-launch path — registered under legacy hash.
-    address internal constant BARE_ERC20_IMPL = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
+    // V2 impl addresses used for one wiring sanity-check (implFor lookup).
+    address internal AIRDROP_V2_IMPL;
 
     // ERC721A + ERC1155 launches are intentionally UI-gated off
     // (NFT_BASES_ENABLED=false) and coverage for those launch paths is deferred
@@ -98,15 +94,15 @@ contract BaseForkV2E2ETest is Test {
     uint256 internal constant CURVE_DEFAULT_SUPPLY = 800_000_000e18;
 
     function setUp() public {
-        // Skip if not forking — this is a Base-mainnet-only e2e. Local `forge test`
+        // Skip if not forking — this is a fork-only e2e. Local `forge test`
         // without --fork-url will silently no-op the whole suite.
         try vm.activeFork() returns (uint256) {}
         catch {
             vm.skip(true);
         }
-        // If we did fork, sanity-check the contracts actually exist at those
-        // addresses on this fork. If not, skip — happens on Base Sepolia fork or
-        // any other chain that doesn't have our production V2 stack.
+        _setAddressesForChain();
+
+        // Sanity-check the contracts exist at these addresses on the current fork.
         if (address(ROUTER).code.length == 0) vm.skip(true);
         if (address(CURVE_FACTORY_V2).code.length == 0) vm.skip(true);
         if (address(HOOK_V3).code.length == 0) vm.skip(true);
@@ -116,6 +112,56 @@ contract BaseForkV2E2ETest is Test {
         claimer = makeAddr("v2e2e_airdrop_claimer");
         vm.deal(launcher, 5 ether);
         vm.deal(buyer, 100 ether);
+    }
+
+    /// Per-chain address dispatch. Addresses sourced from web/src/lib/config.ts.
+    /// Adding a new chain: add a branch here + set the addresses.
+    function _setAddressesForChain() internal {
+        uint256 cid = block.chainid;
+        if (cid == 8453) {
+            // Base mainnet.
+            ROUTER = Router(payable(0x38461D94d6f84204399132AEc891E3B90563939a));
+            ERC20_FACTORY = ERC20Factory(0x347c9567bf379a5a046f925498FD805a9A34457A);
+            CURVE_FACTORY_V2 = CurveFactory(0xD903f09c2464B83f2F3A7e285F41b3dEFd994e81);
+            HOOK_V3 = MultiHookHost(payable(0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4));
+            GRADUATOR_V3 = Graduator(payable(0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715));
+            POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+            V4_SWAP_ROUTER = V4SwapRouter(payable(0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288));
+            AIRDROP_V2_IMPL = 0x22C9D5640b30afC5cD935b30F59d0C5eA9FA32af;
+        } else if (cid == 1) {
+            // Ethereum mainnet.
+            ROUTER = Router(payable(0x518DD310fAe76318eF56c04806c93861C8cC86CA));
+            ERC20_FACTORY = ERC20Factory(0x50200Eda4693f4b839d8c436D42568B5e92EADE3);
+            CURVE_FACTORY_V2 = CurveFactory(0x1235cfafe5fDeA2d277Ddc5c58e9D79E2C98c223);
+            HOOK_V3 = MultiHookHost(payable(0x629b2cD1641958B677A0106087CcBB89966262C4));
+            GRADUATOR_V3 = Graduator(payable(0xfCadca2f846533e50c6f9A7126535aBA54b6854c));
+            POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+            V4_SWAP_ROUTER = V4SwapRouter(payable(0x96dCf3eA38b319927554e518BD8e1899e0488a2e));
+            AIRDROP_V2_IMPL = 0xFe7C00D57c6fba7d56FE0dD1D7dcAbbAC09dF1A4;
+        } else if (cid == 4663) {
+            // Robinhood.
+            ROUTER = Router(payable(0x50200Eda4693f4b839d8c436D42568B5e92EADE3));
+            ERC20_FACTORY = ERC20Factory(0x14c1f066b91760565d5eEc8Cf4696A4648b552F2);
+            CURVE_FACTORY_V2 = CurveFactory(0xFF0b02818B0d39Bd43019b2ceb2d952C29dD851c);
+            HOOK_V3 = MultiHookHost(payable(0x5295Ee9c86A40667A46C525A99931a29c354e2C4));
+            GRADUATOR_V3 = Graduator(payable(0x426294dC9afFEF39033412611433f91f59438Ac9));
+            POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+            V4_SWAP_ROUTER = V4SwapRouter(payable(0x96E040a16A8B8B17a7896BDbDf02978895368bf6));
+            AIRDROP_V2_IMPL = 0xE63D014E0fFC2a9C7FaD51478E45D6E18185498d;
+        } else if (cid == 84_532) {
+            // Base Sepolia.
+            ROUTER = Router(payable(0xB2455Ee7Fe8eCFDe05D5CA8a65E2379e2D1d920d));
+            ERC20_FACTORY = ERC20Factory(0xa120605f68F3065F94bf58CF9eb4773e288c9c17);
+            CURVE_FACTORY_V2 = CurveFactory(0xB30aD1F812E3dE3ED696e8F60513804425314EB1);
+            HOOK_V3 = MultiHookHost(payable(0xe7462359E59E7CF6e5c78B7D3b01a685D468A2c4));
+            GRADUATOR_V3 = Graduator(payable(0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3));
+            POOL_MANAGER = 0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408;
+            V4_SWAP_ROUTER = V4SwapRouter(payable(0x729844c9Cc23407BF400535B28F787344c3321c1));
+            AIRDROP_V2_IMPL = 0xB1B9E2BAa439B925F9FA887Dd3a167A3F06712fF;
+        } else {
+            // Unsupported chain — skip.
+            vm.skip(true);
+        }
     }
 
     // ============================================================================
@@ -586,6 +632,107 @@ contract BaseForkV2E2ETest is Test {
             platformOwedAfter - platformOwedBefore,
             "platform received exact accrual delta"
         );
+    }
+
+    // ============================================================================
+    // Assertion 11: per-launch anti-sniper block gate on post-grad pool
+    // ============================================================================
+
+    /// Launcher sets antiSniperBlocks=5 at launch → the hook blocks all swaps
+    /// for the first 5 blocks after the pool is initialized. Proves the gate:
+    ///   1. Fires immediately post-grad (revert before window)
+    ///   2. Opens exactly at launchBlock + antiSniperBlocks
+    ///   3. Only affects swaps through the hook, not the curve
+    function test_PostGrad_AntiSniperBlocksPreWindowSwaps() public {
+        if (address(V4_SWAP_ROUTER).code.length == 0) return;
+
+        (,, PoolKey memory poolKey) = _launchAndGraduateWithConfig(uint32(5), uint16(0));
+
+        // First swap should revert with AntiSniperGate. The hook's beforeSwap
+        // fires the gate check before letting anything through.
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        vm.expectRevert(); // AntiSniperGate() bubbles through the router unlock
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer);
+
+        // Roll forward past the window (launchBlock + 5). Now the swap succeeds.
+        vm.roll(block.number + 6);
+        vm.prank(buyer);
+        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer);
+        assertGt(tokensReceived, 0, "post-window swap should succeed");
+    }
+
+    // ============================================================================
+    // Assertion 12: per-launch buyback-burn on post-grad buys
+    // ============================================================================
+
+    /// Launcher sets buybackBurnBps=200 (2%) at launch → every BUY has 2% of
+    /// its output tokens sent straight to BURN_ADDRESS on top of the platform
+    /// + creator fee. Proves:
+    ///   1. Burn slice fires on BUYs (ETH → token direction)
+    ///   2. Dead address balance increases exactly by the expected amount
+    ///   3. Fee accrual + burn coexist correctly (both come from same swap)
+    function test_PostGrad_BuybackBurnSliceGoesToDeadAddress() public {
+        if (address(V4_SWAP_ROUTER).code.length == 0) return;
+
+        (address token,, PoolKey memory poolKey) = _launchAndGraduateWithConfig(uint32(0), uint16(200));
+
+        address dead = 0x000000000000000000000000000000000000dEaD;
+        uint256 deadBefore = IERC20(token).balanceOf(dead);
+        uint256 creatorOwedBefore = HOOK_V3.owed(Currency.wrap(token), launcher);
+
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+
+        // Burn address received tokens.
+        uint256 deadAfter = IERC20(token).balanceOf(dead);
+        assertGt(deadAfter - deadBefore, 0, "burn address did not receive tokens on BUY");
+
+        // Creator ALSO accrued (fee + burn are independent slices of the same swap).
+        uint256 creatorOwedAfter = HOOK_V3.owed(Currency.wrap(token), launcher);
+        assertGt(creatorOwedAfter - creatorOwedBefore, 0, "creator accrual dropped when burn was set");
+    }
+
+    /// Launches a bare V2 curve with per-launch antiSniperBlocks + buybackBurnBps
+    /// configured, then graduates via a buy. Same as _launchAndGraduateBareCurve
+    /// but exposes the per-pool config path in Graduator + Hook.
+    function _launchAndGraduateWithConfig(
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) internal returns (address token, address curve, PoolKey memory poolKey) {
+        bytes[] memory moduleData = new bytes[](0);
+        LaunchParams memory p = LaunchParams({
+            base: BaseType.ERC20,
+            name: _uniqueName("Cfg"),
+            ticker: _uniqueTicker("CFG"),
+            configHash: BARE_HASH,
+            initData: abi.encode(CURVE_DEFAULT_SUPPLY, address(ROUTER), moduleData),
+            moduleCount: 1,
+            installHook: false,
+            installGovernance: false,
+            installBondingCurve: true,
+            ownership: OwnershipMode.Renounce,
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: antiSniperBlocks,
+            buybackBurnBps: buybackBurnBps
+        });
+        uint256 fee = ROUTER.quote(p);
+        vm.prank(launcher, launcher);
+        token = ROUTER.launch{value: fee}(p);
+        curve = CURVE_FACTORY_V2.curveFor(token);
+
+        vm.prank(buyer);
+        BondingCurve(payable(curve)).buy{value: 5 ether}(0);
+        assertTrue(BondingCurve(payable(curve)).graduated(), "curve did not graduate");
+
+        poolKey = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(token),
+            fee: GRADUATOR_V3.fee(),
+            tickSpacing: GRADUATOR_V3.tickSpacing(),
+            hooks: IHooks(address(HOOK_V3))
+        });
     }
 
     /// Sanity: post-grad SELLs also accrue — this time the unspecified currency

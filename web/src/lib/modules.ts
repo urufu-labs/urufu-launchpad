@@ -356,9 +356,16 @@ export const MODULES: ModuleSpec[] = [
     version: 1,
     bases: ['ERC20'],
     requires: [],
-    incompatibleWith: ['FeeOnTransfer'],
+    // The compile-service currently ships only the Airdrop@2+Vesting@2 composed
+    // template. Adding Staking to that combo would need Airdrop+Staking,
+    // Vesting+Staking, or all-3 composed impls — none of those are deployed on
+    // any chain, so a launch attempting them reverts with UnknownConfig from
+    // ERC20Factory. Block those combos in the UI until we ship + register the
+    // missing impls. FeeOnTransfer was already incompatible (would tax staking
+    // reward transfers).
+    incompatibleWith: ['FeeOnTransfer', 'Airdrop', 'Vesting'],
     flagged: null,
-    description: 'stake this token to earn more of this token. u fund the reward pool up-front, rewards stream out linearly over the window ~ (doesnt stack with tax-on-trade)',
+    description: 'stake this token to earn more of this token. u fund the reward pool up-front, rewards stream out linearly over the window ~ (doesnt stack with tax-on-trade, airdrop, or vesting for now)',
     abiEncode: '(uint256,uint32)',
     params: [
       { key: 'rewardsTotal', label: 'reward pool (tokens)', type: 'eth', description: "how many tokens ur putting up for the whole staking window" },
