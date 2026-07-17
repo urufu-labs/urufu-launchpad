@@ -639,43 +639,56 @@ export default function CreatePage() {
           key={rejectStamp.key}
           aria-live="polite"
           role="status"
+          className="uru-pop"
           style={{
             position: 'fixed',
-            top: '38%',
+            top: '32%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
             zIndex: 9999,
             pointerEvents: 'none',
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: 8,
+            maxWidth: 380,
           }}
         >
+          {/* Urufu the wolf with the confused mood — matching the "why did that
+              get rejected" beat. Idle-bobs so it feels alive during the 3.4s
+              display window. */}
+          <div className="uru-idle-bob" style={{ flexShrink: 0 }}>
+            <Mascot size={72} mood="confused" />
+          </div>
+          {/* Speech bubble using the site-standard uru-bubble class (see
+              globals.css) — cream background, anchor border, tail pointing
+              left toward the wolf. Same font as trade widget hover-callouts
+              and the mascot in the launch confirmation. */}
           <div
-            className="uru-pop"
+            className="uru-bubble"
             style={{
-              background: 'var(--pink-warm)',
-              border: '3px solid var(--anchor)',
-              boxShadow: '6px 6px 0 var(--anchor)',
-              padding: '18px 28px',
-              borderRadius: 6,
-              minWidth: 260,
-              textAlign: 'center',
-              fontFamily: 'inherit',
-              transform: 'rotate(-2deg)',
+              marginTop: 14,
+              maxWidth: 260,
+              transform: 'rotate(-1.5deg)',
+              position: 'relative',
             }}
           >
-            <div
+            <span
               className="uru-stamp uru-stamp-pink"
-              style={{ display: 'inline-block', transform: 'rotate(-6deg)', fontSize: 14, marginBottom: 6 }}
+              style={{
+                position: 'absolute',
+                top: -14,
+                right: -12,
+                transform: 'rotate(9deg)',
+                fontSize: 10,
+                letterSpacing: 0.5,
+              }}
             >
-              ✗ REJECTED
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--anchor)', marginTop: 4 }}>
+              ✗ nope~
+            </span>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--anchor)' }}>
               {rejectStamp.modLabel}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--anchor-soft)', marginTop: 4, fontStyle: 'italic' }}>
+            <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, fontStyle: 'italic' }}>
               {rejectStamp.reason}
             </div>
           </div>
