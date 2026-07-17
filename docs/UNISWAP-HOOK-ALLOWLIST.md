@@ -1,15 +1,80 @@
 # Uniswap v4 Hook Allowlist Submission — urufu labs `MultiHookHost`
 
-Everything Uniswap's hook-review team asks for, in one place. Submit via:
+Everything Uniswap's hook-review team asks for, in one place.
 
-1. **Discord**: `#hook-support` on the Uniswap Discord (`discord.gg/uniswap`).
-   Paste the "Short pitch" section into a message and link the PR + this file.
-2. **GitHub**: open a PR against Uniswap's hook registry.
-   Current known repo: `Uniswap/v4-periphery` under a `hooks/` catalog or the
-   dedicated hook registry when they publish the URL. If the location has
-   moved, `#hook-support` will point you at the right place.
-3. Follow-up: sometimes the reviewer will DM asking for a specific test case or
-   a simulated pool. Keep the "For the reviewer" section handy.
+**Primary submission**: <https://developers.uniswap.org/hook-allowlist> — a
+web form. Fields listed in the "Form quick-reference" section below. Uniswap's
+routing allowlist controls whether `app.uniswap.org` and aggregators that trust
+Uniswap's list (1inch, CoW, Odos) will pick up our pools. Without allowlisting
+the pools still exist and can be swapped through our own V4SwapRouter — users
+just can't buy the tokens from Uniswap's frontend.
+
+**Fallback / follow-up channels**:
+
+1. **Discord**: `#hook-support` on the Uniswap Discord (`discord.gg/uniswap`) —
+   for questions or if the form is unavailable.
+2. **GitHub**: some registry updates land as PRs against `Uniswap/v4-periphery`
+   under a `hooks/` catalog. `#hook-support` will point at the right repo if
+   the form doesn't cover our chain.
+3. Reviewer may DM asking for a specific test case or a simulated pool — keep
+   the "For the reviewer" section at the bottom handy.
+
+---
+
+## Form quick-reference — developers.uniswap.org/hook-allowlist
+
+### Why we must submit (not auto-allowlisted)
+
+Uniswap auto-allowlists hooks that DON'T meet any of:
+- uses a delta flag
+- deploy address starts with `0x91`
+- targets major token pairs (ETH ↔ USDC, etc.)
+
+**Our hook uses the delta flag** (`afterSwapReturnDelta = true` — see the
+`getHookPermissions()` snippet below). So we're in the "must submit" bucket
+and can't rely on auto-allowlisting.
+
+### Fields the form asks for
+
+| Field | Value |
+|---|---|
+| First name | Brandon |
+| Last name | McCall |
+| Email | brandonsmccall@gmail.com |
+| Telegram | *(fill in — required)* |
+| Hook name | `MultiHookHost` |
+| Hook description | *"Post-graduation hook for the urufu launchpad. Enforces LP-locked (revert on beforeRemoveLiquidity), gated initializer (only the launchpad's Graduator can initialize a pool through this hook — prevents pool-init griefing DoS), per-pool anti-sniper block gate, per-pool buyback-burn on buys, and fee-redirect that accrues platform + creator shares from the unspecified swap currency."* |
+| Hook address | *per chain — see addresses table below* |
+| Pool ID/address | *a graduated pool on the same chain — see chicken-and-egg note below* |
+| Chain(s) | Base, Ethereum, Robinhood, Base Sepolia (submit one per chain) |
+| Source code | `https://github.com/urufu-labs/urufu-launchpad` (path: `contracts/src/hooks/MultiHookHost.sol`) |
+| Website | `urufulabs.xyz` |
+| Audit links | (none currently) |
+| Classification | **Uses delta flag** ✅ (rest: no) |
+| Upgradable? | ❌ NO — immutable clones, no proxy |
+| Custom data inputs? | ❌ NO — only standard v4 params |
+
+The last two matter — Uniswap explicitly rejects upgradable hooks and hooks
+requiring custom data inputs. Ours are safe on both counts.
+
+### Chicken-and-egg: pool ID is a required field
+
+The form requires "Pool ID/address of a deployed pool with minimal liquidity"
+per chain. Which means we can't submit until at least one token has graduated
+on that chain. Sequence:
+
+1. Graduate a test token on **Base Sepolia** (free faucet ETH). Submit that
+   pool ID, wait for approval — burns fewer bridges if we hit a hiccup.
+2. Once approved on Sepolia, launch on **Base mainnet** and let a real
+   graduation happen (organic or forced), then submit.
+3. Repeat for **Ethereum** and **Robinhood** as those chains get their first
+   graduation.
+
+Approval timeline: "varies based on complexity and application volume" — no
+guaranteed SLA. Uniswap prioritizes audited hooks, differentiated features,
+and demonstrated traction.
+
+---
 
 ---
 
@@ -40,11 +105,12 @@ Everything Uniswap's hook-review team asks for, in one place. Submit via:
 Same source contract compiled with `solc 0.8.26`, 10_000 optimizer runs.
 Constructor: `(IPoolManager, address platform, address defaultCreator, uint16 platformBps=100, uint16 creatorBps=100, address deployer)`.
 
-| Chain      | Chain ID | Hook Address                                 | PoolManager (Uniswap-deployed)                | Verified |
-|---         |---       |---                                           |---                                            |---       |
-| Base       | 8453     | `0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
-| Ethereum   | 1        | `0x629b2cD1641958B677A0106087CcBB89966262C4` | `0x000000000004444c5dc75cB358380D2e3dE08A90` | Etherscan ✅ |
-| Robinhood  | 4663     | `0x5295Ee9c86A40667A46C525A99931a29c354e2C4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
+| Chain          | Chain ID | Hook Address                                 | PoolManager (Uniswap-deployed)                | Verified |
+|---             |---       |---                                           |---                                            |---       |
+| Base           | 8453     | `0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
+| Ethereum       | 1        | `0x629b2cD1641958B677A0106087CcBB89966262C4` | `0x000000000004444c5dc75cB358380D2e3dE08A90` | Etherscan ✅ |
+| Robinhood      | 4663     | `0x5295Ee9c86A40667A46C525A99931a29c354e2C4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
+| Base Sepolia   | 84532    | `0xe7462359E59E7CF6e5c78B7D3b01a685D468A2c4` | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | BaseScan ✅ |
 
 All hooks are byte-identical — same source, same compiler, same optimizer
 settings. Constructor args differ only in `_poolManager` (per chain) and `_deployer`
