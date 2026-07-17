@@ -656,18 +656,27 @@ export default function CreatePage() {
               cursor: 'pointer',
             }}
           />
+          {/* Outer container handles centering — flexbox on a full-viewport
+              overlay so nothing can knock it off-axis. The `uru-pop` entrance
+              lives on the inner box because that keyframes rewrites `transform`
+              at 100%, which would otherwise erase a translate(-50%, -50%). */}
           <div
             key={rejectStamp.key}
             aria-live="polite"
             role="status"
-            className="uru-pop"
             style={{
               position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
+              inset: 0,
               zIndex: 9999,
               pointerEvents: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+          <div
+            className="uru-pop"
+            style={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -750,6 +759,7 @@ export default function CreatePage() {
                 (click anywhere to dismiss)
               </div>
             </div>
+          </div>
           </div>
         </>
       )}
