@@ -112,6 +112,11 @@ export default function CreatePage() {
   const [metadata, setMetadata] = useState<TokenMetadata>({ savedAt: 0 });
   const [logoError, setLogoError] = useState<string | null>(null);
   const [dragMod, setDragMod] = useState<ModuleSpec | null>(null);
+  // Center-of-screen reject-stamp shown when the user tries to add a blocked
+  // module (already in basket, wont-stack, curve-mode owner-block, etc.). The
+  // sidebar tile also greys out but that's easy to miss; the popup is loud.
+  const [rejectStamp, setRejectStamp] = useState<{ modLabel: string; reason: string; key: number } | null>(null);
+  const rejectClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function onPickLogo(file: File | undefined) {
     setLogoError(null);
@@ -222,8 +227,24 @@ export default function CreatePage() {
 
   function addModule(id: string) {
     const mod = moduleById(id);
-    if (!mod || mod.status !== 'shipped' || selectedModules.includes(id)) return;
-    if (blockedReasons[id]) return;
+    if (!mod || mod.status !== 'shipped') return;
+    // Already-in-basket taps aren't errors — silent no-op keeps the drag-drop
+    // affordance feeling forgiving. Only the "wont stack" / curve-blocker / etc.
+    // reasons trigger the popup below.
+    if (selectedModules.includes(id)) return;
+    if (blockedReasons[id]) {
+      // Show the animated reject stamp with the specific reason. Key increments
+      // so React remounts the element and the entrance animation re-fires even
+      // when the same module is tapped repeatedly.
+      const reason = blockedReasons[id];
+      setRejectStamp((prev) => ({ modLabel: mod.label, reason, key: (prev?.key ?? 0) + 1 }));
+      if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
+      rejectClearRef.current = setTimeout(() => setRejectStamp(null), 2600);
+      // Same rejection thud the sidebar tile plays — surface the blocked action
+      // through sound too so keyboard-only users get feedback.
+      playSfx('stamp');
+      return;
+    }
 
     // Basket "drop" thud. Fires for drag-drops AND quick-add clicks since both funnel here.
     playSfx('stamp');
@@ -570,6 +591,58 @@ export default function CreatePage() {
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      {/* Center-of-screen reject stamp — fires when the user taps a blocked
+          module. Rides the existing uru-pop keyframes for its entrance so it
+          matches the paper/stamp aesthetic. Auto-dismisses in 2.6s (managed
+          via rejectClearRef in addModule). Pointer-events off so the popup
+          doesn't steal clicks. */}
+      {rejectStamp && (
+        <div
+          key={rejectStamp.key}
+          aria-live="polite"
+          role="status"
+          style={{
+            position: 'fixed',
+            top: '38%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 60,
+            pointerEvents: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div
+            className="uru-pop"
+            style={{
+              background: 'var(--pink-warm)',
+              border: '3px solid var(--anchor)',
+              boxShadow: '6px 6px 0 var(--anchor)',
+              padding: '18px 28px',
+              borderRadius: 6,
+              minWidth: 260,
+              textAlign: 'center',
+              fontFamily: 'inherit',
+              transform: 'rotate(-2deg)',
+            }}
+          >
+            <div
+              className="uru-stamp uru-stamp-pink"
+              style={{ display: 'inline-block', transform: 'rotate(-6deg)', fontSize: 14, marginBottom: 6 }}
+            >
+              ✗ REJECTED
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--anchor)', marginTop: 4 }}>
+              {rejectStamp.modLabel}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--anchor-soft)', marginTop: 4, fontStyle: 'italic' }}>
+              {rejectStamp.reason}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className="mx-auto max-w-6xl px-4 py-4">
         {/* Header cluster — high density anchor zone per SKILL.md §density */}
