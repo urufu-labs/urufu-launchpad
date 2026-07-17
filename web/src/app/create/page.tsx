@@ -99,6 +99,7 @@ export default function CreatePage() {
 
   const [base, setBase] = useState<BaseType>('ERC20');
   const [mechanic, setMechanic] = useState<'direct' | 'bonding-curve'>('direct');
+  const mechanicOnMount = useRef<'direct' | 'bonding-curve'>('direct');
   const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [supplyInput, setSupplyInput] = useState('1000000');
@@ -117,6 +118,18 @@ export default function CreatePage() {
   // sidebar tile also greys out but that's easy to miss; the popup is loud.
   const [rejectStamp, setRejectStamp] = useState<{ modLabel: string; reason: string; key: number } | null>(null);
   const rejectClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Switching mechanic (direct <-> bonding-curve) fundamentally changes which
+  // modules are compatible: curve mode grays out requiresOwner + taxesTransfers.
+  // Silently keeping a now-blocked module in the basket would leave a stale
+  // selection that trips the launch-blocker banner without the user knowing
+  // why. Empty the basket on switch so the state resets to a clean slate.
+  useEffect(() => {
+    if (mechanic === mechanicOnMount.current) return;
+    mechanicOnMount.current = mechanic;
+    setSelectedModules([]);
+    setModuleParams({});
+  }, [mechanic]);
 
   async function onPickLogo(file: File | undefined) {
     setLogoError(null);
@@ -1411,16 +1424,43 @@ function ShelfItem({
           ~~ {blockedReason}
         </div>
       )}
-      {!disabled && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onQuickAdd(); }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="uru-btn uru-btn-mint"
-          style={{ width: '100%', marginTop: 8, justifyContent: 'center', fontSize: 11, padding: '4px 8px' }}
-        >
-          <span className="uru-arrow">→</span> add to basket
-        </button>
+      {!planned && (
+        // Blocked tiles keep a button too — clicking it doesn't add the module
+        // but DOES fire the reject-stamp popup in addModule() so the user gets
+        // loud feedback instead of a silent dead tile. Non-draggable non-blocked
+        // (draggable=false) stays hidden to keep the shelf tidy.
+        !disabled ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onQuickAdd(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="uru-btn uru-btn-mint"
+            style={{ width: '100%', marginTop: 8, justifyContent: 'center', fontSize: 11, padding: '4px 8px' }}
+          >
+            <span className="uru-arrow">→</span> add to basket
+          </button>
+        ) : blocked && draggable !== false ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onQuickAdd(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="uru-btn"
+            style={{
+              width: '100%',
+              marginTop: 8,
+              justifyContent: 'center',
+              fontSize: 11,
+              padding: '4px 8px',
+              background: 'var(--pink-warm)',
+              color: 'var(--anchor-soft)',
+              cursor: 'not-allowed',
+              opacity: 0.75,
+            }}
+            title={blockedReason}
+          >
+            ✗ blocked ~~
+          </button>
+        ) : null
       )}
     </div>
   );
