@@ -444,13 +444,13 @@ export default function HomePage() {
                   hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
                 </div>
                 {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
-                    Post-migration to Robinhood: links point at the RH block explorer for both
-                    URU token + urufu gemu NFT. Uniswap frontend + OpenSea don't yet support
-                    Robinhood chain, so the explorer is the reliable landing page — users can
-                    see supply, holders, and (once wired) any RH-native DEX pool from there. */}
+                    URU link opens Uniswap on Robinhood with the pre-selected outputCurrency
+                    so the swap widget is pre-filled — no chain-picker fumbling. NFT link
+                    goes to the collection page on OpenSea where the cheapest listing is one
+                    tap away. */}
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                   <a
-                    href="https://robinhoodchain.blockscout.com/token/0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
+                    href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="uru-btn uru-btn-mint"
@@ -459,7 +459,7 @@ export default function HomePage() {
                     ✿ buy URU
                   </a>
                   <a
-                    href="https://robinhoodchain.blockscout.com/token/0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17"
+                    href="https://opensea.io/collection/urufugemu"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="uru-btn uru-btn-primary"
