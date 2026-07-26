@@ -338,6 +338,23 @@ contract MultiHookHost is BaseHook {
         emit FeeClaimed(currency, msg.sender, amount);
     }
 
+    /// Permissionless push — transfers `account`'s owed balance to `account`.
+    /// Enables the platform slot (typically a contract like `FeeSplitter` that
+    /// can't call `claim()` itself) to receive its accumulated fees via any
+    /// keeper/caller. `claim` and `pushOwed` share the same accounting, so a
+    /// creator can still pull their own share privately via `claim` if they
+    /// prefer. Emits the same FeeClaimed event so indexers see one code path.
+    function pushOwed(
+        Currency currency,
+        address account
+    ) external {
+        uint256 amount = owed[currency][account];
+        if (amount == 0) revert MultiHookHost__NothingToClaim();
+        owed[currency][account] = 0;
+        currency.transfer(account, amount);
+        emit FeeClaimed(currency, account, amount);
+    }
+
     // ---------------------------------------------------------------- misc
     /// Accept native ETH transfers coming back from `poolManager.take` for the ETH-side
     /// fee accrual (currency0 = 0x0 pools). Without this the take reverts.

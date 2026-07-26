@@ -371,6 +371,288 @@ contract RhHookMigrationForkTest is Test {
     // LP-lock: any attempt to modifyLiquidity on the graduated pool reverts
     // =========================================================
 
+    // =========================================================
+    // V3 fix regression tests — each of these was added alongside a specific
+    // audit finding (see fix commits). Together they lock in the invariants
+    // and prevent silent reintroduction of the bugs.
+    // =========================================================
+
+    /// Fix 1 — `pushOwed` lets anyone route the platform slot to FeeSplitter.
+    /// Without it, `owed[currency][FeeSplitter]` accumulates forever (FeeSplitter
+    /// has no `claim()` caller).
+    function test_Fix1_PushOwed_RoutesPlatformSlotToFeeSplitter() public {
+        (MigMockToken token,) = _launchAndGraduate();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        Currency eth = Currency.wrap(address(0));
+
+        // Accrue ETH-side platform fees via a buy + sell round-trip.
+        vm.deal(alice, 10 ether);
+        vm.startPrank(alice);
+        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice);
+        uint256 tokenBal = token.balanceOf(alice);
+        token.approve(address(swapRouter), tokenBal);
+        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice);
+        vm.stopPrank();
+
+        uint256 owed = hook.owed(eth, address(splitter));
+        require(owed > 0, "precondition: no fees accrued to splitter slot");
+
+        uint256 buybackBefore = address(buybackVault).balance;
+        uint256 nftBefore = address(nftVault).balance;
+        uint256 treasuryBefore = treasury.balance;
+
+        // Random caller — NOT FeeSplitter, NOT owner — invokes pushOwed. Must
+        // succeed and route funds into FeeSplitter's receive() → distribution.
+        address randomPusher = makeAddr("randomPusher");
+        vm.prank(randomPusher);
+        hook.pushOwed(eth, address(splitter));
+
+        assertEq(hook.owed(eth, address(splitter)), 0, "owed not zeroed after push");
+        uint256 distributed = (address(buybackVault).balance - buybackBefore) + (address(nftVault).balance - nftBefore)
+            + (treasury.balance - treasuryBefore);
+        assertGt(distributed, 0, "no funds reached flywheel sinks");
+    }
+
+    function test_Fix1_PushOwed_RevertsWhenNothingOwed() public {
+        Currency eth = Currency.wrap(address(0));
+        vm.expectRevert(MultiHookHost.MultiHookHost__NothingToClaim.selector);
+        hook.pushOwed(eth, address(splitter));
+    }
+
+    /// Fix 2 — Graduator MUST always call setPoolConfig, even when both values
+    /// are zero. Otherwise an attacker who predicts the poolId can plant a
+    /// malicious config on the deterministic address before graduation and
+    /// have it frozen in when the graduator skips the overwrite.
+    function test_Fix2_Graduator_OverwritesPreplantedPoolConfig() public {
+        // Predict the poolId of the graduation this test will trigger. The test
+        // must control token address BEFORE the curve exists so it can be planted.
+        MigMockToken token = new MigMockToken();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        PoolId poolId = key.toId();
+
+        // Attacker plants a hostile config — huge anti-sniper window + max burn.
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        hook.setPoolConfig(poolId, type(uint32).max, hook.MAX_BUYBACK_BPS());
+
+        // Now graduate the curve with launcher config (0, 0). If Graduator honored
+        // the old `if (antiSniperBlocks > 0 || buybackBurnBps > 0)` skip, the
+        // attacker's config would freeze in. Fix: unconditional overwrite → zeros land.
+        _graduateThisToken(token, 0, 0);
+
+        (, uint32 storedAntiSniper, uint16 storedBurn) = hook.poolConfig(poolId);
+        assertEq(storedAntiSniper, 0, "graduator did not overwrite attacker antiSniper");
+        assertEq(storedBurn, 0, "graduator did not overwrite attacker burn");
+    }
+
+    /// Fix 2 — same story for setCreator. When launcher is 0, Graduator must
+    /// still set the creator explicitly (to the hook's immutable fallback) so
+    /// an attacker can't plant themselves as the pool's creator.
+    function test_Fix2_Graduator_OverwritesPreplantedCreator_WhenLauncherZero() public {
+        MigMockToken token = new MigMockToken();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        PoolId poolId = key.toId();
+
+        // Attacker plants themselves as the pool creator.
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        hook.setCreator(poolId, attacker);
+
+        // Graduate with launcher = 0 (legacy path). Fix reads hook.creator()
+        // and sets that explicitly, overwriting the attacker.
+        _graduateThisToken(token, 0, 0);
+
+        assertEq(hook.creators(poolId), hook.creator(), "attacker's planted creator survived graduation");
+        assertTrue(hook.creators(poolId) != attacker, "attacker still installed as creator");
+    }
+
+    /// Fix 3 — WL init with `fallbackTs <= block.timestamp` must revert. Prior
+    /// behavior silently accepted and shipped a launch with a dead WL. Two
+    /// variants: `fallbackTs == block.timestamp` (also invalid per `<=` check)
+    /// and `fallbackTs == 0` (uninitialized default).
+    function test_Fix3_WlInit_FallbackInPast_Reverts() public {
+        MigMockToken token = new MigMockToken(); // hoisted — must precede expectRevert
+        BondingCurve curve = _cloneCurve();
+        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
+            root: bytes32(uint256(1)),
+            reservedTokens: 200_000_000e18,
+            maxWlPerAddress: 40_000_000e18,
+            fallbackTs: uint64(block.timestamp),
+            sourceTokenAddress: URU_TOKEN,
+            sourceChainId: 4663,
+            declaredHolderCount: 1
+        });
+        vm.expectRevert(BondingCurve.BondingCurve__WlFallbackInPast.selector);
+        curve.initializeWithWhitelist(
+            address(token),
+            feeReceiverBurn,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(graduator),
+            0,
+            0,
+            address(0),
+            wl
+        );
+    }
+
+    function test_Fix3_WlInit_FallbackZero_Reverts() public {
+        MigMockToken token = new MigMockToken();
+        BondingCurve curve = _cloneCurve();
+        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
+            root: bytes32(uint256(1)),
+            reservedTokens: 200_000_000e18,
+            maxWlPerAddress: 40_000_000e18,
+            fallbackTs: 0,
+            sourceTokenAddress: URU_TOKEN,
+            sourceChainId: 4663,
+            declaredHolderCount: 1
+        });
+        vm.expectRevert(BondingCurve.BondingCurve__WlFallbackInPast.selector);
+        curve.initializeWithWhitelist(
+            address(token),
+            feeReceiverBurn,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(graduator),
+            0,
+            0,
+            address(0),
+            wl
+        );
+    }
+
+    /// Fixes 4 + 5 combined — a WL curve where reservedTokens == curveSupply
+    /// lets one WL buyer drain the entire token reserve via `buyWithProof`'s
+    /// clamp. This reproduces the exact bug scenario:
+    ///   * gradTarget deliberately HUGE so ethReserve never crosses it before
+    ///     the token side exhausts,
+    ///   * one buyWithProof drains tokenReserve to 0 via the clamp,
+    ///   * OLD code would set `graduated = true` (tokenReserve==0 trigger) then
+    ///     `_graduate`'s `tokenOut > 0` guard would skip the Graduator call,
+    ///     stranding ETH forever,
+    ///   * NEW code (Fix 5) removes `tokenReserve == 0` from the trigger — curve
+    ///     stays graduated=false and the ETH is recoverable via sell,
+    ///   * subsequent buyWithProof calls clamp tokensOut to 0 which now reverts
+    ///     with ZeroAmount (Fix 4) instead of silently letting the buyer pay
+    ///     ETH for nothing.
+    function test_Fix4And5_WlDrainThenSubsequentBuys() public {
+        MigMockToken token = new MigMockToken();
+        BondingCurve curve = _cloneCurve();
+        token.mint(address(curve), CURVE_SUPPLY);
+        // Single-leaf merkle: root == leaf, proof is empty.
+        bytes32 aliceLeaf = keccak256(abi.encodePacked(alice));
+        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
+            root: aliceLeaf,
+            reservedTokens: CURVE_SUPPLY, // 100% reserved so alice can drain all
+            maxWlPerAddress: CURVE_SUPPLY,
+            fallbackTs: uint64(block.timestamp + 1 days),
+            sourceTokenAddress: URU_TOKEN,
+            sourceChainId: 4663,
+            declaredHolderCount: 1
+        });
+        // Use a tiny virtualEth override so natural token exhaustion happens at
+        // ~0.1 ETH — a single 5 ETH buy massively overshoots, triggering the
+        // `tokensOut > tokenReserve` clamp in buyWithProof (the exact code path
+        // that flags Fix 5's bug scenario).
+        curve.initializeWithWhitelist(
+            address(token),
+            feeReceiverBurn,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            0.1 ether, // smaller virtualEth → exhaustion at 0.1 ETH
+            100 ether, // gradTarget WAY above natural exhaustion
+            100,
+            address(graduator),
+            0,
+            0,
+            address(0),
+            wl
+        );
+
+        bytes32[] memory emptyProof = new bytes32[](0);
+        vm.deal(alice, 10 ether);
+
+        // Buy massive amount — the internal math would have wanted way more
+        // tokens than tokenReserve has; clamp reduces tokensOut to tokenReserve.
+        // The buy succeeds, tokenReserve = 0 afterwards, ethReserve well below gradTarget.
+        vm.prank(alice);
+        curve.buyWithProof{value: 5 ether}(emptyProof, 0);
+
+        assertEq(curve.tokenReserve(), 0, "tokenReserve not fully exhausted");
+        assertLt(curve.ethReserve(), 100 ether, "ethReserve somehow crossed gradTarget");
+        // Fix 5 — the critical invariant: no graduation despite tokenReserve==0.
+        assertFalse(curve.graduated(), "curve graduated on tokenReserve exhaustion (Fix 5 broken)");
+
+        // Fix 4 — a follow-up buy clamps tokensOut to 0 (tokenReserve is 0), which
+        // must revert with ZeroAmount rather than silently succeed.
+        vm.expectRevert(BondingCurve.BondingCurve__ZeroAmount.selector);
+        vm.prank(alice);
+        curve.buyWithProof{value: 0.1 ether}(emptyProof, 0);
+    }
+
+    /// Clone the BondingCurve impl the test already deployed via LibClone. Kept
+    /// separate from `_launchAndGraduate` so WL-fix tests can drive their own
+    /// initializeWithWhitelist call without triggering a graduation.
+    function _cloneCurve() internal returns (BondingCurve) {
+        BondingCurve impl = new BondingCurve();
+        return BondingCurve(payable(LibClone.clone(address(impl))));
+    }
+
+    /// Graduate a pre-existing token by cloning a fresh curve, funding it, and
+    /// letting alice buy through the threshold. Used by the Fix 2 tests that
+    /// need to plant attacker state at a predictable poolId (which means the
+    /// token address must be chosen BEFORE the curve exists).
+    function _graduateThisToken(
+        MigMockToken token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) internal {
+        BondingCurve curve = _cloneCurve();
+        token.mint(address(curve), CURVE_SUPPLY);
+        curve.initialize(
+            address(token),
+            feeReceiverBurn,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(graduator),
+            antiSniperBlocks,
+            buybackBurnBps,
+            address(0)
+        );
+        vm.deal(alice, 10 ether);
+        vm.prank(alice);
+        curve.buy{value: 3 ether}(0);
+        require(curve.graduated(), "curve failed to graduate in helper");
+    }
+
     function test_LpLocked_RemoveLiquidityReverts() public {
         (MigMockToken token,) = _launchAndGraduate();
 

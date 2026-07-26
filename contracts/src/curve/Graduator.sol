@@ -30,6 +30,12 @@ interface IHookConfig {
         PoolId id,
         address creator
     ) external;
+    /// Immutable fallback creator from the hook's constructor. Used as the
+    /// setCreator target when the graduating curve was launched without a
+    /// tracked launcher (legacy path — pre-launcher-tracking curves stored 0).
+    /// Fetching + explicitly-setting keeps front-runners from planting their
+    /// own address as the pool's creator on a deterministic poolId.
+    function creator() external view returns (address);
 }
 
 /// @title  Graduator
@@ -121,27 +127,41 @@ contract Graduator is IUnlockCallback {
 
         // Write per-pool hook config BEFORE initialize — once initialize fires it stamps
         // the hook's `launchBlock` and the setPoolConfig call would revert with
-        // ConfigFrozen. Wrapped in try/catch so a graduation still succeeds even if the
-        // hook contract doesn't implement setPoolConfig (e.g. an older MultiHookHost
-        // deployment mid-migration); the pool just launches without anti-sniper / buyback.
+        // ConfigFrozen. IMPORTANT: this call is UNCONDITIONAL, even when both values
+        // are zero. Skipping it would leave a window where an attacker who monitors
+        // the mempool can front-run and pre-plant a malicious config on the
+        // deterministic poolId (setPoolConfig on MultiHookHost is permissionless
+        // until beforeInitialize stamps launchBlock). Overwriting with the
+        // graduator's intended values — zeros included — closes that window.
+        // Try/catch remains as a safety net for the hook-migration case (a
+        // graduation targeting a pre-v2 host without setPoolConfig), but for
+        // the current V3 stack it always succeeds.
         PoolId poolId = key.toId();
-        if (antiSniperBlocks > 0 || buybackBurnBps > 0) {
-            try IHookConfig(address(defaultHook)).setPoolConfig(poolId, antiSniperBlocks, buybackBurnBps) {
-            // config landed
-            }
-                catch {
-                // silently continue — the pool still opens without the extra behaviors.
-            }
+        IHookConfig hookCfg = IHookConfig(address(defaultHook));
+        try hookCfg.setPoolConfig(poolId, antiSniperBlocks, buybackBurnBps) {
+        // config landed
+        }
+            catch {
+            // hook doesn't implement it (pre-v2 fallback) — pool still opens.
         }
 
-        // Assign the per-pool creator BEFORE initialize — same freeze window as
-        // setPoolConfig. Zero-address launcher (legacy path) skips the setter so the
-        // hook's constructor fallback receives the creator share. Try/catch keeps
-        // graduations working against pre-v2 MultiHookHost deployments that don't
-        // implement setCreator — they'll accrue the whole creator share to their
-        // immutable `creator` slot like before.
-        if (launcher != address(0)) {
-            try IHookConfig(address(defaultHook)).setCreator(poolId, launcher) {
+        // Assign the per-pool creator BEFORE initialize — same freeze window.
+        // ALSO UNCONDITIONAL: if launcher is 0 (legacy curves that didn't record
+        // a launcher), we read the hook's immutable `creator` fallback and set
+        // THAT explicitly. Skipping the setter — even for the "legacy path" —
+        // would let a front-runner plant `attacker` as the pool creator and
+        // steal every future creator-fee share. Explicit overwrite defeats it.
+        address creatorForPool = launcher;
+        if (creatorForPool == address(0)) {
+            try hookCfg.creator() returns (address fallbackCreator) {
+                creatorForPool = fallbackCreator;
+            } catch {
+                // Pre-v2 hook without `creator()` getter — leave as 0. The
+                // pre-v2 host would silently ignore setCreator anyway.
+            }
+        }
+        if (creatorForPool != address(0)) {
+            try hookCfg.setCreator(poolId, creatorForPool) {
             // creator landed
             }
                 catch {

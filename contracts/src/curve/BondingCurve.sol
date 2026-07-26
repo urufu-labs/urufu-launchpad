@@ -52,6 +52,10 @@ contract BondingCurve is ReentrancyGuard {
     /// Buy would push `wlSold` past the total reserved slice.
     error BondingCurve__WlReservedExhausted(uint256 requested, uint256 reservedRemaining);
     error BondingCurve__WlNothingToClaim();
+    /// Whitelist configured with `fallbackTs <= block.timestamp` — the WL window is
+    /// dead-on-arrival (buyWithProof reverts as WlNotActive from block 0, buy()
+    /// opens immediately with a WL that no one can use). Caller mistake guard.
+    error BondingCurve__WlFallbackInPast();
 
     // ============================================================
     // Events — the trade UI streams these into an OHLC chart
@@ -307,6 +311,11 @@ contract BondingCurve is ReentrancyGuard {
             revert BondingCurve__ExceedsSupply(wl.reservedTokens, curveSupply);
         }
         if (wl.maxWlPerAddress == 0) revert BondingCurve__ZeroAmount();
+        // Reject fallback timestamps that don't leave a real WL window. `<=` covers
+        // both the "0 default" and "past block" cases — either would ship a launch
+        // where the WL is documented in the emitted event but structurally unreachable
+        // (buyWithProof reverts WlNotActive; buy opens with the merkle root ignored).
+        if (wl.fallbackTs <= block.timestamp) revert BondingCurve__WlFallbackInPast();
 
         whitelistRoot = wl.root;
         reservedTokens = wl.reservedTokens;
@@ -390,6 +399,11 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
         if (tokensOut > tokenReserve) revert BondingCurve__ExceedsSupply(tokensOut, tokenReserve);
+        // Dust-buy guard — msg.value small enough that the curve math rounds
+        // tokensOut to 0. Without this check, a griefer can push ethReserve
+        // toward graduationTargetEth for near-zero tokens per tx, and any
+        // buyer who forgot to set minTokensOut pays ETH for nothing.
+        if (tokensOut == 0) revert BondingCurve__ZeroAmount();
         if (tokensOut < minTokensOut) revert BondingCurve__Slippage(tokensOut, minTokensOut);
 
         // Time-gated WL: during the exclusive window the public path is closed —
@@ -409,7 +423,16 @@ contract BondingCurve is ReentrancyGuard {
 
         emit Trade(msg.sender, true, ethAfterFee, tokensOut, ethReserve, tokenReserve, block.timestamp);
 
-        if (ethReserve >= graduationTargetEth || tokenReserve == 0) {
+        // Only graduate when ethReserve crosses the target. The old alternate
+        // trigger — `tokenReserve == 0` — could fire when the curve math drained
+        // token side before hitting the ETH target (possible with custom / off-
+        // spec curve params), flipping `graduated = true` while `_graduate`'s
+        // internal guard `tokenOut > 0` skipped the Graduator call → ethReserve
+        // stranded on-curve forever with no withdraw path. Now graduation is
+        // gated on ethReserve alone; the subsequent `_graduate` still checks
+        // `tokenOut > 0` as belt-and-suspenders in case a custom curve invariant
+        // ever produces 0-token graduation.
+        if (ethReserve >= graduationTargetEth) {
             _graduate();
         }
     }
@@ -444,6 +467,10 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
         if (tokensOut > tokenReserve) tokensOut = tokenReserve;
+        // Same dust-buy guard as buy() — a WL buyer paying vanishingly small ETH
+        // (or arriving after tokenReserve was clamped to 0) must not sink ETH
+        // into the curve for zero WL entitlement.
+        if (tokensOut == 0) revert BondingCurve__ZeroAmount();
         if (tokensOut < minTokensOut) revert BondingCurve__Slippage(tokensOut, minTokensOut);
 
         // Reserved-slice gate.
@@ -471,7 +498,9 @@ contract BondingCurve is ReentrancyGuard {
         emit WlBought(msg.sender, ethAfterFee, tokensOut, alreadyBought + tokensOut);
         emit Trade(msg.sender, true, ethAfterFee, tokensOut, ethReserve, tokenReserve, block.timestamp);
 
-        if (ethReserve >= graduationTargetEth || tokenReserve == 0) {
+        // Same ethReserve-only trigger as buy() — see the comment there for why
+        // the `tokenReserve == 0` alternate was removed.
+        if (ethReserve >= graduationTargetEth) {
             _graduate();
         }
     }
