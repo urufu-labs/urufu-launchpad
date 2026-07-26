@@ -1079,7 +1079,7 @@ export default function CreatePage() {
                         data-tilt={active ? undefined : tilt}
                         style={{
                           boxShadow: active ? '4px 4px 0 var(--pink-hot)' : undefined,
-                          background: active ? 'var(--pink-warm)' : '#fff',
+                          background: active ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
                           opacity: disabled ? 0.45 : 1,
                           cursor: disabled ? 'not-allowed' : 'pointer',
                           filter: disabled ? 'grayscale(0.6)' : undefined,
@@ -1132,7 +1132,7 @@ export default function CreatePage() {
                     onClick={() => setMechanic('direct')}
                     className="uru-polaroid text-left"
                     style={{
-                      background: mechanic === 'direct' ? 'var(--pink-warm)' : '#fff',
+                      background: mechanic === 'direct' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
                       boxShadow: mechanic === 'direct' ? '4px 4px 0 var(--pink-hot)' : undefined,
                     }}
                   >
@@ -1150,7 +1150,7 @@ export default function CreatePage() {
                     disabled={base !== 'ERC20'}
                     className="uru-polaroid text-left"
                     style={{
-                      background: mechanic === 'bonding-curve' ? 'var(--mint)' : '#fff',
+                      background: mechanic === 'bonding-curve' ? 'var(--mint)' : 'var(--paper-white, #fff)',
                       boxShadow: mechanic === 'bonding-curve' ? '4px 4px 0 var(--anchor)' : undefined,
                       opacity: base !== 'ERC20' ? 0.4 : 1,
                       cursor: base !== 'ERC20' ? 'not-allowed' : 'pointer',

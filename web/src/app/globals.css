@@ -41,14 +41,9 @@
   --card-lifted:  var(--cream-deep);
 
   /* Ambient hover glow — soft radial that makes CTAs feel warm-lit on hover.
-     Retuned for dark mode below. */
+     Retuned for dark mode below. Mint stays intentionally absent — mint buttons
+     inherit the pink hover state (mint→pink is the established color-shift). */
   --glow-pink:    0 0 24px rgba(255, 136, 179, 0.35);
-  --glow-mint:    0 0 24px rgba(47, 191, 106, 0.32);
-
-  /* Sun / ambient wash — a page-scale radial pinned to the top-left corner that
-     mimics window-light spill. Very low opacity in light mode so it just adds
-     depth without becoming a spotlight. */
-  --sun-glow:     radial-gradient(circle at 8% -10%, rgba(255, 239, 173, 0.45) 0%, transparent 42%);
 }
 
 /* ============================================================================
@@ -110,13 +105,6 @@
   /* Ambient hover glow — bumped intensity so CTAs feel warm-lit against dark
      surfaces (the light-mode value gets swallowed by the plum). */
   --glow-pink:    0 0 32px rgba(255, 136, 179, 0.55);
-  --glow-mint:    0 0 32px rgba(75, 208, 125, 0.5);
-
-  /* Sun/ambient wash — retuned to a rose-warm glow at top-left to give the
-     otherwise-flat plum body a light source. Higher opacity than light mode
-     since dark surfaces absorb ambient wash. */
-  --sun-glow:     radial-gradient(circle at 8% -10%, rgba(255, 136, 179, 0.18) 0%, transparent 45%),
-                  radial-gradient(circle at 95% 105%, rgba(126, 180, 240, 0.10) 0%, transparent 50%);
 }
 
 @theme inline {
@@ -137,37 +125,34 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile.
-   Layers, bottom → top: paper-dot tile (24px), warm color washes, sun-glow overlay
-   pinned to top-left corner. The sun-glow adds a soft window-light spill that keeps
-   the page from feeling flat + evenly-lit. */
+/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile
+   + subtle page-scale color washes. Kept intentionally low-opacity so the base
+   reads as a clean warm surface, not a blobby tie-dye. */
 body {
   background: var(--paper-base);
   background-image:
-    var(--sun-glow),
     /* subtle paper dots — 24px tile */
     radial-gradient(circle at 6px 6px, rgba(58,44,58,0.05) 1px, transparent 2px),
     /* soft color washes at page-scale */
     radial-gradient(circle at 22% 12%, rgba(255,209,220,0.30) 0, transparent 50%),
     radial-gradient(circle at 82% 82%, rgba(189,224,254,0.22) 0, transparent 55%),
     radial-gradient(circle at 60% 40%, rgba(200,247,197,0.16) 0, transparent 60%);
-  background-size: auto, 24px 24px, auto, auto, auto;
+  background-size: 24px 24px, auto, auto, auto;
   color: var(--anchor);
   font-family: var(--font-body), Georgia, "Times New Roman", serif;
   font-size: 13px;
   min-height: 100vh;
 }
 
-/* Dark mode — bump color washes so the base doesn't read as a flat plum sheet, and
-   add the retuned --sun-glow (rose top-left + cool bottom-right) for depth. The old
-   values were so low-opacity the base was effectively monochrome. */
+/* Dark mode — same shape as light, low-opacity color washes so the plum base doesn't
+   read as a flat monochrome sheet. Values kept intentionally faint (5-8%) so nothing
+   pools into a visible blob. Depth comes from card elevation, not body noise. */
 :root[data-theme="dark"] body {
   background-image:
-    var(--sun-glow),
     radial-gradient(circle at 6px 6px, rgba(245,236,218,0.05) 1px, transparent 2px),
-    radial-gradient(circle at 22% 12%, rgba(255,136,179,0.14) 0, transparent 55%),
-    radial-gradient(circle at 82% 82%, rgba(126,180,240,0.10) 0, transparent 60%),
-    radial-gradient(circle at 60% 40%, rgba(75,208,125,0.06) 0, transparent 65%);
+    radial-gradient(circle at 22% 12%, rgba(255,136,179,0.08) 0, transparent 55%),
+    radial-gradient(circle at 82% 82%, rgba(126,180,240,0.06) 0, transparent 60%),
+    radial-gradient(circle at 60% 40%, rgba(75,208,125,0.04) 0, transparent 65%);
 }
 
 /* Real hyperlinks — blue, underlined, unstyled per JP personal-site convention */
@@ -402,7 +387,6 @@ body {
   box-shadow: 2px 2px 0 var(--anchor), var(--glow-pink);
 }
 .uru-btn-mint { background: var(--mint); }
-.uru-btn-mint:hover { background: var(--mint-hot); color: #fff; box-shadow: 2px 2px 0 var(--anchor), var(--glow-mint); }
 .uru-btn-cream { background: var(--cream); }
 
 /* Inputs — old-school raised field with dotted border. `--input-bg` swaps on dark. */
