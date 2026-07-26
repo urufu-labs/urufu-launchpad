@@ -537,6 +537,16 @@ export default function CreatePage() {
     return (fee * Q192) / priceX192;
   }, [uruPay, slot0.data, quote.data]);
 
+  // URU amounts run to 18 decimals — full string overflows the receipt box.
+  // Trim to 4 decimals + strip trailing zeros for display; underlying bigint stays exact.
+  const fmtCompact = (wei: bigint): string => {
+    const s = formatEther(wei);
+    const [int, frac = ''] = s.split('.');
+    if (!frac) return int as string;
+    const trimmed = frac.slice(0, 4).replace(/0+$/, '');
+    return trimmed ? `${int}.${trimmed}` : (int as string);
+  };
+
   const uruAllowance = useReadContract({
     abi: erc20TokenAbi,
     address: uruPay?.token,
@@ -1586,8 +1596,8 @@ export default function CreatePage() {
                 <div className="uru-eyebrow">receipt</div>
                 <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 20, fontWeight: 700, color: 'var(--anchor)' }}>
                   {payToken === 'URU'
-                    ? (typeof uruAmount === 'bigint' ? formatEther(uruAmount) : '—')
-                    : (typeof quote.data === 'bigint' ? formatEther(quote.data) : '—')}
+                    ? (typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '—')
+                    : (typeof quote.data === 'bigint' ? fmtCompact(quote.data) : '—')}
                   <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>{payToken}</span>
                 </div>
               </div>
@@ -1654,7 +1664,7 @@ export default function CreatePage() {
                   style={{ width: '100%', justifyContent: 'center' }}
                   title={typeof uruAmount === 'bigint' ? `approve ${formatEther(uruAmount)} URU` : 'waiting on URU quote'}
                 >
-                  {launchPending ? 'confirming ~~' : `approve URU (${typeof uruAmount === 'bigint' ? formatEther(uruAmount).slice(0, 10) : '…'})`}
+                  {launchPending ? 'confirming ~~' : `approve URU (${typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '…'})`}
                 </button>
               ) : (
                 <button
