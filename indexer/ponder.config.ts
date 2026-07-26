@@ -77,6 +77,32 @@ export const poolManagerAbi = parseAbi([
   'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
 ]);
 
+/// Flywheel ABIs — MultiHookHost / FeeSplitter / UruBuybackVault / UruDepositSink.
+/// Only the value events are indexed (admin config like KeeperSet, SwapTargetSet,
+/// CreatorSet, ConfigSet, InitializerSet are intentionally excluded to keep the
+/// per-log DB writes lean). PoolConfigSet is kept because it maps 1:1 to per-pool
+/// UI state (anti-sniper + burn bps rendered on the trade page).
+export const multiHookHostAbi = parseAbi([
+  'event FeeAccrued(address indexed currency, uint256 platformShare, uint256 creatorShare)',
+  'event FeeClaimed(address indexed currency, address indexed to, uint256 amount)',
+  'event BuybackBurned(address indexed currency, uint256 amount)',
+  'event PoolConfigSet(bytes32 indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps)',
+]);
+
+export const feeSplitterAbi = parseAbi([
+  'event FeeReceived(address indexed launcher, uint8 indexed base, uint256 amount)',
+  'event Distributed(uint256 total, uint256 toBuyback, uint256 toNft, uint256 toTreasury)',
+]);
+
+export const uruBuybackVaultAbi = parseAbi([
+  'event BuybackExecuted(uint256 ethIn, uint256 uruOut)',
+]);
+
+export const uruDepositSinkAbi = parseAbi([
+  'event Deposited(address indexed from, uint256 amount)',
+  'event ConversionExecuted(uint256 uruIn, uint256 ethOut)',
+]);
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -328,6 +354,10 @@ const contracts = {
   Token: { abi: erc20Abi, network: tokenNet() },
   UruToken: { abi: erc20Abi, network: ecosystemTokenNet('URU_TOKEN_ADDRESS') },
   GemuNft: { abi: erc721Abi, network: ecosystemTokenNet('GEMU_NFT_ADDRESS') },
+  MultiHookHost: { abi: multiHookHostAbi, network: netFor('MULTI_HOOK_HOST') },
+  FeeSplitter: { abi: feeSplitterAbi, network: netFor('FEE_SPLITTER') },
+  UruBuybackVault: { abi: uruBuybackVaultAbi, network: netFor('URU_BUYBACK_VAULT') },
+  UruDepositSink: { abi: uruDepositSinkAbi, network: netFor('URU_DEPOSIT_SINK') },
 };
 
 // ---------------------------------------------------------------- database

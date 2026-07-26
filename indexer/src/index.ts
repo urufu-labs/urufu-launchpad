@@ -4,7 +4,13 @@ import { ponder } from '@/generated';
 import { keccak256, encodeAbiParameters } from 'viem';
 import { eq } from '@ponder/core';
 
-import { launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers, wlPurchases, wlClaims } from '../ponder.schema.ts';
+import {
+  launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers,
+  wlPurchases, wlClaims,
+  hookConfigs, hookFees, hookFeeClaims, hookBurns,
+  flywheelReceipts, flywheelDistributions,
+  uruBuybacks, uruSinkDeposits, uruSinkConversions,
+} from '../ponder.schema.ts';
 import { hookHostForChainId } from '../chains';
 
 /// Ponder's multi-network context.network union is `{ name, chainId }` for each
@@ -693,4 +699,165 @@ ponder.on('GemuNft:Transfer', async ({ event, context }) => {
       }).onConflictDoNothing();
     }
   }
+});
+
+// =========================================================
+// Flywheel handlers — MultiHookHost + FeeSplitter + UruBuybackVault +
+// UruDepositSink. Each event maps 1:1 to a schema table with the same shape
+// as the on-chain event. Chains without a wired flywheel address simply never
+// fire these handlers (netFor returns an empty subscription map).
+// =========================================================
+
+ponder.on('MultiHookHost:FeeAccrued', async ({ event, context }) => {
+  const { currency, platformShare, creatorShare } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(hookFees).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    hookAddress: event.log.address,
+    currency,
+    platformShare,
+    creatorShare,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('MultiHookHost:FeeClaimed', async ({ event, context }) => {
+  const { currency, to, amount } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(hookFeeClaims).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    hookAddress: event.log.address,
+    currency,
+    to,
+    amount,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('MultiHookHost:BuybackBurned', async ({ event, context }) => {
+  const { currency, amount } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(hookBurns).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    hookAddress: event.log.address,
+    currency,
+    amount,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+/// PoolConfigSet fires on both initial config AND updates — we upsert (insert
+/// with a stable per-(hook,pool) id, override on conflict) so the row always
+/// reflects the LATEST config. Chart/UI only ever needs "what is the config now".
+ponder.on('MultiHookHost:PoolConfigSet', async ({ event, context }) => {
+  const { poolId, antiSniperBlocks, buybackBurnBps } = event.args;
+  const chainId = chainIdOf(context);
+  const id = `${chainId}-${event.log.address.toLowerCase()}-${poolId}`;
+  const existing = await context.db.find(hookConfigs, { id });
+  if (existing) {
+    await context.db.update(hookConfigs, { id }).set({
+      antiSniperBlocks,
+      buybackBurnBps,
+      updatedAt: event.block.timestamp,
+      txHash: event.transaction.hash,
+    });
+  } else {
+    await context.db.insert(hookConfigs).values({
+      id,
+      chainId,
+      hookAddress: event.log.address,
+      poolId,
+      antiSniperBlocks,
+      buybackBurnBps,
+      updatedAt: event.block.timestamp,
+      txHash: event.transaction.hash,
+    }).onConflictDoNothing();
+  }
+});
+
+ponder.on('FeeSplitter:FeeReceived', async ({ event, context }) => {
+  const { launcher, base, amount } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(flywheelReceipts).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    splitter: event.log.address,
+    launcher,
+    base: Number(base),
+    amount,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('FeeSplitter:Distributed', async ({ event, context }) => {
+  const { total, toBuyback, toNft, toTreasury } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(flywheelDistributions).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    splitter: event.log.address,
+    total,
+    toBuyback,
+    toNft,
+    toTreasury,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('UruBuybackVault:BuybackExecuted', async ({ event, context }) => {
+  const { ethIn, uruOut } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(uruBuybacks).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    vault: event.log.address,
+    ethIn,
+    uruOut,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('UruDepositSink:Deposited', async ({ event, context }) => {
+  const { from, amount } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(uruSinkDeposits).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    sink: event.log.address,
+    from,
+    amount,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('UruDepositSink:ConversionExecuted', async ({ event, context }) => {
+  const { uruIn, ethOut } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(uruSinkConversions).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    sink: event.log.address,
+    uruIn,
+    ethOut,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
 });

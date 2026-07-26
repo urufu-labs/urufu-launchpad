@@ -206,6 +206,141 @@ export const transfers = onchainTable('transfers', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+// =========================================================
+// Flywheel visibility tables — MultiHookHost + FeeSplitter + UruBuybackVault
+// + UruDepositSink events. Wired for chains where those contracts are deployed
+// (RH V2 today). Non-flywheel chains simply never populate these tables.
+// =========================================================
+
+/// PoolConfigSet — per-pool anti-sniper + buyback-burn config on the MultiHookHost.
+/// One row per pool (identified by v4 PoolId). Upserted on each PoolConfigSet event
+/// so the latest values reflect current on-chain config.
+export const hookConfigs = onchainTable('hook_configs', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${hookAddress}-${poolId}`
+  chainId: t.integer().notNull(),
+  hookAddress: t.hex().notNull(),
+  poolId: t.hex().notNull(),
+  antiSniperBlocks: t.integer().notNull(),
+  buybackBurnBps: t.integer().notNull(),
+  updatedAt: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Per-currency running fee accrual on a MultiHookHost. Every FeeAccrued event
+/// splits the swap fee into a platform share (routed to FeeSplitter) and a
+/// creator share (claimable via FeeClaimed).
+export const hookFees = onchainTable('hook_fees', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  hookAddress: t.hex().notNull(),
+  currency: t.hex().notNull(),                     // v4 Currency (token addr; 0x0 = ETH)
+  platformShare: t.bigint().notNull(),
+  creatorShare: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// FeeClaimed — creator (or platform) pulls accrued fees from the hook. One row
+/// per claim call. `to` is the destination address of the withdrawal.
+export const hookFeeClaims = onchainTable('hook_fee_claims', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  hookAddress: t.hex().notNull(),
+  currency: t.hex().notNull(),
+  to: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// BuybackBurned — MultiHookHost's per-pool buyback-burn slice sending tokens
+/// (or ETH) to the burn address. One row per fired event.
+export const hookBurns = onchainTable('hook_burns', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  hookAddress: t.hex().notNull(),
+  currency: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// FeeReceived — ETH landing in the FeeSplitter, from either a Router launch fee
+/// or the UruDepositSink URU→ETH conversion. `base` mirrors BaseType (0=ERC20,
+/// 1=ERC721A, 2=ERC1155); launcher is the source launch's `launchedBy`.
+export const flywheelReceipts = onchainTable('flywheel_receipts', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  splitter: t.hex().notNull(),
+  launcher: t.hex().notNull(),
+  base: t.integer().notNull(),
+  amount: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Distributed — FeeSplitter's 40/35/25 (buyback/nft/treasury) fan-out. Total
+/// equals sum of the three splits. Powers dashboards showing "buyback pressure",
+/// "NFT holder distributions", and "treasury inflow" over time.
+export const flywheelDistributions = onchainTable('flywheel_distributions', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  splitter: t.hex().notNull(),
+  total: t.bigint().notNull(),
+  toBuyback: t.bigint().notNull(),
+  toNft: t.bigint().notNull(),
+  toTreasury: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// BuybackExecuted — UruBuybackVault swap of ETH into URU (via allowlisted
+/// UniversalRouter target). ethIn is the ETH consumed from the vault; uruOut
+/// is the URU sent to the distribution sink.
+export const uruBuybacks = onchainTable('uru_buybacks', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  vault: t.hex().notNull(),
+  ethIn: t.bigint().notNull(),
+  uruOut: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// UruDepositSink.Deposited — URU landing in the sink from URU-paid launches.
+/// One row per RouterV2.launchWithURU (or launchWithURUAndWhitelist) call — the
+/// launcher pays URU, RouterV2 forwards it to the sink for later conversion.
+export const uruSinkDeposits = onchainTable('uru_sink_deposits', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  sink: t.hex().notNull(),
+  from: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// UruDepositSink.ConversionExecuted — the sink's URU→ETH swap (via allowlisted
+/// UniversalRouter). ethOut lands in the FeeSplitter (see FeeReceived) so the
+/// same 40/35/25 fan-out covers both ETH-paid AND URU-paid launches.
+export const uruSinkConversions = onchainTable('uru_sink_conversions', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  sink: t.hex().notNull(),
+  uruIn: t.bigint().notNull(),
+  ethOut: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),

@@ -123,6 +123,13 @@ export const ADDRESS_KEYS = [
   'POOL_MANAGER',
   'V4_SWAP_ROUTER',
   'MULTI_HOOK_HOST',
+  /// Flywheel contracts — added for indexer subscription so on-chain fee flow
+  /// (accrual → split → buyback / NFT distribution / URU→ETH conversion) is
+  /// queryable from the DB instead of requiring live RPC reads. Only wired on
+  /// chains where the flywheel is deployed (RH V2 today).
+  'FEE_SPLITTER',
+  'URU_BUYBACK_VAULT',
+  'URU_DEPOSIT_SINK',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 

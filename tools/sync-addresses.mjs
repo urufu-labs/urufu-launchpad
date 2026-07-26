@@ -261,6 +261,13 @@ if (v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost) {
   console.log(`${prefix}_MULTI_HOOK_HOST_ADDRESS=${v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost}`);
 }
 if (v4router?.V4SwapRouter) console.log(`${prefix}_V4_SWAP_ROUTER_ADDRESS=${v4router.V4SwapRouter}`);
+// Flywheel + URU sink — required for indexer flywheel event subscriptions
+// (MultiHookHost / FeeSplitter / UruBuybackVault / UruDepositSink). Emitted
+// only when the corresponding deployment book exists; the indexer skips any
+// subscription whose address env var is unset.
+if (flywheel?.FeeSplitter) console.log(`${prefix}_FEE_SPLITTER_ADDRESS=${flywheel.FeeSplitter}`);
+if (flywheel?.UruBuybackVault) console.log(`${prefix}_URU_BUYBACK_VAULT_ADDRESS=${flywheel.UruBuybackVault}`);
+if (routerv2?.UruDepositSink) console.log(`${prefix}_URU_DEPOSIT_SINK_ADDRESS=${routerv2.UruDepositSink}`);
 console.log(`${startBlockKey}=${core.deployedAtBlock}`);
 console.log(`# --- Legacy unprefixed fallback (only used when INDEXER_CHAIN=${chain}) ---`);
 console.log(`NEXT_PUBLIC_NAME_REGISTRY_ADDRESS=${emit.NameRegistry}`);
