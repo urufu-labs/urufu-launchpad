@@ -87,8 +87,7 @@ contract DeployRouterV2 is Script {
         // DeployCurveFactoryV2). Falls back to the pre-WL CurveFactory from Phase1 for
         // deployments that haven't yet migrated. This makes launchWithWhitelist work
         // out of the box on RH once both scripts have been run.
-        string memory curveFactoryV2Path =
-            string.concat("deployment-curvefactoryv2.", chainId, ".json");
+        string memory curveFactoryV2Path = string.concat("deployment-curvefactoryv2.", chainId, ".json");
         address curveFactory;
         bool usingCurveFactoryV2;
         if (vm.exists(curveFactoryV2Path)) {

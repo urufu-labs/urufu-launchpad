@@ -28,7 +28,7 @@ contract MockUru is ERC20 {
 /// a real UR swap (opaque calldata, allowance-based pull, ETH refund).
 contract MockSwapTarget {
     MockUru public immutable uru;
-    uint256 public constant RATE_NUM = 1;    // 1 URU → 0.001 ETH
+    uint256 public constant RATE_NUM = 1; // 1 URU → 0.001 ETH
     uint256 public constant RATE_DEN = 1000;
 
     constructor(
@@ -155,7 +155,9 @@ contract UruDepositSinkTest is Test {
         sink.setSwapTarget(address(swapTarget), true);
         bytes memory swapData = abi.encodeCall(MockSwapTarget.swap, (1000e18));
         // Actual ETH out is 1 ether at the mock rate; require 2 → slippage revert.
-        vm.expectRevert(abi.encodeWithSelector(UruDepositSink.UruDepositSink__SlippageExceeded.selector, 1 ether, 2 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(UruDepositSink.UruDepositSink__SlippageExceeded.selector, 1 ether, 2 ether)
+        );
         vm.prank(keeper);
         sink.executeConversion(address(swapTarget), 1000e18, swapData, 2 ether);
     }

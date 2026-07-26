@@ -567,6 +567,10 @@ export default function CreatePage() {
     /// Present when the compile-service pinned the list to IPFS. Trade page reads
     /// this from token metadata to fetch the list + build proofs for eligible buyers.
     listCid?: string;
+    /// WL-exclusive window end, captured when applyWhitelist ran (Date.now +1h).
+    /// Frozen at apply time so useMemo below stays pure — reading Date.now in
+    /// render trips react-hooks/purity in React 19.
+    fallbackTs: bigint;
   } | null>(null);
   const [wlApplying, setWlApplying] = useState(false);
   const [wlError, setWlError] = useState<string | null>(null);
@@ -600,6 +604,9 @@ export default function CreatePage() {
         holderCount: data.holderCount,
         listId: data.listId,
         listCid: data.listCid,
+        // Capture "now + 1h" at apply time — event handler, safe to call Date.now.
+        // useMemo below reads from state so render stays pure.
+        fallbackTs: BigInt(Math.floor(Date.now() / 1000) + 3_600),
       });
     } catch (e) {
       setWlError(e instanceof Error ? e.message : String(e));
@@ -618,18 +625,19 @@ export default function CreatePage() {
   //   - 60% of curve supply reserved for WL (majority share vs. 40% public)
   //   - Per-address cap = reserved / 5 (top 5 wallets could fill it)
   //   - 1h WL-exclusive window (public buy() locked until then; WL uses buyWithProof)
+  //
+  // fallbackTs is captured at applyWhitelist time (see setWlSnapshot above) so this
+  // useMemo stays pure — React 19's react-hooks/purity rule forbids Date.now() in
+  // render, which is where a useMemo body runs.
   const wlStruct = useMemo(() => {
     if (!wlSnapshot || !useCurve) return null;
     const reservedTokens = (curveSupplyWei * 6000n) / 10_000n;
     const maxPerAddr = reservedTokens / 5n;
-    // 1h from "now" — Date.now is client-time which is close enough; on-chain
-    // check uses block.timestamp so a few seconds of drift is fine.
-    const fallbackTs = BigInt(Math.floor(Date.now() / 1000) + 3_600);
     return {
       root: wlSnapshot.root,
       reservedTokens,
       maxWlPerAddress: maxPerAddr,
-      fallbackTs,
+      fallbackTs: wlSnapshot.fallbackTs,
       sourceTokenAddress: wlSourceAddress as Address,
       sourceChainId: CHAIN_KEY_TO_ID[targetChain],
       declaredHolderCount: wlSnapshot.holderCount,

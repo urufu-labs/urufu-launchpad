@@ -52,7 +52,7 @@ contract RhDeployPipelineForkTest is Test {
     // Phase1 addresses on RH — mirrored from web/src/lib/config.ts CONTRACTS.robinhood.
     // If Phase1 is re-broadcast on RH these must be updated (or read from the JSON book).
     address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
-    address internal constant OLD_ROUTER    = 0x50200Eda4693f4b839d8c436D42568B5e92EADE3;
+    address internal constant OLD_ROUTER = 0x50200Eda4693f4b839d8c436D42568B5e92EADE3;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
     address internal constant ERC721A_FACTORY = 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc;
     address internal constant ERC1155_FACTORY = 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597;
@@ -60,7 +60,7 @@ contract RhDeployPipelineForkTest is Test {
 
     // Ecosystem addresses on RH (URU + urufu gemu nft) — from post-migration deploy.
     address internal constant URU_TOKEN = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
-    address internal constant GEMU_NFT  = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
+    address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
 
     // Uniswap UniversalRouter on RH (used as buyback swap target).
     address internal constant UNI_UR = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
@@ -88,15 +88,16 @@ contract RhDeployPipelineForkTest is Test {
             // Fall back to the public endpoint — free, no key needed.
             rpc = "https://rpc.mainnet.chain.robinhood.com";
         }
-        try vm.createSelectFork(rpc) {} catch {
+        try vm.createSelectFork(rpc) {}
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
 
         // Bail if Phase1 isn't actually deployed on the forked chain.
         if (
-            NAME_REGISTRY.code.length == 0 || OLD_ROUTER.code.length == 0
-                || ERC20_FACTORY.code.length == 0 || CURVE_FACTORY.code.length == 0
+            NAME_REGISTRY.code.length == 0 || OLD_ROUTER.code.length == 0 || ERC20_FACTORY.code.length == 0
+                || CURVE_FACTORY.code.length == 0
         ) vm.skip(true);
 
         _runFlywheelDeploy();

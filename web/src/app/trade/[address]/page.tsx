@@ -606,9 +606,20 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const wlListCid = metadata?.wlListCid;
   const [wlProof, setWlProof] = useState<`0x${string}`[] | null>(null);
   const [wlProofErr, setWlProofErr] = useState<string | null>(null);
-  const wlPreFallback = useMemo(() => {
-    if (!wlEnabled || !wlFallbackTs) return false;
-    return BigInt(Math.floor(Date.now() / 1000)) < wlFallbackTs;
+  // Whether the WL-exclusive window is still open (block.timestamp < fallbackTs).
+  // Kept as state + effect (not useMemo) because Date.now() is impure — React 19's
+  // react-hooks/purity rule forbids it in render. Interval ticks every 30s so the
+  // banner + "buy (whitelist)" button flip cleanly the moment the window ends.
+  const [wlPreFallback, setWlPreFallback] = useState(false);
+  useEffect(() => {
+    if (!wlEnabled || !wlFallbackTs) {
+      setWlPreFallback(false);
+      return;
+    }
+    const tick = () => setWlPreFallback(BigInt(Math.floor(Date.now() / 1000)) < wlFallbackTs);
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
   }, [wlEnabled, wlFallbackTs]);
 
   useEffect(() => {

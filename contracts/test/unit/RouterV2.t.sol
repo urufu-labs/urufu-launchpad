@@ -136,18 +136,34 @@ contract RouterV2Test is Test {
     function test_Constructor_RevertsOnZeroURU() public {
         vm.expectRevert(RouterV2.RouterV2__ZeroAddress.selector);
         new RouterV2(
-            owner, registry, IFeeReceiver(address(feeReceiver)),
-            ERC20_FEE, NFT_FEE, ERC1155_FEE, MODULE_ADD_ON, HOOK_ADD_ON, GOV_ADD_ON,
-            address(0), uruSink
+            owner,
+            registry,
+            IFeeReceiver(address(feeReceiver)),
+            ERC20_FEE,
+            NFT_FEE,
+            ERC1155_FEE,
+            MODULE_ADD_ON,
+            HOOK_ADD_ON,
+            GOV_ADD_ON,
+            address(0),
+            uruSink
         );
     }
 
     function test_Constructor_RevertsOnZeroSink() public {
         vm.expectRevert(RouterV2.RouterV2__ZeroAddress.selector);
         new RouterV2(
-            owner, registry, IFeeReceiver(address(feeReceiver)),
-            ERC20_FEE, NFT_FEE, ERC1155_FEE, MODULE_ADD_ON, HOOK_ADD_ON, GOV_ADD_ON,
-            address(uru), UruDepositSink(payable(address(0)))
+            owner,
+            registry,
+            IFeeReceiver(address(feeReceiver)),
+            ERC20_FEE,
+            NFT_FEE,
+            ERC1155_FEE,
+            MODULE_ADD_ON,
+            HOOK_ADD_ON,
+            GOV_ADD_ON,
+            address(uru),
+            UruDepositSink(payable(address(0)))
         );
     }
 
@@ -233,9 +249,17 @@ contract RouterV2Test is Test {
         // setFactory rejects zero. Simulate by launching a base with no factory set.)
         // Simpler: unset ERC1155 factory via a fresh RouterV2 that doesn't wire it.
         RouterV2 bare = new RouterV2(
-            owner, registry, IFeeReceiver(address(feeReceiver)),
-            ERC20_FEE, NFT_FEE, ERC1155_FEE, MODULE_ADD_ON, HOOK_ADD_ON, GOV_ADD_ON,
-            address(uru), uruSink
+            owner,
+            registry,
+            IFeeReceiver(address(feeReceiver)),
+            ERC20_FEE,
+            NFT_FEE,
+            ERC1155_FEE,
+            MODULE_ADD_ON,
+            HOOK_ADD_ON,
+            GOV_ADD_ON,
+            address(uru),
+            uruSink
         );
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
         vm.startPrank(launcher);

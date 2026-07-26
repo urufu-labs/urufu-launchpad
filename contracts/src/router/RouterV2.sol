@@ -150,9 +150,8 @@ contract RouterV2 is Router {
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
-            address curve = ICurveFactoryLike(curveFactory).createCurveWithConfigFor(
-                token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender
-            );
+            address curve = ICurveFactoryLike(curveFactory)
+                .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
             emit CurveInstalled(token, curve);
         }
 
@@ -201,9 +200,8 @@ contract RouterV2 is Router {
         if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
         IERC20Like(token).approve(curveFactory, supply);
-        address curve = ICurveFactoryWlLike(curveFactory).createCurveWithConfigForWl(
-            token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl
-        );
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
         emit CurveInstalled(token, curve);
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
@@ -215,7 +213,14 @@ contract RouterV2 is Router {
             token, msg.sender, params.base, nameHash, tickerHash, fee, params.installHook, params.installGovernance
         );
         emit LaunchedWithWhitelist(
-            token, msg.sender, wl.root, wl.reservedTokens, wl.maxWlPerAddress, wl.fallbackTs, wl.sourceTokenAddress, wl.sourceChainId
+            token,
+            msg.sender,
+            wl.root,
+            wl.reservedTokens,
+            wl.maxWlPerAddress,
+            wl.fallbackTs,
+            wl.sourceTokenAddress,
+            wl.sourceChainId
         );
     }
 
@@ -250,9 +255,8 @@ contract RouterV2 is Router {
         if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
         IERC20Like(token).approve(curveFactory, supply);
-        address curve = ICurveFactoryWlLike(curveFactory).createCurveWithConfigForWl(
-            token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl
-        );
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
         emit CurveInstalled(token, curve);
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
@@ -262,7 +266,14 @@ contract RouterV2 is Router {
         );
         emit LaunchedInURU(token, msg.sender, uruAmount);
         emit LaunchedWithWhitelist(
-            token, msg.sender, wl.root, wl.reservedTokens, wl.maxWlPerAddress, wl.fallbackTs, wl.sourceTokenAddress, wl.sourceChainId
+            token,
+            msg.sender,
+            wl.root,
+            wl.reservedTokens,
+            wl.maxWlPerAddress,
+            wl.fallbackTs,
+            wl.sourceTokenAddress,
+            wl.sourceChainId
         );
     }
 }

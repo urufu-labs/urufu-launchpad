@@ -59,17 +59,17 @@ contract RhHookMigrationForkTest is Test {
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     // RH v4 core (from config.ts HOOKS.robinhood + V4_ROUTERS.robinhood).
-    address internal constant POOL_MANAGER   = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant V4_SWAP_ROUTER = 0x96E040a16A8B8B17a7896BDbDf02978895368bf6;
 
     // Ecosystem addresses (used for LoyaltyOracle in the real Flywheel deploy — this test
     // skips LoyaltyOracle since it's not on the fee-accrual path).
     address internal constant URU_TOKEN = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
-    address internal constant GEMU_NFT  = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
+    address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
 
     // Real hook config we ship.
     uint16 internal constant PLATFORM_BPS = 100; // 1%
-    uint16 internal constant CREATOR_BPS  = 100; // 1%
+    uint16 internal constant CREATOR_BPS = 100; // 1%
 
     // Curve params — tuned low so 3 ETH graduates the curve inside the test.
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
@@ -98,7 +98,8 @@ contract RhHookMigrationForkTest is Test {
             rpc = r;
         } catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
-        try vm.createSelectFork(rpc) {} catch {
+        try vm.createSelectFork(rpc) {}
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
@@ -131,8 +132,7 @@ contract RhHookMigrationForkTest is Test {
         bytes memory creation = type(MultiHookHost).creationCode;
         // Constructor args: (IPoolManager, platform, creator, platformBps, creatorBps, deployer).
         // platform = FeeSplitter is the whole point of this migration.
-        bytes memory args =
-            abi.encode(manager, address(splitter), creator, PLATFORM_BPS, CREATOR_BPS, address(this));
+        bytes memory args = abi.encode(manager, address(splitter), creator, PLATFORM_BPS, CREATOR_BPS, address(this));
         (uint256 salt,) = HookMiner.find(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000);
 
         // Deploy via the canonical CREATE2 deployer so the mined salt maps to the right addr.
@@ -413,9 +413,7 @@ contract MigUnlocker {
     ) external returns (bytes memory) {
         PoolKey memory key = abi.decode(data, (PoolKey));
         manager.modifyLiquidity(
-            key,
-            ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}),
-            ""
+            key, ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -1, salt: 0}), ""
         );
         return "";
     }

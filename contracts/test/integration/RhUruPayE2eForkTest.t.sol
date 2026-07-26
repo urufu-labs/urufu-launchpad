@@ -58,15 +58,15 @@ contract RhUruPayE2eForkTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
     address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
-    address internal constant OLD_ROUTER    = 0x50200Eda4693f4b839d8c436D42568B5e92EADE3;
+    address internal constant OLD_ROUTER = 0x50200Eda4693f4b839d8c436D42568B5e92EADE3;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
     address internal constant ERC721A_FACTORY = 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc;
     address internal constant ERC1155_FACTORY = 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597;
     address internal constant CURVE_FACTORY = 0xFF0b02818B0d39Bd43019b2ceb2d952C29dD851c;
 
     address internal constant URU_TOKEN = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
-    address internal constant GEMU_NFT  = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
-    address internal constant UNI_UR    = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
+    address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
+    address internal constant UNI_UR = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
 
     /// Matches the frontend `configHashFor('ERC20', [])` — see web/src/lib/modules.ts:585.
     /// Bare-ERC20 launches use this configHash to look up the base template impl.
@@ -92,14 +92,15 @@ contract RhUruPayE2eForkTest is Test {
             rpc = r;
         } catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
-        try vm.createSelectFork(rpc) {} catch {
+        try vm.createSelectFork(rpc) {}
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
 
         if (
-            NAME_REGISTRY.code.length == 0 || OLD_ROUTER.code.length == 0
-                || ERC20_FACTORY.code.length == 0 || CURVE_FACTORY.code.length == 0
+            NAME_REGISTRY.code.length == 0 || OLD_ROUTER.code.length == 0 || ERC20_FACTORY.code.length == 0
+                || CURVE_FACTORY.code.length == 0
         ) vm.skip(true);
 
         // Deploy flywheel.
@@ -205,7 +206,7 @@ contract RhUruPayE2eForkTest is Test {
 
         uint256 uruAmount = 100e18;
         // Foundry cheat: force alice's URU balance without needing to bridge/swap.
-        deal(URU_TOKEN, alice, 1_000e18);
+        deal(URU_TOKEN, alice, 1000e18);
 
         vm.startPrank(alice);
         (bool ok,) = URU_TOKEN.call(abi.encodeWithSignature("approve(address,uint256)", address(routerV2), uruAmount));
@@ -217,7 +218,7 @@ contract RhUruPayE2eForkTest is Test {
 
         // 1. URU landed in sink.
         assertEq(IERC20Metadata(URU_TOKEN).balanceOf(address(uruSink)), uruAmount, "URU not in sink");
-        assertEq(IERC20Metadata(URU_TOKEN).balanceOf(alice), 1_000e18 - uruAmount, "URU not pulled from alice");
+        assertEq(IERC20Metadata(URU_TOKEN).balanceOf(alice), 1000e18 - uruAmount, "URU not pulled from alice");
 
         // 2. Token deployed.
         assertGt(token.code.length, 0, "token has no code");
@@ -242,7 +243,7 @@ contract RhUruPayE2eForkTest is Test {
     function test_LaunchWithURU_EmitsLaunchedInURU() public {
         if (IFactoryOwned(ERC20_FACTORY).implFor(BARE_ERC20_CONFIG) == address(0)) return;
 
-        deal(URU_TOKEN, alice, 1_000e18);
+        deal(URU_TOKEN, alice, 1000e18);
         vm.startPrank(alice);
         (bool ok,) = URU_TOKEN.call(abi.encodeWithSignature("approve(address,uint256)", address(routerV2), 100e18));
         require(ok);
@@ -293,5 +294,4 @@ contract RhUruPayE2eForkTest is Test {
         assertEq(treasury.balance - treasuryBefore, 0.25 ether, "treasury slice");
         assertLe(address(splitter).balance, 3, "splitter residue > 3 wei");
     }
-
 }

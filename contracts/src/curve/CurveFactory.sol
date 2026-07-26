@@ -260,20 +260,21 @@ contract CurveFactory is Ownable {
 
         SafeTransferLib.safeTransferFrom(token, msg.sender, curve, supply);
 
-        BondingCurve(payable(curve)).initializeWithWhitelist(
-            token,
-            feeReceiver,
-            supply,
-            defaultVirtualTokenReserve,
-            defaultVirtualEthReserve,
-            defaultGraduationTargetEth,
-            defaultTradeFeeBps,
-            graduator,
-            antiSniperBlocks,
-            buybackBurnBps,
-            launcher,
-            wl
-        );
+        BondingCurve(payable(curve))
+            .initializeWithWhitelist(
+                token,
+                feeReceiver,
+                supply,
+                defaultVirtualTokenReserve,
+                defaultVirtualEthReserve,
+                defaultGraduationTargetEth,
+                defaultTradeFeeBps,
+                graduator,
+                antiSniperBlocks,
+                buybackBurnBps,
+                launcher,
+                wl
+            );
 
         emit CurveCreated(token, curve, launcher);
     }

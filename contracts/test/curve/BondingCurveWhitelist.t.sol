@@ -36,10 +36,10 @@ contract BondingCurveWhitelistTest is Test {
 
     address internal launcher = makeAddr("launcher");
     address internal feeReceiver = makeAddr("feeReceiver");
-    address internal alice = makeAddr("alice");    // WL member
-    address internal bob = makeAddr("bob");        // WL member
-    address internal carol = makeAddr("carol");    // NOT on WL
-    address internal dave = makeAddr("dave");      // WL member
+    address internal alice = makeAddr("alice"); // WL member
+    address internal bob = makeAddr("bob"); // WL member
+    address internal carol = makeAddr("carol"); // NOT on WL
+    address internal dave = makeAddr("dave"); // WL member
 
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
     uint256 internal constant VIRTUAL_TOKEN = 800_000_000e18;
@@ -103,8 +103,18 @@ contract BondingCurveWhitelistTest is Test {
         });
 
         curve.initializeWithWhitelist(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher, wl
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher,
+            wl
         );
 
         vm.deal(alice, 100 ether);
@@ -148,8 +158,18 @@ contract BondingCurveWhitelistTest is Test {
         });
         vm.expectRevert(BondingCurve.BondingCurve__ZeroAddress.selector);
         fresh.initializeWithWhitelist(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher, wl
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher,
+            wl
         );
     }
 
@@ -168,8 +188,18 @@ contract BondingCurveWhitelistTest is Test {
             abi.encodeWithSelector(BondingCurve.BondingCurve__ExceedsSupply.selector, CURVE_SUPPLY + 1, CURVE_SUPPLY)
         );
         fresh.initializeWithWhitelist(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher, wl
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher,
+            wl
         );
     }
 
@@ -186,8 +216,18 @@ contract BondingCurveWhitelistTest is Test {
         });
         vm.expectRevert(BondingCurve.BondingCurve__ZeroAmount.selector);
         fresh.initializeWithWhitelist(
-            address(token), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher, wl
+            address(token),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher,
+            wl
         );
     }
 
@@ -224,8 +264,17 @@ contract BondingCurveWhitelistTest is Test {
         WlMockToken t2 = new WlMockToken();
         t2.mint(address(plain), CURVE_SUPPLY);
         plain.initialize(
-            address(t2), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher
+            address(t2),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher
         );
         vm.expectRevert(BondingCurve.BondingCurve__WlNotActive.selector);
         vm.prank(alice);
@@ -262,16 +311,26 @@ contract BondingCurveWhitelistTest is Test {
         t2.mint(address(tight), CURVE_SUPPLY);
         BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
             root: wlRoot,
-            reservedTokens: 25_000_000e18,      // 25M — small enough to drain in one buy
-            maxWlPerAddress: 100_000_000e18,    // 100M — well above what any single buy yields
+            reservedTokens: 25_000_000e18, // 25M — small enough to drain in one buy
+            maxWlPerAddress: 100_000_000e18, // 100M — well above what any single buy yields
             fallbackTs: FALLBACK_TS,
             sourceTokenAddress: address(0),
             sourceChainId: 0,
             declaredHolderCount: 0
         });
         tight.initializeWithWhitelist(
-            address(t2), feeReceiver, CURVE_SUPPLY, VIRTUAL_TOKEN, VIRTUAL_ETH, GRAD_TARGET, 100,
-            address(0), 0, 0, launcher, wl
+            address(t2),
+            feeReceiver,
+            CURVE_SUPPLY,
+            VIRTUAL_TOKEN,
+            VIRTUAL_ETH,
+            GRAD_TARGET,
+            100,
+            address(0),
+            0,
+            0,
+            launcher,
+            wl
         );
 
         // Alice buys a small amount that fits under the 25M reserved (design reverts on
@@ -296,9 +355,7 @@ contract BondingCurveWhitelistTest is Test {
         // Time-gated design: with a whitelist configured, public `buy()` reverts with
         // WlWindowActive during the entire pre-fallback window — regardless of size.
         // Even a tiny buy from a non-WL wallet is blocked while the window is open.
-        vm.expectRevert(
-            abi.encodeWithSelector(BondingCurve.BondingCurve__WlWindowActive.selector, FALLBACK_TS)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BondingCurve.BondingCurve__WlWindowActive.selector, FALLBACK_TS));
         vm.prank(carol);
         curve.buy{value: 0.01 ether}(0);
     }
