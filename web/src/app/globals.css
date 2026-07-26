@@ -32,6 +32,23 @@
   /* Link blue — real pre-2007 personal-site blue */
   --link-blue:    #0033cc;
   --link-visited: #7c1fa0;
+
+  /* Elevation tokens — shells + cards read as raised surfaces relative to body.
+     In light mode, --card == --cream (no delta needed against warm paper base).
+     In dark mode, --card lifts one notch above --cream so cards distinguish from
+     the panel they sit in — otherwise everything mushes to one plum shade. */
+  --card:         var(--cream);
+  --card-lifted:  var(--cream-deep);
+
+  /* Ambient hover glow — soft radial that makes CTAs feel warm-lit on hover.
+     Retuned for dark mode below. */
+  --glow-pink:    0 0 24px rgba(255, 136, 179, 0.35);
+  --glow-mint:    0 0 24px rgba(47, 191, 106, 0.32);
+
+  /* Sun / ambient wash — a page-scale radial pinned to the top-left corner that
+     mimics window-light spill. Very low opacity in light mode so it just adds
+     depth without becoming a spotlight. */
+  --sun-glow:     radial-gradient(circle at 8% -10%, rgba(255, 239, 173, 0.45) 0%, transparent 42%);
 }
 
 /* ============================================================================
@@ -49,6 +66,16 @@
   --cream:        #241c30;   /* shell surface — cool dark plum */
   --cream-deep:   #1a1425;   /* inner shell / tables */
   --cream-shadow: #100a18;   /* deepest depth marker */
+
+  /* Elevation stack (dark mode). Each --card* is a step LIGHTER than --cream
+     so cards read as raised over the panel they sit in.
+     Layer order (dim → bright):
+       body (paper-base #120e1c)
+         → shell (--cream #241c30)
+           → card (--card #2e253c)             ← polaroids, receipts, WL boxes
+             → card-lifted (--card-lifted #3a3050)  ← focused fields inside a card */
+  --card:         #2e253c;
+  --card-lifted:  #3a3050;
 
   /* foreground — warm cream stays for that hand-drawn feel over the cool base */
   --anchor:       #f5ead0;
@@ -79,6 +106,17 @@
      isn't rendered on a hardcoded white bg. */
   --input-bg:     #120e1c;
   --paper-white:  #1e1728;
+
+  /* Ambient hover glow — bumped intensity so CTAs feel warm-lit against dark
+     surfaces (the light-mode value gets swallowed by the plum). */
+  --glow-pink:    0 0 32px rgba(255, 136, 179, 0.55);
+  --glow-mint:    0 0 32px rgba(75, 208, 125, 0.5);
+
+  /* Sun/ambient wash — retuned to a rose-warm glow at top-left to give the
+     otherwise-flat plum body a light source. Higher opacity than light mode
+     since dark surfaces absorb ambient wash. */
+  --sun-glow:     radial-gradient(circle at 8% -10%, rgba(255, 136, 179, 0.18) 0%, transparent 45%),
+                  radial-gradient(circle at 95% 105%, rgba(126, 180, 240, 0.10) 0%, transparent 50%);
 }
 
 @theme inline {
@@ -99,31 +137,37 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile. */
+/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile.
+   Layers, bottom → top: paper-dot tile (24px), warm color washes, sun-glow overlay
+   pinned to top-left corner. The sun-glow adds a soft window-light spill that keeps
+   the page from feeling flat + evenly-lit. */
 body {
   background: var(--paper-base);
   background-image:
+    var(--sun-glow),
     /* subtle paper dots — 24px tile */
     radial-gradient(circle at 6px 6px, rgba(58,44,58,0.05) 1px, transparent 2px),
     /* soft color washes at page-scale */
     radial-gradient(circle at 22% 12%, rgba(255,209,220,0.30) 0, transparent 50%),
     radial-gradient(circle at 82% 82%, rgba(189,224,254,0.22) 0, transparent 55%),
     radial-gradient(circle at 60% 40%, rgba(200,247,197,0.16) 0, transparent 60%);
-  background-size: 24px 24px, auto, auto, auto;
+  background-size: auto, 24px 24px, auto, auto, auto;
   color: var(--anchor);
   font-family: var(--font-body), Georgia, "Times New Roman", serif;
   font-size: 13px;
   min-height: 100vh;
 }
 
-/* Dark mode — light-toned paper dots + subtle color washes. Washes stay low-opacity so
-   the base reads as a clean dark surface, not a purple-pink-blue tie-dye. */
+/* Dark mode — bump color washes so the base doesn't read as a flat plum sheet, and
+   add the retuned --sun-glow (rose top-left + cool bottom-right) for depth. The old
+   values were so low-opacity the base was effectively monochrome. */
 :root[data-theme="dark"] body {
   background-image:
+    var(--sun-glow),
     radial-gradient(circle at 6px 6px, rgba(245,236,218,0.05) 1px, transparent 2px),
-    radial-gradient(circle at 22% 12%, rgba(255,136,179,0.08) 0, transparent 55%),
-    radial-gradient(circle at 82% 82%, rgba(126,180,240,0.06) 0, transparent 60%),
-    radial-gradient(circle at 60% 40%, rgba(75,208,125,0.04) 0, transparent 65%);
+    radial-gradient(circle at 22% 12%, rgba(255,136,179,0.14) 0, transparent 55%),
+    radial-gradient(circle at 82% 82%, rgba(126,180,240,0.10) 0, transparent 60%),
+    radial-gradient(circle at 60% 40%, rgba(75,208,125,0.06) 0, transparent 65%);
 }
 
 /* Real hyperlinks — blue, underlined, unstyled per JP personal-site convention */
@@ -156,7 +200,7 @@ body {
    ============================================================================ */
 
 .uru-shell {
-  background: var(--cream);
+  background: var(--card);
   background-image:
     radial-gradient(circle at 12% 8%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
     radial-gradient(circle at 88% 20%, rgba(0,0,0,0.03) 0 1px, transparent 2px),
@@ -167,42 +211,46 @@ body {
   padding: 20px;
   position: relative;
   box-shadow:
-    0 0 0 2px var(--cream),
+    0 0 0 2px var(--card),
     0 0 0 4px var(--anchor),
     6px 6px 0 rgba(58,44,58,0.15);
 }
 
-/* On dark, invert the shell dot flecks so they're lighter than the surface, and
-   drop the plum drop-shadow tint so it doesn't muddy against the dark base. */
+/* On dark, invert shell dot flecks so they're lighter than the surface, retune the
+   shell rims to match the lifted --card, and swap the chunky solid drop-shadow for
+   a soft diffuse glow. Chunky-pixel shadows read as decoration on light cream but
+   as ugly hard banding against plum — this switches to a proper elevation shadow. */
 :root[data-theme="dark"] .uru-shell {
   background-image:
     radial-gradient(circle at 12% 8%, rgba(245,236,218,0.05) 0 1px, transparent 2px),
     radial-gradient(circle at 88% 20%, rgba(245,236,218,0.05) 0 1px, transparent 2px),
     radial-gradient(circle at 30% 78%, rgba(245,236,218,0.05) 0 1px, transparent 2px);
   box-shadow:
-    0 0 0 2px var(--cream),
+    0 0 0 2px var(--card),
     0 0 0 4px var(--anchor),
-    6px 6px 0 rgba(0,0,0,0.4);
+    0 12px 32px -8px rgba(0,0,0,0.55),
+    0 4px 12px -4px rgba(0,0,0,0.45);
 }
 :root[data-theme="dark"] .uru-shell-tight {
   box-shadow:
-    0 0 0 1.5px var(--cream),
+    0 0 0 1.5px var(--card),
     0 0 0 3px var(--anchor),
-    3px 3px 0 rgba(0,0,0,0.4);
+    0 8px 20px -6px rgba(0,0,0,0.5);
 }
 
 /* Denser shell for sidebar widgets + info strips. Same borders, tighter padding, smaller drop-shadow. */
 .uru-shell-tight {
   padding: 10px 12px;
   border-radius: 12px;
+  background: var(--card);
   box-shadow:
-    0 0 0 1.5px var(--cream),
+    0 0 0 1.5px var(--card),
     0 0 0 3px var(--anchor),
     3px 3px 0 rgba(58,44,58,0.15);
 }
 
 .uru-shell-inner {
-  background: var(--cream-deep);
+  background: var(--card-lifted);
   border: 2px dotted var(--anchor);
   border-radius: 10px;
   padding: 14px;
@@ -333,12 +381,28 @@ body {
   transition: transform 80ms steps(2), box-shadow 80ms steps(2), background 100ms;
   position: relative;
 }
-.uru-btn:hover { background: var(--pink-hot); color: #fff; }
+/* Hover — flip to hot bg + add a soft warm halo alongside the existing Win95 offset
+   shadow. The glow token retunes per theme so it doesn't get lost against dark plum. */
+.uru-btn:hover {
+  background: var(--pink-hot);
+  color: #fff;
+  box-shadow: 2px 2px 0 var(--anchor), var(--glow-pink);
+}
 .uru-btn:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--anchor); }
 .uru-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.uru-btn[disabled]:hover { box-shadow: 2px 2px 0 var(--anchor); }
 
-.uru-btn-primary { background: var(--pink-hot); color: #fff; padding: 8px 18px; font-size: 14px; }
+/* Primary CTA gets a subtle always-on glow — it's the highest-attention button on
+   any page (launch, buy, claim). Keeps discoverable-ness even at rest. */
+.uru-btn-primary {
+  background: var(--pink-hot);
+  color: #fff;
+  padding: 8px 18px;
+  font-size: 14px;
+  box-shadow: 2px 2px 0 var(--anchor), var(--glow-pink);
+}
 .uru-btn-mint { background: var(--mint); }
+.uru-btn-mint:hover { background: var(--mint-hot); color: #fff; box-shadow: 2px 2px 0 var(--anchor), var(--glow-mint); }
 .uru-btn-cream { background: var(--cream); }
 
 /* Inputs — old-school raised field with dotted border. `--input-bg` swaps on dark. */
