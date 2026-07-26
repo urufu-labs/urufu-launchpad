@@ -283,19 +283,39 @@ contract MultiHookHost is BaseHook {
         bytes calldata
     ) external override onlyPoolManager returns (bytes4, int128) {
         (Currency unspecCurrency, int128 unspecDelta) = _unspecified(key, params, delta);
-        if (unspecDelta <= 0) return (this.afterSwap.selector, 0);
-        uint256 outAmount = uint128(unspecDelta);
+        // Zero-delta swaps (dust, no-ops) contribute no fee - skip cheaply.
+        if (unspecDelta == 0) return (this.afterSwap.selector, 0);
+
+        // Absolute delta - fee applies in both directions.
+        //
+        // v4 semantics: `hookDeltaUnspecified` (this function's int128 return) is
+        // added to the swapper's unspecified-side delta. A positive return means
+        // "swapper owes MORE on the unspecified side" - which is exactly what we
+        // want in both cases:
+        //   * exact-input  (unspecDelta > 0, output side): swapper receives less output
+        //   * exact-output (unspecDelta < 0, input side):  swapper pays more input
+        //
+        // The previous implementation early-returned when unspecDelta <= 0, which
+        // meant every exact-output swap paid ZERO platform+creator+burn fees. That
+        // was a live fee leak - v4-periphery's exact-output path is trivial to reach.
+        uint256 absDelta = uint128(unspecDelta < 0 ? -unspecDelta : unspecDelta);
 
         uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
-        uint256 fee = (outAmount * totalBps) / 10_000;
+        uint256 fee = (absDelta * totalBps) / 10_000;
 
-        // Buyback-burn only on BUYs — where the swapper receives the token side.
-        // Comparing addresses via `Currency.unwrap` (v4 doesn't overload ==).
+        // Buyback-burn only fires when the launched TOKEN was the swap output -
+        // i.e. exact-input BUYs (unspecDelta > 0 AND unspec == currency1). We
+        // intentionally skip exact-output BUYs (where unspec = ETH input) since the
+        // burn's semantics ("destroy a slice of tokens on acquisition") only make
+        // sense when tokens are the received asset, not the paid asset.
         uint256 burn = 0;
         PoolId id = key.toId();
         PoolConfig storage cfg = poolConfig[id];
-        if (cfg.buybackBurnBps > 0 && Currency.unwrap(unspecCurrency) == Currency.unwrap(key.currency1)) {
-            burn = (outAmount * uint256(cfg.buybackBurnBps)) / 10_000;
+        if (
+            cfg.buybackBurnBps > 0 && unspecDelta > 0
+                && Currency.unwrap(unspecCurrency) == Currency.unwrap(key.currency1)
+        ) {
+            burn = (absDelta * uint256(cfg.buybackBurnBps)) / 10_000;
         }
 
         uint256 totalTake = fee + burn;

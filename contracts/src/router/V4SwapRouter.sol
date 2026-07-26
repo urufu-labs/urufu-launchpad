@@ -33,6 +33,11 @@ contract V4SwapRouter {
     error V4SwapRouter__NotPoolManager();
     error V4SwapRouter__InsufficientOutput(uint256 got, uint256 minOut);
     error V4SwapRouter__EthMismatch(uint256 sent, uint256 expected);
+    error V4SwapRouter__DeadlinePassed(uint256 deadline);
+    error V4SwapRouter__ZeroRecipient();
+    /// Swap somehow returned zero output on a nonzero input - typically means a
+    /// hostile hook zeroed the delta. Bailing loudly protects the user's input.
+    error V4SwapRouter__ZeroOutput();
 
     event Swapped(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut);
 
@@ -48,36 +53,51 @@ contract V4SwapRouter {
     receive() external payable {}
 
     /// @notice Buy the token side of a graduated pool with native ETH.
-    /// @param  key       Pool identifier — must have currency0 == 0x0.
+    /// @param  key       Pool identifier - must have currency0 == 0x0.
     /// @param  minOut    Minimum token amount to receive (slippage protection).
     /// @param  recipient Who receives the token output.
+    /// @param  deadline  Unix timestamp past which the swap reverts. Prevents
+    ///                   stale signed txs from executing at unfavorable prices.
     /// @return amountOut Tokens taken and delivered to `recipient`.
     function swapExactETHForToken(
         PoolKey calldata key,
         uint256 minOut,
-        address recipient
+        address recipient,
+        uint256 deadline
     ) external payable returns (uint256 amountOut) {
+        if (block.timestamp > deadline) revert V4SwapRouter__DeadlinePassed(deadline);
+        if (recipient == address(0)) revert V4SwapRouter__ZeroRecipient();
         if (msg.value == 0) revert V4SwapRouter__EthMismatch(0, 1);
-        bytes memory data = abi.encode(true, key, msg.value, minOut, recipient, msg.sender);
+        // Snapshot ETH balance BEFORE the swap so the buy path can refund only the
+        // caller's unused ETH - never sweep pre-existing residue in the router.
+        // (Old refund path sent `address(this).balance` back, which drained any
+        // dust from prior overpay events to whichever buyer arrived next.)
+        uint256 ethBefore = address(this).balance - msg.value;
+        bytes memory data = abi.encode(true, key, msg.value, minOut, recipient, msg.sender, ethBefore);
         bytes memory ret = poolManager.unlock(data);
         amountOut = abi.decode(ret, (uint256));
     }
 
     /// @notice Sell the token side back to native ETH.
-    /// @param  key       Pool identifier — must have currency0 == 0x0.
+    /// @param  key       Pool identifier - must have currency0 == 0x0.
     /// @param  amountIn  Token amount to sell (caller must have `approve`d us).
     /// @param  minOut    Minimum ETH to receive.
     /// @param  recipient Who receives the ETH output.
+    /// @param  deadline  Unix timestamp past which the swap reverts.
     /// @return amountOut Wei of ETH delivered to `recipient`.
     function swapExactTokenForETH(
         PoolKey calldata key,
         uint256 amountIn,
         uint256 minOut,
-        address recipient
+        address recipient,
+        uint256 deadline
     ) external returns (uint256 amountOut) {
+        if (block.timestamp > deadline) revert V4SwapRouter__DeadlinePassed(deadline);
+        if (recipient == address(0)) revert V4SwapRouter__ZeroRecipient();
         // Pull tokens now so the unlock callback has them to settle with.
         SafeTransferLib.safeTransferFrom(Currency.unwrap(key.currency1), msg.sender, address(this), amountIn);
-        bytes memory data = abi.encode(false, key, amountIn, minOut, recipient, msg.sender);
+        // Sell path never refunds ETH so ethBefore is unused; pass 0 for consistent decode.
+        bytes memory data = abi.encode(false, key, amountIn, minOut, recipient, msg.sender, uint256(0));
         bytes memory ret = poolManager.unlock(data);
         amountOut = abi.decode(ret, (uint256));
     }
@@ -89,6 +109,10 @@ contract V4SwapRouter {
         uint256 minOut;
         address recipient;
         address user;
+        /// Balance of the router BEFORE this tx added msg.value - used by the
+        /// buy path so refund sends only the caller's unused ETH, not pre-existing
+        /// stranded ETH from prior overpay events. Sell path leaves this at 0.
+        uint256 ethBefore;
     }
 
     function unlockCallback(
@@ -119,16 +143,23 @@ contract V4SwapRouter {
             if (d0 < 0) poolManager.settle{value: uint256(-d0)}();
             if (d1 > 0) {
                 amountOut = uint256(d1);
-                if (amountOut < c.minOut) revert V4SwapRouter__InsufficientOutput(amountOut, c.minOut);
-                // Take to the router then forward via ERC20 transfer — same result for
+                // Take to the router then forward via ERC20 transfer - same result for
                 // an EOA recipient but works uniformly for smart-account recipients that
                 // might not accept a direct `take` call (v4's native-take does a raw call).
                 poolManager.take(c.key.currency1, address(this), amountOut);
                 SafeTransferLib.safeTransfer(Currency.unwrap(c.key.currency1), c.recipient, amountOut);
             }
-            // Refund any unused ETH (shouldn't happen for exact-input, but be safe).
-            if (address(this).balance > 0) {
-                SafeTransferLib.safeTransferETH(c.user, address(this).balance);
+            // Slippage + zero-output checks HOISTED out of the `if (d1 > 0)` branch. A
+            // hostile hook returning a delta that zeros out d1 would previously silently
+            // leave amountOut = 0 with no revert - user's ETH settled to the pool, no
+            // tokens back. Guard runs unconditionally on the buy path.
+            if (amountOut == 0) revert V4SwapRouter__ZeroOutput();
+            if (amountOut < c.minOut) revert V4SwapRouter__InsufficientOutput(amountOut, c.minOut);
+            // Refund only the caller's unused ETH - never sweep pre-existing router
+            // balance to c.user (was a drain vector when residue accumulated across txs).
+            uint256 bal = address(this).balance;
+            if (bal > c.ethBefore) {
+                SafeTransferLib.safeTransferETH(c.user, bal - c.ethBefore);
             }
             emit Swapped(c.user, Currency.unwrap(c.key.currency1), true, c.amountIn, amountOut);
         } else {
@@ -142,13 +173,16 @@ contract V4SwapRouter {
             }
             if (d0 > 0) {
                 amountOut = uint256(d0);
-                if (amountOut < c.minOut) revert V4SwapRouter__InsufficientOutput(amountOut, c.minOut);
                 // Take native ETH to the router first, then forward. v4's take() for ETH
                 // sends via low-level call; that works for EOAs but not all smart-account
                 // recipient shapes. Two-step forward is uniformly safe.
                 poolManager.take(c.key.currency0, address(this), amountOut);
                 SafeTransferLib.safeTransferETH(c.recipient, amountOut);
             }
+            // Same hoist as the buy path - unconditional slippage guard so a hostile
+            // hook can't zero the ETH-side delta to cheat the user.
+            if (amountOut == 0) revert V4SwapRouter__ZeroOutput();
+            if (amountOut < c.minOut) revert V4SwapRouter__InsufficientOutput(amountOut, c.minOut);
             emit Swapped(c.user, Currency.unwrap(c.key.currency1), false, c.amountIn, amountOut);
         }
         return abi.encode(amountOut);

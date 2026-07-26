@@ -105,7 +105,7 @@ contract V4SwapRouterForkTest is Test {
         uint256 bobEthBefore = bob.balance;
 
         vm.prank(bob);
-        uint256 tokensReceived = router.swapExactETHForToken{value: 0.01 ether}(key, 1, bob);
+        uint256 tokensReceived = router.swapExactETHForToken{value: 0.01 ether}(key, 1, bob, block.timestamp + 1);
         assertGt(tokensReceived, 0, "router buy returned zero tokens");
         assertEq(token.balanceOf(bob), tokensReceived, "bob did not receive tokens");
         assertLt(bob.balance, bobEthBefore, "bob's ETH did not decrease");
@@ -118,7 +118,7 @@ contract V4SwapRouterForkTest is Test {
         uint256 bobEthMid = bob.balance;
         vm.startPrank(bob);
         token.approve(address(router), tokensReceived);
-        uint256 ethReceived = router.swapExactTokenForETH(key, tokensReceived, 1, bob);
+        uint256 ethReceived = router.swapExactTokenForETH(key, tokensReceived, 1, bob, block.timestamp + 1);
         vm.stopPrank();
 
         assertGt(ethReceived, 0, "router sell returned zero ETH");

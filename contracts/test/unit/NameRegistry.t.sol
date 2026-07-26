@@ -331,17 +331,36 @@ contract NameRegistryTest is Test {
     // =========================================================
 
     function test_SetRouter_OnlyOwner() public {
+        // proposeRouter is the ongoing rotation API; onlyOwner-gated.
         vm.expectRevert(UNAUTHORIZED_SELECTOR);
         vm.prank(stranger);
+        registry.proposeRouter(makeAddr("newRouter"));
+    }
+
+    function test_SetRouter_LegacySetterRevertsWhenAlreadySet() public {
+        // Legacy setRouter is only for the initial wire (setUp already used it).
+        // Post-init rotation MUST go through propose/activate, defeating a
+        // silent owner-key-compromise router rotation.
+        vm.expectRevert(NameRegistry.NameRegistry__RouterAlreadySet.selector);
+        vm.prank(owner);
         registry.setRouter(makeAddr("newRouter"));
     }
 
     function test_SetRouter_EmitsAndUpdates() public {
+        // Router rotation is now two-step (propose -> MIN_ROUTER_DELAY ->
+        // activate) to defend against owner-key compromise silently rerouting
+        // reserve authority to a malicious router. See NameRegistry M-2 fix.
         address newRouter = makeAddr("newRouter");
+        vm.prank(owner);
+        registry.proposeRouter(newRouter);
+        assertEq(registry.pendingRouter(), newRouter);
+        assertEq(registry.router(), router, "router not rotated pre-activation");
+
+        vm.warp(block.timestamp + registry.MIN_ROUTER_DELAY() + 1);
         vm.expectEmit(true, true, false, true, address(registry));
         emit NameRegistry.RouterSet(router, newRouter);
         vm.prank(owner);
-        registry.setRouter(newRouter);
+        registry.activateRouter();
         assertEq(registry.router(), newRouter);
     }
 

@@ -60,7 +60,7 @@ contract DeployFlywheel is Script {
         FeeSplitter splitter = new FeeSplitter(admin, treasury, configDelay);
         LoyaltyOracle oracle_ = new LoyaltyOracle(admin, uruToken, gemuNft, uruThreshold);
         NftRevenueVault nftVault_ = new NftRevenueVault(admin);
-        UruBuybackVault buybackVault_ = new UruBuybackVault(admin, uruToken, address(nftVault_));
+        UruBuybackVault buybackVault_ = new UruBuybackVault(admin, uruToken, address(nftVault_), 2 days);
 
         // NFT secondary-royalty split scaffolding. Wired to FeeSplitter so 2981 flows land
         // in the same 40/35/25 loop as launch + curve + swap fees. Not registered in any

@@ -5,6 +5,14 @@ import { isAddress } from 'viem';
 import { sql, hasDb } from '../db.ts';
 import { verifyEnvelope, type AuthEnvelope } from '../auth.ts';
 
+/// Reject any URL scheme other than http/https before we accept + persist a
+/// user-supplied metadata URL. zod's `.url()` accepts `javascript:`, `data:`,
+/// `vbscript:`, etc. Any frontend that renders these as `<a href>` opens a
+/// stored-XSS vector on every viewer of the token's metadata.
+function _safeHttpUrl(u: string): boolean {
+  return /^https?:\/\//i.test(u);
+}
+
 /// Registers the three social/UGC route groups on the compile service:
 ///   - GET/POST /token/:chainId/:address/metadata   (image, socials, description)
 ///   - GET/POST /profile/:address                    (bio, avatar, socials)
@@ -45,9 +53,11 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       // token_metadata rows with junk keys AND let a valid signature for token X
       // be redirected to token Y's row by just re-writing payload.tokenAddress.
       tokenAddress: z.string().refine(isAddress, { message: 'not an address' }),
-      imageUrl: z.string().url().nullable().optional(),
+      // http/https only — zod .url() accepts javascript: and data: which the
+      // frontend renders as <a href>, opening a stored-XSS click vector.
+      imageUrl: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
       description: z.string().max(500).nullable().optional(),
-      website: z.string().url().nullable().optional(),
+      website: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
       twitter: z.string().max(80).nullable().optional(),
       telegram: z.string().max(80).nullable().optional(),
       discord: z.string().max(80).nullable().optional(),
@@ -166,12 +176,12 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     timestamp: z.number(),
     payload: z.object({
       username: z.string().max(24).nullable().optional(),
-      avatarUrl: z.string().url().nullable().optional(),
+      avatarUrl: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
       bio: z.string().max(200).nullable().optional(),
       twitter: z.string().max(80).nullable().optional(),
       telegram: z.string().max(80).nullable().optional(),
       discord: z.string().max(80).nullable().optional(),
-      website: z.string().url().nullable().optional(),
+      website: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
     }),
   });
 

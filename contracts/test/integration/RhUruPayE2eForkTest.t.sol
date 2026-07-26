@@ -108,14 +108,14 @@ contract RhUruPayE2eForkTest is Test {
         splitter = new FeeSplitter(admin, treasury, 2 days);
         oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, 100_000e18);
         nftVault = new NftRevenueVault(admin);
-        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault));
+        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
         buybackVault.setKeeper(keeper, true);
         buybackVault.setSwapTarget(UNI_UR, true);
         vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
 
         // Deploy RouterV2 stack.
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter));
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
         Router old = Router(payable(OLD_ROUTER));
         routerV2 = new RouterV2(
             admin,

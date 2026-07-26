@@ -20,6 +20,7 @@ import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 
 interface IFactoryOwned {
     function owner() external view returns (address);
@@ -145,14 +146,14 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         vm.startPrank(admin);
         splitter = new FeeSplitter(admin, treasury, 2 days);
         NftRevenueVault nftVault = new NftRevenueVault(admin);
-        UruBuybackVault buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault));
+        UruBuybackVault buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
         buybackVault.setKeeper(keeper, true);
         buybackVault.setSwapTarget(UNI_UR, true);
         vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
 
         LoyaltyOracle oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, 100_000e18);
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter));
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
 
         Router old = Router(payable(OLD_ROUTER));
         routerV2 = new RouterV2(
@@ -433,10 +434,11 @@ contract RhWhitelistLaunchE2eForkTest is Test {
             tickSpacing: 60,
             hooks: IHooks(RH_MULTIHOOK)
         });
-        V4SwapRouter swapRouter = V4SwapRouter(payable(V4_SWAP_ROUTER));
+        // Fresh V4SwapRouter matching the V4 stack's fixed bytecode (deadline + slippage hoist).
+        V4SwapRouter swapRouter = new V4SwapRouter(IPoolManager(payable(0x8366a39CC670B4001A1121B8F6A443A643e40951)));
         vm.deal(carol, 5 ether);
         vm.prank(carol);
-        uint256 swapOut = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, carol);
+        uint256 swapOut = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, carol, block.timestamp + 1);
         assertGt(swapOut, 0, "post-grad swap on WL-launched pool produced 0 tokens");
     }
 }

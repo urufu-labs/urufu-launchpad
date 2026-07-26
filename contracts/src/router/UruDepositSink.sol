@@ -37,15 +37,43 @@ contract UruDepositSink is Ownable {
     error UruDepositSink__SwapFailed();
     error UruDepositSink__SlippageExceeded(uint256 got, uint256 min);
     error UruDepositSink__ZeroSwap();
+    /// Keeper set `minEthOut` below the on-chain slippage floor — the vault's
+    /// `minEthPerUru` price rejects zero-slippage-attack `swapData`.
+    error UruDepositSink__BelowMinRate(uint256 minEthOut, uint256 rateFloor);
+    /// setDistributionSink timelock — proposed rotation hasn't matured yet.
+    error UruDepositSink__ConfigDelayNotPassed(uint256 readyAt);
+    /// No proposal exists (or was reset).
+    error UruDepositSink__NoPendingSink();
 
     event Deposited(address indexed from, uint256 amount);
     event KeeperSet(address indexed keeper, bool allowed);
     event SwapTargetSet(address indexed target, bool allowed);
     event DistributionSinkSet(address indexed sink);
+    event DistributionSinkProposed(address indexed sink, uint256 readyAt);
+    event MinEthPerUruSet(uint256 minEthPerUru);
     event ConversionExecuted(uint256 uruIn, uint256 ethOut);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
+
+    /// Timelock delay for `distributionSink` rotation. Mirrors FeeSplitter's
+    /// minConfigDelay pattern — even a compromised owner can't instantly
+    /// redirect proceeds.
+    uint256 public immutable minConfigDelay;
+
+    /// Two-step distributionSink rotation. `proposeDistributionSink` records a
+    /// pending target + earliest activation timestamp; `activateDistributionSink`
+    /// promotes it once `minConfigDelay` has passed. Original setDistributionSink
+    /// keeps working for compat but is now internal-only.
+    address public pendingDistributionSink;
+    uint256 public pendingDistributionSinkTs;
+
+    /// Minimum ETH-per-URU rate the keeper's swap must clear. Denominated so
+    /// that `expected = uruIn * minEthPerUru / 1e18` — i.e. minEthPerUru is
+    /// scaled by 1e18. Set by the owner tracking the URU/WETH spot at deploy
+    /// time; adjust when the market moves. Zero disables the floor for the
+    /// first block after deploy (bootstrapping) but should be raised ASAP.
+    uint256 public minEthPerUru;
 
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isSwapTarget;
@@ -53,7 +81,8 @@ contract UruDepositSink is Ownable {
     constructor(
         address initialOwner,
         address uru_,
-        address distributionSink_
+        address distributionSink_,
+        uint256 minConfigDelay_
     ) {
         if (initialOwner == address(0) || uru_ == address(0) || distributionSink_ == address(0)) {
             revert UruDepositSink__ZeroAddress();
@@ -61,6 +90,7 @@ contract UruDepositSink is Ownable {
         _initializeOwner(initialOwner);
         uru = IERC20Minimal(uru_);
         distributionSink = distributionSink_;
+        minConfigDelay = minConfigDelay_;
     }
 
     /// @notice Optional explicit deposit path — RouterV2 uses direct transferFrom() into
@@ -88,6 +118,13 @@ contract UruDepositSink is Ownable {
         if (!isKeeper[msg.sender]) revert UruDepositSink__NotKeeper();
         if (!isSwapTarget[swapTarget]) revert UruDepositSink__TargetNotAllowed(swapTarget);
         if (uruIn == 0) revert UruDepositSink__ZeroSwap();
+        // On-chain slippage floor — even a compromised keeper can't pass
+        // `minEthOut = 1` to strip protocol value. `minEthPerUru == 0` disables
+        // the floor for the first-block bootstrap; owner sets a real value ASAP.
+        {
+            uint256 rateFloor = (uruIn * minEthPerUru) / 1e18;
+            if (minEthOut < rateFloor) revert UruDepositSink__BelowMinRate(minEthOut, rateFloor);
+        }
 
         // Reset approval to zero first, then set to `uruIn` — belt-and-braces against
         // routers that read residual allowance non-idempotently.
@@ -131,12 +168,37 @@ contract UruDepositSink is Ownable {
         emit SwapTargetSet(target, allowed);
     }
 
-    function setDistributionSink(
+    /// Two-step rotation of distributionSink. Owner proposes → wait
+    /// `minConfigDelay` → owner activates. Even a compromised owner-key rotation
+    /// can't instantly redirect proceeds; the flywheel has a window to react.
+    function proposeDistributionSink(
         address sink
     ) external onlyOwner {
         if (sink == address(0)) revert UruDepositSink__ZeroAddress();
-        distributionSink = sink;
-        emit DistributionSinkSet(sink);
+        pendingDistributionSink = sink;
+        pendingDistributionSinkTs = block.timestamp + minConfigDelay;
+        emit DistributionSinkProposed(sink, pendingDistributionSinkTs);
+    }
+
+    function activateDistributionSink() external onlyOwner {
+        address pending = pendingDistributionSink;
+        if (pending == address(0)) revert UruDepositSink__NoPendingSink();
+        uint256 readyAt = pendingDistributionSinkTs;
+        if (block.timestamp < readyAt) revert UruDepositSink__ConfigDelayNotPassed(readyAt);
+        distributionSink = pending;
+        pendingDistributionSink = address(0);
+        pendingDistributionSinkTs = 0;
+        emit DistributionSinkSet(pending);
+    }
+
+    /// Owner sets the ETH-per-URU slippage floor. Denomination: 1e18 = 1 ETH per
+    /// 1 URU. Practical values on RH: around URU/WETH spot × 0.95 (5% max
+    /// tolerance for the keeper's route). Owner tunes as market moves.
+    function setMinEthPerUru(
+        uint256 rate
+    ) external onlyOwner {
+        minEthPerUru = rate;
+        emit MinEthPerUruSet(rate);
     }
 
     /// Escape hatch for stranded ETH (residual from rounding, or direct sends before a

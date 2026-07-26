@@ -62,7 +62,7 @@ contract RouterV2Test is Test {
         registry = new NameRegistry(owner, treasury, new string[](0));
         feeReceiver = new FeeReceiver(owner);
         uru = new MockUruRV2();
-        uruSink = new UruDepositSink(owner, address(uru), address(feeReceiver));
+        uruSink = new UruDepositSink(owner, address(uru), address(feeReceiver), 2 days);
 
         router = new RouterV2(
             owner,

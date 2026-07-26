@@ -61,7 +61,7 @@ contract UruDepositSinkTest is Test {
 
     function setUp() public {
         uru = new MockUru();
-        sink = new UruDepositSink(owner, address(uru), distribution);
+        sink = new UruDepositSink(owner, address(uru), distribution, 2 days);
         swapTarget = new MockSwapTarget(uru);
         // Prefund the swap target with ETH so it can pay out ETH proceeds.
         vm.deal(address(swapTarget), 100 ether);
@@ -75,11 +75,11 @@ contract UruDepositSinkTest is Test {
 
     function test_Constructor_RevertsOnZeroAddress() public {
         vm.expectRevert(UruDepositSink.UruDepositSink__ZeroAddress.selector);
-        new UruDepositSink(address(0), address(uru), distribution);
+        new UruDepositSink(address(0), address(uru), distribution, 2 days);
         vm.expectRevert(UruDepositSink.UruDepositSink__ZeroAddress.selector);
-        new UruDepositSink(owner, address(0), distribution);
+        new UruDepositSink(owner, address(0), distribution, 2 days);
         vm.expectRevert(UruDepositSink.UruDepositSink__ZeroAddress.selector);
-        new UruDepositSink(owner, address(uru), address(0));
+        new UruDepositSink(owner, address(uru), address(0), 2 days);
     }
 
     function test_Deposit_PullsURU() public {
@@ -178,18 +178,35 @@ contract UruDepositSinkTest is Test {
         assertTrue(sink.isSwapTarget(address(swapTarget)));
     }
 
-    function test_SetDistributionSink_OwnerOnly() public {
+    /// distributionSink is now two-step (propose -> minConfigDelay -> activate)
+    /// to protect against owner-key compromise instantly rerouting proceeds.
+    function test_SetDistributionSink_TwoStep() public {
         vm.expectRevert();
-        sink.setDistributionSink(address(1));
+        sink.proposeDistributionSink(address(1));
+
         vm.prank(owner);
-        sink.setDistributionSink(address(1));
+        sink.proposeDistributionSink(address(1));
+        assertEq(sink.distributionSink(), distribution, "distributionSink not yet rotated");
+        assertEq(sink.pendingDistributionSink(), address(1));
+
+        vm.warp(block.timestamp + sink.minConfigDelay() + 1);
+        vm.prank(owner);
+        sink.activateDistributionSink();
         assertEq(sink.distributionSink(), address(1));
     }
 
     function test_SetDistributionSink_RevertsOnZero() public {
         vm.expectRevert(UruDepositSink.UruDepositSink__ZeroAddress.selector);
         vm.prank(owner);
-        sink.setDistributionSink(address(0));
+        sink.proposeDistributionSink(address(0));
+    }
+
+    function test_SetDistributionSink_RevertsBeforeDelay() public {
+        vm.prank(owner);
+        sink.proposeDistributionSink(address(1));
+        vm.prank(owner);
+        vm.expectRevert();
+        sink.activateDistributionSink();
     }
 
     function test_FlushEth_ForwardsToDistribution() public {

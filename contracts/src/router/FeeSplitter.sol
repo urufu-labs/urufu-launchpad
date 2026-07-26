@@ -169,9 +169,39 @@ contract FeeSplitter is IFeeReceiver, Ownable {
             toNft = 0;
         }
 
-        if (toBuyback > 0) SafeTransferLib.safeTransferETH(uruBuybackSink, toBuyback);
-        if (toNft > 0) SafeTransferLib.safeTransferETH(nftRevenueSink, toNft);
-        if (toTreasury > 0) SafeTransferLib.safeTransferETH(treasurySink, toTreasury);
+        // Reverting-sink guard - if a downstream sink (buyback vault, NFT vault, treasury)
+        // ever becomes a contract with a reverting receive() or fallback, we do NOT let
+        // that brick every launch platform-wide. Sequential safeTransferETH would bubble
+        // any failure up to Router.launch and revert the whole tx forever.
+        //
+        // Strategy: try each non-treasury sink via a low-level call with a fixed gas cap.
+        // On failure, roll that slice into the treasurySink attempt. If treasurySink also
+        // reverts, the fee stays in-contract - sweep() recovers it later. This keeps
+        // launches liquid even during a partial flywheel breakage.
+        if (toBuyback > 0) {
+            (bool ok,) = uruBuybackSink.call{value: toBuyback, gas: 100_000}("");
+            if (!ok) {
+                toTreasury += toBuyback;
+                toBuyback = 0;
+            }
+        }
+        if (toNft > 0) {
+            (bool ok,) = nftRevenueSink.call{value: toNft, gas: 100_000}("");
+            if (!ok) {
+                toTreasury += toNft;
+                toNft = 0;
+            }
+        }
+        if (toTreasury > 0) {
+            // Treasury attempt is best-effort too - if it reverts we don't unwind the
+            // whole launch; the ETH stays in this contract for sweep() to recover.
+            (bool ok,) = treasurySink.call{value: toTreasury, gas: 100_000}("");
+            if (!ok) {
+                // Zero the treasury slice in the emitted event so indexers see the
+                // actual distributed amounts (residual balance stays for sweep).
+                toTreasury = 0;
+            }
+        }
 
         emit Distributed(amount, toBuyback, toNft, toTreasury);
     }

@@ -40,15 +40,37 @@ contract UruBuybackVault is Ownable {
     error UruBuybackVault__SwapFailed();
     error UruBuybackVault__SlippageExceeded(uint256 got, uint256 min);
     error UruBuybackVault__ZeroSwap();
+    /// Keeper set `minUruOut` below the on-chain slippage floor.
+    error UruBuybackVault__BelowMinRate(uint256 minUruOut, uint256 rateFloor);
+    error UruBuybackVault__ConfigDelayNotPassed(uint256 readyAt);
+    error UruBuybackVault__NoPendingSink();
 
     event Received(address indexed from, uint256 amount);
     event KeeperSet(address indexed keeper, bool allowed);
     event SwapTargetSet(address indexed target, bool allowed);
     event DistributionSinkSet(address indexed sink);
+    event DistributionSinkProposed(address indexed sink, uint256 readyAt);
+    event MinUruPerEthSet(uint256 rate);
     event BuybackExecuted(uint256 ethIn, uint256 uruOut);
+    event UruSwept(address indexed to, uint256 amount);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
+
+    /// Timelock on rotating distributionSink. Same MEV / rug-protection story
+    /// as UruDepositSink - even a compromised owner needs `minConfigDelay`
+    /// before proceeds redirect.
+    uint256 public immutable minConfigDelay;
+
+    /// Two-step rotation state for distributionSink.
+    address public pendingDistributionSink;
+    uint256 public pendingDistributionSinkTs;
+
+    /// On-chain URU-per-ETH floor for the keeper's swap. Denomination: 1e18 =
+    /// 1 URU per 1 ETH. Set by owner tracking spot; forces the keeper to prove
+    /// they hit near-market by requiring minUruOut >= ethIn * minUruPerEth / 1e18.
+    /// Zero disables (bootstrap only; raise ASAP).
+    uint256 public minUruPerEth;
 
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isSwapTarget;
@@ -56,7 +78,8 @@ contract UruBuybackVault is Ownable {
     constructor(
         address initialOwner,
         address uru_,
-        address distributionSink_
+        address distributionSink_,
+        uint256 minConfigDelay_
     ) {
         if (initialOwner == address(0) || uru_ == address(0) || distributionSink_ == address(0)) {
             revert UruBuybackVault__ZeroAddress();
@@ -64,6 +87,7 @@ contract UruBuybackVault is Ownable {
         _initializeOwner(initialOwner);
         uru = IERC20Minimal(uru_);
         distributionSink = distributionSink_;
+        minConfigDelay = minConfigDelay_;
     }
 
     receive() external payable {
@@ -83,6 +107,12 @@ contract UruBuybackVault is Ownable {
         if (!isKeeper[msg.sender]) revert UruBuybackVault__NotKeeper();
         if (!isSwapTarget[swapTarget]) revert UruBuybackVault__TargetNotAllowed(swapTarget);
         if (ethIn == 0) revert UruBuybackVault__ZeroSwap();
+        // Force keeper to prove near-market execution - a compromised keeper
+        // can't pass minUruOut = 1 to strip protocol value.
+        {
+            uint256 rateFloor = (ethIn * minUruPerEth) / 1e18;
+            if (minUruOut < rateFloor) revert UruBuybackVault__BelowMinRate(minUruOut, rateFloor);
+        }
 
         uint256 uruBefore = uru.balanceOf(address(this));
         (bool ok,) = swapTarget.call{value: ethIn}(swapData);
@@ -116,19 +146,56 @@ contract UruBuybackVault is Ownable {
         emit SwapTargetSet(target, allowed);
     }
 
-    function setDistributionSink(
+    /// Two-step rotation of distributionSink. Owner proposes -> wait
+    /// `minConfigDelay` -> owner activates. Prevents an owner-key compromise
+    /// from instantly redirecting bought URU to attacker.
+    function proposeDistributionSink(
         address sink
     ) external onlyOwner {
         if (sink == address(0)) revert UruBuybackVault__ZeroAddress();
-        distributionSink = sink;
-        emit DistributionSinkSet(sink);
+        pendingDistributionSink = sink;
+        pendingDistributionSinkTs = block.timestamp + minConfigDelay;
+        emit DistributionSinkProposed(sink, pendingDistributionSinkTs);
     }
 
-    // Escape hatch: sweep any stuck ETH (shouldn't happen but safety).
-    function sweepETH(
-        address to
+    function activateDistributionSink() external onlyOwner {
+        address pending = pendingDistributionSink;
+        if (pending == address(0)) revert UruBuybackVault__NoPendingSink();
+        uint256 readyAt = pendingDistributionSinkTs;
+        if (block.timestamp < readyAt) revert UruBuybackVault__ConfigDelayNotPassed(readyAt);
+        distributionSink = pending;
+        pendingDistributionSink = address(0);
+        pendingDistributionSinkTs = 0;
+        emit DistributionSinkSet(pending);
+    }
+
+    /// Owner sets the URU-per-ETH swap-rate floor. See minUruPerEth docstring.
+    function setMinUruPerEth(
+        uint256 rate
     ) external onlyOwner {
-        if (to == address(0)) revert UruBuybackVault__ZeroAddress();
-        SafeTransferLib.safeTransferETH(to, address(this).balance);
+        minUruPerEth = rate;
+        emit MinUruPerEthSet(rate);
+    }
+
+    /// Escape hatch: sweep stranded ETH that arrived outside a keeper cycle
+    /// (residual dust, misdirected sends). Forces destination = distributionSink,
+    /// mirroring UruDepositSink.flushEth's constraint - NOT a general drain.
+    function sweepETH() external onlyOwner {
+        uint256 bal = address(this).balance;
+        if (bal == 0) return;
+        SafeTransferLib.safeTransferETH(distributionSink, bal);
+    }
+
+    /// Escape hatch for URU that arrived outside a buyback cycle. Without this,
+    /// pre-transferred URU (accidental sends, or swap routers that pre-transfer
+    /// before the delta window) is stranded forever - executeBuyback only
+    /// forwards the balance-delta from the current swap. Forces destination =
+    /// distributionSink so URU still lands in the flywheel.
+    function sweepURU() external onlyOwner {
+        uint256 bal = uru.balanceOf(address(this));
+        if (bal == 0) return;
+        // slither-disable-next-line unchecked-transfer
+        uru.transfer(distributionSink, bal);
+        emit UruSwept(distributionSink, bal);
     }
 }

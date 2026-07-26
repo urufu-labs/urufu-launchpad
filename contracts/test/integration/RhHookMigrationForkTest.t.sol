@@ -106,7 +106,12 @@ contract RhHookMigrationForkTest is Test {
         if (POOL_MANAGER.code.length == 0 || V4_SWAP_ROUTER.code.length == 0) vm.skip(true);
 
         manager = IPoolManager(POOL_MANAGER);
-        swapRouter = V4SwapRouter(payable(V4_SWAP_ROUTER));
+        // Deploy a FRESH V4SwapRouter for the tests instead of the on-chain V3
+        // one. The V4 stack ships a new router with `deadline` + slippage-hoist
+        // fixes; using the fresh bytecode here lets us exercise the same
+        // sig/behavior that will be live post-deploy. Constructor-only immutable
+        // is `poolManager`; no admin surface to wire.
+        swapRouter = new V4SwapRouter(manager);
 
         _deployFlywheel();
         _deployNewHookAndGraduator();
@@ -118,7 +123,7 @@ contract RhHookMigrationForkTest is Test {
         vm.startPrank(admin);
         splitter = new FeeSplitter(admin, treasury, 2 days);
         nftVault = new NftRevenueVault(admin);
-        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault));
+        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
         vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
         vm.stopPrank();
@@ -186,11 +191,11 @@ contract RhHookMigrationForkTest is Test {
         vm.startPrank(alice);
         // Buy — ETH in, tokens out. Fee accrues on the OUTPUT (unspecified) side which is
         // tokens here, so the ETH slot doesn't grow yet.
-        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice);
+        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice, block.timestamp + 1);
         // Sell — approve + swap. Now the unspecified side is ETH → fee accrues in `eth` slot.
         uint256 tokenBal = token.balanceOf(alice);
         token.approve(address(swapRouter), tokenBal);
-        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice);
+        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice, block.timestamp + 1);
         vm.stopPrank();
 
         uint256 splitterOwedAfter = hook.owed(eth, address(splitter));
@@ -218,10 +223,10 @@ contract RhHookMigrationForkTest is Test {
 
         vm.deal(alice, 10 ether);
         vm.startPrank(alice);
-        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice);
+        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice, block.timestamp + 1);
         uint256 tokenBal = token.balanceOf(alice);
         token.approve(address(swapRouter), tokenBal);
-        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice);
+        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice, block.timestamp + 1);
         vm.stopPrank();
 
         uint256 owed = hook.owed(eth, address(splitter));
@@ -315,12 +320,12 @@ contract RhHookMigrationForkTest is Test {
         vm.deal(alice, 5 ether);
         vm.prank(alice);
         vm.expectRevert();
-        swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice);
+        swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice, block.timestamp + 1);
 
         // Roll past the window (block.number += gateBlocks + 1) and the same swap works.
         vm.roll(block.number + uint256(gateBlocks) + 1);
         vm.prank(alice);
-        uint256 out = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice);
+        uint256 out = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice, block.timestamp + 1);
         assertGt(out, 0, "swap after gate produced 0 tokens");
     }
 
@@ -351,7 +356,7 @@ contract RhHookMigrationForkTest is Test {
         // triggers the buyback-burn slice.
         vm.deal(alice, 5 ether);
         vm.prank(alice);
-        uint256 aliceOut = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice);
+        uint256 aliceOut = swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice, block.timestamp + 1);
         assertGt(aliceOut, 0, "swap produced 0 tokens");
 
         uint256 burnDelta = token.balanceOf(BURN) - burnBefore;
@@ -394,10 +399,10 @@ contract RhHookMigrationForkTest is Test {
         // Accrue ETH-side platform fees via a buy + sell round-trip.
         vm.deal(alice, 10 ether);
         vm.startPrank(alice);
-        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice);
+        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice, block.timestamp + 1);
         uint256 tokenBal = token.balanceOf(alice);
         token.approve(address(swapRouter), tokenBal);
-        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice);
+        swapRouter.swapExactTokenForETH(key, tokenBal, 0, alice, block.timestamp + 1);
         vm.stopPrank();
 
         uint256 owed = hook.owed(eth, address(splitter));

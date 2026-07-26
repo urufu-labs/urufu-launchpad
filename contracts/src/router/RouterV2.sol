@@ -52,6 +52,10 @@ contract RouterV2 is Router {
     /// whitelist otherwise. Callers that don't want a curve should use plain
     /// `launch` / `launchWithURU` and set `params.installBondingCurve = false`.
     error RouterV2__WlRequiresBondingCurve();
+    /// URU-pay path — caller didn't approve enough URU to meet the on-chain
+    /// minimum. Frontend quotes the ETH-equivalent; this guard just floors it
+    /// so a hand-crafted tx can't spam-launch for near-zero URU.
+    error RouterV2__InsufficientUru(uint256 required, uint256 provided);
 
     // ============================================================
     // Events
@@ -59,6 +63,7 @@ contract RouterV2 is Router {
     /// @dev Paired 1:1 with the standard `Launched` event; joins on `token`. `Launched.feePaid`
     ///      is 0 on URU launches — indexers should read `uruPaid` from here for those.
     event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid);
+    event MinUruFeeSet(uint256 amount);
 
     /// Emitted alongside `Launched` when a whitelist-enabled curve is created. Same
     /// launch = same `token` topic across `Launched`, `LaunchedInURU` (if URU-paid),
@@ -79,6 +84,13 @@ contract RouterV2 is Router {
     // ============================================================
     IERC20Like public immutable uru;
     UruDepositSink public immutable uruSink;
+
+    /// Minimum URU the caller must approve to launch. Zero (default) leaves the
+    /// URU path wide open (V2 behavior). Post-deploy the owner sets a sensible
+    /// floor — the frontend already quotes fair ETH-equivalent, this is just a
+    /// hand-crafted-tx spam gate. Loyalty discount is applied to this floor
+    /// exactly like the ETH path so URU-paying loyal users aren't penalized.
+    uint256 public minUruFee;
 
     constructor(
         address initialOwner,
@@ -123,6 +135,10 @@ contract RouterV2 is Router {
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
         if (uruAmount == 0) revert RouterV2__ZeroURU();
+        // On-chain URU floor with loyalty discount applied — same discount rate
+        // as the ETH path so a holder isn't worse off in URU.
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert RouterV2__InsufficientUru(required, uruAmount);
 
         address factory = factories[params.base];
         if (factory == address(0)) revert Router__FactoryUnset(params.base);
@@ -234,6 +250,10 @@ contract RouterV2 is Router {
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
         if (uruAmount == 0) revert RouterV2__ZeroURU();
+        // On-chain URU floor with loyalty discount applied — same discount rate
+        // as the ETH path so a holder isn't worse off in URU.
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert RouterV2__InsufficientUru(required, uruAmount);
         if (!params.installBondingCurve) revert RouterV2__WlRequiresBondingCurve();
 
         address factory = factories[params.base];
@@ -275,5 +295,33 @@ contract RouterV2 is Router {
             wl.sourceTokenAddress,
             wl.sourceChainId
         );
+    }
+
+    /// @notice Owner sets the URU-side minimum fee (18 decimals, since URU has 18).
+    ///         Applies to both launchWithURU and launchWithURUAndWhitelist. Zero
+    ///         disables the floor — matches original V2 behavior.
+    function setMinUruFee(
+        uint256 amount
+    ) external onlyOwner {
+        minUruFee = amount;
+        emit MinUruFeeSet(amount);
+    }
+
+    /// @notice View for frontends to render the effective URU floor a specific
+    ///         wallet would need. Applies the same loyalty discount as the ETH
+    ///         path so URU quotes reflect the wallet's holdings.
+    function minUruFeeFor(
+        address launcher
+    ) external view returns (uint256) {
+        return _minUruFeeFor(launcher);
+    }
+
+    function _minUruFeeFor(
+        address launcher
+    ) internal view returns (uint256) {
+        uint256 floor = minUruFee;
+        if (floor == 0) return 0;
+        uint16 discountBps = _discountBpsFor(launcher);
+        return floor - (floor * discountBps) / 10_000;
     }
 }

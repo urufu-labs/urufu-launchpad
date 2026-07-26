@@ -116,7 +116,7 @@ contract RhDeployPipelineForkTest is Test {
         splitter = new FeeSplitter(admin, treasury, configDelay);
         oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, threshold);
         nftVault = new NftRevenueVault(admin);
-        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault));
+        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
         vm.stopPrank();
     }
 
@@ -139,7 +139,7 @@ contract RhDeployPipelineForkTest is Test {
     // -----------------------------------------------------------
     function _runDeployRouterV2() internal {
         vm.startPrank(admin);
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter));
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
 
         // Mirror the pre-existing Router fees so quotes stay consistent.
         Router old = Router(payable(OLD_ROUTER));

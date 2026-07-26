@@ -84,16 +84,18 @@ contract RoyaltyRouterImpl is Ownable {
         _distribute(bal);
     }
 
-    /// @notice Emergency drain (Ownable-only). Sweeps everything to `to`, bypassing the split.
-    ///         Only useful if a sink is compromised — otherwise use `distributeStuck`.
-    function sweep(
-        address to
-    ) external onlyOwner {
-        if (to == address(0)) revert RoyaltyRouterImpl__ZeroAddress();
+    /// @notice Route stranded ETH through the fixed split. Owner-callable escape
+    ///         hatch, but the destination is HARD-WIRED to launcherPayout +
+    ///         platformSink per the configured bps. The old `sweep(to)` variant
+    ///         (arbitrary destination, bypassed the split) was removed - it let
+    ///         a front-run attacker (who initialized the clone with themselves as
+    ///         launcherPayout via the old permissionless factory deploy) drain
+    ///         pre-init royalties in full instead of paying the platform share.
+    function sweep() external onlyOwner {
         uint256 bal = address(this).balance;
         if (bal == 0) revert RoyaltyRouterImpl__ZeroBalance();
-        SafeTransferLib.safeTransferETH(to, bal);
-        emit Swept(to, bal);
+        _distribute(bal);
+        emit Swept(address(this), bal);
     }
 
     function _distribute(

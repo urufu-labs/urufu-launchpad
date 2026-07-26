@@ -53,7 +53,7 @@ contract UruBuybackVaultTest is Test {
 
     function setUp() public {
         uru = new MockUru();
-        vault = new UruBuybackVault(owner, address(uru), distribution);
+        vault = new UruBuybackVault(owner, address(uru), distribution, 2 days);
         swapRouter = new MockSwapRouter(uru);
         vm.deal(address(this), 100 ether);
     }
@@ -126,11 +126,30 @@ contract UruBuybackVaultTest is Test {
         vault.executeBuyback(address(swapRouter), 1 ether, swapData, 2000e18);
     }
 
-    function test_SetDistributionSink_OwnerOnly() public {
+    /// distributionSink is now two-step (propose -> minConfigDelay -> activate)
+    /// to protect against owner-key compromise instantly rerouting proceeds.
+    function test_SetDistributionSink_TwoStep() public {
         vm.expectRevert();
-        vault.setDistributionSink(address(1));
+        vault.proposeDistributionSink(address(1));
+
         vm.prank(owner);
-        vault.setDistributionSink(address(1));
+        vault.proposeDistributionSink(address(1));
+        assertEq(vault.distributionSink(), distribution, "distributionSink not yet rotated");
+        assertEq(vault.pendingDistributionSink(), address(1));
+
+        // Fast-forward past the timelock and activate.
+        vm.warp(block.timestamp + vault.minConfigDelay() + 1);
+        vm.prank(owner);
+        vault.activateDistributionSink();
         assertEq(vault.distributionSink(), address(1));
+        assertEq(vault.pendingDistributionSink(), address(0));
+    }
+
+    function test_SetDistributionSink_RevertsBeforeDelay() public {
+        vm.prank(owner);
+        vault.proposeDistributionSink(address(1));
+        vm.prank(owner);
+        vm.expectRevert();
+        vault.activateDistributionSink();
     }
 }

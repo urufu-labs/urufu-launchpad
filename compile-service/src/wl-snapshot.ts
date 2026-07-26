@@ -188,18 +188,33 @@ export async function snapshotFromIpfs(
   };
   if (!body.root || !body.holders) return null;
   const holders = body.holders.map((a) => a.toLowerCase() as Address);
+  // Content-integrity check: rebuild the Merkle root from the pinned holders
+  // and reject the pin if it doesn't match `body.root`. Blocks the attack
+  // where a malicious IPFS pin claims one root + declares an attacker-picked
+  // `listId` matching a real launch's cache key -- without this check, the
+  // pin's holders would silently overwrite the legitimate snapshot in cache
+  // and every subsequent proof request for that launch would return
+  // attacker-controlled data (root mismatch on-chain -> DoS every WL buy).
+  const recomputedRoot = _buildMerkleRoot([...holders].sort());
+  if (recomputedRoot.toLowerCase() !== body.root.toLowerCase()) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `wl-snapshot: ipfs pin ${listCid} failed integrity check - claimed root ${body.root} but holders hash to ${recomputedRoot}`,
+    );
+    return null;
+  }
   const snap: SnapshotResult = {
     root: body.root,
     snapshotBlock: BigInt(body.snapshotBlock ?? 0),
     holderCount: holders.length,
     holders,
-    listId: body.listId ?? listCid,
+    // Cache ONLY under the content-addressed CID. The old code also cached
+    // under `body.listId` (attacker-supplied), which was the poison vector -
+    // an attacker's pin could claim any listId and hijack lookups by that key.
+    listId: listCid,
     listCid,
     listGatewayUrl: url,
   };
-  // Rehydrate the in-memory cache under BOTH the original listId AND the CID so
-  // subsequent proof lookups by either key hit fast.
-  cache.set(snap.listId, snap);
   cache.set(listCid, snap);
   return snap;
 }

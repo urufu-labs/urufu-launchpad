@@ -115,7 +115,7 @@ contract DeployRouterV2 is Script {
         vm.startBroadcast();
 
         // Step 1: deploy the URU sink pointed at FeeSplitter for its ETH proceeds.
-        UruDepositSink sink = new UruDepositSink(admin, uruToken, feeSplitter);
+        UruDepositSink sink = new UruDepositSink(admin, uruToken, feeSplitter, 2 days);
 
         // Step 2: deploy RouterV2 pointed at FeeSplitter as its ETH-fee receiver
         // and at the sink for its URU-fee receiver.

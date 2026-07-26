@@ -617,7 +617,8 @@ contract BaseForkV2E2ETest is Test {
         // TOKEN, not ETH — verify token balance below.
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+        uint256 tokensReceived =
+            V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer, block.timestamp + 1);
         assertGt(tokensReceived, 0, "swap returned zero tokens");
 
         // Hook accrued creator's share in TOKEN currency.
@@ -649,7 +650,7 @@ contract BaseForkV2E2ETest is Test {
 
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer, block.timestamp + 1);
 
         uint256 platformOwedAfter = HOOK_V3.owed(tokenCur, platform);
         assertGt(platformOwedAfter - platformOwedBefore, 0, "platform did not accrue on swap");
@@ -683,12 +684,13 @@ contract BaseForkV2E2ETest is Test {
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
         vm.expectRevert(); // AntiSniperGate() bubbles through the router unlock
-        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer);
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer, block.timestamp + 1);
 
         // Roll forward past the window (launchBlock + 5). Now the swap succeeds.
         vm.roll(block.number + 6);
         vm.prank(buyer);
-        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer);
+        uint256 tokensReceived =
+            V4_SWAP_ROUTER.swapExactETHForToken{value: 0.1 ether}(poolKey, 1, buyer, block.timestamp + 1);
         assertGt(tokensReceived, 0, "post-window swap should succeed");
     }
 
@@ -713,7 +715,7 @@ contract BaseForkV2E2ETest is Test {
 
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+        V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer, block.timestamp + 1);
 
         // Burn address received tokens.
         uint256 deadAfter = IERC20(token).balanceOf(dead);
@@ -836,14 +838,15 @@ contract BaseForkV2E2ETest is Test {
         // Buyer first BUYs so they have tokens to sell.
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
-        uint256 tokensReceived = V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer);
+        uint256 tokensReceived =
+            V4_SWAP_ROUTER.swapExactETHForToken{value: 0.5 ether}(poolKey, 1, buyer, block.timestamp + 1);
 
         // Now SELL those tokens back — accrues fees in ETH.
         Currency ethCur = Currency.wrap(address(0));
         uint256 launcherEthOwedBefore = HOOK_V3.owed(ethCur, launcher);
         vm.startPrank(buyer);
         IERC20(token).approve(address(V4_SWAP_ROUTER), tokensReceived);
-        V4_SWAP_ROUTER.swapExactTokenForETH(poolKey, tokensReceived, 1, buyer);
+        V4_SWAP_ROUTER.swapExactTokenForETH(poolKey, tokensReceived, 1, buyer, block.timestamp + 1);
         vm.stopPrank();
         uint256 launcherEthOwedAfter = HOOK_V3.owed(ethCur, launcher);
         assertGt(launcherEthOwedAfter - launcherEthOwedBefore, 0, "sell did not accrue ETH-side to launcher");

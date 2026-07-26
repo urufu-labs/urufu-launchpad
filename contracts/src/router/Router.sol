@@ -84,6 +84,10 @@ contract Router is Ownable, ReentrancyGuard {
     error Router__DeployFailed();
     error Router__CurveFactoryUnset();
     error Router__CurveOnlyForERC20();
+    /// The chosen module combination (identified by configHash) taxes transfers
+    /// (e.g. FeeOnTransfer) and would drift the bonding-curve's accounting on every
+    /// trade. Owner maintains the blacklist via `setCurveIncompatibleConfigHash`.
+    error Router__CurveIncompatibleModule(bytes32 configHash);
 
     // ============================================================
     // Events
@@ -108,6 +112,7 @@ contract Router is Ownable, ReentrancyGuard {
     event CurveInstalled(address indexed token, address indexed curve);
     event LoyaltyOracleSet(address indexed oracle);
     event LoyaltyDiscountApplied(address indexed launcher, uint256 grossFee, uint256 discountBps, uint256 netFee);
+    event CurveIncompatibleConfigHashSet(bytes32 indexed configHash, bool blocked);
 
     // ============================================================
     // Immutable state
@@ -128,6 +133,18 @@ contract Router is Ownable, ReentrancyGuard {
     address public curveFactory;
     address public loyaltyOracle;
     bool public paused;
+    /// configHash values that MUST NOT be installed alongside a bonding curve.
+    /// Populated by the owner post-deploy for every FeeOnTransfer / rebasing /
+    /// balance-mutating module combination that would drift the curve's
+    /// tokenReserve vs actual balance. The frontend also blocks these combos —
+    /// the on-chain check is defense against hand-crafted txs bypassing the UI.
+    mapping(bytes32 => bool) public curveIncompatibleConfigHash;
+    /// Belt-and-braces cap that Router locally enforces on any discount returned
+    /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
+    /// = 80%). If the oracle is ever swapped for a broken impl that returns
+    /// higher bps, Router still charges at least 20% of the gross fee — no
+    /// accidental free launches.
+    uint16 internal constant MAX_LOYALTY_DISCOUNT_BPS = 8000;
 
     // ============================================================
     // Constructor
@@ -203,6 +220,13 @@ contract Router is Ownable, ReentrancyGuard {
         if (params.installBondingCurve) {
             if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+            // Hard-block combos that would drift the curve's accounting. FoT / rebasing /
+            // any transfer-taxing module mints a token whose actual balance never matches
+            // the arithmetic reserve — every trade priced against phantom liquidity until
+            // safeTransfer eventually reverts and bricks the curve.
+            if (curveIncompatibleConfigHash[params.configHash]) {
+                revert Router__CurveIncompatibleModule(params.configHash);
+            }
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
             // Pass msg.sender explicitly — otherwise CurveFactory would record Router as
@@ -271,6 +295,19 @@ contract Router is Ownable, ReentrancyGuard {
         emit LoyaltyOracleSet(oracle);
     }
 
+    /// @notice Mark a configHash as incompatible with the bonding-curve install
+    ///         path. Owner maintains this blacklist for every FoT / rebasing /
+    ///         balance-mutating module combination. `installBondingCurve = true`
+    ///         reverts with `Router__CurveIncompatibleModule` when the launcher's
+    ///         chosen configHash is blocked.
+    function setCurveIncompatibleConfigHash(
+        bytes32 configHash,
+        bool blocked
+    ) external onlyOwner {
+        curveIncompatibleConfigHash[configHash] = blocked;
+        emit CurveIncompatibleConfigHashSet(configHash, blocked);
+    }
+
     function setFee(
         BaseType base,
         uint256 weiAmount
@@ -320,18 +357,28 @@ contract Router is Ownable, ReentrancyGuard {
             + (params.installGovernance ? governanceAddOnFee : 0);
     }
 
-    /// @dev Applies LoyaltyOracle discount when configured. `discountBps ≤ 10_000` is
-    ///      enforced by LoyaltyOracle itself; we clamp defensively.
+    /// @dev Applies LoyaltyOracle discount when configured. LoyaltyOracle enforces
+    ///      HARD_MAX_DISCOUNT_BPS = 8000 internally; Router clamps to the same
+    ///      MAX_LOYALTY_DISCOUNT_BPS as a local defense so a misconfigured or
+    ///      swapped-in oracle can't drop the fee below 20% of gross even if it
+    ///      returns 9999.
     function _quoteFor(
         LaunchParams calldata params,
         address launcher
     ) internal view returns (uint256) {
         uint256 gross = _quote(params);
+        return gross - (gross * _discountBpsFor(launcher)) / 10_000;
+    }
+
+    /// Reads the loyalty oracle and clamps the returned bps to Router's local
+    /// max. Returns 0 (no discount) when the oracle isn't wired.
+    function _discountBpsFor(
+        address launcher
+    ) internal view returns (uint16 discountBps) {
         address oracle = loyaltyOracle;
-        if (oracle == address(0) || launcher == address(0)) return gross;
-        uint16 discountBps = ILoyaltyOracleLike(oracle).discountBpsFor(launcher);
-        if (discountBps >= 10_000) return 0;
-        return gross - (gross * discountBps) / 10_000;
+        if (oracle == address(0) || launcher == address(0)) return 0;
+        discountBps = ILoyaltyOracleLike(oracle).discountBpsFor(launcher);
+        if (discountBps > MAX_LOYALTY_DISCOUNT_BPS) discountBps = MAX_LOYALTY_DISCOUNT_BPS;
     }
 
     function _dispatchOwnership(

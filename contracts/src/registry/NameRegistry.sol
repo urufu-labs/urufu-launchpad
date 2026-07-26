@@ -44,6 +44,9 @@ contract NameRegistry is Ownable {
     error NameRegistry__InvalidNameChar();
     error NameRegistry__InvalidTickerChar();
     error NameRegistry__CannotReserveClaimedTicker(bytes32 tickerHash);
+    error NameRegistry__RouterAlreadySet();
+    error NameRegistry__NoPendingRouter();
+    error NameRegistry__RouterDelayNotPassed(uint256 readyAt);
     error NameRegistry__CannotRemoveClaimedTicker(bytes32 tickerHash);
 
     // ============================================================
@@ -61,6 +64,7 @@ contract NameRegistry is Ownable {
         uint256 chainId
     );
     event RouterSet(address indexed oldRouter, address indexed newRouter);
+    event RouterProposed(address indexed router, uint256 readyAt);
     event ReservedTickerAdded(bytes32 indexed tickerHash, string ticker);
     event ReservedTickerRemoved(bytes32 indexed tickerHash, string ticker);
     event TreasurySet(address indexed oldTreasury, address indexed newTreasury);
@@ -80,6 +84,15 @@ contract NameRegistry is Ownable {
 
     address public router;
     address public treasury;
+
+    /// Two-step router rotation to protect against owner-key compromise. `router`
+    /// controls who can call `reserve` - flipping it to a hostile router lets the
+    /// attacker mass-reserve names for free. `MIN_ROUTER_DELAY` gives the flywheel
+    /// operator a window to detect + revoke ownership before a malicious rotation
+    /// completes.
+    uint256 public constant MIN_ROUTER_DELAY = 2 days;
+    address public pendingRouter;
+    uint256 public pendingRouterTs;
 
     mapping(bytes32 => Reservation) private _reservations;
     mapping(bytes32 => address) private _tickerOwner;
@@ -235,12 +248,35 @@ contract NameRegistry is Ownable {
     // Admin — onlyOwner
     // ============================================================
 
-    /// @notice Set (or rotate) the Router address. Recommend timelock in production.
+    /// @notice Legacy setRouter - used only for the initial wire from an unset router.
+    ///         Once `router != 0`, rotation MUST go through propose/activate.
     function setRouter(
         address newRouter
     ) external onlyOwner {
+        if (router != address(0)) revert NameRegistry__RouterAlreadySet();
         emit RouterSet(router, newRouter);
         router = newRouter;
+    }
+
+    /// @notice Two-step router rotation. Owner proposes, waits `MIN_ROUTER_DELAY`,
+    ///         then activates. Compromise of the owner key still gives operators
+    ///         48h to notice + counter-sign a revocation.
+    function proposeRouter(
+        address newRouter
+    ) external onlyOwner {
+        pendingRouter = newRouter;
+        pendingRouterTs = block.timestamp + MIN_ROUTER_DELAY;
+        emit RouterProposed(newRouter, pendingRouterTs);
+    }
+
+    function activateRouter() external onlyOwner {
+        address pending = pendingRouter;
+        if (pending == address(0)) revert NameRegistry__NoPendingRouter();
+        if (block.timestamp < pendingRouterTs) revert NameRegistry__RouterDelayNotPassed(pendingRouterTs);
+        emit RouterSet(router, pending);
+        router = pending;
+        pendingRouter = address(0);
+        pendingRouterTs = 0;
     }
 
     /// @notice Rotate the treasury address. Unused in v1 but wired for future sweeps.

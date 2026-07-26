@@ -21,6 +21,13 @@ contract RoyaltyRouterTest is Test {
     function setUp() public {
         impl = new RoyaltyRouterImpl();
         factory = new RoyaltyRouterFactory(owner, address(impl), platform, PLATFORM_BPS);
+        // Test uses EOAs for `collection`, so the factory's owner()-based auth
+        // check can't pass. Whitelist the test contract as a trusted deployer
+        // so per-test deployFor calls succeed the way the launch Router will
+        // in production. Real-world safety is proven by the dedicated auth
+        // tests below.
+        vm.prank(owner);
+        factory.setTrustedDeployer(address(this), true);
     }
 
     // ---- Factory ----------------------------------------------------------
@@ -170,10 +177,27 @@ contract RoyaltyRouterTest is Test {
         vm.deal(clone, 1 ether);
 
         vm.expectRevert(); // Ownable.Unauthorized
-        RoyaltyRouterImpl(payable(clone)).sweep(launcher);
+        RoyaltyRouterImpl(payable(clone)).sweep();
 
+        // Sweep now routes through the configured split rather than sending to
+        // an arbitrary destination. 95% -> launcher, 5% -> platform.
         vm.prank(launcher);
-        RoyaltyRouterImpl(payable(clone)).sweep(launcher);
-        assertEq(launcher.balance, 1 ether);
+        RoyaltyRouterImpl(payable(clone)).sweep();
+        assertEq(launcher.balance, 0.95 ether);
+        assertEq(platform.balance, 0.05 ether);
+    }
+
+    /// Authorization: caller must be the collection's owner OR a trusted
+    /// deployer. Blocks the front-run attack where any address raced
+    /// `deployFor(X, self)` and became the perpetual royalty recipient.
+    function test_Factory_DeployFor_RevertsIfNotOwnerOrTrusted() public {
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RoyaltyRouterFactory.RoyaltyRouterFactory__Unauthorized.selector, stranger, collection
+            )
+        );
+        factory.deployFor(collection, stranger);
     }
 }

@@ -29,6 +29,17 @@ contract NftRevenueVault is Ownable {
     error NftRevenueVault__InvalidProof();
     error NftRevenueVault__ZeroAmount();
     error NftRevenueVault__InsufficientBalance(uint256 available, uint256 requested);
+    /// Epoch published with `merkleRoot == 0`. The zero root doubles as the
+    /// "epoch doesn't exist" sentinel in `claim`, so accepting it would create
+    /// a permanently-unclaimable epoch that also silently consumed balance
+    /// headroom via `totalCommitted`.
+    error NftRevenueVault__ZeroRoot();
+    /// Epoch overcommit — adding `totalAmount` would bring `totalCommitted`
+    /// above the vault's current ETH balance. Blocks the double-commit bug
+    /// where two live epochs each claim rights to more ETH than exists.
+    error NftRevenueVault__OverCommit(uint256 committed, uint256 available);
+    /// setDistributionSink timelock guard for the sweep escape hatch.
+    error NftRevenueVault__NothingToSweep();
 
     event Received(address indexed from, uint256 amount);
     event EpochAdded(uint256 indexed epoch, bytes32 merkleRoot, uint256 totalAmount);
@@ -44,6 +55,14 @@ contract NftRevenueVault is Ownable {
     mapping(uint256 => Epoch) public epochs;
     /// epoch → holder → claimed?
     mapping(uint256 => mapping(address => bool)) private _claimed;
+
+    /// Running sum of unclaimed balances across ALL live epochs. New `addEpoch`
+    /// calls check that adding `totalAmount` keeps this <= vault balance. Prevents
+    /// the double-commit bug where two 100-ETH epochs pass individually against
+    /// a 100-ETH deposit but drain balance below the second batch of claimers.
+    uint256 public totalCommitted;
+
+    event Swept(address indexed to, uint256 amount);
 
     constructor(
         address initialOwner
@@ -62,12 +81,35 @@ contract NftRevenueVault is Ownable {
         uint256 totalAmount
     ) external onlyOwner {
         if (totalAmount == 0) revert NftRevenueVault__ZeroAmount();
-        if (address(this).balance < totalAmount) {
-            revert NftRevenueVault__InsufficientBalance(address(this).balance, totalAmount);
+        if (merkleRoot == bytes32(0)) revert NftRevenueVault__ZeroRoot();
+        uint256 newCommitted = totalCommitted + totalAmount;
+        // Reject epochs that would over-commit the vault. Was a HIGH audit
+        // finding: two consecutive addEpoch(100 ETH) each individually passed
+        // `balance >= 100` against a 100-ETH deposit, but the second epoch's
+        // claimers would eventually hit safeTransferETH reverts.
+        if (address(this).balance < newCommitted) {
+            revert NftRevenueVault__OverCommit(newCommitted, address(this).balance);
         }
         uint256 id = nextEpochId++;
         epochs[id] = Epoch({merkleRoot: merkleRoot, totalAmount: totalAmount, unclaimed: totalAmount});
+        totalCommitted = newCommitted;
         emit EpochAdded(id, merkleRoot, totalAmount);
+    }
+
+    /// Owner sweeps ETH that isn't backing an unclaimed epoch. Useful when a
+    /// published root has an off-by-N `totalAmount` (dust residue), a merkle
+    /// leaf's holder is dead-wallet + unrecoverable, or an epoch's holders
+    /// never fully claim before a snapshot window closes. Bounded to the
+    /// dust surplus so live claims can't be starved.
+    function sweepDust(
+        address to
+    ) external onlyOwner {
+        if (to == address(0)) revert NftRevenueVault__InvalidProof(); // reuse zero-address err
+        uint256 bal = address(this).balance;
+        if (bal <= totalCommitted) revert NftRevenueVault__NothingToSweep();
+        uint256 amount = bal - totalCommitted;
+        SafeTransferLib.safeTransferETH(to, amount);
+        emit Swept(to, amount);
     }
 
     /// @notice Claim an epoch's per-holder allocation. Proof leaves are
@@ -85,6 +127,9 @@ contract NftRevenueVault is Ownable {
 
         _claimed[epochId][msg.sender] = true;
         e.unclaimed -= amount;
+        // Also drop from the running commitment total so sweepDust reflects
+        // freed headroom as claims land.
+        totalCommitted -= amount;
         SafeTransferLib.safeTransferETH(msg.sender, amount);
         emit Claimed(epochId, msg.sender, amount);
     }

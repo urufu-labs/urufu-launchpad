@@ -47,9 +47,9 @@ contract NftRevenueVaultTest is Test {
     }
 
     function test_AddEpoch_RevertsWithoutBalance() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__InsufficientBalance.selector, 0, 1 ether)
-        );
+        // Was InsufficientBalance; V4 uses OverCommit which tracks the running
+        // sum of live-epoch claims vs current vault balance (see H-2 audit fix).
+        vm.expectRevert(abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__OverCommit.selector, 1 ether, 0));
         vm.prank(owner);
         vault.addEpoch(bytes32(uint256(1)), 1 ether);
     }
