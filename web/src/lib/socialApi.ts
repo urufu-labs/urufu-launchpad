@@ -65,6 +65,10 @@ export interface RemoteTokenMetadata {
   telegram: string | null;
   discord: string | null;
   tiktok: string | null;
+  /// IPFS CID of the pinned whitelist holder list, when the token launched with
+  /// a community whitelist. Trade page reads this to fetch the list + build
+  /// proofs for WL-eligible buyers. Null on non-WL launches.
+  wlListCid: string | null;
   updatedAt: string;
   owner: Address;
 }
@@ -111,6 +115,9 @@ export async function saveTokenMetadata(
     telegram?: string | null;
     discord?: string | null;
     tiktok?: string | null;
+    /// Set at launch time when a whitelist is applied. Backend persists it so
+    /// cross-device viewers can fetch the pinned holder list + build proofs.
+    wlListCid?: string | null;
   },
   sign: SignFn,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

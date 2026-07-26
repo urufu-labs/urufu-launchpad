@@ -24,7 +24,7 @@ import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUni
 
 // 'direct' switches the pool to direct-mint tokens; every other filter operates on curve
 // tokens only (progress / mcap / graduation are curve concepts).
-type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'all' | 'direct';
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'direct';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -32,6 +32,7 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'mcap', label: 'top mcap', jp: '時価' },
   { id: 'near-graduation', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
+  { id: 'whitelist', label: 'whitelist', jp: '会員' },
   { id: 'all', label: 'all', jp: '全部' },
   { id: 'direct', label: 'direct mint', jp: '直接' },
 ];
@@ -81,6 +82,12 @@ export default function DiscoverPage() {
         break;
       case 'graduated':
         list = list.filter((l) => l.graduated);
+        break;
+      case 'whitelist':
+        // WL launches — filter on the indexer-populated flag; sort newest first so
+        // active WL windows (recent launches) surface at the top.
+        list = list.filter((l) => l.hasWhitelist === true);
+        list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
       case 'direct':
         list.sort((a, b) => b.launchedAt - a.launchedAt);

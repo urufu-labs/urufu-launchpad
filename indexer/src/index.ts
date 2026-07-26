@@ -4,7 +4,7 @@ import { ponder } from '@/generated';
 import { keccak256, encodeAbiParameters } from 'viem';
 import { eq } from '@ponder/core';
 
-import { launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers } from '../ponder.schema.ts';
+import { launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers, wlPurchases, wlClaims } from '../ponder.schema.ts';
 import { hookHostForChainId } from '../chains';
 
 /// Ponder's multi-network context.network union is `{ name, chainId }` for each
@@ -314,6 +314,143 @@ ponder.on('BondingCurve:Graduated', async ({ event, context }) => {
         tokenReserve,
         updatedAt: event.block.timestamp,
       });
+  }
+});
+
+// =========================================================
+// Whitelist / URU-pay handlers — RouterV2 + WL-aware BondingCurve additions.
+// Non-WL launches never fire these events; existing curves without WL storage
+// keep working with the base handlers above.
+//
+// Ordering inside a WL launch tx (log-index):
+//   1. BondingCurve.CurveInitialized      → creates curves row (base handler above)
+//   2. BondingCurve.WhitelistConfigured   → this handler backfills WL fields
+//   3. Router.Launched                    → creates launches row (base handler above)
+//   4. Router.LaunchedInURU (if URU-paid) → this handler sets payToken=URU
+//   5. Router.LaunchedWithWhitelist       → this handler sets launches.hasWhitelist=true
+// =========================================================
+
+ponder.on('Router:LaunchedInURU', async ({ event, context }) => {
+  const { token, uruPaid } = event.args;
+  const chainId = chainIdOf(context);
+  const id = `${chainId}-${token.toLowerCase()}`;
+  try {
+    await context.db
+      .update(launches, { id })
+      .set({ payToken: 'URU', uruPaid });
+  } catch (err) {
+    // Router.Launched should always land first in the same tx. If this update misses,
+    // the base row hasn't been written yet — log and continue rather than crash the
+    // whole indexer, matching the pattern of other correlated-event handlers.
+    console.warn(`[indexer] LaunchedInURU: launches row missing for ${id}:`, err instanceof Error ? err.message : err);
+  }
+});
+
+ponder.on('Router:LaunchedWithWhitelist', async ({ event, context }) => {
+  const { token } = event.args;
+  const chainId = chainIdOf(context);
+  const id = `${chainId}-${token.toLowerCase()}`;
+  // Full WL config lives on the curves row (populated by WhitelistConfigured). This
+  // handler just flags the launches row so discover-page "WL only" queries don't
+  // need a join to filter.
+  try {
+    await context.db.update(launches, { id }).set({ hasWhitelist: true });
+  } catch (err) {
+    console.warn(`[indexer] LaunchedWithWhitelist: launches row missing for ${id}:`, err instanceof Error ? err.message : err);
+  }
+});
+
+ponder.on('BondingCurve:WhitelistConfigured', async ({ event, context }) => {
+  const {
+    root,
+    reservedTokens,
+    maxWlPerAddress,
+    fallbackTs,
+    sourceTokenAddress,
+    sourceChainId,
+    declaredHolderCount,
+  } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  const id = `${chainId}-${curveAddress.toLowerCase()}`;
+  try {
+    await context.db.update(curves, { id }).set({
+      hasWhitelist: true,
+      whitelistRoot: root,
+      reservedTokens,
+      maxWlPerAddress,
+      fallbackTs: BigInt(fallbackTs),
+      sourceTokenAddress,
+      sourceChainId: Number(sourceChainId),
+      declaredHolderCount: Number(declaredHolderCount),
+      updatedAt: event.block.timestamp,
+    });
+  } catch (err) {
+    console.warn(`[indexer] WhitelistConfigured: curves row missing for ${id}:`, err instanceof Error ? err.message : err);
+  }
+});
+
+ponder.on('BondingCurve:WlBought', async ({ event, context }) => {
+  const { buyer, ethIn, tokensOut, wlPurchasedAfter } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
+
+  const curve = await context.db.find(curves, { id: curveId });
+  const tokenAddress = curve?.tokenAddress ?? ('0x0000000000000000000000000000000000000000' as `0x${string}`);
+
+  await context.db.insert(wlPurchases).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    curveAddress,
+    tokenAddress,
+    buyer,
+    ethIn,
+    tokensOut,
+    wlPurchasedAfter,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  if (curve) {
+    await context.db.update(curves, { id: curveId }).set({
+      wlSold: curve.wlSold + tokensOut,
+      wlHeldTotal: curve.wlHeldTotal + tokensOut,
+      updatedAt: event.block.timestamp,
+    });
+  }
+});
+
+ponder.on('BondingCurve:WlClaimed', async ({ event, context }) => {
+  const { buyer, amount } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
+
+  const curve = await context.db.find(curves, { id: curveId });
+  const tokenAddress = curve?.tokenAddress ?? ('0x0000000000000000000000000000000000000000' as `0x${string}`);
+
+  await context.db.insert(wlClaims).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    curveAddress,
+    tokenAddress,
+    buyer,
+    amount,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  if (curve) {
+    // wlHeldTotal drains as buyers claim. Guard against underflow just in case an
+    // event replays out of order — clamp to zero rather than crash.
+    const nextHeld = curve.wlHeldTotal > amount ? curve.wlHeldTotal - amount : 0n;
+    await context.db.update(curves, { id: curveId }).set({
+      wlHeldTotal: nextHeld,
+      updatedAt: event.block.timestamp,
+    });
   }
 });
 

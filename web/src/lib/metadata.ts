@@ -14,6 +14,10 @@ export interface TokenMetadata {
   /// Set when the metadata has been uploaded to IPFS. `gatewayUrl` is the CDN read path.
   cid?: string;
   gatewayUrl?: string;
+  /// IPFS CID of the pinned whitelist holder list, when the token launched with a
+  /// community whitelist. Trade page reads this to fetch the list + build proofs
+  /// for WL-eligible buyers via /wl/proof. Absent on non-WL launches.
+  wlListCid?: string;
   savedAt: number;
 }
 

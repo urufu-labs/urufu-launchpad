@@ -25,7 +25,8 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       }
       const rows = await sql!`
         SELECT chain_id AS "chainId", token_address AS "tokenAddress", image_url AS "imageUrl",
-               description, website, twitter, telegram, discord, tiktok, updated_at AS "updatedAt", owner
+               description, website, twitter, telegram, discord, tiktok,
+               wl_list_cid AS "wlListCid", updated_at AS "updatedAt", owner
         FROM app.token_metadata
         WHERE chain_id = ${chainId} AND token_address = ${addr}
         LIMIT 1
@@ -51,6 +52,11 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       telegram: z.string().max(80).nullable().optional(),
       discord: z.string().max(80).nullable().optional(),
       tiktok: z.string().max(80).nullable().optional(),
+      /// IPFS CID for the pinned whitelist holder list, when the token launched
+      /// with a community whitelist. Trade page uses this to fetch the list +
+      /// build proofs for WL-eligible buyers. Bounded length to prevent junk
+      /// (Pinata CIDs are ~46-62 chars).
+      wlListCid: z.string().max(100).nullable().optional(),
     }),
   });
 
@@ -98,8 +104,8 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     }
 
     await sql!`
-      INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, tiktok, owner, updated_at)
-      VALUES (${payload.chainId}, ${tokenAddr}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.tiktok ?? null}, ${auth.address}, now())
+      INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, tiktok, wl_list_cid, owner, updated_at)
+      VALUES (${payload.chainId}, ${tokenAddr}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.tiktok ?? null}, ${payload.wlListCid ?? null}, ${auth.address}, now())
       ON CONFLICT (chain_id, token_address) DO UPDATE SET
         image_url = EXCLUDED.image_url,
         description = EXCLUDED.description,
@@ -108,6 +114,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
         telegram = EXCLUDED.telegram,
         discord = EXCLUDED.discord,
         tiktok = EXCLUDED.tiktok,
+        wl_list_cid = EXCLUDED.wl_list_cid,
         owner = EXCLUDED.owner,
         updated_at = now()
     `;
@@ -130,7 +137,8 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     if (tokens.length === 0) return reply.send({ items: [] });
     const rows = await sql!`
       SELECT chain_id AS "chainId", token_address AS "tokenAddress", image_url AS "imageUrl",
-             description, website, twitter, telegram, discord, tiktok, updated_at AS "updatedAt"
+             description, website, twitter, telegram, discord, tiktok,
+             wl_list_cid AS "wlListCid", updated_at AS "updatedAt"
       FROM app.token_metadata
       WHERE chain_id = ${body.chainId} AND token_address IN ${sql!(tokens)}
     `;

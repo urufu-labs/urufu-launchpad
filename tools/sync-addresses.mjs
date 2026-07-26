@@ -7,6 +7,11 @@
  * DeployGraduator writes       → contracts/deployment-graduator.<chainid>.json (optional)
  * DeployV4SwapRouter writes    → contracts/deployment-v4router.<chainid>.json  (optional)
  * DeployFlywheel writes        → contracts/deployment-flywheel.<chainid>.json  (optional)
+ * DeployRouterV2 writes        → contracts/deployment-routerv2.<chainid>.json  (optional)
+ *                               (overrides CONTRACTS.<chain>.Router with the RouterV2 address)
+ * DeployCurveFactoryV2 writes  → contracts/deployment-curvefactoryv2.<chainid>.json (optional)
+ *                               (overrides CONTRACTS.<chain>.CurveFactory + BondingCurveImpl
+ *                                with the whitelist-aware fresh deployment)
  *
  * This script consumes whichever are present and:
  *   - Patches CONTRACTS[chain] in web/src/lib/config.ts (Phase 1 core)
@@ -60,6 +65,8 @@ const hooks = readBook('hooks');
 const graduator = readBook('graduator');
 const v4router = readBook('v4router');
 const flywheel = readBook('flywheel');
+const routerv2 = readBook('routerv2');
+const curvefactoryv2 = readBook('curvefactoryv2');
 
 // ---- Field lists mirror the interfaces in web/src/lib/config.ts. ------------
 
@@ -170,8 +177,27 @@ const patchScalar = (mapName, value) => {
   return true;
 };
 
-if (patchMap('CONTRACTS', CONTRACT_FIELDS, core)) {
-  console.log(`✓ wrote CONTRACTS.${chain}`);
+// Layer overrides onto the core book:
+//   - RouterV2 (from deployment-routerv2.<chainid>.json) → CONTRACTS.<chain>.Router
+//   - WL-aware CurveFactory (from deployment-curvefactoryv2.<chainid>.json) →
+//     CONTRACTS.<chain>.CurveFactory + BondingCurveImpl
+const coreWithOverrides = {
+  ...core,
+  ...(routerv2?.RouterV2 ? { Router: routerv2.RouterV2 } : {}),
+  ...(curvefactoryv2?.CurveFactory
+    ? { CurveFactory: curvefactoryv2.CurveFactory, BondingCurveImpl: curvefactoryv2.BondingCurveImpl }
+    : {}),
+};
+if (patchMap('CONTRACTS', CONTRACT_FIELDS, coreWithOverrides)) {
+  const suffix = [
+    routerv2?.RouterV2 ? 'Router → RouterV2' : '',
+    curvefactoryv2?.CurveFactory ? 'CurveFactory → V2' : '',
+  ].filter(Boolean).join(', ');
+  console.log(`✓ wrote CONTRACTS.${chain}${suffix ? ` (${suffix})` : ''}`);
+}
+if (routerv2) {
+  console.log(`  [note] RouterV2 book found — UruDepositSink at ${routerv2.UruDepositSink}`);
+  console.log(`         Keeper will need this address to drain URU deposits.`);
 }
 if (hooks) {
   if (patchMap('HOOKS', HOOK_FIELDS, hooks)) console.log(`✓ wrote HOOKS.${chain}`);

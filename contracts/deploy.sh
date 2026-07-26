@@ -24,6 +24,10 @@
 #   V4SwapRouter         → script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter
 #   Flywheel             → script/DeployFlywheel.s.sol:DeployFlywheel
 #   ConfigureFlywheel    → script/ConfigureFlywheel.s.sol:ConfigureFlywheel
+#   RouterV2             → script/DeployRouterV2.s.sol:DeployRouterV2
+#                          (Robinhood-only: URU-or-ETH pay-to-deploy + FeeSplitter sink)
+#   CurveFactoryV2       → script/DeployCurveFactoryV2.s.sol:DeployCurveFactoryV2
+#                          (Whitelist-aware CurveFactory + fresh BondingCurve impl — run BEFORE RouterV2)
 #   HandoffOwnership     → script/HandoffOwnership.s.sol:HandoffOwnership
 #   PostDeploySmoke      → script/PostDeploySmoke.s.sol:PostDeploySmoke
 #
@@ -91,6 +95,8 @@ case "$SCRIPT" in
   PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
   Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;
   ConfigureFlywheel)  TARGET="script/ConfigureFlywheel.s.sol:ConfigureFlywheel" ;;
+  RouterV2)           TARGET="script/DeployRouterV2.s.sol:DeployRouterV2" ;;
+  CurveFactoryV2)     TARGET="script/DeployCurveFactoryV2.s.sol:DeployCurveFactoryV2" ;;
   *)                  echo "Unknown script: $SCRIPT"; exit 1 ;;
 esac
 

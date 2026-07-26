@@ -27,7 +27,7 @@ import {
 } from 'viem';
 
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
-import { CHAIN_LABELS, CONTRACTS, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
+import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
@@ -202,6 +202,28 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const gradTarget = csResults[2]?.result as bigint | undefined;
   const curveSupply = csResults[3]?.result as bigint | undefined;
   const spotPrice = csResults[4]?.result as bigint | undefined;
+
+  // ---------- Whitelist state (WL-aware curves only) ----------
+  // Kept as a separate useReadContracts so csResults array indices upstream stay stable.
+  // Non-WL curves return zero for these — the WL UI branches on `wlEnabled` before
+  // rendering, so the reads are cheap noise on legacy curves.
+  const wlState = useReadContracts({
+    contracts: curveAddress
+      ? [
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'whitelistRoot' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'fallbackTs' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'reservedTokens' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'wlSold' },
+        ]
+      : [],
+    ...(readChainId ? { chainId: readChainId } : {}),
+    query: { enabled: !!curveAddress, refetchInterval: 8_000 },
+  });
+  const wlRoot = wlState.data?.[0]?.result as `0x${string}` | undefined;
+  const wlFallbackTs = wlState.data?.[1]?.result as bigint | undefined;
+  const wlReservedTokens = wlState.data?.[2]?.result as bigint | undefined;
+  const wlSoldTokens = wlState.data?.[3]?.result as bigint | undefined;
+  const wlEnabled = !!wlRoot && wlRoot !== `0x${'0'.repeat(64)}`;
   const graduated = csResults[5]?.result as boolean | undefined;
   // tradeFeeBps() returns uint16 → wagmi maps to `number`, not `bigint`. Reading it as
   // bigint made the fee row render '—' because `typeof feeBps === 'bigint'` was never true.
@@ -248,7 +270,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (!remote) return;
       // Remote wins for shared fields; local avatarDataUrl (there isn't one here) is
       // moot. Store the remote imageUrl AS `logoDataUrl` since that's what the render
-      // already reads.
+      // already reads. wlListCid piped through so cross-device viewers can fetch the
+      // pinned WL holder list (deployer's local snapshot alone wouldn't reach them).
       setMetadata({
         logoDataUrl: remote.imageUrl ?? undefined,
         description: remote.description ?? undefined,
@@ -257,6 +280,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         telegram: remote.telegram ?? undefined,
         discord: remote.discord ?? undefined,
         tiktok: remote.tiktok ?? undefined,
+        wlListCid: remote.wlListCid ?? undefined,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || Date.now(),
       });
     })();
@@ -573,6 +597,84 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'sell' && needsApproval },
   });
 
+  // ---------- Whitelist proof + buy/claim ----------
+  // Fetch proof for the connected wallet against the WL list pinned at launch. The
+  // wlListCid lives in token metadata (persisted at launch time by the create page).
+  // Trade page reads it via loadMetadata; if the local copy is missing (cross-device
+  // viewer), the WL slice remains inaccessible from this frontend — the on-chain
+  // WL still functions, but a proof needs to be provided out-of-band.
+  const wlListCid = metadata?.wlListCid;
+  const [wlProof, setWlProof] = useState<`0x${string}`[] | null>(null);
+  const [wlProofErr, setWlProofErr] = useState<string | null>(null);
+  const wlPreFallback = useMemo(() => {
+    if (!wlEnabled || !wlFallbackTs) return false;
+    return BigInt(Math.floor(Date.now() / 1000)) < wlFallbackTs;
+  }, [wlEnabled, wlFallbackTs]);
+
+  useEffect(() => {
+    if (!wlEnabled || !wallet || !wlListCid || graduated) {
+      setWlProof(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = `${COMPILE_SERVICE_URL}/wl/proof?listCid=${encodeURIComponent(wlListCid)}&addr=${wallet}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          if (!cancelled) {
+            setWlProof(null);
+            setWlProofErr(res.status === 404 ? 'not on the whitelist' : `proof lookup failed: ${res.status}`);
+          }
+          return;
+        }
+        const data = (await res.json()) as { proof: `0x${string}`[] };
+        if (!cancelled) {
+          setWlProof(data.proof);
+          setWlProofErr(null);
+        }
+      } catch (e) {
+        if (!cancelled) setWlProofErr(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wlEnabled, wallet, wlListCid, graduated]);
+
+  const wlBuySim = useSimulateContract({
+    abi: bondingCurveAbi,
+    address: curveAddress ?? undefined,
+    functionName: 'buyWithProof',
+    args: wlProof ? [wlProof, slippage] : undefined,
+    value: inputWei,
+    account: wallet,
+    chainId: readChainId,
+    query: {
+      enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy'
+        && inputWei > 0n && !graduated && wlEnabled && wlPreFallback && !!wlProof,
+    },
+  });
+
+  // Post-graduation claim of WL-held tokens. Only meaningful when the user holds a
+  // non-zero balance in wlHeldForUser and the curve is graduated.
+  const wlHeldQ = useReadContract({
+    abi: bondingCurveAbi,
+    address: curveAddress ?? undefined,
+    functionName: 'wlHeldForUser',
+    args: wallet ? [wallet] : undefined,
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && wlEnabled, refetchInterval: 15_000 },
+  });
+  const wlHeldForUser = (wlHeldQ.data as bigint | undefined) ?? 0n;
+
+  const wlClaimSim = useSimulateContract({
+    abi: bondingCurveAbi,
+    address: curveAddress ?? undefined,
+    functionName: 'claimWl',
+    account: wallet,
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && graduated && wlHeldForUser > 0n },
+  });
+
   const { writeContract, isPending: writePending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash as Hex | undefined });
 
@@ -821,6 +923,25 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             <span style={{ color: 'var(--anchor-soft)', fontFamily: 'var(--font-pixel), monospace', fontSize: 13 }}>
               ${(tokenSymbol as string) ?? '—'}
             </span>
+            {/* WL badge — visible whenever the curve was launched with a whitelist,
+                regardless of window status. Discover feed already flags WL launches;
+                this makes it obvious on the trade page too. */}
+            {wlEnabled && (
+              <span
+                style={{
+                  padding: '2px 6px',
+                  background: 'var(--pink-warm)',
+                  border: '1.5px solid var(--anchor)',
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: 'var(--anchor)',
+                }}
+                title={wlPreFallback ? 'community whitelist — exclusive window active' : 'community whitelist — window ended, public open'}
+              >
+                ✿ WL
+              </span>
+            )}
           </div>
           <div
             style={{
@@ -1077,6 +1198,31 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             </div>
             <div style={{ padding: 12 }}>
 
+            {graduated && wlEnabled && wlHeldForUser > 0n && connectedForRender && (
+              <div style={{ marginBottom: 10, padding: 10, background: 'var(--mint)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  ✿ ur whitelist tokens are ready to claim
+                </div>
+                <div style={{ fontSize: 11, marginBottom: 8, color: 'var(--anchor-soft)' }}>
+                  {`${Number(formatUnits(wlHeldForUser, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${(tokenSymbol as string) ?? ''}`}
+                  {' '}held on the curve — one click to move them to ur wallet
+                </div>
+                <button
+                  type="button"
+                  onClick={() => wlClaimSim.data && writeContract(wlClaimSim.data.request)}
+                  disabled={!wlClaimSim.data || writePending || receipt.isLoading}
+                  className="uru-btn uru-btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {writePending ? 'confirming ~~' : '✿ claim'}
+                </button>
+                {wlClaimSim.error && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: 'var(--pink-hot)' }}>
+                    claim sim failed: {wlClaimSim.error.message.slice(0, 120)}
+                  </div>
+                )}
+              </div>
+            )}
             {graduated ? (
               <GraduatedPanel
                 chain={activeChain}
@@ -1216,6 +1362,98 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 {(buySim.error || sellSim.error) && (
                   <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 10 }}>
                     sim failed: {(buySim.error ?? sellSim.error)?.message.slice(0, 120)}
+                  </div>
+                )}
+
+                {/* Whitelist buy — shown only pre-graduation while a WL is active on the
+                    curve, the fallback window hasn't elapsed, and the connected wallet
+                    resolves to a valid proof. WL buys draw from the reserved slice at the
+                    same curve price; tokens stay on-curve until claimWl post-graduation. */}
+                {wlEnabled && wlPreFallback && side === 'buy' && connectedForRender && (
+                  <div style={{ marginTop: 10, padding: 8, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', fontSize: 11 }}>
+                    <div style={{ fontFamily: 'var(--font-pixel), monospace', fontWeight: 700, marginBottom: 4 }}>
+                      ✿ community whitelist active
+                    </div>
+                    {(() => {
+                      // Fill-% bar for the WL reserved slice — visual signal of how
+                      // close the WL slice is to filling before the 1h public window
+                      // opens. Non-visible when reservedTokens hasn't loaded yet.
+                      if (!wlReservedTokens || wlSoldTokens === undefined) {
+                        return (
+                          <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 6 }}>
+                            reserved slice pending
+                          </div>
+                        );
+                      }
+                      const pct = wlReservedTokens > 0n
+                        ? Number((wlSoldTokens * 10_000n) / wlReservedTokens) / 100
+                        : 0;
+                      const soldStr = Number(formatUnits(wlSoldTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 });
+                      const reservedStr = Number(formatUnits(wlReservedTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 });
+                      return (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 4 }}>
+                            <span>reserved slice</span>
+                            <span>{soldStr} / {reservedStr} ({pct.toFixed(1)}%)</span>
+                          </div>
+                          <div
+                            aria-label={`whitelist reserved slice ${pct.toFixed(0)}% filled`}
+                            style={{
+                              height: 6,
+                              background: 'var(--cream-shadow, #e8e0d0)',
+                              border: '1px solid var(--anchor)',
+                              marginBottom: 8,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${Math.min(100, pct)}%`,
+                                background: pct >= 100 ? 'var(--mint-hot, #2b8a3e)' : 'var(--pink-hot)',
+                                transition: 'width 0.3s ease-out',
+                              }}
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
+                    {!wlListCid ? (
+                      <div style={{ fontSize: 10, color: 'var(--anchor-soft)' }}>
+                        ~~ WL list unavailable in this browser (deployer needs to share it,
+                        or you need to view this page from a browser that has the metadata cached)
+                      </div>
+                    ) : wlProof ? (
+                      <>
+                        <div style={{ fontSize: 10, color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700, marginBottom: 6 }}>
+                          ✓ you&apos;re eligible — WL buys lock until graduation
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => wlBuySim.data && writeContract(wlBuySim.data.request)}
+                          disabled={
+                            inputWei === 0n
+                            || writePending
+                            || receipt.isLoading
+                            || !walletOnActiveChain
+                            || !wlBuySim.data
+                          }
+                          className="uru-btn uru-btn-primary"
+                          style={{ width: '100%', justifyContent: 'center' }}
+                        >
+                          {writePending ? 'confirming ~~' : `✿ buy (whitelist)`}
+                        </button>
+                        {wlBuySim.error && (
+                          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--pink-hot)' }}>
+                            WL sim failed: {wlBuySim.error.message.slice(0, 120)}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 10, color: 'var(--anchor-soft)' }}>
+                        {wlProofErr ?? 'checking your eligibility..'}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

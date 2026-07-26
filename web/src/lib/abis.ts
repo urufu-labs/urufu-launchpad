@@ -51,6 +51,19 @@ export const routerAbi = parseAbi([
   `function paused() view returns (bool)`,
   `function factories(uint8 base) view returns (address)`,
   `event Launched(address indexed token, address indexed launchedBy, uint8 indexed base, bytes32 nameHash, bytes32 tickerHash, uint256 feePaid, bool installedHook, bool installedGovernance)`,
+  /// RouterV2 additions (Robinhood only). Callable when the on-chain Router is a
+  /// RouterV2 deployment; missing on the legacy Router (call reverts on those chains).
+  /// See contracts/src/router/RouterV2.sol for the full contract.
+  `function launchWithURU(LaunchParams params, uint256 uruAmount) returns (address token)`,
+  `function uru() view returns (address)`,
+  `function uruSink() view returns (address)`,
+  `event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid)`,
+  /// Whitelisted-curve launch entries (RouterV2 + WL-aware CurveFactory required).
+  /// See contracts/src/curve/BondingCurve.sol:WhitelistInit for the struct shape.
+  `struct WhitelistInit { bytes32 root; uint256 reservedTokens; uint256 maxWlPerAddress; uint64 fallbackTs; address sourceTokenAddress; uint32 sourceChainId; uint32 declaredHolderCount; }`,
+  `function launchWithWhitelist(LaunchParams params, WhitelistInit wl) payable returns (address token)`,
+  `function launchWithURUAndWhitelist(LaunchParams params, uint256 uruAmount, WhitelistInit wl) returns (address token)`,
+  `event LaunchedWithWhitelist(address indexed token, address indexed launchedBy, bytes32 whitelistRoot, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId)`,
 ] as const);
 
 export const erc20FactoryAbi = parseAbi([
@@ -87,6 +100,21 @@ export const bondingCurveAbi = parseAbi([
   `function sell(uint256 tokensIn, uint256 minEthOut) returns (uint256 ethOut)`,
   `event Trade(address indexed trader, bool isBuy, uint256 ethAmount, uint256 tokenAmount, uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)`,
   `event Graduated(uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)`,
+  /// Whitelist views + buy/claim entry points. Present on WL-aware BondingCurve
+  /// clones (post-CurveFactoryV2 launches). Reads return zero on non-WL curves,
+  /// so it's safe to include unconditionally.
+  `function whitelistRoot() view returns (bytes32)`,
+  `function reservedTokens() view returns (uint256)`,
+  `function wlSold() view returns (uint256)`,
+  `function maxWlPerAddress() view returns (uint256)`,
+  `function fallbackTs() view returns (uint64)`,
+  `function sourceTokenAddress() view returns (address)`,
+  `function sourceChainId() view returns (uint32)`,
+  `function declaredHolderCount() view returns (uint32)`,
+  `function wlHeldForUser(address) view returns (uint256)`,
+  `function wlHeldTotal() view returns (uint256)`,
+  `function buyWithProof(bytes32[] proof, uint256 minTokensOut) payable returns (uint256 tokensOut)`,
+  `function claimWl() returns (uint256 amount)`,
 ] as const);
 
 export const curveFactoryAbi = parseAbi([

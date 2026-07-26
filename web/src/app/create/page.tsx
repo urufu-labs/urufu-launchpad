@@ -35,8 +35,8 @@ import {
 } from '@dnd-kit/core';
 
 import { playSfx } from '@/lib/audio/sfx';
-import { curveFactoryAbi, erc20FactoryAbi, nameRegistryAbi, routerAbi } from '@/lib/abis';
-import { CHAIN_LABELS, CONTRACTS } from '@/lib/config';
+import { curveFactoryAbi, erc20FactoryAbi, erc20TokenAbi, nameRegistryAbi, routerAbi, v4StateViewAbi } from '@/lib/abis';
+import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, URU_PAY, V4_STATE_VIEWS } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl, explorerTxUrl } from '@/lib/wagmi';
 import {
   BASE_TYPE_TO_UINT,
@@ -494,6 +494,149 @@ export default function CreatePage() {
   // Router.quote math. Templates + base module don't get charged separately.
   const moduleCount = Math.max(0, selectedModules.length - 1);
 
+  // ---- URU pay path (Robinhood only) ---------------------------------------
+  // Users can choose URU or ETH to pay the launch fee. When URU is picked the frontend
+  // quotes the URU-equivalent of the ETH fee via a spot-price read on the URU/WETH v4
+  // pool, and the launch call switches to `RouterV2.launchWithURU(params, uruAmount)`.
+  // Only offered on chains where URU_PAY is populated + RouterV2 is deployed (RH today).
+  const uruPay = URU_PAY[targetChain];
+  const stateView = V4_STATE_VIEWS[targetChain];
+  const [payToken, setPayToken] = useState<'ETH' | 'URU'>('ETH');
+  // Force ETH when URU isn't wired for the target chain — avoids stale URU-picked state
+  // surviving a chain switch back to a non-RH chain.
+  useEffect(() => {
+    if (!uruPay && payToken === 'URU') setPayToken('ETH');
+  }, [uruPay, payToken]);
+
+  const slot0 = useReadContract({
+    abi: v4StateViewAbi,
+    address: stateView ?? undefined,
+    functionName: 'getSlot0',
+    args: uruPay ? [uruPay.poolId] : undefined,
+    query: { enabled: !!uruPay && !!stateView && payToken === 'URU', refetchInterval: 12_000 },
+  });
+
+  /// Convert `ethFeeWei` to a URU amount (in URU wei — URU has 18 decimals).
+  /// v4 stores `sqrtPriceX96` as Q64.96 of √(currency1/currency0). If URU is
+  /// currency1 (typical on RH — WETH `0x0Bd7…` sorts lower than URU `0x9fbe…`)
+  /// then price = URU per WETH and `uruOut = ethIn * sqrtPriceX96² / 2¹⁹²`.
+  /// If URU is currency0 the ratio inverts. Returns undefined until slot0 lands.
+  const uruAmount = useMemo<bigint | undefined>(() => {
+    if (!uruPay || !slot0.data) return undefined;
+    const fee = quote.data as bigint | undefined;
+    if (typeof fee !== 'bigint' || fee === 0n) return undefined;
+    const sqrtPriceX96 = (slot0.data as readonly [bigint, number, number, number])[0];
+    if (!sqrtPriceX96 || sqrtPriceX96 === 0n) return undefined;
+    const Q192 = 1n << 192n;
+    const priceX192 = sqrtPriceX96 * sqrtPriceX96; // URU / WETH scaled by 2¹⁹²
+    if (uruPay.uruIsCurrency1) {
+      // uruOut = ethIn * (priceX192 / 2¹⁹²)
+      return (fee * priceX192) / Q192;
+    }
+    // uruIsCurrency0 → invert: uruOut = ethIn * 2¹⁹² / priceX192
+    return (fee * Q192) / priceX192;
+  }, [uruPay, slot0.data, quote.data]);
+
+  const uruAllowance = useReadContract({
+    abi: erc20TokenAbi,
+    address: uruPay?.token,
+    functionName: 'allowance',
+    args: address && contracts?.Router ? [address, contracts.Router] : undefined,
+    query: { enabled: !!uruPay && !!address && !!contracts?.Router && payToken === 'URU' },
+  });
+  const needsUruApprove = useMemo(() => {
+    if (payToken !== 'URU') return false;
+    if (typeof uruAmount !== 'bigint') return true;
+    const allowed = (uruAllowance.data as bigint | undefined) ?? 0n;
+    return allowed < uruAmount;
+  }, [payToken, uruAmount, uruAllowance.data]);
+  // -------------------------------------------------------------------------
+
+  // ---- Community whitelist (optional, curve-only) --------------------------
+  // Deployer pastes a source NFT/token address, clicks Apply → backend snapshots
+  // holders + builds a Merkle root. WL config gets attached to the launch tx so
+  // the resulting curve is initialized with the reserved slice already bound.
+  // Hard-coded sensible defaults (25% reserved, 24h fallback, per-address cap =
+  // reserved/5). Advanced knobs deferred to v2.
+  const [wlSourceAddress, setWlSourceAddress] = useState<string>('');
+  const [wlSnapshot, setWlSnapshot] = useState<{
+    root: Hex;
+    snapshotBlock: string;
+    holderCount: number;
+    listId: string;
+    /// Present when the compile-service pinned the list to IPFS. Trade page reads
+    /// this from token metadata to fetch the list + build proofs for eligible buyers.
+    listCid?: string;
+  } | null>(null);
+  const [wlApplying, setWlApplying] = useState(false);
+  const [wlError, setWlError] = useState<string | null>(null);
+  const wlEnabled = wlSnapshot !== null;
+
+  const applyWhitelist = async () => {
+    setWlError(null);
+    if (!isAddress(wlSourceAddress)) {
+      setWlError('paste a valid contract address');
+      return;
+    }
+    setWlApplying(true);
+    try {
+      const chainId = CHAIN_KEY_TO_ID[targetChain];
+      const res = await fetch(`${COMPILE_SERVICE_URL}/wl/snapshot`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chainId, tokenAddress: wlSourceAddress }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message || 'snapshot failed');
+      }
+      const data = await res.json();
+      if (data.holderCount < 2) {
+        throw new Error(`only ${data.holderCount} holders found — need at least 2 for a meaningful whitelist`);
+      }
+      setWlSnapshot({
+        root: data.root,
+        snapshotBlock: data.snapshotBlock,
+        holderCount: data.holderCount,
+        listId: data.listId,
+        listCid: data.listCid,
+      });
+    } catch (e) {
+      setWlError(e instanceof Error ? e.message : String(e));
+      setWlSnapshot(null);
+    } finally {
+      setWlApplying(false);
+    }
+  };
+  const clearWhitelist = () => {
+    setWlSnapshot(null);
+    setWlSourceAddress('');
+    setWlError(null);
+  };
+
+  // Build the WL struct passed to launchWithWhitelist. Time-gated design defaults:
+  //   - 60% of curve supply reserved for WL (majority share vs. 40% public)
+  //   - Per-address cap = reserved / 5 (top 5 wallets could fill it)
+  //   - 1h WL-exclusive window (public buy() locked until then; WL uses buyWithProof)
+  const wlStruct = useMemo(() => {
+    if (!wlSnapshot || !useCurve) return null;
+    const reservedTokens = (curveSupplyWei * 6000n) / 10_000n;
+    const maxPerAddr = reservedTokens / 5n;
+    // 1h from "now" — Date.now is client-time which is close enough; on-chain
+    // check uses block.timestamp so a few seconds of drift is fine.
+    const fallbackTs = BigInt(Math.floor(Date.now() / 1000) + 3_600);
+    return {
+      root: wlSnapshot.root,
+      reservedTokens,
+      maxWlPerAddress: maxPerAddr,
+      fallbackTs,
+      sourceTokenAddress: wlSourceAddress as Address,
+      sourceChainId: CHAIN_KEY_TO_ID[targetChain],
+      declaredHolderCount: wlSnapshot.holderCount,
+    };
+  }, [wlSnapshot, useCurve, curveSupplyWei, wlSourceAddress, targetChain]);
+  // -------------------------------------------------------------------------
+
   const implRegistered = implQuery.data && implQuery.data !== zeroAddress;
 
   // Popup for "combo not shipped". Fires when the user has added modules that
@@ -555,20 +698,59 @@ export default function CreatePage() {
     // would silently install those admin functions with owner=address(0) at
     // graduation — pause() etc. would revert forever. Force the user to remove
     // one or the other before the button unlocks.
-    && ownerlessDeadModules.length === 0;
+    && ownerlessDeadModules.length === 0
+    // URU path additionally requires a resolved uruAmount (slot0 landed) + enough
+    // allowance already approved. The approve button unlocks first, then launch.
+    && (payToken === 'ETH' || (typeof uruAmount === 'bigint' && !needsUruApprove));
 
+  // Simulate branches over both the pay token (ETH vs URU) and the WL-enabled flag.
+  // Four possible entrypoints on RouterV2: launch, launchWithURU, launchWithWhitelist,
+  // launchWithURUAndWhitelist. Args + value are assembled below to match each.
+  const simulateFn: 'launch' | 'launchWithURU' | 'launchWithWhitelist' | 'launchWithURUAndWhitelist' =
+    wlStruct
+      ? (payToken === 'URU' ? 'launchWithURUAndWhitelist' : 'launchWithWhitelist')
+      : (payToken === 'URU' ? 'launchWithURU' : 'launch');
+  const simulateArgs = (() => {
+    const uAmt = typeof uruAmount === 'bigint' ? uruAmount : 0n;
+    if (wlStruct && payToken === 'URU') return [params, uAmt, wlStruct] as const;
+    if (wlStruct) return [params, wlStruct] as const;
+    if (payToken === 'URU') return [params, uAmt] as const;
+    return [params] as const;
+  })();
   const simulate = useSimulateContract({
     abi: routerAbi,
     address: contracts?.Router,
-    functionName: 'launch',
-    args: [params],
-    value: (quote.data as bigint | undefined) ?? 0n,
+    functionName: simulateFn,
+    // wagmi's typed args don't unify across four different function shapes — the
+    // cast is safe because we branch on simulateFn to match args to signature.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: simulateArgs as any,
+    value: payToken === 'URU' ? 0n : ((quote.data as bigint | undefined) ?? 0n),
     account: address,
     query: { enabled: canLaunch },
   });
 
+  // Separate simulate for the URU approve — same wagmi wrapper the launch button uses.
+  const approveSimulate = useSimulateContract({
+    abi: erc20TokenAbi,
+    address: uruPay?.token,
+    functionName: 'approve',
+    args: contracts?.Router && typeof uruAmount === 'bigint' ? [contracts.Router, uruAmount] : undefined,
+    account: address,
+    query: { enabled: payToken === 'URU' && needsUruApprove && !!contracts?.Router && typeof uruAmount === 'bigint' },
+  });
+
   const { writeContract, isPending: launchPending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Refetch URU allowance every time a tx confirms while on the URU path. Covers the
+  // approve → launch handoff (approve confirms → allowance refetches → button flips
+  // from "approve URU" to "✿ launch ✿"). Without this the button stays stuck on
+  // approve until wagmi's stale-time expires.
+  useEffect(() => {
+    if (payToken === 'URU' && receipt.data) uruAllowance.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipt.data, payToken]);
 
   const launchedTokenAddress = useMemo(() => {
     if (!receipt.data) return null;
@@ -586,7 +768,9 @@ export default function CreatePage() {
   const savedRef = useRef(false);
   const { signMessageAsync } = useSignMessage();
   if (launchedTokenAddress && !savedRef.current) {
-    const hasAny = metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter;
+    const wlCid = wlSnapshot?.listCid;
+    const hasAny =
+      metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter || wlCid;
     if (hasAny) {
       savedRef.current = true;
       // Two-phase persist:
@@ -595,8 +779,14 @@ export default function CreatePage() {
       //   2. saveTokenMetadata — POSTs the resulting gateway URL to compile-service so every
       //      other browser can render the image. Requires one wallet signature; if the user
       //      cancels, the local snapshot is still there so THEIR view is unaffected.
+      // Merged with wlListCid when a whitelist was applied so the trade page can
+      // fetch the pinned holder list + build proofs. Cross-device propagation of
+      // wlListCid via the backend metadata endpoint is a v2 follow-up (needs a
+      // schema addition); for now WL trades work on the deployer's browser +
+      // any browser that visited the create flow.
+      const metadataToSave = wlCid ? { ...metadata, wlListCid: wlCid } : metadata;
       void (async () => {
-        const pinned = await persistMetadata(chainId, launchedTokenAddress, metadata);
+        const pinned = await persistMetadata(chainId, launchedTokenAddress, metadataToSave);
         if (!address) return;
         try {
           await saveTokenMetadata(
@@ -611,6 +801,9 @@ export default function CreatePage() {
               telegram: metadata.telegram ?? null,
               discord: metadata.discord ?? null,
               tiktok: metadata.tiktok ?? null,
+              // WL list CID lands here so any browser (not just the deployer's)
+              // can fetch the pinned holder list + build proofs at trade time.
+              wlListCid: wlCid ?? null,
             },
             ({ message }) => signMessageAsync({ message }),
           );
@@ -1026,6 +1219,74 @@ export default function CreatePage() {
                     graduation using the params u picked ~
                   </div>
                 )}
+
+                {/* Community whitelist — optional, curve-only. Paste any project's
+                    contract address (NFT or ERC20), click apply, backend snapshots
+                    holders + returns a Merkle root that gets attached to the launch. */}
+                {useCurve && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: 12,
+                      background: 'var(--cream-deep)',
+                      border: '1.5px solid var(--anchor)',
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      fontFamily: 'var(--font-round), Klee One, cursive',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
+                      ✿ community whitelist (optional)
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginBottom: 8 }}>
+                      paste any NFT or token contract → 60% of ur curve reserves for those
+                      holders, exclusive access for the first 1h post-launch. anything
+                      unfilled opens to public at the 1h mark. WL tokens stay locked on
+                      the curve until graduation.
+                    </div>
+                    {!wlEnabled && (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          className="uru-input"
+                          value={wlSourceAddress}
+                          onChange={(e) => setWlSourceAddress(e.target.value)}
+                          placeholder="0x… source project address"
+                          disabled={wlApplying}
+                          style={{ flex: 1, fontFamily: 'var(--font-mono), monospace', fontSize: 11 }}
+                        />
+                        <button
+                          type="button"
+                          className="uru-btn"
+                          onClick={applyWhitelist}
+                          disabled={wlApplying || wlSourceAddress.length === 0}
+                          style={{ fontSize: 11, padding: '5px 10px' }}
+                        >
+                          {wlApplying ? 'snapshotting..' : 'apply'}
+                        </button>
+                      </div>
+                    )}
+                    {wlEnabled && wlSnapshot && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
+                          ✓ WL ready — {wlSnapshot.holderCount} holders of {wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)} at block {wlSnapshot.snapshotBlock}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearWhitelist}
+                          className="uru-btn"
+                          style={{ fontSize: 10, padding: '3px 8px' }}
+                        >
+                          clear
+                        </button>
+                      </div>
+                    )}
+                    {wlError && (
+                      <div style={{ marginTop: 6, color: 'var(--pink-hot)', fontSize: 11 }}>
+                        ~~ {wlError}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </section>
 
@@ -1316,10 +1577,38 @@ export default function CreatePage() {
               <div className="flex items-baseline justify-between">
                 <div className="uru-eyebrow">receipt</div>
                 <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 20, fontWeight: 700, color: 'var(--anchor)' }}>
-                  {typeof quote.data === 'bigint' ? formatEther(quote.data) : '—'}
-                  <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>ETH</span>
+                  {payToken === 'URU'
+                    ? (typeof uruAmount === 'bigint' ? formatEther(uruAmount) : '—')
+                    : (typeof quote.data === 'bigint' ? formatEther(quote.data) : '—')}
+                  <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>{payToken}</span>
                 </div>
               </div>
+
+              {/* URU / ETH pay toggle — shown only on chains where URU_PAY is populated */}
+              {uruPay && (
+                <div style={{ display: 'flex', gap: 4, marginTop: 8, marginBottom: 4 }}>
+                  {(['ETH', 'URU'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setPayToken(t)}
+                      className="uru-btn"
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        fontSize: 10,
+                        padding: '5px 8px',
+                        background: payToken === t ? 'var(--pink-hot)' : 'var(--cream-deep)',
+                        color: payToken === t ? 'var(--cream)' : 'var(--anchor)',
+                        borderColor: 'var(--anchor)',
+                      }}
+                    >
+                      pay in {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
                 <li>✿ base fee: {formatEther(feeSchedule.base)} ETH</li>
                 <li>✿ module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
@@ -1333,23 +1622,49 @@ export default function CreatePage() {
                     </li>
                   </>
                 )}
+                {payToken === 'URU' && (
+                  <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
+                    ✿ URU quoted from RH pool spot; approves + charges the shown amount
+                  </li>
+                )}
               </ul>
 
-              <button
-                type="button"
-                onClick={() => simulate.data && writeContract(simulate.data.request)}
-                disabled={!canLaunch || !simulate.data || launchPending || receipt.isLoading}
-                className="uru-btn uru-btn-primary"
-                style={{ width: '100%', justifyContent: 'center' }}
-              >
-                {launchPending
-                  ? 'confirming ~~'
-                  : receipt.isLoading
-                    ? 'waiting..'
-                    : implRegistered
-                      ? '✿ launch ✿'
-                      : 'impl not registered'}
-              </button>
+              {/* URU approve step — shown only when URU is picked and allowance is short.
+                  Renders in place of the launch button; after approve confirms, allowance
+                  refetches and this collapses back to the standard launch button. */}
+              {payToken === 'URU' && needsUruApprove ? (
+                <button
+                  type="button"
+                  onClick={() => approveSimulate.data && writeContract(approveSimulate.data.request)}
+                  disabled={
+                    !approveSimulate.data ||
+                    launchPending ||
+                    receipt.isLoading ||
+                    typeof uruAmount !== 'bigint'
+                  }
+                  className="uru-btn uru-btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  title={typeof uruAmount === 'bigint' ? `approve ${formatEther(uruAmount)} URU` : 'waiting on URU quote'}
+                >
+                  {launchPending ? 'confirming ~~' : `approve URU (${typeof uruAmount === 'bigint' ? formatEther(uruAmount).slice(0, 10) : '…'})`}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => simulate.data && writeContract(simulate.data.request)}
+                  disabled={!canLaunch || !simulate.data || launchPending || receipt.isLoading}
+                  className="uru-btn uru-btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {launchPending
+                    ? 'confirming ~~'
+                    : receipt.isLoading
+                      ? 'waiting..'
+                      : implRegistered
+                        ? '✿ launch ✿'
+                        : 'impl not registered'}
+                </button>
+              )}
 
               {simulate.error && (
                 <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontSize: 10, color: 'var(--anchor)' }}>

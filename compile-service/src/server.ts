@@ -14,6 +14,7 @@ import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
 import { registerRewardsRoutes } from './routes/rewards.ts';
+import { registerWhitelistRoutes } from './routes/whitelist.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
 // Endpoints:
@@ -60,6 +61,12 @@ if (hasDb()) {
 // Pinata proxy — server-side so the JWT stays out of the client bundle. Skipped when
 // PINATA_JWT isn't set; the client falls back to the local-only metadata path.
 await registerPinRoutes(app);
+
+// Whitelisted-curve snapshot endpoints — POST /wl/snapshot + GET /wl/proof. No
+// Postgres dep (in-memory cache), no external API keys — works out of the box
+// against RH's public RPC. Chain support is intentionally narrow (RH only) for v1.
+await registerWhitelistRoutes(app);
+app.log.info('wl snapshot routes registered');
 
 // Flywheel rewards — public GETs for the claim UI, gated POST for publishing.
 // Read-only endpoints work even without KEEPER_PRIVATE_KEY set (they only query

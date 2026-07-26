@@ -40,8 +40,9 @@ export async function migrate(): Promise<void> {
       PRIMARY KEY (chain_id, token_address)
     )
   `;
-  // Additive column migration — safe to re-run.
+  // Additive column migrations — safe to re-run.
   await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS tiktok text`;
+  await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS wl_list_cid text`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.user_profile (

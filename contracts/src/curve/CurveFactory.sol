@@ -167,6 +167,21 @@ contract CurveFactory is Ownable {
         return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 
+    /// @notice Router-facing whitelist variant. Same as `createCurveWithConfigFor` but
+    ///         initializes the curve with a Merkle-root whitelist + reserved slice.
+    ///         Callers pass a `WhitelistInit` struct with the root, reserved-token
+    ///         count, per-address cap, fallback timestamp, and source-project
+    ///         transparency fields. See `BondingCurve.WhitelistInit` for the shape.
+    function createCurveWithConfigForWl(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) external returns (address curve) {
+        return _createCurveWl(token, antiSniperBlocks, buybackBurnBps, launcher, wl);
+    }
+
     /// @notice Owner may reserve-carve future launches by adjusting `defaultCurveSupply`.
     ///         Existing curves are unaffected (each stores its own curveSupply on-chain).
     function setDefaultCurveSupply(
@@ -219,6 +234,46 @@ contract CurveFactory is Ownable {
                 buybackBurnBps,
                 launcher
             );
+
+        emit CurveCreated(token, curve, launcher);
+    }
+
+    /// Mirror of `_createCurve` for whitelist-enabled launches. Same setup — clone,
+    /// register, pull tokens — but calls `initializeWithWhitelist` on the clone so the
+    /// whitelist storage is populated in the same tx as base curve init.
+    function _createCurveWl(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) internal returns (address curve) {
+        if (token == address(0)) revert CurveFactory__ZeroAddress();
+        if (curveFor[token] != address(0)) revert CurveFactory__CurveExists(token);
+
+        uint256 supply = IERC20(token).balanceOf(msg.sender);
+        if (supply == 0) revert CurveFactory__NotEnoughSupply(defaultCurveSupply, 0);
+
+        bytes32 salt = keccak256(abi.encode(token, block.chainid));
+        curve = LibClone.cloneDeterministic(implementation, salt);
+        curveFor[token] = curve;
+
+        SafeTransferLib.safeTransferFrom(token, msg.sender, curve, supply);
+
+        BondingCurve(payable(curve)).initializeWithWhitelist(
+            token,
+            feeReceiver,
+            supply,
+            defaultVirtualTokenReserve,
+            defaultVirtualEthReserve,
+            defaultGraduationTargetEth,
+            defaultTradeFeeBps,
+            graduator,
+            antiSniperBlocks,
+            buybackBurnBps,
+            launcher,
+            wl
+        );
 
         emit CurveCreated(token, curve, launcher);
     }

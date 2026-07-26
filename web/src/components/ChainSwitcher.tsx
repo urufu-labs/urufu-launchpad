@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 
-import { CHAINS_ENABLED, CHAIN_LABELS, CHAIN_META, DEFAULT_CHAIN, type ChainKey } from '@/lib/config';
+import { CHAINS_ENABLED, CHAINS_COMING_SOON, CHAIN_LABELS, CHAIN_META, DEFAULT_CHAIN, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
 const STORAGE_KEY = 'urufu:activeChain';
@@ -186,6 +186,47 @@ export function ChainSwitcher() {
                 />
                 <span>{CHAIN_LABELS[c]}</span>
                 <span aria-hidden style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, opacity: 0.6 }}>{meta.jp}</span>
+              </button>
+            );
+          })}
+          {CHAINS_COMING_SOON.map((c) => {
+            const meta = CHAIN_META[c];
+            return (
+              <button
+                key={c}
+                type="button"
+                disabled
+                title={`${CHAIN_LABELS[c]} — coming soon`}
+                aria-disabled
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'auto 1fr auto',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 8px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--anchor)',
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: 'not-allowed',
+                  textAlign: 'left',
+                  borderRadius: 3,
+                  opacity: 0.4,
+                }}
+              >
+                <Image
+                  src={meta.iconPath}
+                  alt=""
+                  width={16}
+                  height={16}
+                  aria-hidden
+                  style={{ display: 'block', filter: 'grayscale(1)' }}
+                  unoptimized
+                />
+                <span>{CHAIN_LABELS[c]}</span>
+                <span aria-hidden style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, opacity: 0.8 }}>soon</span>
               </button>
             );
           })}

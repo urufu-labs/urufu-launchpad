@@ -12,22 +12,32 @@ export type ChainKey =
   | 'robinhood'
   | 'robinhood-testnet';
 
-/// Chains the user can select in the shop. Every chain here shows up in the header chain
-/// switcher and gets its own /discover feed slice. Order here == order in the dropdown.
-/// Mainnet chains first, testnet last. Sepolia + robinhood-testnet excluded — we don't
-/// have contracts deployed there and don't want them in the picker as dead options.
+/// Chains the user can actually select and interact with today. Consumers treat this as
+/// the source of truth for "is this chain live"; validation, feed fetches, and default
+/// picks all read from here. Order here == order in the dropdown.
+///
+/// Robinhood-only for now — urufu gemu migration consolidated the ecosystem onto RH and
+/// we're focusing the launchpad there while it stabilizes. Other chains are grayed out
+/// in the UI (see CHAINS_COMING_SOON) but the code paths (config.ts CONTRACTS/HOOKS/
+/// GRADUATORS entries, wagmi transports, indexer subscriptions) are kept intact so
+/// re-enabling is a one-line change here.
 export const CHAINS_ENABLED: readonly ChainKey[] = [
+  'robinhood',
+] as const;
+
+/// Chains rendered in the header dropdown as disabled/grayed "coming soon" chips.
+/// UI-only — not a source of truth for anything else. Order == display order under
+/// the live chains.
+export const CHAINS_COMING_SOON: readonly ChainKey[] = [
   'base',
   'mainnet',
-  'robinhood',
   'base-sepolia',
 ] as const;
 
 /// Default chain used when the wallet isn't connected or is on an unsupported chain.
-/// Set to whichever chain currently has live contracts + real activity — otherwise
-/// pages that fire reads before the user picks a chain hit a null CONTRACTS entry and
-/// silently show nothing. Base mainnet is now the primary target.
-export const DEFAULT_CHAIN: ChainKey = 'base';
+/// Must be one of CHAINS_ENABLED so pages that fire reads before the user picks a chain
+/// hit a populated CONTRACTS entry.
+export const DEFAULT_CHAIN: ChainKey = 'robinhood';
 
 /// Chain display metadata for the header switcher + any per-chain badge in the UI.
 /// `iconPath` points at an SVG in `web/public/chains/`; swap those files to use official
@@ -311,6 +321,37 @@ export const CHAIN_LABELS: Record<ChainKey, string> = {
   'base-sepolia': 'Base Sepolia',
   robinhood: 'Robinhood',
   'robinhood-testnet': 'Robinhood Testnet',
+};
+
+/// URU pay-to-deploy wiring. `null` on chains where URU isn't paired with the
+/// native/WETH side yet, or where RouterV2 isn't deployed. The create page reads
+/// `URU_PAY[targetChain]` to decide whether to show the URU pay toggle.
+///   `token`  — URU ERC-20 address (used for approve + allowance reads)
+///   `poolId` — v4 pool ID for URU/WETH (used with StateView.getSlot0 to quote the
+///              URU amount equivalent to the current ETH fee)
+///   `uruIsCurrency1` — TRUE if URU is `currency1` in the pool (i.e. WETH sorts
+///              lower). Determines whether `sqrtPriceX96` encodes URU/WETH (true)
+///              or WETH/URU (false). Set at deploy time from the actual pool key.
+export interface UruPayConfig {
+  token: Address;
+  poolId: `0x${string}`;
+  uruIsCurrency1: boolean;
+}
+
+export const URU_PAY: Record<ChainKey, UruPayConfig | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: {
+    token: '0x9fbe210007ddd8389f98d0253018e65cc48b9d24',
+    // URU/WETH pool ID on Robinhood — from the post-migration deploy address book.
+    poolId: '0xd307e8754c65c451ca726c4549917b3f5765cce16a76f35a6d19aaf7bc230284',
+    // WETH `0x0Bd7...` sorts lower than URU `0x9fbe...` → WETH is currency0, URU
+    // is currency1 → sqrtPriceX96 encodes URU per WETH.
+    uruIsCurrency1: true,
+  },
+  'robinhood-testnet': null,
 };
 
 export const COMPILE_SERVICE_URL =

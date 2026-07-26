@@ -19,6 +19,16 @@ export const launches = onchainTable('launches', (t) => ({
   installedGovernance: t.boolean().notNull(),
   installedBondingCurve: t.boolean().notNull(),    // set from Router:CurveInstalled event
   curveAddress: t.hex(),                           // populated when a bonding curve is installed
+  /// "ETH" (default) or "URU" — set to "URU" by Router:LaunchedInURU handler for URU-paid
+  /// launches. Discover / analytics filter on this without touching on-chain state.
+  payToken: t.text().notNull().default('ETH'),
+  /// Amount of URU pulled from the launcher when payToken == 'URU'. Null for ETH launches.
+  uruPaid: t.bigint(),
+  /// True for launches that installed a whitelist via launchWithWhitelist /
+  /// launchWithURUAndWhitelist. Full WL config lives on the curves row (populated
+  /// via BondingCurve:WhitelistConfigured); this boolean is the fast filter for
+  /// discover-page "WL only" queries without a join.
+  hasWhitelist: t.boolean().notNull().default(false),
   blockNumber: t.bigint().notNull(),
   blockTimestamp: t.bigint().notNull(),
   txHash: t.hex().notNull(),
@@ -42,8 +52,53 @@ export const curves = onchainTable('curves', (t) => ({
   tradeCount: t.integer().notNull(),
   graduated: t.boolean().notNull(),
   graduatedAt: t.bigint(),                         // block timestamp when Graduated fired
+  /// Whitelist state — populated by BondingCurve:WhitelistConfigured on WL launches.
+  /// Non-WL curves keep the default values. `wlSold` + `wlHeldTotal` are running
+  /// tallies maintained by WlBought / WlClaimed handlers so the trade page can render
+  /// a fill % progress bar without an extra on-chain call.
+  hasWhitelist: t.boolean().notNull().default(false),
+  whitelistRoot: t.hex(),
+  reservedTokens: t.bigint().notNull().default(0n),
+  maxWlPerAddress: t.bigint().notNull().default(0n),
+  fallbackTs: t.bigint().notNull().default(0n),
+  sourceTokenAddress: t.hex(),
+  sourceChainId: t.integer().notNull().default(0),
+  declaredHolderCount: t.integer().notNull().default(0),
+  wlSold: t.bigint().notNull().default(0n),
+  wlHeldTotal: t.bigint().notNull().default(0n),
   createdAt: t.bigint().notNull(),
   updatedAt: t.bigint().notNull(),
+}));
+
+/// Per-buyer WL purchase — one row per `buyWithProof` call. Powers trade-page WL
+/// activity feed + per-buyer holding lookups pre-graduation.
+export const wlPurchases = onchainTable('wl_purchases', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  curveAddress: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  buyer: t.hex().notNull(),
+  ethIn: t.bigint().notNull(),
+  tokensOut: t.bigint().notNull(),
+  /// Running total of WL-held tokens for this buyer at this curve after the buy.
+  /// Denormalized so a query for "current WL holdings" only needs the latest row.
+  wlPurchasedAfter: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Per-buyer post-graduation WL claim — one row per `claimWl` call.
+export const wlClaims = onchainTable('wl_claims', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  curveAddress: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  buyer: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
 }));
 
 /// Per-trade row. Powers the chart candles + recent-trades feed on the trade page.

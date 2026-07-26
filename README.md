@@ -207,11 +207,14 @@ pnpm contracts:smoke                # ERC20+curve buy/sell, ERC721A launch, ERC1
 #     created at graduation. Runs against the fork of the target chain, zero on-chain cost.
 BASE_SEPOLIA_RPC_URL=$BASE_SEPOLIA_RPC_URL forge test --match-contract MultiHookGraduationForkTest
 
-# 7. deploy the flywheel (Base recommended — where URU + gemu live)
-export URU_TOKEN_ADDRESS=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac
-export GEMU_NFT_ADDRESS=0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A
+# 7. deploy the flywheel (Robinhood — where URU + gemu live post-migration)
+export URU_TOKEN_ADDRESS=0x9fbe210007dDd8389f98d0253018e65CC48b9D24
+export GEMU_NFT_ADDRESS=0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17
 export URU_THRESHOLD=100000000000000000000000   # 100,000e18
-CHAIN=base pnpm contracts:deploy:flywheel
+CHAIN=robinhood pnpm contracts:deploy:flywheel
+# Legacy Base addresses (pre-migration) — kept for reference:
+#   URU_TOKEN_ADDRESS=0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac
+#   GEMU_NFT_ADDRESS=0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A
 CHAIN=base pnpm contracts:verify:flywheel
 
 # 8. configure the flywheel: allowlist keeper + swap target + set splits

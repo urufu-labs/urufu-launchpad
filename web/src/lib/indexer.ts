@@ -125,6 +125,12 @@ export interface IndexerLaunch {
   installedGovernance: boolean;
   installedBondingCurve: boolean;
   curveAddress: Address | null;
+  /// "ETH" (default) or "URU" — set by RouterV2 LaunchedInURU handler.
+  payToken: 'ETH' | 'URU';
+  /// Amount of URU pulled from launcher when payToken == 'URU'. Null for ETH launches.
+  uruPaid: string | null;
+  /// True for launches that installed a whitelist. Full WL config lives on the curve row.
+  hasWhitelist: boolean;
   blockNumber: string;
   blockTimestamp: string;
   txHash: `0x${string}`;
@@ -145,6 +151,18 @@ export interface IndexerCurve {
   tradeCount: number;
   graduated: boolean;
   graduatedAt: string | null;
+  /// Whitelist state (populated by BondingCurve:WhitelistConfigured on WL launches).
+  /// `hasWhitelist == false` on non-WL curves; remaining fields carry defaults.
+  hasWhitelist: boolean;
+  whitelistRoot: `0x${string}` | null;
+  reservedTokens: string;
+  maxWlPerAddress: string;
+  fallbackTs: string;
+  sourceTokenAddress: Address | null;
+  sourceChainId: number;
+  declaredHolderCount: number;
+  wlSold: string;
+  wlHeldTotal: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -33,6 +33,9 @@ export const nameRegistryAbi = parseAbi([
 export const routerAbi = parseAbi([
   'event Launched(address indexed token, address indexed launchedBy, uint8 indexed base, bytes32 nameHash, bytes32 tickerHash, uint256 feePaid, bool installedHook, bool installedGovernance)',
   'event CurveInstalled(address indexed token, address indexed curve)',
+  /// RouterV2 additions (Robinhood-only). Paired 1:1 with Launched on the same token.
+  'event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid)',
+  'event LaunchedWithWhitelist(address indexed token, address indexed launchedBy, bytes32 whitelistRoot, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId)',
 ]);
 
 export const factoryAbi = parseAbi([
@@ -47,6 +50,11 @@ export const bondingCurveAbi = parseAbi([
   'event CurveInitialized(address indexed token, address indexed feeReceiver, uint256 curveSupply, uint256 virtualTokenReserve, uint256 virtualEthReserve, uint256 graduationTargetEth, uint16 tradeFeeBps)',
   'event Trade(address indexed trader, bool isBuy, uint256 ethAmount, uint256 tokenAmount, uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
   'event Graduated(uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
+  /// Whitelist additions (WL-aware CurveFactoryV2 launches only). Non-WL curves never
+  /// emit these, so unindexed pre-WL curves are unaffected.
+  'event WhitelistConfigured(bytes32 root, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId, uint32 declaredHolderCount)',
+  'event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter)',
+  'event WlClaimed(address indexed buyer, uint256 amount)',
 ]);
 
 export const erc20Abi = parseAbi([
@@ -284,7 +292,10 @@ const contracts = {
   Router: {
     abi: routerAbi,
     network: netFor('ROUTER'),
-    filter: { event: 'Launched' as const },
+    // Widened from just 'Launched' to include the RouterV2 event pair for URU-paid
+    // launches + WL-configured launches. Non-RouterV2 chains simply never emit these,
+    // so the extra topic0 subscriptions are cheap no-ops.
+    filter: { event: ['Launched', 'LaunchedInURU', 'LaunchedWithWhitelist'] as const },
     includeTransactionReceipts: true,
   },
   ERC20Factory: { abi: factoryAbi, network: netFor('ERC20_FACTORY') },

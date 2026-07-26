@@ -61,6 +61,12 @@ export interface MockLaunch {
   /// Newest v4 pool sqrtPriceX96 for graduated tokens. `mockMarketCapEth` prefers it
   /// over the drained curve reserves so a graduated token still shows a real mcap.
   poolLatestSqrtPriceX96?: bigint;
+  /// True when the launch installed a community whitelist — discover shows a badge
+  /// + supports a "WL only" filter. Populated by useLaunchFeed from the indexer's
+  /// launches.hasWhitelist column (RouterV2 LaunchedWithWhitelist event handler).
+  hasWhitelist?: boolean;
+  /// Pay-token variant: 'ETH' (default) or 'URU' for RouterV2 URU-paid launches.
+  payToken?: 'ETH' | 'URU';
 }
 
 /// Prefer indexer-supplied tradeCount, otherwise fall back to the length of the trades

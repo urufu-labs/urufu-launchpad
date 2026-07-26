@@ -155,5 +155,7 @@ async function indexerRowToLaunch(
     v4SwapCount: v4Summary?.count ?? 0,
     poolLatestSqrtPriceX96: v4Summary?.latestSqrtPriceX96 ?? 0n,
     kind: curve ? 'curve' : 'direct',
+    hasWhitelist: row.hasWhitelist,
+    payToken: row.payToken,
   };
 }
