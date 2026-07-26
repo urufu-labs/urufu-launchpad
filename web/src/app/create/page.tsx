@@ -118,6 +118,12 @@ export default function CreatePage() {
   // sidebar tile also greys out but that's easy to miss; the popup is loud.
   const [rejectStamp, setRejectStamp] = useState<{ modLabel: string; reason: string; key: number } | null>(null);
   const rejectClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Records the modules added by the LAST addModule call so the "combo not shipped"
+  // useEffect can roll them back if the resulting configHash has no registered impl.
+  // Without this, an incompatible module lands in the cart, the popup fires, the user
+  // dismisses it, and the offending selection silently persists — exactly the bug the
+  // popup was supposed to prevent.
+  const lastAddedRef = useRef<string[] | null>(null);
 
   // Switching mechanic (direct <-> bonding-curve) fundamentally changes which
   // modules are compatible: curve mode grays out requiresOwner + taxesTransfers.
@@ -279,6 +285,10 @@ export default function CreatePage() {
       }
     }
 
+    // Record what THIS call adds so the combo-not-shipped useEffect can pop it back
+    // if the resulting configHash isn't registered on-chain. Only the newly-added ids
+    // get rolled back — modules the user chose earlier stay put.
+    lastAddedRef.current = Array.from(toAdd);
     setSelectedModules((prev) => [...prev, ...toAdd].sort((a, b) => a.localeCompare(b)));
     setModuleParams((prev) => {
       const next = { ...prev };
@@ -667,7 +677,12 @@ export default function CreatePage() {
   useEffect(() => {
     if (implQuery.isLoading || implQuery.data === undefined) return;
     if (selectedModules.length === 0) return;
-    if (implRegistered) return;
+    if (implRegistered) {
+      // Registered combos are good — clear the "last added" marker so a later
+      // rejected combo doesn't retro-pop a since-approved selection.
+      lastAddedRef.current = null;
+      return;
+    }
     // What modules got combined into the unregistered hash? Show all of them
     // in the popup so the user knows exactly which selection tripped it.
     const label = selectedModules.map((id) => moduleById(id)?.label ?? id).join(' + ');
@@ -679,6 +694,19 @@ export default function CreatePage() {
     if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
     // No auto-clear — user dismisses via backdrop click.
     playSfx('stamp');
+    // Roll back JUST the modules added by the most recent addModule call. Modules
+    // the user picked earlier stay put — the cart returns to its last-known-good
+    // state. Popup stays visible so they know why.
+    const toRevert = lastAddedRef.current;
+    lastAddedRef.current = null;
+    if (toRevert && toRevert.length > 0) {
+      setSelectedModules((prev) => prev.filter((m) => !toRevert.includes(m)));
+      setModuleParams((prev) => {
+        const next = { ...prev };
+        for (const id of toRevert) delete next[id];
+        return next;
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [implRegistered, implQuery.isLoading, implQuery.data, selectedModules.join(',')]);
 
