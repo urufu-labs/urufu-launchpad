@@ -68,6 +68,10 @@ const v4router = readBook('v4router');
 const flywheel = readBook('flywheel');
 const routerv2 = readBook('routerv2');
 const curvefactoryv2 = readBook('curvefactoryv2');
+/// DeployV3Stack's book — trumps every earlier stack. Ships new BondingCurve
+/// impl + CurveFactoryV3 + MultiHookHostV3 + GraduatorV3 in one shot. Same
+/// override precedence as v2hook (whatever's newer wins).
+const v3stack = readBook('v3stack');
 
 // ---- Field lists mirror the interfaces in web/src/lib/config.ts. ------------
 
@@ -188,11 +192,16 @@ const coreWithOverrides = {
   ...(curvefactoryv2?.CurveFactory
     ? { CurveFactory: curvefactoryv2.CurveFactory, BondingCurveImpl: curvefactoryv2.BondingCurveImpl }
     : {}),
+  // V3 stack wins over V2 for both CurveFactory + BondingCurveImpl.
+  ...(v3stack?.CurveFactoryV3
+    ? { CurveFactory: v3stack.CurveFactoryV3, BondingCurveImpl: v3stack.BondingCurveImpl }
+    : {}),
 };
 if (patchMap('CONTRACTS', CONTRACT_FIELDS, coreWithOverrides)) {
   const suffix = [
     routerv2?.RouterV2 ? 'Router → RouterV2' : '',
-    curvefactoryv2?.CurveFactory ? 'CurveFactory → V2' : '',
+    v3stack?.CurveFactoryV3 ? 'CurveFactory → V3'
+      : curvefactoryv2?.CurveFactory ? 'CurveFactory → V2' : '',
   ].filter(Boolean).join(', ');
   console.log(`✓ wrote CONTRACTS.${chain}${suffix ? ` (${suffix})` : ''}`);
 }
@@ -203,22 +212,27 @@ if (routerv2) {
 if (hooks) {
   // Layer v2hook overrides on top when MigrateToV2Hook has been run — it deploys a
   // fresh MultiHookHost + Graduator, and its addresses become canonical.
-  const hooksWithOverride = v2hook?.MultiHookHostV2
-    ? { ...hooks, MultiHookHost: v2hook.MultiHookHostV2 }
-    : hooks;
+  const hooksWithOverride = v3stack?.MultiHookHostV3
+    ? { ...hooks, MultiHookHost: v3stack.MultiHookHostV3 }
+    : v2hook?.MultiHookHostV2
+      ? { ...hooks, MultiHookHost: v2hook.MultiHookHostV2 }
+      : hooks;
   if (patchMap('HOOKS', HOOK_FIELDS, hooksWithOverride)) {
-    const suffix = v2hook?.MultiHookHostV2 ? ' (MultiHookHost → V2)' : '';
+    const suffix = v3stack?.MultiHookHostV3
+      ? ' (MultiHookHost → V3)'
+      : v2hook?.MultiHookHostV2 ? ' (MultiHookHost → V2)' : '';
     console.log(`✓ wrote HOOKS.${chain}${suffix}`);
   }
 } else {
   console.log(`  [note] no hooks book at ${bookPath('hooks')} — HOOKS.${chain} left as-is`);
 }
-// GRADUATORS.<chain> — prefer v2hook.GraduatorV2 (new MigrateToV2Hook deploy) over the
-// standalone graduator book. Either one populates the same scalar.
-const graduatorAddr = v2hook?.GraduatorV2 ?? graduator?.Graduator;
+// GRADUATORS.<chain> — precedence: v3stack > v2hook > standalone graduator book.
+const graduatorAddr = v3stack?.GraduatorV3 ?? v2hook?.GraduatorV2 ?? graduator?.Graduator;
 if (graduatorAddr) {
   if (patchScalar('GRADUATORS', graduatorAddr)) {
-    const suffix = v2hook?.GraduatorV2 ? ' (Graduator → V2)' : '';
+    const suffix = v3stack?.GraduatorV3
+      ? ' (Graduator → V3)'
+      : v2hook?.GraduatorV2 ? ' (Graduator → V2)' : '';
     console.log(`✓ wrote GRADUATORS.${chain}${suffix}`);
   }
 } else {
@@ -257,8 +271,10 @@ console.log(`${prefix}_ERC721A_FACTORY_ADDRESS=${emit.ERC721AFactory}`);
 console.log(`${prefix}_ERC1155_FACTORY_ADDRESS=${emit.ERC1155Factory}`);
 console.log(`${prefix}_CURVE_FACTORY_ADDRESS=${emit.CurveFactory}`);
 if (hooks?.PoolManager) console.log(`${prefix}_POOL_MANAGER_ADDRESS=${hooks.PoolManager}`);
-if (v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost) {
-  console.log(`${prefix}_MULTI_HOOK_HOST_ADDRESS=${v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost}`);
+// MultiHookHost env — V3 wins over V2 wins over the original hooks book.
+const emitHookAddr = v3stack?.MultiHookHostV3 ?? v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost;
+if (emitHookAddr) {
+  console.log(`${prefix}_MULTI_HOOK_HOST_ADDRESS=${emitHookAddr}`);
 }
 if (v4router?.V4SwapRouter) console.log(`${prefix}_V4_SWAP_ROUTER_ADDRESS=${v4router.V4SwapRouter}`);
 // Flywheel + URU sink — required for indexer flywheel event subscriptions
