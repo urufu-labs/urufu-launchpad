@@ -26,12 +26,29 @@ const RPC_URLS: Record<number, string> = {
   4663: process.env.ROBINHOOD_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com',
 };
 
-/// Hard-cap the scan range so a legacy token with millions of blocks of history
-/// doesn't take down the process. Adjust upward when we add paging.
-const MAX_SCAN_BLOCKS = 1_500_000n;
+/// Blockscout v2 API base URLs, keyed by chainId. When set, `snapshotHolders`
+/// pulls the holder list from Blockscout instead of replaying Transfer events
+/// off the RPC. This is BOTH faster AND correct: event replay is bounded by
+/// `MAX_SCAN_BLOCKS` and misses holders whose only Transfers happened before
+/// the cutoff — on fast-block chains like RH that cutoff can hide the majority
+/// of a token's holder set (URU showed 27/334 via replay).
+const EXPLORER_APIS: Record<number, string> = {
+  4663: process.env.ROBINHOOD_BLOCKSCOUT_URL ?? 'https://robinhoodchain.blockscout.com/api/v2',
+};
+
+/// Hard-cap the RPC event-replay range (fallback path only). Bumped from 1.5M to
+/// something that covers most token lifetimes on chains where blockscout isn't
+/// available. On RH we hit blockscout first so this cap is effectively unused.
+const MAX_SCAN_BLOCKS = 25_000_000n;
 /// getLogs chunk size — RH's public RPC caps individual eth_getLogs calls in the
 /// low-tens-of-thousands. 10k is safe and still fast enough for the whole scan.
 const LOG_CHUNK_BLOCKS = 10_000n;
+/// Blockscout `holders` endpoint page size (default 50, max 100 as of 2026).
+const BLOCKSCOUT_PAGE_SIZE = 100;
+/// Safety-cap the number of holder-page fetches so a broken pagination loop
+/// can't stall the request forever. 100 pages × 100 holders = 10k holders max
+/// per snapshot — well above any realistic launch WL.
+const BLOCKSCOUT_MAX_PAGES = 100;
 
 /// Common ABI item — Transfer's signature is identical between ERC-20 and ERC-721;
 /// only ERC-721's third arg is indexed. viem's decoder handles both when we pass
@@ -83,16 +100,37 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const fromBlock = latest > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : 0n;
-  const isErc721 = await _detectIsErc721(client, req.tokenAddress);
-  const balances = await _replayBalances(client, req.tokenAddress, fromBlock, latest, isErc721);
   const minBal = req.minBalance ?? 1n;
 
-  // Filter + sort. Lowercase for canonical form — matches how leaves are computed.
-  const eligible: Address[] = [];
-  for (const [addr, bal] of balances) {
-    if (bal >= minBal) eligible.push(addr as Address);
+  // Prefer blockscout when available — it has the full holder set indexed and
+  // returns current balances directly, sidestepping the event-replay cutoff
+  // problem entirely (see `EXPLORER_APIS` note above).
+  let eligible: Address[] | null = null;
+  const explorerApi = EXPLORER_APIS[req.chainId];
+  if (explorerApi) {
+    try {
+      eligible = await _fetchHoldersViaBlockscout(explorerApi, req.tokenAddress, minBal);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`wl-snapshot: blockscout fetch failed for ${req.tokenAddress}, falling back to event replay`, err);
+    }
   }
+
+  // RPC event-replay fallback path — used when blockscout is not configured or
+  // returns an error. Bounded by MAX_SCAN_BLOCKS; may miss holders on very
+  // long-lived tokens (see cap note above).
+  if (!eligible) {
+    const fromBlock = latest > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : 0n;
+    const isErc721 = await _detectIsErc721(client, req.tokenAddress);
+    const balances = await _replayBalances(client, req.tokenAddress, fromBlock, latest, isErc721);
+    eligible = [];
+    for (const [addr, bal] of balances) {
+      if (bal >= minBal) eligible.push(addr as Address);
+    }
+  }
+
+  // Sort in canonical form — lowercased addresses ordered lexically match how
+  // leaves are computed for the Merkle root.
   eligible.sort();
 
   const root = _buildMerkleRoot(eligible);
@@ -216,6 +254,49 @@ async function _replayBalances(
     }
   }
   return balances;
+}
+
+/// Fetch the current holder set from Blockscout, paginated. Returns lowercased
+/// addresses whose reported balance (`value`) meets `minBalance`. Works for both
+/// ERC-20 (value = raw balance) and ERC-721 (value = NFT count) since blockscout's
+/// `holders` endpoint reports the same field for both token types.
+async function _fetchHoldersViaBlockscout(
+  apiBase: string,
+  token: Address,
+  minBalance: bigint,
+): Promise<Address[]> {
+  const eligible: Address[] = [];
+  let cursor: URLSearchParams | null = new URLSearchParams();
+  let pages = 0;
+  while (cursor && pages < BLOCKSCOUT_MAX_PAGES) {
+    const url = `${apiBase}/tokens/${token}/holders${cursor.toString() ? '?' + cursor.toString() : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) {
+      throw new Error(`blockscout ${res.status} ${res.statusText}: ${url}`);
+    }
+    const body = (await res.json()) as {
+      items?: Array<{ address?: { hash?: string }; value?: string }>;
+      next_page_params?: Record<string, string | number> | null;
+    };
+    for (const it of body.items ?? []) {
+      const addr = it.address?.hash?.toLowerCase();
+      const raw = it.value;
+      if (!addr || !raw) continue;
+      if (BigInt(raw) >= minBalance) eligible.push(addr as Address);
+    }
+    if (body.next_page_params) {
+      cursor = new URLSearchParams();
+      // Pass next_page_params through verbatim — blockscout is strict about
+      // unrecognized keys (returns 422). Do NOT nudge page size here.
+      for (const [k, v] of Object.entries(body.next_page_params)) {
+        cursor.set(k, String(v));
+      }
+    } else {
+      cursor = null;
+    }
+    pages += 1;
+  }
+  return eligible;
 }
 
 /// ERC-20 tokens implement `decimals()`; ERC-721 collections don't. Best-effort

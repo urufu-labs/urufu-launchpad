@@ -115,6 +115,11 @@ export const bondingCurveAbi = parseAbi([
   `function wlHeldTotal() view returns (uint256)`,
   `function buyWithProof(bytes32[] proof, uint256 minTokensOut) payable returns (uint256 tokensOut)`,
   `function claimWl() returns (uint256 amount)`,
+  /// Whitelist lifecycle events — emitted by WL-aware curves for
+  /// configuration, per-purchase, and hold-until-graduation claim.
+  `event WhitelistConfigured(bytes32 root, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId, uint32 declaredHolderCount)`,
+  `event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter)`,
+  `event WlClaimed(address indexed buyer, uint256 amount)`,
 ] as const);
 
 export const curveFactoryAbi = parseAbi([

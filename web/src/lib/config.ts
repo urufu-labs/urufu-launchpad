@@ -270,7 +270,7 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  robinhood: '0x426294dC9afFEF39033412611433f91f59438Ac9',
+  robinhood: '0xEb7De3C4471C2c970a7F55E481aF8e60609E8125',
   'robinhood-testnet': null,
 };
 
