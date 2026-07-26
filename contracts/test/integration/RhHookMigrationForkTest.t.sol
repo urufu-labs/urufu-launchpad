@@ -11,7 +11,10 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
-import {ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {TransientStateLibrary} from "v4-core/libraries/TransientStateLibrary.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {HookMiner} from "src/hooks/HookMiner.sol";
@@ -87,6 +90,10 @@ contract RhHookMigrationForkTest is Test {
     MultiHookHost internal hook;
     Graduator internal graduator;
     V4SwapRouter internal swapRouter;
+    /// Test-only helper that fires exactOutput swaps through PoolManager
+    /// directly. V4SwapRouter is exactInput-only; F-2 regression coverage
+    /// needs the other direction.
+    ExactOutSwapper internal exactOutSwapper;
 
     FeeSplitter internal splitter;
     NftRevenueVault internal nftVault;
@@ -112,6 +119,7 @@ contract RhHookMigrationForkTest is Test {
         // sig/behavior that will be live post-deploy. Constructor-only immutable
         // is `poolManager`; no admin surface to wire.
         swapRouter = new V4SwapRouter(manager);
+        exactOutSwapper = new ExactOutSwapper(manager);
 
         _deployFlywheel();
         _deployNewHookAndGraduator();
@@ -565,6 +573,79 @@ contract RhHookMigrationForkTest is Test {
     ///   * subsequent buyWithProof calls clamp tokensOut to 0 which now reverts
     ///     with ZeroAmount (Fix 4) instead of silently letting the buyer pay
     ///     ETH for nothing.
+    /// V4SwapRouter H-3 - swap tx with expired deadline reverts (was a MEV
+    /// stale-tx vector - signed txs could sit in mempool and execute at bad prices).
+    function test_FixV4Router_DeadlineExpired_Reverts() public {
+        (MigMockToken token,) = _launchAndGraduate();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(V4SwapRouter.V4SwapRouter__DeadlinePassed.selector, block.timestamp - 1));
+        swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, alice, block.timestamp - 1);
+    }
+
+    /// V4SwapRouter M-4 - zero-recipient reverts loudly instead of burning ETH.
+    function test_FixV4Router_ZeroRecipient_Reverts() public {
+        (MigMockToken token,) = _launchAndGraduate();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        vm.expectRevert(V4SwapRouter.V4SwapRouter__ZeroRecipient.selector);
+        swapRouter.swapExactETHForToken{value: 0.1 ether}(key, 0, address(0), block.timestamp + 1);
+    }
+
+    /// V4 fix F-2 - exact-output swaps now pay the platform + creator fees.
+    /// Prior MultiHookHost.afterSwap early-returned when `unspecDelta <= 0`,
+    /// which zeroed platform+creator+burn fees on every exact-output swap
+    /// (a trivial v4-periphery code path). This test proves the fee accrues.
+    function test_FixF2_ExactOutputSwap_PaysFees() public {
+        (MigMockToken token,) = _launchAndGraduate();
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(token)),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(hook))
+        });
+        Currency eth = Currency.wrap(address(0));
+
+        // Baseline: platform slot owed 0 ETH before any swap.
+        assertEq(hook.owed(eth, address(splitter)), 0);
+
+        // Fire an exact-OUTPUT sell (spec = positive ETH out) via a mini in-test
+        // helper. Unspecified side = token input; delta < 0. The V3 hook
+        // silently returned 0 here; V4 hook charges fee on |delta| in both
+        // directions.
+        vm.deal(alice, 10 ether);
+        vm.startPrank(alice);
+        swapRouter.swapExactETHForToken{value: 1 ether}(key, 0, alice, block.timestamp + 1);
+        uint256 tokenBal = token.balanceOf(alice);
+        token.approve(address(exactOutSwapper), tokenBal);
+        // Ask for 0.05 ETH out; the swapper pulls token input from alice.
+        exactOutSwapper.exactOutputEth(key, 0.05 ether, tokenBal, alice);
+        vm.stopPrank();
+
+        // Platform fee slot MUST have accrued on the input side (token
+        // currency). The pre-fix hook would leave this at 0 for exact-output.
+        assertGt(
+            hook.owed(key.currency1, address(splitter)),
+            0,
+            "F-2 broken: token-side platform fee not charged on exactOutput"
+        );
+    }
+
     function test_Fix4And5_WlDrainThenSubsequentBuys() public {
         MigMockToken token = new MigMockToken();
         BondingCurve curve = _cloneCurve();
@@ -704,4 +785,82 @@ contract MigUnlocker {
         );
         return "";
     }
+}
+
+/// Minimal exact-OUTPUT swapper - pulls tokens from `user`, sells exactly
+/// `amountOutEth` of ETH out. Used for F-2 regression coverage since
+/// V4SwapRouter only does exact-input. Currency0 must be native ETH.
+contract ExactOutSwapper {
+    using TransientStateLibrary for IPoolManager;
+
+    IPoolManager public immutable manager;
+
+    constructor(
+        IPoolManager _manager
+    ) {
+        manager = _manager;
+    }
+
+    struct Ctx {
+        PoolKey key;
+        uint256 amountOutEth;
+        uint256 maxTokenIn;
+        address user;
+    }
+
+    function exactOutputEth(
+        PoolKey calldata key,
+        uint256 amountOutEth,
+        uint256 maxTokenIn,
+        address user
+    ) external {
+        // Pull tokens up-front so the callback has them available to settle.
+        SafeTransferLib.safeTransferFrom(Currency.unwrap(key.currency1), user, address(this), maxTokenIn);
+        manager.unlock(abi.encode(Ctx(key, amountOutEth, maxTokenIn, user)));
+        // Refund any unused token input back to user.
+        uint256 leftover = IERC20Refund(Currency.unwrap(key.currency1)).balanceOf(address(this));
+        if (leftover > 0) SafeTransferLib.safeTransfer(Currency.unwrap(key.currency1), user, leftover);
+    }
+
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
+        require(msg.sender == address(manager), "not pm");
+        Ctx memory c = abi.decode(data, (Ctx));
+
+        // zeroForOne = false (selling token1 -> want currency0 ETH out).
+        // amountSpecified > 0 = exactOutput (we want +amountOutEth of currency0).
+        manager.swap(
+            c.key,
+            SwapParams({
+                zeroForOne: false,
+                amountSpecified: int256(c.amountOutEth),
+                sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+            }),
+            ""
+        );
+
+        int256 d0 = TransientStateLibrary.currencyDelta(manager, address(this), c.key.currency0);
+        int256 d1 = TransientStateLibrary.currencyDelta(manager, address(this), c.key.currency1);
+
+        // Owe tokens (d1 < 0).
+        if (d1 < 0) {
+            manager.sync(c.key.currency1);
+            SafeTransferLib.safeTransfer(Currency.unwrap(c.key.currency1), address(manager), uint256(-d1));
+            manager.settle();
+        }
+        // Receive ETH (d0 > 0).
+        if (d0 > 0) {
+            manager.take(c.key.currency0, c.user, uint256(d0));
+        }
+        return "";
+    }
+
+    receive() external payable {}
+}
+
+interface IERC20Refund {
+    function balanceOf(
+        address
+    ) external view returns (uint256);
 }
