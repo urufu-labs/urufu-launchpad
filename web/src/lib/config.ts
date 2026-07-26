@@ -194,7 +194,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   },
   robinhood: {
     NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
-    Router: '0x50200Eda4693f4b839d8c436D42568B5e92EADE3',
+    Router: '0x66c9cbC18Ee36462d4844BceC48558E0829a33a1',
     FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
     ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
     ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
@@ -217,8 +217,8 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
     ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0xFF0b02818B0d39Bd43019b2ceb2d952C29dD851c',
-    BondingCurveImpl: '0x1235cfafe5fDeA2d277Ddc5c58e9D79E2C98c223',
+    CurveFactory: '0x8661bb85eE8140659e172774DeCE6dE27166aCc2',
+    BondingCurveImpl: '0xDa2eA8d732094a62e65E95CfFC99A3f08f374Acf',
   },
   'robinhood-testnet': null,
 };
@@ -257,7 +257,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    MultiHookHost: '0x5295Ee9c86A40667A46C525A99931a29c354e2C4',
+    MultiHookHost: '0x9d7Ad0C4Bd98a73d7745eB6D61B8d268D041e2C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -310,7 +310,14 @@ export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
     RoyaltyRouterFactory: '0x8d6E1ef643cb287b7fd15108D0cB3933f0a9127A',
   },
   'base-sepolia': null,
-  robinhood: null,
+  robinhood: {
+    FeeSplitter: '0x60cAd7Ec3569Df6D319697022722Bcf147ccAFce',
+    LoyaltyOracle: '0xd13A1fb6d9c209B56044464269fce66Ed417AC2E',
+    NftRevenueVault: '0xe588F02ec0bA124A937235690454f16d637894a9',
+    UruBuybackVault: '0xADC6Fe6D045495496657Af5c40629f0DdB081554',
+    RoyaltyRouterImpl: '0xEeAe74EaCC0D4A83767F1770BfFac3835A84941d',
+    RoyaltyRouterFactory: '0x43a735b4f558d9e2C490cb5592784af82359C359',
+  },
   'robinhood-testnet': null,
 };
 

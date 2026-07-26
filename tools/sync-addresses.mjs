@@ -62,6 +62,7 @@ if (!core) {
   process.exit(1);
 }
 const hooks = readBook('hooks');
+const v2hook = readBook('v2hook'); // MigrateToV2Hook's book — overrides hooks.MultiHookHost + graduator
 const graduator = readBook('graduator');
 const v4router = readBook('v4router');
 const flywheel = readBook('flywheel');
@@ -200,16 +201,28 @@ if (routerv2) {
   console.log(`         Keeper will need this address to drain URU deposits.`);
 }
 if (hooks) {
-  if (patchMap('HOOKS', HOOK_FIELDS, hooks)) console.log(`✓ wrote HOOKS.${chain}`);
+  // Layer v2hook overrides on top when MigrateToV2Hook has been run — it deploys a
+  // fresh MultiHookHost + Graduator, and its addresses become canonical.
+  const hooksWithOverride = v2hook?.MultiHookHostV2
+    ? { ...hooks, MultiHookHost: v2hook.MultiHookHostV2 }
+    : hooks;
+  if (patchMap('HOOKS', HOOK_FIELDS, hooksWithOverride)) {
+    const suffix = v2hook?.MultiHookHostV2 ? ' (MultiHookHost → V2)' : '';
+    console.log(`✓ wrote HOOKS.${chain}${suffix}`);
+  }
 } else {
   console.log(`  [note] no hooks book at ${bookPath('hooks')} — HOOKS.${chain} left as-is`);
 }
-if (graduator) {
-  if (patchScalar('GRADUATORS', graduator.Graduator ?? ZERO)) {
-    console.log(`✓ wrote GRADUATORS.${chain}`);
+// GRADUATORS.<chain> — prefer v2hook.GraduatorV2 (new MigrateToV2Hook deploy) over the
+// standalone graduator book. Either one populates the same scalar.
+const graduatorAddr = v2hook?.GraduatorV2 ?? graduator?.Graduator;
+if (graduatorAddr) {
+  if (patchScalar('GRADUATORS', graduatorAddr)) {
+    const suffix = v2hook?.GraduatorV2 ? ' (Graduator → V2)' : '';
+    console.log(`✓ wrote GRADUATORS.${chain}${suffix}`);
   }
 } else {
-  console.log(`  [note] no graduator book at ${bookPath('graduator')} — GRADUATORS.${chain} left as-is`);
+  console.log(`  [note] no graduator or v2hook book — GRADUATORS.${chain} left as-is`);
 }
 if (v4router) {
   if (patchScalar('V4_ROUTERS', v4router.V4SwapRouter ?? ZERO)) {
@@ -228,10 +241,30 @@ writeFileSync(configPath, config);
 console.log(`✓ ${configPath}`);
 
 // ---- Emit env block for indexer + broadcast tooling ------------------------
+// Uses coreWithOverrides so the printed addresses reflect any layered updates
+// (RouterV2 → Router, CurveFactoryV2 → CurveFactory). Emit BOTH the legacy
+// NEXT_PUBLIC_* form AND the chain-prefixed form the indexer actually reads.
+const emit = coreWithOverrides;
+const prefix = chain.toUpperCase().replace(/-/g, '_');
+const startBlockKey = `PONDER_START_BLOCK_${prefix}`;
 console.log('\n---- paste into your .env ----------------------------------');
 console.log(`# ${chain} @ block ${core.deployedAtBlock}`);
-console.log(`NEXT_PUBLIC_NAME_REGISTRY_ADDRESS=${core.NameRegistry}`);
-console.log(`NEXT_PUBLIC_ROUTER_ADDRESS=${core.Router}`);
+console.log(`# --- Chain-prefixed (indexer + newer deploys read these) ---`);
+console.log(`${prefix}_NAME_REGISTRY_ADDRESS=${emit.NameRegistry}`);
+console.log(`${prefix}_ROUTER_ADDRESS=${emit.Router}`);
+console.log(`${prefix}_ERC20_FACTORY_ADDRESS=${emit.ERC20Factory}`);
+console.log(`${prefix}_ERC721A_FACTORY_ADDRESS=${emit.ERC721AFactory}`);
+console.log(`${prefix}_ERC1155_FACTORY_ADDRESS=${emit.ERC1155Factory}`);
+console.log(`${prefix}_CURVE_FACTORY_ADDRESS=${emit.CurveFactory}`);
+if (hooks?.PoolManager) console.log(`${prefix}_POOL_MANAGER_ADDRESS=${hooks.PoolManager}`);
+if (v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost) {
+  console.log(`${prefix}_MULTI_HOOK_HOST_ADDRESS=${v2hook?.MultiHookHostV2 ?? hooks?.MultiHookHost}`);
+}
+if (v4router?.V4SwapRouter) console.log(`${prefix}_V4_SWAP_ROUTER_ADDRESS=${v4router.V4SwapRouter}`);
+console.log(`${startBlockKey}=${core.deployedAtBlock}`);
+console.log(`# --- Legacy unprefixed fallback (only used when INDEXER_CHAIN=${chain}) ---`);
+console.log(`NEXT_PUBLIC_NAME_REGISTRY_ADDRESS=${emit.NameRegistry}`);
+console.log(`NEXT_PUBLIC_ROUTER_ADDRESS=${emit.Router}`);
 console.log(`NEXT_PUBLIC_ERC20_FACTORY_ADDRESS=${core.ERC20Factory}`);
 console.log(`NEXT_PUBLIC_ERC721A_FACTORY_ADDRESS=${core.ERC721AFactory}`);
 console.log(`NEXT_PUBLIC_ERC1155_FACTORY_ADDRESS=${core.ERC1155Factory}`);
