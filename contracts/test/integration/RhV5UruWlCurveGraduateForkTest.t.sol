@@ -558,5 +558,22 @@ contract RhV5UruWlCurveGraduateForkTest is Test {
             vm.prank(own);
             IFactoryOwned(ERC20_FACTORY).setRouter(ROUTER_V2);
         }
+        // NameRegistry.router was rotated to V6 by broadcast. Registry gates
+        // name reservation on msg.sender==router, so V5 launches revert
+        // NotRouter without this restore. Deployed NameRegistry has the
+        // pre-timelock unrestricted setRouter (verified via bytecode grep),
+        // so a plain setRouter call succeeds even though router != 0.
+        (bool okN, bytes memory retN) =
+            address(0x60b797f18292d941E72B2b59916C0afC1A81118C).staticcall(abi.encodeWithSignature("router()"));
+        if (okN && retN.length == 32 && abi.decode(retN, (address)) != ROUTER_V2) {
+            (bool okOwn, bytes memory retOwn) =
+                address(0x60b797f18292d941E72B2b59916C0afC1A81118C).staticcall(abi.encodeWithSignature("owner()"));
+            require(okOwn && retOwn.length == 32, "NameRegistry owner read failed");
+            address own = abi.decode(retOwn, (address));
+            vm.prank(own);
+            (bool okSet,) = address(0x60b797f18292d941E72B2b59916C0afC1A81118C)
+                .call(abi.encodeWithSignature("setRouter(address)", ROUTER_V2));
+            require(okSet, "fork-restore NameRegistry.router to V5 failed");
+        }
     }
 }
