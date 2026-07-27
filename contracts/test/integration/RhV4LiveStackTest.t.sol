@@ -51,7 +51,7 @@ contract RhV4LiveStackTest is Test {
         } catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
         try vm.createSelectFork(rpc) {}
-            catch {
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);

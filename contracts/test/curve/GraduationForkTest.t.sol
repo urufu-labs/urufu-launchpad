@@ -169,7 +169,10 @@ contract GraduationForkTest is Test {
 contract MockCurveRegistry {
     mapping(address => address) private _curves;
 
-    function setCurve(address token, address curve) external {
+    function setCurve(
+        address token,
+        address curve
+    ) external {
         _curves[token] = curve;
     }
 

@@ -18,7 +18,9 @@ import {BaseType} from "src/types/VMTypes.sol";
 interface IOldRouterReads {
     function registry() external view returns (address);
     function feeReceiver() external view returns (address);
-    function fees(BaseType b) external view returns (uint256);
+    function fees(
+        BaseType b
+    ) external view returns (uint256);
     function moduleAddOnFee() external view returns (uint256);
     function hookAddOnFee() external view returns (uint256);
     function governanceAddOnFee() external view returns (uint256);
@@ -27,25 +29,39 @@ interface IOldRouterReads {
     function minUruFee() external view returns (uint256);
     function loyaltyOracle() external view returns (address);
     function curveFactory() external view returns (address);
-    function factories(BaseType b) external view returns (address);
+    function factories(
+        BaseType b
+    ) external view returns (address);
 }
 
 interface IOldRouterAdmin {
-    function setPaused(bool p) external;
+    function setPaused(
+        bool p
+    ) external;
     function owner() external view returns (address);
 }
 
 interface ICurveFactoryAdmin {
-    function setGraduator(address graduator_) external;
-    function setTrustedRouter(address router_, bool trusted_) external;
+    function setGraduator(
+        address graduator_
+    ) external;
+    function setTrustedRouter(
+        address router_,
+        bool trusted_
+    ) external;
 }
 
 interface IRoyaltyRouterFactoryAdmin {
-    function setTrustedDeployer(address deployer_, bool trusted_) external;
+    function setTrustedDeployer(
+        address deployer_,
+        bool trusted_
+    ) external;
 }
 
 interface INameRegistryAdmin {
-    function setRouter(address newRouter) external;
+    function setRouter(
+        address newRouter
+    ) external;
 }
 
 /// @title  RedeployRouterAndGrad
@@ -125,17 +141,15 @@ contract RedeployRouterAndGrad is Script {
         //    (platform=FeeSplitter so post-grad swap fees route into the flywheel)
         // ============================================================
         Deployed memory out;
-        out.multiHookHost =
-            _deployMultiHookHost(poolManager, feeSplitter, defaultCreator, platformBps, creatorBps);
+        out.multiHookHost = _deployMultiHookHost(poolManager, feeSplitter, defaultCreator, platformBps, creatorBps);
         console2.log("MultiHookHost deployed:", out.multiHookHost);
 
         // ============================================================
         // 2. Deploy Graduator wired to (1) + existing CurveFactory
         // ============================================================
         vm.startBroadcast();
-        out.graduator = address(
-            new Graduator(IPoolManager(poolManager), IHooks(out.multiHookHost), 3000, 60, curveFactory)
-        );
+        out.graduator =
+            address(new Graduator(IPoolManager(poolManager), IHooks(out.multiHookHost), 3000, 60, curveFactory));
         vm.stopBroadcast();
         console2.log("Graduator deployed:    ", out.graduator);
 
@@ -211,9 +225,8 @@ contract RedeployRouterAndGrad is Script {
         uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
             | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
-        bytes memory args = abi.encode(
-            IPoolManager(poolManager), platform, defaultCreator, platformBps, creatorBps, msg.sender
-        );
+        bytes memory args =
+            abi.encode(IPoolManager(poolManager), platform, defaultCreator, platformBps, creatorBps, msg.sender);
         // Scan salts, skipping any address that already has code — a redeploy with
         // identical ctor args (same PoolManager / FeeSplitter / bps / deployer) would
         // otherwise land on the currently-live hook. Bump the start salt until we find
@@ -222,8 +235,7 @@ contract RedeployRouterAndGrad is Script {
         address predicted;
         uint256 salt;
         for (uint256 i = 0; i < 20; ++i) {
-            (salt, predicted) =
-                HookMiner.findFrom(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000, startSalt);
+            (salt, predicted) = HookMiner.findFrom(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000, startSalt);
             if (predicted.code.length == 0) break;
             startSalt = salt + 1;
             console2.log("  [skip] salt collides with live contract, advancing", startSalt);
@@ -266,7 +278,10 @@ contract RedeployRouterAndGrad is Script {
         console2.log("  [NOTE] FoT curveIncompatibleConfigHash entries are NOT copied - replay via cast");
     }
 
-    function _tryNameRegistrySetRouter(address nameRegistry, address newRouter) internal {
+    function _tryNameRegistrySetRouter(
+        address nameRegistry,
+        address newRouter
+    ) internal {
         vm.startBroadcast();
         try INameRegistryAdmin(nameRegistry).setRouter(newRouter) {
             console2.log("  [ok] NameRegistry.setRouter(newRouter)");
@@ -276,7 +291,11 @@ contract RedeployRouterAndGrad is Script {
         vm.stopBroadcast();
     }
 
-    function _tryRoyaltyRouterFactoryRotate(address rrf, address newRouter, address oldRouter) internal {
+    function _tryRoyaltyRouterFactoryRotate(
+        address rrf,
+        address newRouter,
+        address oldRouter
+    ) internal {
         vm.startBroadcast();
         try IRoyaltyRouterFactoryAdmin(rrf).setTrustedDeployer(newRouter, true) {
             console2.log("  [ok] RoyaltyRouterFactory.setTrustedDeployer(newRouter, true)");
@@ -291,7 +310,9 @@ contract RedeployRouterAndGrad is Script {
         vm.stopBroadcast();
     }
 
-    function _pauseOldRouter(address oldRouterAddr) internal {
+    function _pauseOldRouter(
+        address oldRouterAddr
+    ) internal {
         vm.startBroadcast();
         try IOldRouterAdmin(oldRouterAddr).setPaused(true) {
             console2.log("  [ok] oldRouter.setPaused(true)");
@@ -302,7 +323,11 @@ contract RedeployRouterAndGrad is Script {
     }
 
     // ---------------------------------------------------------------- Summary
-    function _logSummary(Deployed memory out, address oldRouter, address poolManager) internal view {
+    function _logSummary(
+        Deployed memory out,
+        address oldRouter,
+        address poolManager
+    ) internal view {
         console2.log("=========================================================");
         console2.log("V5 mini-redeploy complete");
         console2.log("=========================================================");

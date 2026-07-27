@@ -435,11 +435,16 @@ contract HookAwareSwapper {
 contract MHMockCurveRegistry {
     mapping(address => address) private _curves;
 
-    function setCurve(address token, address curve) external {
+    function setCurve(
+        address token,
+        address curve
+    ) external {
         _curves[token] = curve;
     }
 
-    function curveFor(address token) external view returns (address) {
+    function curveFor(
+        address token
+    ) external view returns (address) {
         return _curves[token];
     }
 }
