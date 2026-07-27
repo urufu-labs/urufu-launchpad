@@ -13,6 +13,8 @@ type Section = { id: string; label: string; jp: string };
 const SECTIONS: Section[] = [
   { id: 'what', label: 'what is this', jp: '説明' },
   { id: 'launch', label: 'how to launch', jp: '発行' },
+  { id: 'whitelist', label: 'whitelist launches', jp: '関係者' },
+  { id: 'uru-pay', label: 'paying in URU', jp: 'URU支払' },
   { id: 'trade', label: 'trading + graduation', jp: '取引' },
   { id: 'creator', label: 'creator revenue', jp: '報酬' },
   { id: 'fees', label: 'fees + discounts', jp: '料金' },
@@ -131,6 +133,94 @@ export default function DocsPage() {
             page + chart is live immediately.
           </li>
         </ol>
+      </Section>
+
+      {/* ================================================================
+          WHITELIST LAUNCHES
+          ================================================================ */}
+      <Section id="whitelist" title="whitelist launches" jp="関係者">
+        <p>
+          if u want ur biggest supporters to buy first — a private list before the rest of
+          the world sees the token — u can attach a <b>whitelist</b> at launch. only wallets
+          on the list can grab tokens during the private window; everyone else has to wait.
+        </p>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it works</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
+            <li>
+              <b>u upload a list of wallets</b> when u launch (paste or CSV). we hash the
+              whole list into a single fingerprint that lives on-chain — the list stays
+              private off-chain.
+            </li>
+            <li>
+              <b>u pick a reserved slice</b> — a % of the curve supply that only whitelisted
+              wallets can buy during the window.
+            </li>
+            <li>
+              <b>u pick a per-wallet cap</b> — biggest amount any one WL wallet can grab.
+              stops one whale from draining the whole reserved slice.
+            </li>
+            <li>
+              <b>1h fallback window</b> — after 1 hour anyone can buy, WL or not. keeps a
+              stuck launch from being stuck forever if the WL doesn&apos;t drain the slice.
+            </li>
+            <li>
+              WL buyers <b>hold their tokens on the curve</b> until graduation — no dump-
+              on-launch. after graduation they claim via a single tx.
+            </li>
+          </ul>
+        </div>
+        <Callout tone="mint" label="who this is for">
+          projects with a real community + an allowlist. if u don&apos;t have one, skip WL
+          and pick a plain curve — the sniper gate + antibot module handle the general case.
+        </Callout>
+      </Section>
+
+      {/* ================================================================
+          PAYING IN URU
+          ================================================================ */}
+      <Section id="uru-pay" title="paying in URU" jp="URU支払">
+        <p>
+          the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>
+          or <b>urufu gemu NFT</b>, u can pay the fee in URU instead — and it comes with a
+          discount. this is the loyalty flywheel: holders launch cheaper, and the URU they
+          pay goes right back into the buyback vault that supports the URU price.
+        </p>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
+            <li><b>hold URU (any amount above threshold):</b> 40% off launch fee</li>
+            <li><b>hold urufu gemu NFT:</b> 20% off launch fee</li>
+            <li><b>hold both:</b> 50% off (capped — not additive)</li>
+            <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
+          </ul>
+        </div>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how the URU flows</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
+            <li>
+              when u pick <b>pay in URU</b>, the frontend quotes the ETH-equivalent price
+              and shows the URU amount you&apos;ll be charged (loyalty discount already applied).
+            </li>
+            <li>
+              the URU goes straight into the <b>deposit sink</b> — a smart contract that
+              batches URU deposits and periodically swaps them back to ETH.
+            </li>
+            <li>
+              that ETH feeds into the fee splitter alongside every other launch fee,
+              routing to URU buyback / NFT rewards / treasury per the 40/35/25 split.
+            </li>
+            <li>
+              <b>minimum floor:</b> there&apos;s an on-chain minimum URU amount so a
+              hand-crafted tx can&apos;t undercut the frontend&apos;s honest quote.
+            </li>
+          </ul>
+        </div>
+        <Callout tone="pink" label="not urufu gemu nft only">
+          the discount + pay-in-URU path is separate from URU-holder-only launches (which
+          don&apos;t exist as a hard gate) — anyone can launch, holders just get cheaper +
+          route more value back into the ecosystem.
+        </Callout>
       </Section>
 
       {/* ================================================================

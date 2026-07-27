@@ -114,6 +114,11 @@
   --font-display: var(--font-display), "Yusei Magic", cursive;
   --font-round: var(--font-round), "Klee One", cursive;
   --font-pixel: var(--font-pixel), "Pixelify Sans", monospace;
+  /* Numeric-first monospaced. Loaded in layout.tsx via next/font. Used anywhere
+     digits need to read fast without misreading (market caps, prices, holder
+     counts). JetBrains Mono has clear 5/S + 2/Z + slashed 0. Ships with
+     tabular figures by default so columns of numbers align vertically. */
+  --font-mono: var(--font-mono), "JetBrains Mono", "SF Mono", Consolas, monospace;
 }
 
 /* Kill mobile horizontal scroll — a single wide grid, chart, or table can otherwise blow
@@ -125,9 +130,15 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Body — Georgia 13px per skill priority #1. Warm cream base with paper dot tile
-   + subtle page-scale color washes. Kept intentionally low-opacity so the base
-   reads as a clean warm surface, not a blobby tie-dye. */
+/* Body — Georgia 15px. Bumped from 13px for readability: at 13px Georgia's
+   x-height is too small for text-dense sections (create-page cart, docs, trade
+   panel), things read as "bunched". 15px is the smallest size where Georgia's
+   descenders + counters render clearly on high-DPI. Everything else in the
+   system that hard-coded a smaller size (10px pixel labels, etc.) also gets
+   bumped a step below in the utility classes.
+   Warm cream base with paper dot tile + subtle page-scale color washes. Kept
+   intentionally low-opacity so the base reads as a clean warm surface, not a
+   blobby tie-dye. */
 body {
   background: var(--paper-base);
   background-image:
@@ -140,8 +151,23 @@ body {
   background-size: 24px 24px, auto, auto, auto;
   color: var(--anchor);
   font-family: var(--font-body), Georgia, "Times New Roman", serif;
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.55;
   min-height: 100vh;
+}
+
+/* Numbers utility — apply to any span/div that contains fast-read digits
+   (prices, market caps, counts, addresses). Uses JetBrains Mono with tabular
+   figures + slashed zero + lining figures so columns align and 5/S, 2/Z, 0/O
+   stay visually distinct. Also nudges size up for legibility since numeric
+   content is what the user actually looks at.
+     <span className="uru-num">1,234,567</span>
+     <span className="uru-num">0.00042</span> */
+.uru-num {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums lining-nums slashed-zero;
+  font-feature-settings: "zero" 1, "tnum" 1, "lnum" 1;
+  letter-spacing: 0;
 }
 
 /* Dark mode — same shape as light, low-opacity color washes so the plum base doesn't
@@ -310,7 +336,7 @@ body {
   background: var(--yolk);
   color: var(--anchor);
   font-family: var(--font-pixel), monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -340,7 +366,7 @@ body {
 }
 .uru-eyebrow {
   font-family: var(--font-pixel), monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--anchor);
   letter-spacing: 0.12em;
@@ -467,7 +493,7 @@ body {
   gap: 32px;
   padding: 4px 0;
   font-family: var(--font-pixel), monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--anchor);
   white-space: nowrap;
   animation: uru-marquee 15s linear infinite;
@@ -563,7 +589,7 @@ body {
   border: 1.5px solid var(--anchor);
   border-radius: 999px;
   font-family: var(--font-pixel), monospace;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -605,7 +631,7 @@ body {
   gap: 24px;
   padding: 0 20px;
   font-family: var(--font-pixel), monospace;
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
   animation: uru-marquee 18s linear infinite;
 }

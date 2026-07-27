@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Yusei_Magic, Klee_One, Pixelify_Sans, DotGothic16 } from 'next/font/google';
+import { Yusei_Magic, Klee_One, Pixelify_Sans, DotGothic16, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
 import './globals.css';
 
@@ -36,6 +36,16 @@ const pixel = Pixelify_Sans({
 const dot = DotGothic16({
   variable: '--font-jp',
   weight: '400',
+  subsets: ['latin'],
+});
+
+// Monospaced numeric font with tabular figures + slashed zero. Pixel font's
+// 5/S and 2/Z were confusable at small sizes; JetBrains Mono has clearer
+// digit shapes for market caps, prices, holder counts, everywhere numbers
+// need to be read fast without misreading.
+const mono = JetBrains_Mono({
+  variable: '--font-mono',
+  weight: ['400', '500', '600'],
   subsets: ['latin'],
 });
 
@@ -93,7 +103,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${yusei.variable} ${klee.variable} ${pixel.variable} ${dot.variable} h-full`}
+      className={`${yusei.variable} ${klee.variable} ${pixel.variable} ${dot.variable} ${mono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>

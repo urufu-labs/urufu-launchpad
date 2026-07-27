@@ -109,7 +109,7 @@ Constructor: `(IPoolManager, address platform, address defaultCreator, uint16 pl
 |---             |---       |---                                           |---                                            |---       |
 | Base           | 8453     | `0xb6b8e00450Ca203b96498E2577CCEEf92029e2c4` | `0x498581fF718922c3f8e6A244956aF099B2652b2b` | BaseScan ✅ |
 | Ethereum       | 1        | `0x629b2cD1641958B677A0106087CcBB89966262C4` | `0x000000000004444c5dc75cB358380D2e3dE08A90` | Etherscan ✅ |
-| Robinhood      | 4663     | `0x5295Ee9c86A40667A46C525A99931a29c354e2C4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
+| Robinhood      | 4663     | `0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` | Blockscout ✅ |
 | Base Sepolia   | 84532    | `0xe7462359E59E7CF6e5c78B7D3b01a685D468A2c4` | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | BaseScan ✅ |
 
 All hooks are byte-identical — same source, same compiler, same optimizer
