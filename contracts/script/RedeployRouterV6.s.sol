@@ -9,13 +9,6 @@ import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {BaseType} from "src/types/VMTypes.sol";
 
-// AntiBot template imports intentionally omitted — the on-chain ERC20Factory lacks
-// `updateImpl`, so rotating the AntiBot impl bytecode requires either factory
-// redeploy (out of scope) or registering fresh @v2-suffixed configHashes
-// (a separate migration). This script only ships the Router-side portion of
-// the V6 fix; the AntiBot impl bytecode change stays in source, dormant until
-// the version-suffix migration.
-
 interface ILiveRouterReads {
     function registry() external view returns (address);
     function feeReceiver() external view returns (address);
@@ -33,27 +26,25 @@ interface ILiveRouterReads {
     function factories(
         BaseType b
     ) external view returns (address);
-    function curveIncompatibleConfigHash(
-        bytes32
-    ) external view returns (bool);
+    function paused() external view returns (bool);
+    function owner() external view returns (address);
 }
 
 interface ILiveRouterAdmin {
     function setPaused(
         bool p
     ) external;
-    function owner() external view returns (address);
+    function paused() external view returns (bool);
 }
 
 interface ICurveFactoryAdmin {
-    function setGraduator(
-        address
-    ) external;
     function setTrustedRouter(
         address router_,
         bool trusted_
     ) external;
-    function graduator() external view returns (address);
+    function trustedRouters(
+        address
+    ) external view returns (bool);
 }
 
 interface IRoyaltyRouterFactoryAdmin {
@@ -61,105 +52,85 @@ interface IRoyaltyRouterFactoryAdmin {
         address deployer_,
         bool trusted_
     ) external;
+    function trustedDeployer(
+        address
+    ) external view returns (bool);
 }
 
 interface INameRegistryAdmin {
+    function router() external view returns (address);
     function setRouter(
         address newRouter
     ) external;
 }
 
 interface IBaseFactoryAdmin {
-    /// Every base factory's `deploy()` has `onlyRouter` — post-Router-redeploy
-    /// this needs updating or launches through the new Router revert.
     function setRouter(
         address newRouter
     ) external;
     function router() external view returns (address);
+    function owner() external view returns (address);
 }
 
 /// @title  RedeployRouterV6
-/// @notice V6 mini-redeploy — Router-only. Ships the RouterV2 half of the
-///         AntiBot/AntiWhale + curve integration fix. The template half
-///         (AntiBot gate check bypass on from-allowlisted) needs new impl
-///         bytecode; the on-chain ERC20Factory lacks `updateImpl` (only
-///         one-shot `registerImpl`), so activating the impl fix requires
-///         either a factory redeploy (out of scope) or registering fresh
-///         version-suffixed configHashes (frontend module-registry bump —
-///         follow-up migration). This script does NOT include the impl work.
+/// @notice V6 Router single-phase redeploy. Verified against deployed bytecode,
+///         not source: the LIVE NameRegistry (checked via cast keccak against
+///         its deployed selectors) is the ORIGINAL unrestricted-setRouter
+///         version, NOT the current-source propose/activate timelocked version.
+///         Rotation is one call, no 48h wait.
 ///
-///         What ships here:
-///           - New RouterV2 with `_grantCurveModuleAllowances(token, curve)`
-///             called from every launch entrypoint (parent Router.launch +
-///             launchWithURU + launchWithWhitelist + launchWithURUAndWhitelist).
-///             Allowlists the curve, the Graduator (from-side of the graduation
-///             transferFrom), and the PoolManager (to-side of the graduation
-///             liquidity transfer). Fixes AntiWhale + curve on its own (the
-///             AntiWhale module already respects `_awExcluded[from]`). Adds
-///             defense-in-depth for AntiBot + curve — full activation waits
-///             on the impl migration.
+///         Broadcast order matters:
+///           1. Pre-flight asserts on live state.
+///           2. Deploy V6 Router.
+///           3. Mirror V5 state onto V6.
+///           4. Pause V5 FIRST — closes the mempool window on V5 with the
+///              clearest possible revert reason (Router__Paused) before any
+///              rotation makes V5 launches revert with cryptic factory errors.
+///           5. Rotate NameRegistry.setRouter(V6). Registry gates name reservation.
+///           6. Rotate CurveFactory trust (V6=true, V5=false).
+///           7. Rotate RoyaltyRouterFactory trust (V6=true, V5=false).
+///           8. Rotate each base factory's router (V6).
+///           9. Replay every FoT-inclusive configHash blacklist entry on V6.
 ///
-///         What this rewires:
-///           - `curveFactory.setTrustedRouter(newV6, true)` + `(oldV5, false)`.
-///           - `NameRegistry.setRouter(newV6)`.
-///           - `RoyaltyRouterFactory.setTrustedDeployer(newV6, true)` + `(oldV5, false)`.
-///           - `newV6.setFactory(ERC20/721A/1155)` + `setCurveFactory` +
-///             `setLoyaltyOracle` + `setMinUruFee` (mirrored from V5).
-///           - `ERC20Factory.setRouter(newV6)` + `ERC721A/1155.setRouter(newV6)`.
-///           - Replays the 3 FoT-inclusive configHash blacklist entries
-///             (solo FoT + AntiBot,FoT + FoT,Permit) on the fresh Router.
-///           - `oldV5Router.setPaused(true)`.
-///
-///         What stays unchanged:
-///           - MultiHookHost, Graduator, CurveFactory, BondingCurveImpl,
-///             FeeSplitter, UruDepositSink, UruBuybackVault, NftRevenueVault,
-///             V4SwapRouter, RoyaltyRouterFactory, RoyaltyRouterImpl,
-///             LoyaltyOracle, PoolManager, NameRegistry, all factories, all
-///             module impls.
+///         Every rotation is HARD-ASSERTED (require, not try/catch+warn).
+///         A single failed rotation aborts the whole broadcast so no silent
+///         partial-migration ships.
 ///
 /// Env vars (required):
 ///   V5_ROUTER_V2                current live RouterV2 (0x5EFA...)
 ///   CURVE_FACTORY               live CurveFactory
 ///   NAME_REGISTRY               live NameRegistry
 ///   ROYALTY_ROUTER_FACTORY      live RoyaltyRouterFactory
-///
-/// Post-deploy MANUAL steps:
-///   1. Verify V6 Router + 5 fresh impl contracts on Blockscout.
-///   2. Bump ROBINHOOD_ROUTER_ADDRESS in .env + Railway to V6.
-///   3. Rebuild frontend with V6 Router in web/src/lib/config.ts.
-///   4. Restart Ponder indexer (picks up new Router address from env).
 contract RedeployRouterV6 is Script {
-    // Hashes the V5 Router already blacklists. Kept as constants so the redeploy
-    // can replay them on the fresh V6 Router without loading logs from chain.
+    // Exhaustive on-chain sweep of ERC20Factory.implFor confirmed only these
+    // three FoT-inclusive configHashes are registered on the live factory —
+    // nothing else can be launched with a curve+FoT combination.
     bytes32 internal constant HASH_FOT_SOLO = keccak256(abi.encode("ERC20", "FeeOnTransfer"));
     bytes32 internal constant HASH_FOT_ANTIBOT = keccak256(abi.encode("ERC20", "AntiBot,FeeOnTransfer"));
     bytes32 internal constant HASH_FOT_PERMIT = keccak256(abi.encode("ERC20", "FeeOnTransfer,Permit"));
 
-    // AntiBot configHash constants intentionally omitted — no impl rotation this
-    // pass (see the comment above imports).
-
     function run() external {
         address oldRouterAddr = vm.envAddress("V5_ROUTER_V2");
-        address curveFactory = vm.envAddress("CURVE_FACTORY");
-        address nameRegistry = vm.envAddress("NAME_REGISTRY");
-        address royaltyRouterFactory = vm.envAddress("ROYALTY_ROUTER_FACTORY");
+        address curveFactoryAddr = vm.envAddress("CURVE_FACTORY");
+        address nameRegistryAddr = vm.envAddress("NAME_REGISTRY");
+        address royaltyRouterFactoryAddr = vm.envAddress("ROYALTY_ROUTER_FACTORY");
 
         ILiveRouterReads oldReads = ILiveRouterReads(oldRouterAddr);
 
         // ============================================================
-        // 1. AntiBot impls INTENTIONALLY not rotated. The deployed ERC20Factory
-        //    only exposes one-shot `registerImpl` and lacks `updateImpl`, so the
-        //    only way to install fresh AntiBot bytecode against the existing
-        //    configHashes is to redeploy the factory (out of scope) OR register
-        //    new impls under `@version`-suffixed hashes (frontend module-registry
-        //    bump — separate migration when we decide to relax the frontend's
-        //    AntiBot+curve gate). Today the frontend blocks that combo entirely,
-        //    so no direct user is exposed to the impl-level bug. Ship this V6
-        //    Router redeploy first; the AntiBot impl migration can follow.
+        // Pre-flight — every assumption we rely on, verified upfront.
         // ============================================================
+        require(oldRouterAddr.code.length > 0, "V5 Router has no code");
+        require(oldReads.owner() == msg.sender, "V5 Router not owned by broadcaster");
+        require(!oldReads.paused(), "V5 already paused - is this a re-run?");
+        require(
+            INameRegistryAdmin(nameRegistryAddr).router() == oldRouterAddr,
+            "NameRegistry.router != V5 - state drift, aborting"
+        );
+        console2.log("Pre-flight OK. Deploying V6...");
 
         // ============================================================
-        // 2. Deploy V6 RouterV2 mirroring V5's ctor args.
+        // 1. Deploy V6 RouterV2.
         // ============================================================
         vm.startBroadcast();
         address newRouter = address(
@@ -178,64 +149,131 @@ contract RedeployRouterV6 is Script {
             )
         );
         vm.stopBroadcast();
-        console2.log("V6 RouterV2 deployed:     ", newRouter);
+        require(newRouter.code.length > 0, "V6 Router deploy produced empty code");
+        console2.log("V6 Router deployed:", newRouter);
 
         // ============================================================
-        // 3. Wire the fresh Router's post-construction state from V5 live state.
+        // 2. Mirror V5's post-construction state onto V6.
         // ============================================================
-        _wireNewRouter(newRouter, oldReads, curveFactory);
+        _mirrorState(newRouter, oldReads, curveFactoryAddr);
 
         // ============================================================
-        // 4. Rotate external references onto the V6 Router.
+        // 3. Pause V5 FIRST. Any launch already in the mempool that
+        //    targets V5 now reverts with Router__Paused (clearest
+        //    possible error), before subsequent rotations would make
+        //    V5 launches fail with cryptic factory onlyRouter errors.
         // ============================================================
+        ILiveRouterAdmin v5Admin = ILiveRouterAdmin(oldRouterAddr);
         vm.startBroadcast();
-        ICurveFactoryAdmin(curveFactory).setTrustedRouter(newRouter, true);
-        ICurveFactoryAdmin(curveFactory).setTrustedRouter(oldRouterAddr, false);
+        v5Admin.setPaused(true);
         vm.stopBroadcast();
-        console2.log("  [ok] CurveFactory.setTrustedRouter(V6=true, V5=false)");
-
-        _tryNameRegistrySetRouter(nameRegistry, newRouter);
-        _tryRoyaltyRouterFactoryRotate(royaltyRouterFactory, newRouter, oldRouterAddr);
+        require(v5Admin.paused(), "assert failed: V5 paused");
+        console2.log("  [ok+asserted] V5 Router paused");
 
         // ============================================================
-        // 5. Rotate the 3 base factories' `router` slot to V6.
+        // 4. NameRegistry.setRouter(V6). Deployed contract does NOT have
+        //    the source's one-shot RouterAlreadySet check (verified via
+        //    bytecode selector grep: neither pendingRouter() nor
+        //    RouterAlreadySet paths exist on-chain). Simple setter works.
         // ============================================================
-        _tryFactorySetRouter(oldReads.factories(BaseType.ERC20), newRouter, "ERC20Factory");
-        _tryFactorySetRouter(oldReads.factories(BaseType.ERC721A), newRouter, "ERC721AFactory");
-        _tryFactorySetRouter(oldReads.factories(BaseType.ERC1155), newRouter, "ERC1155Factory");
+        INameRegistryAdmin nr = INameRegistryAdmin(nameRegistryAddr);
+        vm.startBroadcast();
+        nr.setRouter(newRouter);
+        vm.stopBroadcast();
+        require(nr.router() == newRouter, "assert failed: NameRegistry.router != V6");
+        console2.log("  [ok+asserted] NameRegistry.setRouter(V6)");
 
         // ============================================================
-        // 6. Replay every FoT-inclusive blacklist hash on the fresh V6 Router.
+        // 5. Rotate CurveFactory trust: trust V6, untrust V5.
+        // ============================================================
+        ICurveFactoryAdmin cf = ICurveFactoryAdmin(curveFactoryAddr);
+        vm.startBroadcast();
+        cf.setTrustedRouter(newRouter, true);
+        cf.setTrustedRouter(oldRouterAddr, false);
+        vm.stopBroadcast();
+        require(cf.trustedRouters(newRouter), "assert failed: CurveFactory.trustedRouters(V6) not true");
+        require(!cf.trustedRouters(oldRouterAddr), "assert failed: CurveFactory.trustedRouters(V5) not false");
+        console2.log("  [ok+asserted] CurveFactory trust rotated");
+
+        // ============================================================
+        // 6. Rotate RoyaltyRouterFactory trust: trust V6, untrust V5.
+        // ============================================================
+        IRoyaltyRouterFactoryAdmin rrf = IRoyaltyRouterFactoryAdmin(royaltyRouterFactoryAddr);
+        vm.startBroadcast();
+        rrf.setTrustedDeployer(newRouter, true);
+        rrf.setTrustedDeployer(oldRouterAddr, false);
+        vm.stopBroadcast();
+        require(rrf.trustedDeployer(newRouter), "assert failed: RRF.trustedDeployer(V6) not true");
+        require(!rrf.trustedDeployer(oldRouterAddr), "assert failed: RRF.trustedDeployer(V5) not false");
+        console2.log("  [ok+asserted] RoyaltyRouterFactory trust rotated");
+
+        // ============================================================
+        // 7. Rotate the 3 base factories' router slot. onlyRouter check
+        //    on factory.deploy() reads this — after rotation, V6 launches
+        //    can call factory.deploy() but V5 can't.
+        // ============================================================
+        _rotateFactory(oldReads.factories(BaseType.ERC20), newRouter, "ERC20Factory");
+        _rotateFactory(oldReads.factories(BaseType.ERC721A), newRouter, "ERC721AFactory");
+        _rotateFactory(oldReads.factories(BaseType.ERC1155), newRouter, "ERC1155Factory");
+
+        // ============================================================
+        // 8. Blacklist replay on V6.
         // ============================================================
         _replayBlacklist(newRouter, HASH_FOT_SOLO, "FeeOnTransfer (solo)");
         _replayBlacklist(newRouter, HASH_FOT_ANTIBOT, "AntiBot,FeeOnTransfer");
         _replayBlacklist(newRouter, HASH_FOT_PERMIT, "FeeOnTransfer,Permit");
 
         // ============================================================
-        // 7. Pause V5 Router so no launches land there while the frontend swap propagates.
+        // 9. Write the routerv6 address book so tools/sync-addresses.mjs
+        //    can layer V6 over V4stack next run without manual edits.
         // ============================================================
-        _pauseOldRouter(oldRouterAddr);
+        string memory obj = "routerv6";
+        vm.serializeUint(obj, "chainId", block.chainid);
+        string memory json = vm.serializeAddress(obj, "RouterV2", newRouter);
+        string memory bookPath = string.concat("deployment-routerv6.", vm.toString(block.chainid), ".json");
+        vm.writeFile(bookPath, json);
+        console2.log("  [ok] wrote address book:", bookPath);
 
-        _logSummary(newRouter, oldRouterAddr);
+        // ============================================================
+        // Summary
+        // ============================================================
+        console2.log("=========================================================");
+        console2.log("V6 mini-redeploy complete + fully asserted");
+        console2.log("=========================================================");
+        console2.log("  V6 Router (live):    ", newRouter);
+        console2.log("  V5 Router (paused):  ", oldRouterAddr);
+        console2.log("");
+        console2.log("Immediate follow-up:");
+        console2.log("  1. Verify V6 on Blockscout.");
+        console2.log("  2. web/src/lib/config.ts robinhood.Router -> V6.");
+        console2.log("  3. .env ROBINHOOD_ROUTER_ADDRESS -> V6.");
+        console2.log("  4. Railway ROBINHOOD_ROUTER_ADDRESS -> V6, restart Ponder.");
+        console2.log("  5. Rebuild + deploy frontend (Vercel).");
     }
 
-    // ---------------------------------------------------------------- New Router wiring
-    function _wireNewRouter(
+    // ---------------------------------------------------------------- helpers
+
+    function _mirrorState(
         address newRouter,
         ILiveRouterReads oldReads,
-        address curveFactory
+        address curveFactoryAddr
     ) internal {
         RouterV2 r = RouterV2(payable(newRouter));
 
         vm.startBroadcast();
         address f0 = oldReads.factories(BaseType.ERC20);
-        if (f0 != address(0)) r.setFactory(BaseType.ERC20, f0);
-        address f1 = oldReads.factories(BaseType.ERC721A);
-        if (f1 != address(0)) r.setFactory(BaseType.ERC721A, f1);
-        address f2 = oldReads.factories(BaseType.ERC1155);
-        if (f2 != address(0)) r.setFactory(BaseType.ERC1155, f2);
+        require(f0 != address(0), "V5 ERC20Factory unset");
+        r.setFactory(BaseType.ERC20, f0);
 
-        r.setCurveFactory(curveFactory);
+        address f1 = oldReads.factories(BaseType.ERC721A);
+        require(f1 != address(0), "V5 ERC721AFactory unset");
+        r.setFactory(BaseType.ERC721A, f1);
+
+        address f2 = oldReads.factories(BaseType.ERC1155);
+        require(f2 != address(0), "V5 ERC1155Factory unset");
+        r.setFactory(BaseType.ERC1155, f2);
+
+        r.setCurveFactory(curveFactoryAddr);
 
         address oracle = oldReads.loyaltyOracle();
         if (oracle != address(0)) r.setLoyaltyOracle(oracle);
@@ -243,54 +281,29 @@ contract RedeployRouterV6 is Script {
         uint256 minFee = oldReads.minUruFee();
         if (minFee > 0) r.setMinUruFee(minFee);
         vm.stopBroadcast();
-        console2.log("  [ok] V6.setFactory x3 + setCurveFactory + setLoyaltyOracle + setMinUruFee");
+
+        require(r.factories(BaseType.ERC20) == f0, "assert failed: V6.factories(ERC20)");
+        require(r.factories(BaseType.ERC721A) == f1, "assert failed: V6.factories(ERC721A)");
+        require(r.factories(BaseType.ERC1155) == f2, "assert failed: V6.factories(ERC1155)");
+        require(r.curveFactory() == curveFactoryAddr, "assert failed: V6.curveFactory");
+        require(r.loyaltyOracle() == oracle, "assert failed: V6.loyaltyOracle");
+        require(r.minUruFee() == minFee, "assert failed: V6.minUruFee");
+        console2.log("  [ok+asserted] V6 state mirrored from V5");
     }
 
-    function _tryNameRegistrySetRouter(
-        address nameRegistry,
-        address newRouter
-    ) internal {
-        vm.startBroadcast();
-        try INameRegistryAdmin(nameRegistry).setRouter(newRouter) {
-            console2.log("  [ok] NameRegistry.setRouter(V6)");
-        } catch {
-            console2.log("  [warn] NameRegistry.setRouter FAILED - operator must call from owner");
-        }
-        vm.stopBroadcast();
-    }
-
-    function _tryRoyaltyRouterFactoryRotate(
-        address rrf,
-        address newRouter,
-        address oldRouter
-    ) internal {
-        vm.startBroadcast();
-        try IRoyaltyRouterFactoryAdmin(rrf).setTrustedDeployer(newRouter, true) {
-            console2.log("  [ok] RRF.setTrustedDeployer(V6, true)");
-        } catch {
-            console2.log("  [warn] RRF.setTrustedDeployer(V6) FAILED (needs multisig)");
-        }
-        try IRoyaltyRouterFactoryAdmin(rrf).setTrustedDeployer(oldRouter, false) {
-            console2.log("  [ok] RRF.setTrustedDeployer(V5, false)");
-        } catch {
-            console2.log("  [warn] RRF.setTrustedDeployer(V5, false) FAILED (needs multisig)");
-        }
-        vm.stopBroadcast();
-    }
-
-    function _tryFactorySetRouter(
+    function _rotateFactory(
         address factory,
         address newRouter,
         string memory name
     ) internal {
-        if (factory == address(0)) return;
+        require(factory != address(0), string.concat(name, ": address(0)"));
+        IBaseFactoryAdmin f = IBaseFactoryAdmin(factory);
+        require(f.owner() == msg.sender, string.concat(name, ": broadcaster is not owner"));
         vm.startBroadcast();
-        try IBaseFactoryAdmin(factory).setRouter(newRouter) {
-            console2.log(string.concat("  [ok] ", name, ".setRouter(V6)"));
-        } catch {
-            console2.log(string.concat("  [warn] ", name, ".setRouter FAILED (needs owner)"));
-        }
+        f.setRouter(newRouter);
         vm.stopBroadcast();
+        require(f.router() == newRouter, string.concat(name, ": assert failed router() != V6"));
+        console2.log(string.concat("  [ok+asserted] ", name, ".setRouter(V6)"));
     }
 
     function _replayBlacklist(
@@ -298,36 +311,11 @@ contract RedeployRouterV6 is Script {
         bytes32 hash,
         string memory label
     ) internal {
+        RouterV2 r = RouterV2(payable(router));
         vm.startBroadcast();
-        try RouterV2(payable(router)).setCurveIncompatibleConfigHash(hash, true) {
-            console2.log(string.concat("  [ok] V6.blacklist(", label, ")"));
-        } catch {
-            console2.log(string.concat("  [warn] V6.blacklist(", label, ") FAILED"));
-        }
+        r.setCurveIncompatibleConfigHash(hash, true);
         vm.stopBroadcast();
-    }
-
-    function _pauseOldRouter(
-        address oldRouterAddr
-    ) internal {
-        vm.startBroadcast();
-        try ILiveRouterAdmin(oldRouterAddr).setPaused(true) {
-            console2.log("  [ok] V5 Router setPaused(true)");
-        } catch {
-            console2.log("  [warn] V5 Router setPaused FAILED - operator must call from owner");
-        }
-        vm.stopBroadcast();
-    }
-
-    function _logSummary(
-        address newRouter,
-        address oldRouter
-    ) internal view {
-        console2.log("=========================================================");
-        console2.log("V6 mini-redeploy complete (Router-only)");
-        console2.log("=========================================================");
-        console2.log("  chainid:                     ", block.chainid);
-        console2.log("  RouterV2 (V6):               ", newRouter);
-        console2.log("  RouterV2 (V5, paused):       ", oldRouter);
+        require(r.curveIncompatibleConfigHash(hash), string.concat(label, ": assert failed blacklist not set"));
+        console2.log(string.concat("  [ok+asserted] V6.blacklist(", label, ")"));
     }
 }

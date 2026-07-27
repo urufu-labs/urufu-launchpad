@@ -80,6 +80,12 @@ const v3stack = readBook('v3stack');
 /// unsuffixed names when layering into CONTRACTS/HOOKS/GRADUATORS/FLYWHEEL/
 /// V4_ROUTERS below.
 const v4stack = readBook('v4stack');
+/// RedeployRouterV6.s.sol's book — trumps every earlier stack's Router. Only
+/// contains a single field (`RouterV2`) because V6 is a Router-only mini-
+/// redeploy; every other slot (CurveFactory, Graduator, MultiHookHost, etc.)
+/// still comes from v4stack. Field name kept as `RouterV2` to match the
+/// deployment-book conventions above.
+const routerv6 = readBook('routerv6');
 
 // ---- Field lists mirror the interfaces in web/src/lib/config.ts. ------------
 
@@ -209,11 +215,14 @@ const coreWithOverrides = {
   ...(v4stack?.CurveFactoryV4
     ? { CurveFactory: v4stack.CurveFactoryV4, BondingCurveImpl: v4stack.BondingCurveImpl }
     : {}),
+  // V6 Router-only redeploy wins over V4's Router. Everything else stays on V4.
+  ...(routerv6?.RouterV2 ? { Router: routerv6.RouterV2 } : {}),
 };
 if (patchMap('CONTRACTS', CONTRACT_FIELDS, coreWithOverrides)) {
   const suffix = [
-    v4stack?.RouterV2 ? 'Router → V4'
-      : routerv2?.RouterV2 ? 'Router → RouterV2' : '',
+    routerv6?.RouterV2 ? 'Router → V6'
+      : v4stack?.RouterV2 ? 'Router → V4'
+        : routerv2?.RouterV2 ? 'Router → RouterV2' : '',
     v4stack?.CurveFactoryV4 ? 'CurveFactory → V4'
       : v3stack?.CurveFactoryV3 ? 'CurveFactory → V3'
         : curvefactoryv2?.CurveFactory ? 'CurveFactory → V2' : '',

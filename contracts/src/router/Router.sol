@@ -455,7 +455,11 @@ contract Router is Ownable, ReentrancyGuard {
         address token,
         address curve
     ) internal {
-        _tryGrantModule(token, curve);
+        // Curve: full bypass on BOTH gates. Curve holds the initial supply and
+        // moves hundreds of millions of tokens through curve buys + the
+        // graduation transferFrom. Neither is bot-like OR whale-like — the
+        // launcher chose this mechanic, so curve activity is exempt by design.
+        _tryGrantBoth(token, curve);
         // Both external reads are best-effort. Mock CurveFactory / mock Graduator in
         // unit tests may not implement the getter — try/catch keeps launch working
         // for tokens without any module (which is when a mocked-out setup is used).
@@ -464,20 +468,41 @@ contract Router is Ownable, ReentrancyGuard {
             grad = g;
         } catch {}
         if (grad != address(0)) {
-            _tryGrantModule(token, grad);
+            // Graduator: full bypass on both gates. Same rationale — during
+            // graduation the Graduator temporarily holds ~800M tokens on the
+            // path from curve → v4 pool.
+            _tryGrantBoth(token, grad);
             address pm;
             try IGraduatorLike(grad).poolManager() returns (address p) {
                 pm = p;
             } catch {}
-            if (pm != address(0)) _tryGrantModule(token, pm);
+            if (pm != address(0)) {
+                // PoolManager: AntiBot bypass ONLY. Graduation happens once,
+                // during the anti-bot window, and moves large amounts INTO the
+                // pool — needs AntiBot bypass to succeed. But every post-grad
+                // v4 swap ALSO transits tokens through PoolManager for the
+                // lifetime of the token; excluding PoolManager from AntiWhale
+                // would silently defeat maxTx/maxWallet on the v4 lane while
+                // still enforcing them for P2P transfers (v4 whales get a free
+                // dump lane; honest users can't send to a friend). AntiWhale
+                // callers accept that graduation itself must fit under maxTx
+                // (docs already tell launchers to size caps sensibly).
+                _tryGrantAntiBot(token, pm);
+            }
         }
     }
 
-    function _tryGrantModule(
-        address token,
-        address who
-    ) internal {
+    /// Both allowlists in one shot — used for curve + Graduator, addresses that
+    /// legitimately move large amounts throughout the token lifecycle.
+    function _tryGrantBoth(address token, address who) internal {
         try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
         try IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true) {} catch {}
+    }
+
+    /// AntiBot-only bypass — used for PoolManager so post-grad v4 swaps still
+    /// respect the launcher's whale caps. Graduation transfers must be sized
+    /// under maxTx by construction.
+    function _tryGrantAntiBot(address token, address who) internal {
+        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
     }
 }
