@@ -51,9 +51,11 @@ function chainConfigFor(slug: string): ChainConfig | null {
   if (slug !== 'robinhood') return null;
   const rpcUrl = process.env.ROBINHOOD_RPC_URL;
   const vaultAddress = process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS as Address | undefined;
-  const gemuNftAddress =
-    (process.env.ROBINHOOD_GEMU_NFT_ADDRESS as Address | undefined)
-    ?? (process.env.GEMU_NFT_ADDRESS as Address | undefined);
+  // Deliberately no fallback to bare GEMU_NFT_ADDRESS — that env var still
+  // holds the retired Base collection for reference, and silently reading it
+  // here would ship a Base address to a Robinhood-chain RPC call and return
+  // zero holders → publishEpoch would credit no one. Fail loud instead.
+  const gemuNftAddress = process.env.ROBINHOOD_GEMU_NFT_ADDRESS as Address | undefined;
   if (!rpcUrl || !vaultAddress || !gemuNftAddress) return null;
   return { slug: 'robinhood', chainId: 4663, rpcUrl, vaultAddress, gemuNftAddress };
 }
