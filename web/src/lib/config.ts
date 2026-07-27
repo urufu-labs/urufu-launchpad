@@ -194,7 +194,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   },
   robinhood: {
     NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
-    Router: '0x66c9cbC18Ee36462d4844BceC48558E0829a33a1',
+    Router: '0xb8512f2d1CA89e56CDbB2b7Ef3e94B38434a66a2',
     FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
     ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
     ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
@@ -217,8 +217,8 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
     ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0xdCF743Af55B0a15238aF6BDCAc6597cE5EEc9E2b',
-    BondingCurveImpl: '0x79E75cF9539FA6A1E0D95186C1e9d18137D41112',
+    CurveFactory: '0x4631C21b066D3B289779e477fc79f13E8d0Fc248',
+    BondingCurveImpl: '0x5afcA487A9DB4728fb23B1b8A2f22931d49b5Aa9',
   },
   'robinhood-testnet': null,
 };
@@ -257,7 +257,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    MultiHookHost: '0xA1437f2d8B6c0d30b906AFCe9448b79885ab62C4',
+    MultiHookHost: '0x3a3e0FB55e321e31B2C72973EF8Ad796186ba2C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -270,7 +270,7 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  robinhood: '0x0fbe90D02080C1683503bBaCE8a74A75Ec67f454',
+  robinhood: '0xbf3DAdD9EE1538F7cd7de012f71cf8626829939b',
   'robinhood-testnet': null,
 };
 
@@ -282,7 +282,7 @@ export const V4_ROUTERS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288',
   'base-sepolia': '0x729844c9Cc23407BF400535B28F787344c3321c1',
-  robinhood: '0x96E040a16A8B8B17a7896BDbDf02978895368bf6',
+  robinhood: '0x2E4cd43C07879f52422B3e83F00Be877eFD88738',
   'robinhood-testnet': null,
 };
 
@@ -311,12 +311,12 @@ export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
   },
   'base-sepolia': null,
   robinhood: {
-    FeeSplitter: '0x60cAd7Ec3569Df6D319697022722Bcf147ccAFce',
+    FeeSplitter: '0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA',
     LoyaltyOracle: '0xd13A1fb6d9c209B56044464269fce66Ed417AC2E',
-    NftRevenueVault: '0xe588F02ec0bA124A937235690454f16d637894a9',
-    UruBuybackVault: '0xADC6Fe6D045495496657Af5c40629f0DdB081554',
-    RoyaltyRouterImpl: '0xEeAe74EaCC0D4A83767F1770BfFac3835A84941d',
-    RoyaltyRouterFactory: '0x43a735b4f558d9e2C490cb5592784af82359C359',
+    NftRevenueVault: '0x93CFF459d5019eEc82fE9335013e265F1eD659c7',
+    UruBuybackVault: '0x68c5Ec467027fCe56f158eB1ff34cF89d0929354',
+    RoyaltyRouterImpl: '0x4CAD1C5cFA9C20F3cfcC2C8881b4a9fdd63D20e3',
+    RoyaltyRouterFactory: '0x6309D5EcBbE9E2093D5b0f08AD86dDDa6988dB05',
   },
   'robinhood-testnet': null,
 };
