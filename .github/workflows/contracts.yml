@@ -23,6 +23,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
+        env:
+          # foundryup calls GitHub API to fetch latest release tags. Anonymous calls
+          # get 60/hr — the GH runners share IPs so we hit HTTP 403 rate-limits on
+          # every other push. Passing GITHUB_TOKEN lifts the limit to 5000/hr.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Show forge version
         run: forge --version
       - name: Format check
