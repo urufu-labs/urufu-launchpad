@@ -68,6 +68,7 @@ contract MultiHookGraduationForkTest is Test {
     MultiHookHost internal hook;
     Graduator internal graduator;
     HookAwareSwapper internal swapper;
+    MHMockCurveRegistry internal curveRegistry;
 
     address internal alice = makeAddr("alice");
     address internal feeReceiver = makeAddr("feeReceiver");
@@ -126,8 +127,12 @@ contract MultiHookGraduationForkTest is Test {
         }
         hook = MultiHookHost(payable(hookAddr));
 
-        // Standard 0.3% / 60-tick tier — matches DeployGraduator.s.sol defaults.
-        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60);
+        // Test-only curve registry for Graduator's per-token access check
+        // (`msg.sender == curveFactory.curveFor(token)`). Populated in the
+        // test body once the BondingCurve clone address is known.
+        curveRegistry = new MHMockCurveRegistry();
+        // Standard 0.3% / 60-tick tier — matches historical Graduator defaults.
+        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60, address(curveRegistry));
 
         // Custom swap helper — `PoolSwapTest` doesn't know how to settle the extra token
         // delta MultiHookHost claims in afterSwap (it accrues fees to platform+creator via
@@ -141,6 +146,10 @@ contract MultiHookGraduationForkTest is Test {
         BondingCurve impl = new BondingCurve();
         BondingCurve curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token.mint(address(curve), CURVE_SUPPLY);
+
+        // Register the curve so Graduator's per-token access check passes
+        // (see Graduator.execute — msg.sender must equal curveFactory.curveFor(token)).
+        curveRegistry.setCurve(address(token), address(curve));
 
         curve.initialize(
             address(token),
@@ -223,6 +232,7 @@ contract MultiHookGraduationForkTest is Test {
         BondingCurve impl = new BondingCurve();
         BondingCurve curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token.mint(address(curve), CURVE_SUPPLY);
+        curveRegistry.setCurve(address(token), address(curve));
 
         uint32 gateBlocks = 20;
         curve.initialize(
@@ -276,6 +286,7 @@ contract MultiHookGraduationForkTest is Test {
         BondingCurve impl = new BondingCurve();
         BondingCurve curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token.mint(address(curve), CURVE_SUPPLY);
+        curveRegistry.setCurve(address(token), address(curve));
 
         uint16 burnBps = 1000;
         curve.initialize(
@@ -415,5 +426,20 @@ contract HookAwareSwapper {
         if (d0 > 0) manager.take(args.key.currency0, args.recipient, uint256(d0));
         if (d1 > 0) manager.take(args.key.currency1, args.recipient, uint256(d1));
         return "";
+    }
+}
+
+/// Test-only stand-in for the CurveFactory `curveFor(token)` lookup that
+/// Graduator uses for its per-token access check. Populated by tests
+/// after they create + fund their BondingCurve clone.
+contract MHMockCurveRegistry {
+    mapping(address => address) private _curves;
+
+    function setCurve(address token, address curve) external {
+        _curves[token] = curve;
+    }
+
+    function curveFor(address token) external view returns (address) {
+        return _curves[token];
     }
 }

@@ -531,6 +531,17 @@ export default function CreatePage() {
   /// currency1 (typical on RH — WETH `0x0Bd7…` sorts lower than URU `0x9fbe…`)
   /// then price = URU per WETH and `uruOut = ethIn * sqrtPriceX96² / 2¹⁹²`.
   /// If URU is currency0 the ratio inverts. Returns undefined until slot0 lands.
+  // On-chain URU floor - RouterV2 V4 rejects launches below this even if the
+  // spot-quoted amount is lower. Frontend must respect it or the launch tx
+  // reverts with RouterV2__InsufficientUru after the user's already paid gas.
+  const minUruFeeForUser = useReadContract({
+    abi: routerAbi,
+    address: contracts?.Router as Address | undefined,
+    functionName: 'minUruFeeFor',
+    args: address ? [address] : undefined,
+    query: { enabled: !!uruPay && !!address && !!contracts?.Router && payToken === 'URU' },
+  });
+
   const uruAmount = useMemo<bigint | undefined>(() => {
     if (!uruPay || !slot0.data) return undefined;
     const fee = quote.data as bigint | undefined;
@@ -539,13 +550,17 @@ export default function CreatePage() {
     if (!sqrtPriceX96 || sqrtPriceX96 === 0n) return undefined;
     const Q192 = 1n << 192n;
     const priceX192 = sqrtPriceX96 * sqrtPriceX96; // URU / WETH scaled by 2¹⁹²
-    if (uruPay.uruIsCurrency1) {
-      // uruOut = ethIn * (priceX192 / 2¹⁹²)
-      return (fee * priceX192) / Q192;
-    }
-    // uruIsCurrency0 → invert: uruOut = ethIn * 2¹⁹² / priceX192
-    return (fee * Q192) / priceX192;
-  }, [uruPay, slot0.data, quote.data]);
+    const spotAmount = uruPay.uruIsCurrency1
+      ? (fee * priceX192) / Q192
+      : (fee * Q192) / priceX192;
+    // Bump to the on-chain floor if the spot quote falls below it. Users paying
+    // in URU get either the discounted floor (loyalty applied by minUruFeeFor)
+    // or the spot-quoted amount, whichever is HIGHER. This mirrors the router's
+    // `uruAmount < required` gate.
+    const floor = minUruFeeForUser.data as bigint | undefined;
+    if (typeof floor === 'bigint' && floor > spotAmount) return floor;
+    return spotAmount;
+  }, [uruPay, slot0.data, quote.data, minUruFeeForUser.data]);
 
   // URU amounts run to 18 decimals — full string overflows the receipt box.
   // Trim to 4 decimals + strip trailing zeros for display; underlying bigint stays exact.

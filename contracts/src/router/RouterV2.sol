@@ -164,6 +164,13 @@ contract RouterV2 is Router {
         if (params.installBondingCurve) {
             if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
             if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+            // FoT / rebasing / balance-mutating configs would drift the curve's
+            // arithmetic reserve vs actual balance. Mirror the block that
+            // Router.launch has (Router.sol) - was missing on this URU-pay path,
+            // making the blacklist bypassable via hand-crafted calls.
+            if (curveIncompatibleConfigHash[params.configHash]) {
+                revert Router__CurveIncompatibleModule(params.configHash);
+            }
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
             IERC20Like(token).approve(curveFactory, supply);
             address curve = ICurveFactoryLike(curveFactory)
@@ -214,6 +221,12 @@ contract RouterV2 is Router {
         // WL curve install — the only structural difference from the standard launch flow.
         if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
         if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        // Same FoT / rebasing gate as Router.launch. WL variants had this
+        // missing at V4 - meant the on-chain blacklist could be bypassed via
+        // any WL launch tx, silently drifting the curve's tokenReserve.
+        if (curveIncompatibleConfigHash[params.configHash]) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
         IERC20Like(token).approve(curveFactory, supply);
         address curve = ICurveFactoryWlLike(curveFactory)
@@ -273,6 +286,11 @@ contract RouterV2 is Router {
 
         if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
         if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        // Same FoT / rebasing gate as Router.launch. Was missing on this
+        // URU-pay + WL path too.
+        if (curveIncompatibleConfigHash[params.configHash]) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
         IERC20Like(token).approve(curveFactory, supply);
         address curve = ICurveFactoryWlLike(curveFactory)

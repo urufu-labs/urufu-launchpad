@@ -29,8 +29,26 @@ library HookMiner {
         bytes memory constructorArgs,
         uint256 maxIterations
     ) internal pure returns (uint256 salt, address hookAddress) {
+        return findFrom(deployer, requiredFlags, creationCode, constructorArgs, maxIterations, 0);
+    }
+
+    /// @notice Same as `find` but starts the salt search at `startSalt`. Useful when the
+    ///         salt that `find` would return points at an already-deployed contract and
+    ///         the caller needs the NEXT satisfying salt (e.g. redeploying a hook whose
+    ///         previous incarnation is still live at the first-satisfying address).
+    /// @param  startSalt        First salt to try. Passing `previousSalt + 1` skips past a
+    ///                          collision without changing constructor args.
+    function findFrom(
+        address deployer,
+        uint160 requiredFlags,
+        bytes memory creationCode,
+        bytes memory constructorArgs,
+        uint256 maxIterations,
+        uint256 startSalt
+    ) internal pure returns (uint256 salt, address hookAddress) {
         bytes32 initCodeHash = keccak256(abi.encodePacked(creationCode, constructorArgs));
-        for (salt = 0; salt < maxIterations; ++salt) {
+        uint256 end = startSalt + maxIterations;
+        for (salt = startSalt; salt < end; ++salt) {
             hookAddress = _computeAddress(deployer, salt, initCodeHash);
             if ((uint160(hookAddress) & FLAG_MASK) == (requiredFlags & FLAG_MASK)) {
                 return (salt, hookAddress);

@@ -89,6 +89,12 @@ contract RhHookMigrationForkTest is Test {
     IPoolManager internal manager;
     MultiHookHost internal hook;
     Graduator internal graduator;
+    /// Test-only "curve registry" mock passed to Graduator's constructor so its
+    /// per-token access check (`msg.sender == curveFor(token)`) resolves cleanly
+    /// for the LibClone-created curves this test uses (which weren't registered
+    /// through a real CurveFactory). Test helper registers the mapping just before
+    /// triggering graduation.
+    MockCurveRegistry internal curveRegistry;
     V4SwapRouter internal swapRouter;
     /// Test-only helper that fires exactOutput swaps through PoolManager
     /// directly. V4SwapRouter is exactInput-only; F-2 regression coverage
@@ -166,7 +172,8 @@ contract RhHookMigrationForkTest is Test {
         require(hookAddr != address(0), "hook CREATE2 failed");
         hook = MultiHookHost(payable(hookAddr));
 
-        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60);
+        curveRegistry = new MockCurveRegistry();
+        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60, address(curveRegistry));
 
         // Wire the beforeInitialize gate so the fresh graduator can initialize pools.
         // Deployer stamped in the constructor (this contract) is the only address that can
@@ -278,6 +285,10 @@ contract RhHookMigrationForkTest is Test {
         BondingCurve impl = new BondingCurve();
         BondingCurve curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token.mint(address(curve), CURVE_SUPPLY);
+        // Register token -> curve mapping so Graduator's access check passes.
+        // Real deploys use CurveFactory which does this at createCurve time; the
+        // test's direct-clone path needs the mock's setter.
+        curveRegistry.setCurve(address(token), address(curve));
 
         curve.initialize(
             address(token),
@@ -720,6 +731,8 @@ contract RhHookMigrationForkTest is Test {
     ) internal {
         BondingCurve curve = _cloneCurve();
         token.mint(address(curve), CURVE_SUPPLY);
+        // Register in the mock registry so Graduator's access check passes.
+        curveRegistry.setCurve(address(token), address(curve));
         curve.initialize(
             address(token),
             feeReceiverBurn,
@@ -863,4 +876,24 @@ interface IERC20Refund {
     function balanceOf(
         address
     ) external view returns (uint256);
+}
+
+/// Test-only stand-in for a CurveFactory - just the `curveFor(token)` view that
+/// Graduator uses to authorize its caller. Test explicitly registers the
+/// mapping right before triggering graduation.
+contract MockCurveRegistry {
+    mapping(address => address) private _curves;
+
+    function setCurve(
+        address token,
+        address curve
+    ) external {
+        _curves[token] = curve;
+    }
+
+    function curveFor(
+        address token
+    ) external view returns (address) {
+        return _curves[token];
+    }
 }

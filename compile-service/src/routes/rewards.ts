@@ -22,7 +22,7 @@ import { z } from 'zod';
 
 import { publishEpoch, vaultSummary, proofFor, epochsForHolder } from '../rewards.ts';
 
-const CHAIN_PATH = z.enum(['base']);
+const CHAIN_PATH = z.enum(['robinhood']);
 const ADDRESS_PATH = z.string().refine(isAddress, { message: 'invalid address' });
 
 export async function registerRewardsRoutes(app: FastifyInstance): Promise<void> {

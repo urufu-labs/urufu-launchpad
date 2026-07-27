@@ -52,12 +52,28 @@ interface IHookConfig {
 ///         Fee tier + tick spacing are configurable at deploy time. Defaults match the
 ///         common 0.3% tier that Uniswap v4 examples use, giving reasonable liquidity
 ///         concentration for the initial LP.
+/// Minimum surface the Graduator queries on its curveFactory to authorize
+/// the caller. `curveFor(token)` returns the deterministic address of the
+/// BondingCurve clone the factory produced for `token`, or address(0) if
+/// no curve was ever created for it.
+interface ICurveFactoryLookup {
+    function curveFor(
+        address token
+    ) external view returns (address);
+}
+
 contract Graduator is IUnlockCallback {
     using PoolIdLibrary for PoolKey;
 
     error Graduator__NotPoolManager();
     error Graduator__EthMismatch(uint256 sent, uint256 expected);
     error Graduator__ZeroAmount();
+    /// Caller isn't the CurveFactory-registered clone for `token`. Blocks the
+    /// front-run attack where anyone could pre-init a graduating token's
+    /// PoolManager pool at an arbitrary sqrtPriceX96 (with attacker installed as
+    /// the pool's creator), which would then brick the legitimate graduation
+    /// via `PoolAlreadyInitialized` when the real curve tried to graduate.
+    error Graduator__NotAuthorizedCurve(address caller, address expected);
 
     event Graduated(
         address indexed token,
@@ -72,6 +88,10 @@ contract Graduator is IUnlockCallback {
     IHooks public immutable defaultHook;
     uint24 public immutable fee;
     int24 public immutable tickSpacing;
+    /// CurveFactory whose curves are authorized to call `execute`. Any caller
+    /// whose address != `curveFactory.curveFor(token)` is rejected, closing the
+    /// permissionless pre-init front-run vector.
+    ICurveFactoryLookup public immutable curveFactory;
 
     // Full-range tick bounds, aligned to tickSpacing at construction.
     int24 public immutable tickLower;
@@ -81,12 +101,14 @@ contract Graduator is IUnlockCallback {
         IPoolManager _poolManager,
         IHooks _defaultHook,
         uint24 _fee,
-        int24 _tickSpacing
+        int24 _tickSpacing,
+        address _curveFactory
     ) {
         poolManager = _poolManager;
         defaultHook = _defaultHook;
         fee = _fee;
         tickSpacing = _tickSpacing;
+        curveFactory = ICurveFactoryLookup(_curveFactory);
         tickLower = (TickMath.MIN_TICK / _tickSpacing + 1) * _tickSpacing;
         tickUpper = (TickMath.MAX_TICK / _tickSpacing) * _tickSpacing;
     }
@@ -106,6 +128,13 @@ contract Graduator is IUnlockCallback {
         uint16 buybackBurnBps,
         address launcher
     ) external payable {
+        // Access control - only the CurveFactory-issued BondingCurve clone for
+        // `token` may graduate that token. Without this any address could call
+        // execute with tiny values, pre-init the pool at attacker-chosen
+        // sqrtPriceX96 + attacker as creator, and PoolAlreadyInitialized
+        // revert would then brick the real curve's graduation forever.
+        address authorized = curveFactory.curveFor(token);
+        if (msg.sender != authorized) revert Graduator__NotAuthorizedCurve(msg.sender, authorized);
         if (ethAmount == 0 || tokenAmount == 0) revert Graduator__ZeroAmount();
         if (msg.value != ethAmount) revert Graduator__EthMismatch(msg.value, ethAmount);
 

@@ -1239,6 +1239,14 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 chain={activeChain}
                 tokenAddress={tokenAddress}
                 curveAddress={curveAddress}
+                // Pass the per-token hook address (from graduations.hookAddress
+                // in the indexer, or configHookAddr as fallback). Tokens that
+                // graduated on an OLDER MultiHookHost (V1/V2/V3) point at that
+                // hook forever - if we used HOOKS[chain]?.MultiHookHost (V4)
+                // here, the poolKey for those tokens would derive to a pool
+                // that doesn't exist, breaking the entire swap widget for
+                // legacy graduations.
+                hookAddr={hookAddr}
                 tokenSymbol={(tokenSymbol as string) ?? ''}
                 tokenTotalSupply={(tokenTotalSupply as bigint | undefined) ?? 0n}
                 walletTokenBal={(walletBal as bigint | undefined) ?? 0n}
@@ -1763,6 +1771,7 @@ function GraduatedPanel({
   chain,
   tokenAddress,
   curveAddress,
+  hookAddr,
   tokenSymbol,
   tokenTotalSupply,
   walletTokenBal,
@@ -1775,6 +1784,11 @@ function GraduatedPanel({
   chain: ChainKey | null;
   tokenAddress: Address;
   curveAddress: Address;
+  /// Per-token hook address (indexer's graduations.hookAddress, with V4 config
+  /// fallback). Tokens graduated on V1/V2/V3 MultiHookHost still point at those
+  /// old hooks - the poolKey MUST use whichever hook was live at graduation
+  /// time or the pool won't resolve.
+  hookAddr: Address | undefined;
   tokenSymbol: string;
   tokenTotalSupply: bigint;
   walletTokenBal: bigint;
@@ -1797,7 +1811,9 @@ function GraduatedPanel({
 
   const chainId = chain ? CHAIN_KEY_TO_ID[chain] : undefined;
   const v4Router = chain ? V4_ROUTERS[chain] : null;
-  const hookAddr = chain ? HOOKS[chain]?.MultiHookHost : undefined;
+  // hookAddr comes as a prop from the outer page (per-token via indexer). No
+  // more `HOOKS[chain]?.MultiHookHost` pin - that would break V3-graduated
+  // tokens that live on the old hook.
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [amountInput, setAmountInput] = useState('');

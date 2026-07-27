@@ -38,8 +38,8 @@ interface ICurveFactoryOwned {
     ) external;
 }
 
-/// @title  DeployV4Stack
-/// @notice One-shot broadcast that deploys the entire audit-fix V4 stack + wires
+/// @title  DeployStack
+/// @notice One-shot broadcast that deploys the entire audit-fix stack + wires
 ///         it into the existing infrastructure. Ships the following fixes:
 ///
 ///           - MultiHookHost F-2: exact-output swaps now pay platform+creator fees
@@ -55,15 +55,15 @@ interface ICurveFactoryOwned {
 ///           - NftRevenueVault:    zero-root reject, overcommit reject, sweepDust
 ///
 ///         Wires + rotates:
-///           - MultiHookHostV4.setInitializer(GraduatorV4)
-///           - CurveFactoryV4.setGraduator + setTrustedRouter(RouterV2 V4)
-///           - RouterV2 V4.setFactory (ERC20/721A/1155) + setCurveFactory + setLoyaltyOracle
+///           - MultiHookHost.setInitializer(Graduator)
+///           - CurveFactory.setGraduator + setTrustedRouter(RouterV2)
+///           - RouterV2.setFactory (ERC20/721A/1155) + setCurveFactory + setLoyaltyOracle
 ///           - UruDepositSink V4 setKeeper + setSwapTarget + setMinEthPerUru
 ///           - UruBuybackVault V4 setKeeper + setSwapTarget + setMinUruPerEth
-///           - RoyaltyRouterFactory V4 setTrustedDeployer(RouterV2 V4)
-///           - NameRegistry (V3, on-chain).setRouter(RouterV2 V4)  // one-time
-///           - ERC20/721A/1155 factories setRouter(RouterV2 V4)
-///           - Old CurveFactory (V1, V2, V3) setGraduator(GraduatorV4)
+///           - RoyaltyRouterFactory setTrustedDeployer(RouterV2)
+///           - NameRegistry (V3, on-chain).setRouter(RouterV2)  // one-time
+///           - ERC20/721A/1155 factories setRouter(RouterV2)
+///           - Old CurveFactory (V1, V2, V3) setGraduator(Graduator)
 ///
 ///         Not deployed / kept as-is:
 ///           - NameRegistry (state has reserved names; V3 unchanged; new setRouter
@@ -99,7 +99,7 @@ interface ICurveFactoryOwned {
 ///   OLD_V3_CURVE_FACTORY       required if WIRE_LEGACY=1
 ///   KEEPER                     Keeper for both URU vaults (default = broadcaster)
 ///   UNI_UR                     Universal Router for keeper swaps (RH: 0x8876...)
-contract DeployV4Stack is Script {
+contract DeployStack is Script {
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     struct Deployed {
@@ -218,7 +218,13 @@ contract DeployV4Stack is Script {
         out.multiHookHost = _deployMultiHookHost(poolManager, out.feeSplitter, msg.sender, platformBps, creatorBps);
 
         vm.startBroadcast();
-        out.graduator = address(new Graduator(IPoolManager(poolManager), IHooks(out.multiHookHost), 3000, 60));
+        // Pass CurveFactory as the authorized-caller registry. Graduator.execute
+        // rejects any msg.sender != curveFactory.curveFor(token), closing the
+        // permissionless pre-init front-run vector where anyone could call
+        // execute with tiny values and brick the real graduation via
+        // PoolAlreadyInitialized when it landed later.
+        out.graduator =
+            address(new Graduator(IPoolManager(poolManager), IHooks(out.multiHookHost), 3000, 60, out.curveFactory));
         MultiHookHost(payable(out.multiHookHost)).setInitializer(out.graduator);
         CurveFactory(out.curveFactory).setGraduator(out.graduator);
         out.v4SwapRouter = address(new V4SwapRouter(IPoolManager(poolManager)));
@@ -233,7 +239,7 @@ contract DeployV4Stack is Script {
         // ============================================================
 
         // ============================================================
-        // 7. Rotate external references onto V4 stack
+        // 7. Rotate external references onto stack
         // ============================================================
         _rotateExternal(nameRegistry, erc20Factory, erc721aFactory, erc1155Factory, out.routerV2, out.graduator);
 
@@ -345,25 +351,25 @@ contract DeployV4Stack is Script {
         address poolManager
     ) internal view {
         console2.log("=========================================================");
-        console2.log("V4 stack deployed (second-pass audit fixes)");
+        console2.log("stack deployed (second-pass audit fixes)");
         console2.log("=========================================================");
         console2.log("  chainid:              ", block.chainid);
         console2.log("  --- Router + curve ---");
-        console2.log("  RouterV2 V4:          ", out.routerV2);
-        console2.log("  CurveFactoryV4:       ", out.curveFactory);
-        console2.log("  BondingCurve impl V4: ", out.bondingCurveImpl);
+        console2.log("  RouterV2:          ", out.routerV2);
+        console2.log("  CurveFactory:       ", out.curveFactory);
+        console2.log("  BondingCurve impl: ", out.bondingCurveImpl);
         console2.log("  --- v4 hook stack ---");
-        console2.log("  MultiHookHostV4:      ", out.multiHookHost);
-        console2.log("  GraduatorV4:          ", out.graduator);
-        console2.log("  V4SwapRouterV4:       ", out.v4SwapRouter);
+        console2.log("  MultiHookHost:      ", out.multiHookHost);
+        console2.log("  Graduator:          ", out.graduator);
+        console2.log("  V4SwapRouter:       ", out.v4SwapRouter);
         console2.log("  PoolManager (existing):", poolManager);
         console2.log("  --- Flywheel ---");
-        console2.log("  FeeSplitterV4:        ", out.feeSplitter);
-        console2.log("  UruDepositSinkV4:     ", out.uruDepositSink);
-        console2.log("  UruBuybackVaultV4:    ", out.uruBuybackVault);
-        console2.log("  NftRevenueVaultV4:    ", out.nftRevenueVault);
-        console2.log("  RoyaltyRouterFactory V4:", out.royaltyRouterFactory);
-        console2.log("  RoyaltyRouterImpl V4:  ", out.royaltyRouterImpl);
+        console2.log("  FeeSplitter:        ", out.feeSplitter);
+        console2.log("  UruDepositSink:     ", out.uruDepositSink);
+        console2.log("  UruBuybackVault:    ", out.uruBuybackVault);
+        console2.log("  NftRevenueVault:    ", out.nftRevenueVault);
+        console2.log("  RoyaltyRouterFactory:", out.royaltyRouterFactory);
+        console2.log("  RoyaltyRouterImpl:  ", out.royaltyRouterImpl);
         console2.log("---------------------------------------------------------");
         console2.log("Post-deploy MANUAL steps (verify each):");
         console2.log("  1. Verify all 12 contracts on Blockscout.");
@@ -401,22 +407,22 @@ contract DeployV4Stack is Script {
         Deployed memory out,
         address poolManager
     ) internal {
-        string memory obj = "v4stack";
+        string memory obj = "stack";
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeAddress(obj, "RouterV2", out.routerV2);
-        vm.serializeAddress(obj, "CurveFactoryV4", out.curveFactory);
+        vm.serializeAddress(obj, "CurveFactory", out.curveFactory);
         vm.serializeAddress(obj, "BondingCurveImpl", out.bondingCurveImpl);
-        vm.serializeAddress(obj, "MultiHookHostV4", out.multiHookHost);
-        vm.serializeAddress(obj, "GraduatorV4", out.graduator);
-        vm.serializeAddress(obj, "V4SwapRouterV4", out.v4SwapRouter);
-        vm.serializeAddress(obj, "FeeSplitterV4", out.feeSplitter);
-        vm.serializeAddress(obj, "UruDepositSinkV4", out.uruDepositSink);
-        vm.serializeAddress(obj, "UruBuybackVaultV4", out.uruBuybackVault);
-        vm.serializeAddress(obj, "NftRevenueVaultV4", out.nftRevenueVault);
-        vm.serializeAddress(obj, "RoyaltyRouterFactoryV4", out.royaltyRouterFactory);
-        vm.serializeAddress(obj, "RoyaltyRouterImplV4", out.royaltyRouterImpl);
+        vm.serializeAddress(obj, "MultiHookHost", out.multiHookHost);
+        vm.serializeAddress(obj, "Graduator", out.graduator);
+        vm.serializeAddress(obj, "V4SwapRouter", out.v4SwapRouter);
+        vm.serializeAddress(obj, "FeeSplitter", out.feeSplitter);
+        vm.serializeAddress(obj, "UruDepositSink", out.uruDepositSink);
+        vm.serializeAddress(obj, "UruBuybackVault", out.uruBuybackVault);
+        vm.serializeAddress(obj, "NftRevenueVault", out.nftRevenueVault);
+        vm.serializeAddress(obj, "RoyaltyRouterFactory", out.royaltyRouterFactory);
+        vm.serializeAddress(obj, "RoyaltyRouterImpl", out.royaltyRouterImpl);
         string memory json = vm.serializeAddress(obj, "PoolManager", poolManager);
-        string memory path = string.concat("deployment-v4stack.", vm.toString(block.chainid), ".json");
+        string memory path = string.concat("deployment-stack.", vm.toString(block.chainid), ".json");
         vm.writeJson(json, path);
         console2.log("Address book written:", path);
     }

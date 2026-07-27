@@ -54,6 +54,7 @@ contract GraduationForkTest is Test {
     IPoolManager internal manager;
     LPLockedHook internal hook;
     Graduator internal graduator;
+    MockCurveRegistry internal curveRegistry;
 
     // Match the curve defaults for graduation-friendly reserves.
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
@@ -97,8 +98,12 @@ contract GraduationForkTest is Test {
         }
         hook = LPLockedHook(hookAddr);
 
+        // Test-only curve registry the Graduator's access check reads. Populated
+        // in the test body once the BondingCurve clone address is known so
+        // `curveFactory.curveFor(token) == msg.sender` passes.
+        curveRegistry = new MockCurveRegistry();
         // Fee 3000 + tickSpacing 60 == common v4 tier.
-        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60);
+        graduator = new Graduator(manager, IHooks(address(hook)), 3000, 60, address(curveRegistry));
     }
 
     function test_Fork_Graduate_CreatesPoolAndLocksLP() public {
@@ -106,6 +111,10 @@ contract GraduationForkTest is Test {
         BondingCurve impl = new BondingCurve();
         BondingCurve curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token.mint(address(curve), CURVE_SUPPLY);
+
+        // Register the curve so Graduator's per-token access check
+        // (`msg.sender == curveFactory.curveFor(token)`) resolves.
+        curveRegistry.setCurve(address(token), address(curve));
 
         curve.initialize(
             address(token),
@@ -150,5 +159,23 @@ contract GraduationForkTest is Test {
         // because the hook reverts every beforeRemoveLiquidity call — proven in
         // LPLockedHookForkTest + LPLockedHook.t.sol.
         assertEq(address(key.hooks), address(hook));
+    }
+}
+
+/// Test-only stand-in for the CurveFactory `curveFor(token)` lookup that
+/// Graduator uses for its per-token access check. Real factory hands out
+/// deterministic clones; this mock lets the test register whatever address
+/// it wants to be treated as "the" curve for a token.
+contract MockCurveRegistry {
+    mapping(address => address) private _curves;
+
+    function setCurve(address token, address curve) external {
+        _curves[token] = curve;
+    }
+
+    function curveFor(
+        address token
+    ) external view returns (address) {
+        return _curves[token];
     }
 }

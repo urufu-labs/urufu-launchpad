@@ -194,7 +194,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   },
   robinhood: {
     NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
-    Router: '0xb8512f2d1CA89e56CDbB2b7Ef3e94B38434a66a2',
+    Router: '0x5EFA396B42210c16F2aaDE2dB1Fe7E88054c33DE',
     FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
     ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
     ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
@@ -257,7 +257,7 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    MultiHookHost: '0x3a3e0FB55e321e31B2C72973EF8Ad796186ba2C4',
+    MultiHookHost: '0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -270,7 +270,7 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  robinhood: '0xbf3DAdD9EE1538F7cd7de012f71cf8626829939b',
+  robinhood: '0xaf62e66B6039cCd11a5953e3f3dB342CF7EAa489',
   'robinhood-testnet': null,
 };
 

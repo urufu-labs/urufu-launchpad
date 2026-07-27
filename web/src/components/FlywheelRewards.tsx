@@ -28,12 +28,13 @@ interface Props {
   /// the currently-connected wallet (self view).
   visibleFor: Address;
   /// Kept for API compatibility — no longer influences render. The section always
-  /// queries Base (that's where the vault lives), regardless of what chain the
-  /// user's wallet is currently on. Claim button prompts a wallet switch if needed.
+  /// queries Robinhood (urufu gemu NFT is Robinhood-only post-migration),
+  /// regardless of what chain the user's wallet is currently on. Claim button
+  /// prompts a wallet switch to Robinhood if the wallet is elsewhere.
   chain?: ChainKey;
 }
 
-const REWARDS_CHAIN: ChainKey = 'base';
+const REWARDS_CHAIN: ChainKey = 'robinhood';
 const REWARDS_CHAIN_ID = CHAIN_KEY_TO_ID[REWARDS_CHAIN];
 
 export function FlywheelRewards({ visibleFor }: Props) {
@@ -55,8 +56,8 @@ export function FlywheelRewards({ visibleFor }: Props) {
     let cancelled = false;
     (async () => {
       const [s, e] = await Promise.all([
-        fetchVaultSummary('base'),
-        fetchEpochsForHolder('base', visibleFor),
+        fetchVaultSummary('robinhood'),
+        fetchEpochsForHolder('robinhood', visibleFor),
       ]);
       if (cancelled) return;
       setSummary(s);

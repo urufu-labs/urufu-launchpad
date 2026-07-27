@@ -57,6 +57,12 @@ export const routerAbi = parseAbi([
   `function launchWithURU(LaunchParams params, uint256 uruAmount) returns (address token)`,
   `function uru() view returns (address)`,
   `function uruSink() view returns (address)`,
+  /// Minimum URU required per launch (loyalty discount applied) - the create
+  /// page reads this and takes max(spot-quoted, floor) before approve/send so
+  /// launches don't revert with RouterV2__InsufficientUru after the user has
+  /// paid gas.
+  `function minUruFeeFor(address launcher) view returns (uint256)`,
+  `function minUruFee() view returns (uint256)`,
   `event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid)`,
   /// Whitelisted-curve launch entries (RouterV2 + WL-aware CurveFactory required).
   /// See contracts/src/curve/BondingCurve.sol:WhitelistInit for the struct shape.

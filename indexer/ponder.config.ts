@@ -92,10 +92,20 @@ export const multiHookHostAbi = parseAbi([
 export const feeSplitterAbi = parseAbi([
   'event FeeReceived(address indexed launcher, uint8 indexed base, uint256 amount)',
   'event Distributed(uint256 total, uint256 toBuyback, uint256 toNft, uint256 toTreasury)',
+  // V4 addition: emitted when the treasury-side transfer fails and the slice
+  // is stuck in-contract awaiting sweep(). Distributed's toTreasury reports
+  // intent; this event reports actual stuck balance so reconciliation stays
+  // sum-of-slices == amount.
+  'event TreasuryDistributionFailed(address indexed treasury, uint256 stuck)',
+  'event Swept(address indexed to, uint256 amount)',
 ]);
 
 export const uruBuybackVaultAbi = parseAbi([
   'event BuybackExecuted(uint256 ethIn, uint256 uruOut)',
+  // V4 additions: owner-initiated escape hatches. Analytics that computes
+  // vault liquidity from sum(ethIn) - sum(uruOut) drifts without these.
+  'event UruSwept(address indexed to, uint256 amount)',
+  'event EthSwept(address indexed to, uint256 amount)',
 ]);
 
 export const uruDepositSinkAbi = parseAbi([

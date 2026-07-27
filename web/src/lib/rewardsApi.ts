@@ -21,7 +21,7 @@ async function getJson<T>(path: string): Promise<T | null> {
 
 /// Chain slugs the compile-service knows about. Adding a new one requires wiring
 /// its config in `rewards.ts` server-side; keep the client union in sync.
-export type RewardsChain = 'base';
+export type RewardsChain = 'robinhood';
 
 export interface VaultSummary {
   chainId: number;
