@@ -72,21 +72,20 @@ contract PostDeploySmoke is Script {
         string memory tName = string.concat("Smoke20 ", vm.toString(block.number));
         string memory tTicker = string.concat("S20", vm.toString(uint256(block.number % 10_000)));
 
-        LaunchParams memory p = LaunchParams({
-            base: BaseType.ERC20,
-            name: tName,
-            ticker: tTicker,
-            configHash: bareCfg,
-            initData: abi.encode(cf.defaultCurveSupply(), address(router), new bytes[](0)),
-            moduleCount: 1,
-            installHook: false,
-            installGovernance: false,
-            installBondingCurve: true,
-            ownership: OwnershipMode.Renounce,
-            ownerTargetIfMultisig: address(0),
-            antiSniperBlocks: 0,
-            buybackBurnBps: 0
-        });
+        LaunchParams memory p;
+        p.base = BaseType.ERC20;
+        p.name = tName;
+        p.ticker = tTicker;
+        p.configHash = bareCfg;
+        p.initData = abi.encode(cf.defaultCurveSupply(), address(router), new bytes[](0));
+        p.moduleCount = 1;
+        p.installHook = false;
+        p.installGovernance = false;
+        p.installBondingCurve = true;
+        p.ownership = OwnershipMode.Renounce;
+        p.ownerTargetIfMultisig = address(0);
+        p.antiSniperBlocks = 0;
+        p.buybackBurnBps = 0;
 
         uint256 fee = router.quote(p);
         console2.log("---------------------------------------------------------");
@@ -144,21 +143,20 @@ contract PostDeploySmoke is Script {
 
         // ERC-721A initData shape: (baseURI, maxSupply, modules[]) — matches PhaseCombosTest
         // and DeployPhase1's BARE_ERC721A_CONFIG registration.
-        LaunchParams memory p = LaunchParams({
-            base: BaseType.ERC721A,
-            name: tName,
-            ticker: tTicker,
-            configHash: bareCfg,
-            initData: abi.encode(string("ipfs://smoke/"), uint256(10_000), new bytes[](0)),
-            moduleCount: 1,
-            installHook: false,
-            installGovernance: false,
-            installBondingCurve: false,
-            ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0),
-            antiSniperBlocks: 0,
-            buybackBurnBps: 0
-        });
+        LaunchParams memory p;
+        p.base = BaseType.ERC721A;
+        p.name = tName;
+        p.ticker = tTicker;
+        p.configHash = bareCfg;
+        p.initData = abi.encode(string("ipfs://smoke/"), uint256(10_000), new bytes[](0));
+        p.moduleCount = 1;
+        p.installHook = false;
+        p.installGovernance = false;
+        p.installBondingCurve = false;
+        p.ownership = OwnershipMode.KeepEOA;
+        p.ownerTargetIfMultisig = address(0);
+        p.antiSniperBlocks = 0;
+        p.buybackBurnBps = 0;
 
         uint256 fee = router.quote(p);
         console2.log("---------------------------------------------------------");
@@ -181,21 +179,20 @@ contract PostDeploySmoke is Script {
         string memory tTicker = string.concat("S1155", vm.toString(uint256(block.number % 10_000)));
 
         // ERC-1155 initData shape: (uri, modules[]) — matches PhaseCombosTest.
-        LaunchParams memory p = LaunchParams({
-            base: BaseType.ERC1155,
-            name: tName,
-            ticker: tTicker,
-            configHash: bareCfg,
-            initData: abi.encode(string("ipfs://smoke/{id}.json"), new bytes[](0)),
-            moduleCount: 1,
-            installHook: false,
-            installGovernance: false,
-            installBondingCurve: false,
-            ownership: OwnershipMode.KeepEOA,
-            ownerTargetIfMultisig: address(0),
-            antiSniperBlocks: 0,
-            buybackBurnBps: 0
-        });
+        LaunchParams memory p;
+        p.base = BaseType.ERC1155;
+        p.name = tName;
+        p.ticker = tTicker;
+        p.configHash = bareCfg;
+        p.initData = abi.encode(string("ipfs://smoke/{id}.json"), new bytes[](0));
+        p.moduleCount = 1;
+        p.installHook = false;
+        p.installGovernance = false;
+        p.installBondingCurve = false;
+        p.ownership = OwnershipMode.KeepEOA;
+        p.ownerTargetIfMultisig = address(0);
+        p.antiSniperBlocks = 0;
+        p.buybackBurnBps = 0;
 
         uint256 fee = router.quote(p);
         console2.log("---------------------------------------------------------");

@@ -172,9 +172,14 @@ contract ERC20WithAntiBotPermitGen is ERC20, Ownable {
         // Skip if we're past the gate.
         // Skip mints (from == address(0)) and burns (to == address(0)).
         // Skip if the sender is the owner (team can move tokens freely during launch).
-        // Otherwise: require the recipient to be on the allowlist.
+        // Otherwise: require EITHER endpoint to be on the allowlist. Bypassing on
+        // `_abAllowed[from]` (not just `_abAllowed[to]`) is what lets bonding-curve
+        // buys through: the curve holds initial supply and calls `token.transfer(buyer, N)`
+        // — buyer is not allowlisted, but the curve is (Router allowlists it at
+        // launch). Same rule catches Graduator + PoolManager during the graduation
+        // handoff without pre-registering every counterparty.
         if (block.number < _abGateEndsAtBlock && from != address(0) && to != address(0) && from != owner()) {
-            if (!_abAllowed[to]) {
+            if (!_abAllowed[from] && !_abAllowed[to]) {
                 revert AntiBot__Gated(from, to, _abGateEndsAtBlock - block.number);
             }
         }

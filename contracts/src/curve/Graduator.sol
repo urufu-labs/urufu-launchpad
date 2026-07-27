@@ -145,14 +145,14 @@ contract Graduator is IUnlockCallback {
         SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), tokenAmount);
 
         // v4 orders currencies numerically: address(0) < any 20-byte address, so native ETH
-        // is always currency0.
-        PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(0)),
-            currency1: Currency.wrap(token),
-            fee: fee,
-            tickSpacing: tickSpacing,
-            hooks: defaultHook
-        });
+        // is always currency0. Field-by-field instead of a 5-field struct literal —
+        // coverage's viaIR-minimum blows solc's stack on the literal form.
+        PoolKey memory key;
+        key.currency0 = Currency.wrap(address(0));
+        key.currency1 = Currency.wrap(token);
+        key.fee = fee;
+        key.tickSpacing = tickSpacing;
+        key.hooks = defaultHook;
 
         // Write per-pool hook config BEFORE initialize — once initialize fires it stamps
         // the hook's `launchBlock` and the setPoolConfig call would revert with

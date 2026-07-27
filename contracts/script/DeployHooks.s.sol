@@ -47,13 +47,14 @@ contract DeployHooks is Script {
         external
         returns (address lpLocked, address feeRedirect, address antiSniper, address multiHookHost, address buybackBurn)
     {
-        Ctx memory ctx = Ctx({
-            poolManager: vm.envAddress("V4_POOL_MANAGER"),
-            platform: vm.envOr("PLATFORM", msg.sender),
-            creator: vm.envOr("CREATOR", msg.sender),
-            platformBps: uint16(vm.envOr("PLATFORM_BPS", uint256(100))),
-            creatorBps: uint16(vm.envOr("CREATOR_BPS", uint256(100)))
-        });
+        // Field-by-field — coverage's viaIR-minimum settings blow solc's stack on
+        // the 5-field struct literal.
+        Ctx memory ctx;
+        ctx.poolManager = vm.envAddress("V4_POOL_MANAGER");
+        ctx.platform = vm.envOr("PLATFORM", msg.sender);
+        ctx.creator = vm.envOr("CREATOR", msg.sender);
+        ctx.platformBps = uint16(vm.envOr("PLATFORM_BPS", uint256(100)));
+        ctx.creatorBps = uint16(vm.envOr("CREATOR_BPS", uint256(100)));
 
         lpLocked = _deployLPLocked(ctx);
         feeRedirect = _deployFeeRedirect(ctx);

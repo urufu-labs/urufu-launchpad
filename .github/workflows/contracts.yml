@@ -32,7 +32,12 @@ jobs:
       - name: Test (CI profile — high fuzz runs)
         run: FOUNDRY_PROFILE=ci forge test -vvv
       - name: Coverage summary
-        # --ir-minimum enables viaIR with minimum optimization; without it, coverage's
-        # stripped optimizer settings blow the solc stack on DeployFlywheel's 6-field
-        # struct literal. See https://book.getfoundry.sh/guides/best-practices/stack-too-deep
+        # --ir-minimum enables viaIR with minimum optimization. Several launch-related
+        # functions still trip solc's stack limit even with the workaround (the
+        # instrumented decode wrappers exceed 16-slot stack pressure). Non-blocking so
+        # merges aren't gated on a known solc/foundry interaction — the full test
+        # suite above is the correctness gate. See
+        # https://book.getfoundry.sh/guides/best-practices/stack-too-deep and
+        # https://github.com/foundry-rs/foundry/issues/3357
+        continue-on-error: true
         run: forge coverage --report summary --ir-minimum

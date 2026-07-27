@@ -176,14 +176,13 @@ contract RouterV2 is Router {
             address curve = ICurveFactoryLike(curveFactory)
                 .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
             emit CurveInstalled(token, curve);
+            _grantCurveModuleAllowances(token, curve);
         }
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
 
         // Standard Launched event with feePaid = 0 (no ETH), plus paired URU event.
-        emit Launched(
-            token, msg.sender, params.base, nameHash, tickerHash, 0, params.installHook, params.installGovernance
-        );
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
         emit LaunchedInURU(token, msg.sender, uruAmount);
     }
 
@@ -232,25 +231,15 @@ contract RouterV2 is Router {
         address curve = ICurveFactoryWlLike(curveFactory)
             .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
         emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
 
         uint256 refund = msg.value - fee;
         if (refund > 0) SafeTransferLib.safeTransferETH(msg.sender, refund);
 
-        emit Launched(
-            token, msg.sender, params.base, nameHash, tickerHash, fee, params.installHook, params.installGovernance
-        );
-        emit LaunchedWithWhitelist(
-            token,
-            msg.sender,
-            wl.root,
-            wl.reservedTokens,
-            wl.maxWlPerAddress,
-            wl.fallbackTs,
-            wl.sourceTokenAddress,
-            wl.sourceChainId
-        );
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, fee, params);
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
     }
 
     /// @notice URU-pay variant of `launchWithWhitelist`. Mirrors `launchWithURU`'s
@@ -296,23 +285,13 @@ contract RouterV2 is Router {
         address curve = ICurveFactoryWlLike(curveFactory)
             .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
         emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
 
-        emit Launched(
-            token, msg.sender, params.base, nameHash, tickerHash, 0, params.installHook, params.installGovernance
-        );
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
         emit LaunchedInURU(token, msg.sender, uruAmount);
-        emit LaunchedWithWhitelist(
-            token,
-            msg.sender,
-            wl.root,
-            wl.reservedTokens,
-            wl.maxWlPerAddress,
-            wl.fallbackTs,
-            wl.sourceTokenAddress,
-            wl.sourceChainId
-        );
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
     }
 
     /// @notice Owner sets the URU-side minimum fee (18 decimals, since URU has 18).
@@ -341,5 +320,44 @@ contract RouterV2 is Router {
         if (floor == 0) return 0;
         uint16 discountBps = _discountBpsFor(launcher);
         return floor - (floor * discountBps) / 10_000;
+    }
+
+    /// Extracted for the same reason as `_emitLaunchedWithWhitelist` — the
+    /// parent `Launched` event has 8 args, all three launch entrypoints emit it,
+    /// and inlining it after all their other locals pushed the outer functions
+    /// past the viaIR minimum-optimization stack limit.
+    function _emitLaunched(
+        address token,
+        address launcher,
+        BaseType base,
+        bytes32 nameHash,
+        bytes32 tickerHash,
+        uint256 feePaid,
+        LaunchParams calldata params
+    ) internal {
+        emit Launched(
+            token, launcher, base, nameHash, tickerHash, feePaid, params.installHook, params.installGovernance
+        );
+    }
+
+    /// Extracted from the two whitelist-launch functions to keep their local-var count
+    /// below the viaIR minimum-optimization stack limit. The event has 8 args + a
+    /// calldata struct read; inlined it pushed the outer functions past 16 stack
+    /// slots and `forge coverage --ir-minimum` failed with "stack too deep".
+    function _emitLaunchedWithWhitelist(
+        address token,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) internal {
+        emit LaunchedWithWhitelist(
+            token,
+            launcher,
+            wl.root,
+            wl.reservedTokens,
+            wl.maxWlPerAddress,
+            wl.fallbackTs,
+            wl.sourceTokenAddress,
+            wl.sourceChainId
+        );
     }
 }

@@ -271,22 +271,22 @@ contract DeployPhase1 is Script {
 
         vm.stopBroadcast();
 
-        d = Deployment({
-            registry: address(registry),
-            feeReceiver: address(feeReceiver),
-            router: address(router),
-            erc20Factory: address(factory20),
-            erc20TemplateImpl: address(impl20),
-            erc20WithAntiBotImpl: address(impl20AntiBot),
-            erc20WithFoTImpl: address(impl20FoT),
-            erc721aFactory: address(factory721),
-            erc721aTemplateImpl: address(impl721),
-            erc721aWithSvgImpl: address(impl721Svg),
-            erc721aWithRoyaltyImpl: address(impl721Royalty),
-            erc721aWithSvgAndRoyaltyImpl: address(impl721SvgRoyalty),
-            erc1155Factory: address(factory1155),
-            erc1155TemplateImpl: address(impl1155)
-        });
+        // Field-by-field instead of a 14-field struct literal — coverage's
+        // viaIR-minimum settings blow solc's stack on the literal.
+        d.registry = address(registry);
+        d.feeReceiver = address(feeReceiver);
+        d.router = address(router);
+        d.erc20Factory = address(factory20);
+        d.erc20TemplateImpl = address(impl20);
+        d.erc20WithAntiBotImpl = address(impl20AntiBot);
+        d.erc20WithFoTImpl = address(impl20FoT);
+        d.erc721aFactory = address(factory721);
+        d.erc721aTemplateImpl = address(impl721);
+        d.erc721aWithSvgImpl = address(impl721Svg);
+        d.erc721aWithRoyaltyImpl = address(impl721Royalty);
+        d.erc721aWithSvgAndRoyaltyImpl = address(impl721SvgRoyalty);
+        d.erc1155Factory = address(factory1155);
+        d.erc1155TemplateImpl = address(impl1155);
 
         console2.log("=========================================================");
         console2.log("Phase 1 deployed");

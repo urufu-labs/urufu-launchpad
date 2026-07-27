@@ -92,15 +92,14 @@ contract BondingCurveWhitelistTest is Test {
         // Carol tries alice's proof — leaf mismatch, verification should fail.
         carolProofFake = aliceProof;
 
-        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
-            root: wlRoot,
-            reservedTokens: RESERVED_TOKENS,
-            maxWlPerAddress: MAX_WL_PER_ADDR,
-            fallbackTs: FALLBACK_TS,
-            sourceTokenAddress: address(0xabc),
-            sourceChainId: 8453,
-            declaredHolderCount: 3
-        });
+        BondingCurve.WhitelistInit memory wl;
+        wl.root = wlRoot;
+        wl.reservedTokens = RESERVED_TOKENS;
+        wl.maxWlPerAddress = MAX_WL_PER_ADDR;
+        wl.fallbackTs = FALLBACK_TS;
+        wl.sourceTokenAddress = address(0xabc);
+        wl.sourceChainId = 8453;
+        wl.declaredHolderCount = 3;
 
         curve.initializeWithWhitelist(
             address(token),
@@ -147,15 +146,14 @@ contract BondingCurveWhitelistTest is Test {
 
     function test_Init_RevertsOnZeroRoot() public {
         BondingCurve fresh = new BondingCurve();
-        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
-            root: bytes32(0),
-            reservedTokens: RESERVED_TOKENS,
-            maxWlPerAddress: MAX_WL_PER_ADDR,
-            fallbackTs: FALLBACK_TS,
-            sourceTokenAddress: address(0),
-            sourceChainId: 0,
-            declaredHolderCount: 0
-        });
+        BondingCurve.WhitelistInit memory wl;
+        wl.root = bytes32(0);
+        wl.reservedTokens = RESERVED_TOKENS;
+        wl.maxWlPerAddress = MAX_WL_PER_ADDR;
+        wl.fallbackTs = FALLBACK_TS;
+        wl.sourceTokenAddress = address(0);
+        wl.sourceChainId = 0;
+        wl.declaredHolderCount = 0;
         vm.expectRevert(BondingCurve.BondingCurve__ZeroAddress.selector);
         fresh.initializeWithWhitelist(
             address(token),
@@ -175,15 +173,14 @@ contract BondingCurveWhitelistTest is Test {
 
     function test_Init_RevertsOnReservedExceedsSupply() public {
         BondingCurve fresh = new BondingCurve();
-        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
-            root: wlRoot,
-            reservedTokens: CURVE_SUPPLY + 1,
-            maxWlPerAddress: MAX_WL_PER_ADDR,
-            fallbackTs: FALLBACK_TS,
-            sourceTokenAddress: address(0),
-            sourceChainId: 0,
-            declaredHolderCount: 0
-        });
+        BondingCurve.WhitelistInit memory wl;
+        wl.root = wlRoot;
+        wl.reservedTokens = CURVE_SUPPLY + 1;
+        wl.maxWlPerAddress = MAX_WL_PER_ADDR;
+        wl.fallbackTs = FALLBACK_TS;
+        wl.sourceTokenAddress = address(0);
+        wl.sourceChainId = 0;
+        wl.declaredHolderCount = 0;
         vm.expectRevert(
             abi.encodeWithSelector(BondingCurve.BondingCurve__ExceedsSupply.selector, CURVE_SUPPLY + 1, CURVE_SUPPLY)
         );
@@ -205,15 +202,14 @@ contract BondingCurveWhitelistTest is Test {
 
     function test_Init_RevertsOnZeroCap() public {
         BondingCurve fresh = new BondingCurve();
-        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
-            root: wlRoot,
-            reservedTokens: RESERVED_TOKENS,
-            maxWlPerAddress: 0,
-            fallbackTs: FALLBACK_TS,
-            sourceTokenAddress: address(0),
-            sourceChainId: 0,
-            declaredHolderCount: 0
-        });
+        BondingCurve.WhitelistInit memory wl;
+        wl.root = wlRoot;
+        wl.reservedTokens = RESERVED_TOKENS;
+        wl.maxWlPerAddress = 0;
+        wl.fallbackTs = FALLBACK_TS;
+        wl.sourceTokenAddress = address(0);
+        wl.sourceChainId = 0;
+        wl.declaredHolderCount = 0;
         vm.expectRevert(BondingCurve.BondingCurve__ZeroAmount.selector);
         fresh.initializeWithWhitelist(
             address(token),
@@ -309,15 +305,14 @@ contract BondingCurveWhitelistTest is Test {
         BondingCurve tight = new BondingCurve();
         WlMockToken t2 = new WlMockToken();
         t2.mint(address(tight), CURVE_SUPPLY);
-        BondingCurve.WhitelistInit memory wl = BondingCurve.WhitelistInit({
-            root: wlRoot,
-            reservedTokens: 25_000_000e18, // 25M — small enough to drain in one buy
-            maxWlPerAddress: 100_000_000e18, // 100M — well above what any single buy yields
-            fallbackTs: FALLBACK_TS,
-            sourceTokenAddress: address(0),
-            sourceChainId: 0,
-            declaredHolderCount: 0
-        });
+        BondingCurve.WhitelistInit memory wl;
+        wl.root = wlRoot;
+        wl.reservedTokens = 25_000_000e18; // 25M — small enough to drain in one buy;
+        wl.maxWlPerAddress = 100_000_000e18; // 100M — well above what any single buy yields;
+        wl.fallbackTs = FALLBACK_TS;
+        wl.sourceTokenAddress = address(0);
+        wl.sourceChainId = 0;
+        wl.declaredHolderCount = 0;
         tight.initializeWithWhitelist(
             address(t2),
             feeReceiver,

@@ -27,6 +27,14 @@ interface ICurveFactoryLike {
         address launcher
     ) external returns (address curve);
     function defaultCurveSupply() external view returns (uint256);
+    /// Address of the Graduator the CurveFactory hands its curves off to. Router reads
+    /// this to allowlist the graduator + its downstream PoolManager on the launched
+    /// token's per-module gates.
+    function graduator() external view returns (address);
+}
+
+interface IGraduatorLike {
+    function poolManager() external view returns (address);
 }
 
 interface IERC20Like {
@@ -62,6 +70,24 @@ interface IOwnable {
         address newOwner
     ) external;
     function renounceOwnership() external;
+}
+
+/// @notice Per-module allowlist / exclusion setters that Router calls best-effort right after
+///         installing a bonding curve. Modules gate transfers by allowlist (AntiBot) or per-tx
+///         and per-wallet cap (AntiWhale); a curve holding the initial token supply and
+///         transferring it to buyers on every buy is not on either list by default, so every
+///         buy reverts. Router is still `owner()` at the point these fire (ownership dispatch
+///         happens after), so the calls succeed for tokens that include the module and silently
+///         no-op for tokens that don't.
+interface IModuleAllowanceSetters {
+    function setAntiBotAllowed(
+        address who,
+        bool allowed
+    ) external;
+    function setAntiWhaleExcluded(
+        address who,
+        bool excluded
+    ) external;
 }
 
 /// @title  Router
@@ -235,6 +261,7 @@ contract Router is Ownable, ReentrancyGuard {
             address curve = ICurveFactoryLike(curveFactory)
                 .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
             emit CurveInstalled(token, curve);
+            _grantCurveModuleAllowances(token, curve);
         }
 
         _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
@@ -396,5 +423,61 @@ contract Router is Ownable, ReentrancyGuard {
             // KeepEOA
             ownable.transferOwnership(launcher);
         }
+    }
+
+    /// Best-effort: allow every contract that will legitimately move the launched
+    /// token during the full lifecycle — curve buys, graduation, post-grad pool
+    /// operations — to bypass the launched token's per-module transfer gates.
+    ///
+    /// The gates AntiBot / AntiWhale otherwise reject:
+    ///   - `curve.buy() → token.transfer(curve, buyer, N)`   (AntiBot: buyer not allowlisted;
+    ///                                                        template check now bypasses if
+    ///                                                        `from` is allowlisted too so
+    ///                                                        allowlisting the curve is enough)
+    ///   - `Graduator.execute → transferFrom(curve, grad, ~800M)` (AntiWhale: 800M > maxTx)
+    ///   - `Graduator.unlockCallback → transfer(grad, pm, ~800M)` (AntiWhale: same, from
+    ///                                                             becomes graduator)
+    ///
+    /// We allowlist:
+    ///   1. The bonding curve — from-side of every buy + source of graduation transferFrom.
+    ///   2. The Graduator — from-side of the transfer INTO the PoolManager during graduation.
+    ///   3. The PoolManager — to-side of that transfer + from-side of any post-grad routing.
+    ///
+    /// Every call is try/catch'd: tokens without the module revert with an unknown
+    /// selector, which we swallow (bare ERC20 → no-op). Router is still `owner()`
+    /// at this point (ownership dispatch fires after), so the setters succeed for
+    /// tokens that DO have the module. Called only when `installBondingCurve` is on.
+    ///
+    /// Pausable is intentionally NOT auto-toggled: the module has no per-address
+    /// exemption and unpausing would defeat the launcher's stated intent. Frontend
+    /// warns launchers that Pausable + curve means pausing freezes trades.
+    function _grantCurveModuleAllowances(
+        address token,
+        address curve
+    ) internal {
+        _tryGrantModule(token, curve);
+        // Both external reads are best-effort. Mock CurveFactory / mock Graduator in
+        // unit tests may not implement the getter — try/catch keeps launch working
+        // for tokens without any module (which is when a mocked-out setup is used).
+        address grad;
+        try ICurveFactoryLike(curveFactory).graduator() returns (address g) {
+            grad = g;
+        } catch {}
+        if (grad != address(0)) {
+            _tryGrantModule(token, grad);
+            address pm;
+            try IGraduatorLike(grad).poolManager() returns (address p) {
+                pm = p;
+            } catch {}
+            if (pm != address(0)) _tryGrantModule(token, pm);
+        }
+    }
+
+    function _tryGrantModule(
+        address token,
+        address who
+    ) internal {
+        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
+        try IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true) {} catch {}
     }
 }

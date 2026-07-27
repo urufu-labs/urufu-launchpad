@@ -162,14 +162,15 @@ contract NameRegistry is Ownable {
             revert NameRegistry__TickerReserved(tickerHash);
         }
 
-        _reservations[nameHash] = Reservation({
-            token: token,
-            launchedBy: launchedBy,
-            timestamp: uint64(block.timestamp),
-            chainId: uint32(block.chainid),
-            name: normalizedName,
-            ticker: normalizedTicker
-        });
+        // Field-by-field into the storage slot instead of a 6-field struct literal —
+        // coverage's viaIR-minimum blows solc's stack on the literal form.
+        Reservation storage r = _reservations[nameHash];
+        r.token = token;
+        r.launchedBy = launchedBy;
+        r.timestamp = uint64(block.timestamp);
+        r.chainId = uint32(block.chainid);
+        r.name = normalizedName;
+        r.ticker = normalizedTicker;
         _tickerOwner[tickerHash] = token;
 
         emit Reserved(

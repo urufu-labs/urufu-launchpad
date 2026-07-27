@@ -73,14 +73,16 @@ contract DeployFlywheel is Script {
 
         vm.stopBroadcast();
 
-        out = Deployed({
-            feeSplitter: address(splitter),
-            oracle: address(oracle_),
-            nftVault: address(nftVault_),
-            buybackVault: address(buybackVault_),
-            royaltyImpl: address(royaltyImpl),
-            royaltyFactory: address(royaltyFactory)
-        });
+        // Field-by-field instead of a 6-field struct literal — under coverage's
+        // viaIR-minimum settings the literal blows solc's stack (see foundry issue
+        // 3357 + CI notes). Field assignment leaves stack pressure well below the
+        // limit. Behavior identical.
+        out.feeSplitter = address(splitter);
+        out.oracle = address(oracle_);
+        out.nftVault = address(nftVault_);
+        out.buybackVault = address(buybackVault_);
+        out.royaltyImpl = address(royaltyImpl);
+        out.royaltyFactory = address(royaltyFactory);
 
         console2.log("=========================================================");
         console2.log("Flywheel deployed");

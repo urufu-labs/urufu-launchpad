@@ -75,3 +75,12 @@ base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532 }
 # Override with a real key once Blockscout Pro is set up.
 robinhood = { key = "${BLOCKSCOUT_API_KEY:-none}", url = "https://robinhoodchain.blockscout.com/api", chain = 4663 }
 robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY:-none}", url = "https://robinhoodchain-testnet.blockscout.com/api", chain = 46630 }
+
+# Coverage profile — forge coverage disables optimization for source accuracy.
+# We enable via_ir with minimal optimization runs so viaIR pipeline has room
+# to lay out stack slots for functions with many locals (the launch entrypoints
+# and some template composites push past the standard 16-slot limit without it).
+[profile.coverage]
+via_ir = true
+optimizer = true
+optimizer_runs = 1
