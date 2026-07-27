@@ -494,7 +494,10 @@ contract Router is Ownable, ReentrancyGuard {
 
     /// Both allowlists in one shot — used for curve + Graduator, addresses that
     /// legitimately move large amounts throughout the token lifecycle.
-    function _tryGrantBoth(address token, address who) internal {
+    function _tryGrantBoth(
+        address token,
+        address who
+    ) internal {
         try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
         try IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true) {} catch {}
     }
@@ -502,7 +505,10 @@ contract Router is Ownable, ReentrancyGuard {
     /// AntiBot-only bypass — used for PoolManager so post-grad v4 swaps still
     /// respect the launcher's whale caps. Graduation transfers must be sized
     /// under maxTx by construction.
-    function _tryGrantAntiBot(address token, address who) internal {
+    function _tryGrantAntiBot(
+        address token,
+        address who
+    ) internal {
         try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
     }
 }
