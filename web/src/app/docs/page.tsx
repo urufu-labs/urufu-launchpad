@@ -187,7 +187,7 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="uru-pay" title="paying in URU" jp="URU支払">
         <p>
-          the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>
+          the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>{' '}
           or <b>urufu gemu NFT</b>, u can pay the fee in URU instead — and it comes with a
           discount. this is the loyalty flywheel: holders launch cheaper, and the URU they
           pay goes right back into the buyback vault that supports the URU price.
@@ -277,7 +277,7 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="creator" title="creator revenue" jp="報酬">
         <p>
-          <b>if u launch a token that graduates, u earn ETH on every trade forever.</b>
+          <b>if u launch a token that graduates, u earn ETH on every trade forever.</b>{' '}
           this is set at launch and can never be changed.
         </p>
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
