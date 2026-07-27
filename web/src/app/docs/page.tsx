@@ -140,39 +140,45 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="whitelist" title="whitelist launches" jp="関係者">
         <p>
-          if u want ur biggest supporters to buy first — a private list before the rest of
-          the world sees the token — u can attach a <b>whitelist</b> at launch. only wallets
-          on the list can grab tokens during the private window; everyone else has to wait.
+          if u want ur supporters to buy first — a private window before the rest of the
+          world sees the token — u can attach a <b>whitelist</b> at launch. only wallets on
+          the WL can buy during the window; everyone else has to wait.
         </p>
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it works</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
             <li>
-              <b>u upload a list of wallets</b> when u launch (paste or CSV). we hash the
-              whole list into a single fingerprint that lives on-chain — the list stays
-              private off-chain.
+              <b>the WL = holders of an existing token you point at.</b> paste any
+              ERC-20 or NFT address in the whitelist box on the create page — we snapshot
+              its current holders and hash them into a Merkle root that goes on-chain.
+              no list upload, no CSV.
             </li>
             <li>
-              <b>u pick a reserved slice</b> — a % of the curve supply that only whitelisted
-              wallets can buy during the window.
+              <b>60% of the curve supply is reserved for WL buyers</b> during the window;
+              the other 40% stays available for public <code>buy()</code> after fallback.
+              (fixed ratio for now; not tunable in the UI.)
             </li>
             <li>
-              <b>u pick a per-wallet cap</b> — biggest amount any one WL wallet can grab.
-              stops one whale from draining the whole reserved slice.
+              <b>per-wallet cap = reserved ÷ 5</b> (so ~12% of curve supply per wallet, or
+              the top 5 WL wallets could fill it). stops one whale from draining the whole
+              reserved slice.
             </li>
             <li>
-              <b>1h fallback window</b> — after 1 hour anyone can buy, WL or not. keeps a
-              stuck launch from being stuck forever if the WL doesn&apos;t drain the slice.
+              <b>1-hour fallback window</b> — after 1 hour, public <code>buy()</code>
+              unlocks and anyone can buy through the curve, WL or not. keeps a launch from
+              being stuck forever if the WL doesn&apos;t drain the reserved slice.
             </li>
             <li>
-              WL buyers <b>hold their tokens on the curve</b> until graduation — no dump-
-              on-launch. after graduation they claim via a single tx.
+              WL buyers <b>hold their tokens on the curve</b> until graduation — no
+              dump-on-launch. after graduation they call <code>claimWl()</code> once and
+              their held balance transfers to them.
             </li>
           </ul>
         </div>
         <Callout tone="mint" label="who this is for">
-          projects with a real community + an allowlist. if u don&apos;t have one, skip WL
-          and pick a plain curve — the sniper gate + antibot module handle the general case.
+          projects with an existing on-chain community — a token, an NFT collection —
+          whose holders you want to reward with first-look access. if you don&apos;t have
+          one, skip WL and pick a plain curve; the sniper gate handles the general case.
         </Callout>
       </Section>
 
@@ -189,9 +195,14 @@ export default function DocsPage() {
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
-            <li><b>hold URU (any amount above threshold):</b> 40% off launch fee</li>
-            <li><b>hold urufu gemu NFT:</b> 20% off launch fee</li>
-            <li><b>hold both:</b> 50% off (capped — not additive)</li>
+            <li>
+              <b>hold ≥ 100,000 URU:</b> 40% off launch fee (threshold on-chain,
+              tunable by owner)
+            </li>
+            <li><b>hold ≥ 1 urufu gemu NFT:</b> 20% off launch fee</li>
+            <li>
+              <b>hold both:</b> 50% off (capped — not the naive 60% because we max at 50%)
+            </li>
             <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
           </ul>
         </div>
