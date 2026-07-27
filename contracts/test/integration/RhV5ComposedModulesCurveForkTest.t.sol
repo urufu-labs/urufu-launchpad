@@ -120,9 +120,31 @@ contract RhV5ComposedModulesCurveForkTest is Test {
 
         router = RouterV2(payable(ROUTER_V2));
         _ensureFactoryPointsAtLiveRouter(ERC20_FACTORY);
+        _restoreV5LiveWiringOnFork();
 
         vm.deal(launcher, 100 ether);
         vm.deal(alice, 100 ether);
+    }
+
+    /// Post-V6-broadcast, V5 is paused and CurveFactory untrusts it. Etch preserves
+    /// storage, so paused=true and trustedRouters[V5]=false persist. Fork-only undo.
+    address internal constant DEPLOYER_FOR_UNPAUSE = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
+
+    function _restoreV5LiveWiringOnFork() internal {
+        (bool ok, bytes memory ret) = ROUTER_V2.staticcall(abi.encodeWithSignature("paused()"));
+        if (ok && ret.length == 32 && abi.decode(ret, (bool))) {
+            vm.prank(DEPLOYER_FOR_UNPAUSE);
+            (bool okSet,) = ROUTER_V2.call(abi.encodeWithSignature("setPaused(bool)", false));
+            require(okSet, "fork-unpause of V5 Router failed");
+        }
+        (bool okT, bytes memory retT) =
+            CURVE_FACTORY.staticcall(abi.encodeWithSignature("trustedRouters(address)", ROUTER_V2));
+        if (okT && retT.length == 32 && !abi.decode(retT, (bool))) {
+            vm.prank(DEPLOYER_FOR_UNPAUSE);
+            (bool okSetT,) =
+                CURVE_FACTORY.call(abi.encodeWithSignature("setTrustedRouter(address,bool)", ROUTER_V2, true));
+            require(okSetT, "fork-retrust of V5 Router on CurveFactory failed");
+        }
     }
 
     function _etchFreshRouter() internal {

@@ -77,6 +77,13 @@ contract RhV5FoTBlacklistForkTest is Test {
 
         router = RouterV2(payable(ROUTER_V2_NEW));
 
+        // Post-V6-broadcast: V5 Router (ROUTER_V2_NEW here) will be paused. This
+        // test doesn't actually call any launch functions that check `paused`
+        // (they revert on the FoT blacklist BEFORE the pause check via
+        // Router__CurveIncompatibleModule), but future launch-flow additions
+        // could hit the pause. Un-pause defensively on the fork.
+        _restoreV5LiveWiringOnFork();
+
         // Sanity: blacklist actually set on the live router.
         assertTrue(
             router.curveIncompatibleConfigHash(FOT_BLACKLISTED_HASH),
@@ -199,5 +206,18 @@ contract RhV5FoTBlacklistForkTest is Test {
         vm.prank(launcher);
         vm.expectRevert(abi.encodeWithSelector(Router.Router__CurveIncompatibleModule.selector, FOT_BLACKLISTED_HASH));
         router.launchWithURUAndWhitelist(p, uruAmount, _wl());
+    }
+
+    address internal constant DEPLOYER_FOR_UNPAUSE = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
+
+    /// Fork-only undo of V6-broadcast state so tests running against V5 address
+    /// still behave. See RhV5ModuleCurveGraduationForkTest for the same helper.
+    function _restoreV5LiveWiringOnFork() internal {
+        (bool ok, bytes memory ret) = ROUTER_V2_NEW.staticcall(abi.encodeWithSignature("paused()"));
+        if (ok && ret.length == 32 && abi.decode(ret, (bool))) {
+            vm.prank(DEPLOYER_FOR_UNPAUSE);
+            (bool okSet,) = ROUTER_V2_NEW.call(abi.encodeWithSignature("setPaused(bool)", false));
+            require(okSet, "fork-unpause of V5 Router failed");
+        }
     }
 }

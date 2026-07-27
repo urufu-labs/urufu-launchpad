@@ -64,6 +64,13 @@ contract RhV4LiveStackTest is Test {
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
         if (ROUTER_V2.code.length == 0) vm.skip(true);
+        // Skip cleanly once V6 has been broadcast — this test asserts V5-era
+        // wiring (Router == V5, factories.router == V5, etc.). After V6 rewire
+        // those assertions are correctly false; the test's semantics no longer
+        // apply. Use NameRegistry.router as the version signal (V6 script sets
+        // it via setRouter, so a value != V5 means V6 is live).
+        (bool ok, bytes memory ret) = NAME_REGISTRY.staticcall(abi.encodeWithSignature("router()"));
+        if (ok && ret.length == 32 && abi.decode(ret, (address)) != ROUTER_V2) vm.skip(true);
     }
 
     // ============================================================

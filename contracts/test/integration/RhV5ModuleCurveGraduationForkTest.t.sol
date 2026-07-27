@@ -184,9 +184,32 @@ contract RhV5ModuleCurveGraduationForkTest is Test {
         _ensureFactoryPointsAtLiveRouter(ERC20_FACTORY);
         _ensureFactoryPointsAtLiveRouter(ERC721A_FACTORY);
         _ensureFactoryPointsAtLiveRouter(ERC1155_FACTORY);
+        _restoreV5LiveWiringOnFork();
 
         vm.deal(launcher, 100 ether);
         vm.deal(alice, 100 ether);
+    }
+
+    /// Post-V6-broadcast, the LIVE V5 Router is paused and CurveFactory no longer
+    /// trusts it. These tests etch fresh V5-bytecode over V5 address to exercise
+    /// module × curve behavior without waiting on the V6 rewire; etch preserves
+    /// storage, so paused=true and trustedRouters[V5]=false persist. Fork-only
+    /// undo of both so tests still run cleanly against the etched Router.
+    function _restoreV5LiveWiringOnFork() internal {
+        (bool ok, bytes memory ret) = ROUTER_V2.staticcall(abi.encodeWithSignature("paused()"));
+        if (ok && ret.length == 32 && abi.decode(ret, (bool))) {
+            vm.prank(DEPLOYER);
+            (bool okSet,) = ROUTER_V2.call(abi.encodeWithSignature("setPaused(bool)", false));
+            require(okSet, "fork-unpause of V5 Router failed");
+        }
+        (bool okT, bytes memory retT) =
+            CURVE_FACTORY.staticcall(abi.encodeWithSignature("trustedRouters(address)", ROUTER_V2));
+        if (okT && retT.length == 32 && !abi.decode(retT, (bool))) {
+            vm.prank(DEPLOYER);
+            (bool okSetT,) =
+                CURVE_FACTORY.call(abi.encodeWithSignature("setTrustedRouter(address,bool)", ROUTER_V2, true));
+            require(okSetT, "fork-retrust of V5 Router on CurveFactory failed");
+        }
     }
 
     function _ensureFactoryPointsAtLiveRouter(

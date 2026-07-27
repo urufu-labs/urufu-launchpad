@@ -122,6 +122,11 @@ contract RhV5UruWlCurveGraduateForkTest is Test {
 
         router = RouterV2(payable(ROUTER_V2));
 
+        // Fork-only undo of any V6-broadcast state: un-pause V5, re-trust V5 on
+        // CurveFactory, rewire ERC20 factory back to V5. Preserves test semantics
+        // regardless of whether V6 has been broadcast yet.
+        _restoreV5LiveWiringOnFork();
+
         // Live wire sanity — if any of these are stale the graduation-path tests
         // silently mismeasure the V5 stack. Fail loudly instead.
         assertEq(
@@ -525,6 +530,33 @@ contract RhV5UruWlCurveGraduateForkTest is Test {
             if (L.topics[1] != tokenTopic) continue;
             if (L.topics[0] == TOPIC_LAUNCHED_URU) foundUru = true;
             else if (L.topics[0] == TOPIC_LAUNCHED_WL) foundWl = true;
+        }
+    }
+
+    address internal constant DEPLOYER_FOR_UNPAUSE = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
+
+    /// Post-V6-broadcast, V5 Router is paused, CurveFactory untrusts V5, and
+    /// ERC20Factory.router points at V6. This helper reverses all three on the
+    /// fork so tests written against the V5 stack still run cleanly.
+    function _restoreV5LiveWiringOnFork() internal {
+        (bool okP, bytes memory retP) = ROUTER_V2.staticcall(abi.encodeWithSignature("paused()"));
+        if (okP && retP.length == 32 && abi.decode(retP, (bool))) {
+            vm.prank(DEPLOYER_FOR_UNPAUSE);
+            (bool okS,) = ROUTER_V2.call(abi.encodeWithSignature("setPaused(bool)", false));
+            require(okS, "fork-unpause V5 failed");
+        }
+        (bool okT, bytes memory retT) =
+            CURVE_FACTORY.staticcall(abi.encodeWithSignature("trustedRouters(address)", ROUTER_V2));
+        if (okT && retT.length == 32 && !abi.decode(retT, (bool))) {
+            vm.prank(DEPLOYER_FOR_UNPAUSE);
+            (bool okS,) = CURVE_FACTORY.call(abi.encodeWithSignature("setTrustedRouter(address,bool)", ROUTER_V2, true));
+            require(okS, "fork-retrust V5 on CurveFactory failed");
+        }
+        (bool okR, bytes memory retR) = ERC20_FACTORY.staticcall(abi.encodeWithSignature("router()"));
+        if (okR && retR.length == 32 && abi.decode(retR, (address)) != ROUTER_V2) {
+            address own = IFactoryOwned(ERC20_FACTORY).owner();
+            vm.prank(own);
+            IFactoryOwned(ERC20_FACTORY).setRouter(ROUTER_V2);
         }
     }
 }
