@@ -64,6 +64,17 @@ interface INameRegistryAdmin {
     ) external;
 }
 
+interface IFactoryAdmin {
+    /// Every base factory (ERC20 / ERC721A / ERC1155) exposes an owner-gated
+    /// `setRouter` that rotates the `onlyRouter` check inside `deploy()`. If
+    /// this rotation is missed after a Router redeploy, launches through the
+    /// new Router revert at `factory.deploy` because msg.sender != factory.router.
+    function setRouter(
+        address newRouter
+    ) external;
+    function router() external view returns (address);
+}
+
 /// @title  RedeployRouterAndGrad
 /// @notice Mini-redeploy fixing two on-chain HIGH bugs surfaced post-V4:
 ///           (1) Graduator was permissionless — anyone could pre-init a graduating
@@ -83,11 +94,15 @@ interface INameRegistryAdmin {
 ///
 ///         Rewires:
 ///           - hook.setInitializer(newGraduator)
-///           - curveFactory.setGraduator(newGraduator) + setTrustedRouter(newRouter)
+///           - curveFactory.setGraduator(newGraduator) + setTrustedRouter(newRouter,true)/(oldRouter,false)
 ///           - newRouter.setFactory(ERC20/721A/1155) mirrored from old router reads
 ///           - newRouter.setCurveFactory + setLoyaltyOracle + setMinUruFee
+///           - ERC20Factory / ERC721AFactory / ERC1155Factory .setRouter(newRouter)
+///             — the factories' `onlyRouter` check reads their own `router` slot, NOT
+///             the Router's factories map. Skipping this leaves launches through the
+///             new Router reverting because factory.router still points at oldRouter.
 ///           - NameRegistry.setRouter(newRouter)
-///           - RoyaltyRouterFactory.setTrustedDeployer(newRouter)
+///           - RoyaltyRouterFactory.setTrustedDeployer(newRouter,true)/(oldRouter,false)
 ///           - oldRouter.setPaused(true)
 ///
 ///         Not redeployed / not rewired (still live, unaffected by the two bugs):
@@ -206,12 +221,39 @@ contract RedeployRouterAndGrad is Script {
         _tryRoyaltyRouterFactoryRotate(royaltyRouterFactory, out.routerV2, oldRouterAddr);
 
         // ============================================================
+        // 6b. Rotate the base factories' `router` slot to the new Router.
+        //     Missing this is silent — the redeploy script + all read-only
+        //     wiring assertions pass, but the FIRST launch through the new
+        //     Router reverts at `factory.deploy` because the factory's
+        //     onlyRouter check still points at the old address. Reads live
+        //     from the old Router so we hit the right three factories.
+        // ============================================================
+        _tryFactorySetRouter(oldReads.factories(BaseType.ERC20), out.routerV2, "ERC20Factory");
+        _tryFactorySetRouter(oldReads.factories(BaseType.ERC721A), out.routerV2, "ERC721AFactory");
+        _tryFactorySetRouter(oldReads.factories(BaseType.ERC1155), out.routerV2, "ERC1155Factory");
+
+        // ============================================================
         // 7. Pause the old router so no launches land on the buggy contract
         //    while the frontend still points at it.
         // ============================================================
         _pauseOldRouter(oldRouterAddr);
 
         _logSummary(out, oldRouterAddr, poolManager);
+    }
+
+    function _tryFactorySetRouter(
+        address factory,
+        address newRouter,
+        string memory name
+    ) internal {
+        if (factory == address(0)) return;
+        vm.startBroadcast();
+        try IFactoryAdmin(factory).setRouter(newRouter) {
+            console2.log(string.concat("  [ok] ", name, ".setRouter(newRouter)"));
+        } catch {
+            console2.log(string.concat("  [warn] ", name, ".setRouter FAILED - operator must call from owner"));
+        }
+        vm.stopBroadcast();
     }
 
     // ---------------------------------------------------------------- MultiHookHost mining

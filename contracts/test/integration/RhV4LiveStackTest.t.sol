@@ -14,12 +14,15 @@ import {Test} from "forge-std/Test.sol";
 contract RhV4LiveStackTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
-    // ---- V4 stack (deployed 2026-07-26 at block 20310427) ----
-    address internal constant ROUTER_V2 = 0xb8512f2d1CA89e56CDbB2b7Ef3e94B38434a66a2;
+    // ---- LIVE stack (V4 body + V5 mini-redeploy from 2026-07-26 for
+    //      Router / Graduator / MultiHookHost — bug fixes for the two
+    //      HIGH audit findings). Assertions below check the CURRENT
+    //      live wiring, not what any prior deploy round looked like.
+    address internal constant ROUTER_V2 = 0x5EFA396B42210c16F2aaDE2dB1Fe7E88054c33DE;
     address internal constant CURVE_FACTORY = 0x4631C21b066D3B289779e477fc79f13E8d0Fc248;
     address internal constant BONDING_CURVE_IMPL = 0x5afcA487A9DB4728fb23B1b8A2f22931d49b5Aa9;
-    address internal constant MULTI_HOOK_HOST = 0x3a3e0FB55e321e31B2C72973EF8Ad796186ba2C4;
-    address internal constant GRADUATOR = 0xbf3DAdD9EE1538F7cd7de012f71cf8626829939b;
+    address internal constant MULTI_HOOK_HOST = 0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4;
+    address internal constant GRADUATOR = 0xaf62e66B6039cCd11a5953e3f3dB342CF7EAa489;
     address internal constant V4_SWAP_ROUTER = 0x2E4cd43C07879f52422B3e83F00Be877eFD88738;
     address internal constant FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;
     address internal constant URU_DEPOSIT_SINK = 0xA6b3748023540af1aD4C4731E8B8A09fACFf737e;
@@ -38,9 +41,14 @@ contract RhV4LiveStackTest is Test {
     address internal constant URU_TOKEN = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
     address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
 
-    // ---- Legacy (should be paused / rotated away) ----
+    // ---- Legacy (should be paused / rotated away). V4-generation Router +
+    //      Graduator + MultiHookHost added here after V5 mini-redeploy so
+    //      pause/untrust assertions can cover them alongside V1 + V3.
     address internal constant OLD_ROUTER_V1 = 0x50200Eda4693f4b839d8c436D42568B5e92EADE3;
     address internal constant OLD_ROUTER_V3 = 0x66c9cbC18Ee36462d4844BceC48558E0829a33a1;
+    address internal constant OLD_ROUTER_V4 = 0xb8512f2d1CA89e56CDbB2b7Ef3e94B38434a66a2;
+    address internal constant OLD_GRADUATOR_V4 = 0xbf3DAdD9EE1538F7cd7de012f71cf8626829939b;
+    address internal constant OLD_MULTI_HOOK_HOST_V4 = 0x3a3e0FB55e321e31B2C72973EF8Ad796186ba2C4;
 
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
 
@@ -136,7 +144,10 @@ contract RhV4LiveStackTest is Test {
     }
 
     function test_Wire_CurveFactory_RouterTrusted() public view {
+        // Live Router is trusted; V4-generation Router is explicitly untrusted
+        // by the V5 mini-redeploy so a stray call there can't sneak through.
         assertTrue(_readBoolArg(CURVE_FACTORY, "trustedRouters(address)", uint256(uint160(ROUTER_V2))));
+        assertFalse(_readBoolArg(CURVE_FACTORY, "trustedRouters(address)", uint256(uint160(OLD_ROUTER_V4))));
     }
 
     function test_Wire_CurveFactory_Owner_IsDeployer() public view {
@@ -294,32 +305,35 @@ contract RhV4LiveStackTest is Test {
         assertEq(_readAddr(ROYALTY_ROUTER_FACTORY, "platformSink()"), FEE_SPLITTER);
     }
 
-    function test_Wire_RoyaltyFactory_NoTrustedDeployers() public view {
-        // Script explicitly leaves setTrustedDeployer(RouterV2) unwired since
-        // RouterV2 doesn't call deployFor. Verify it stays off until operator
-        // wires the atomic-royalty launch path.
-        assertFalse(_readBoolArg(ROYALTY_ROUTER_FACTORY, "trustedDeployer(address)", uint256(uint160(ROUTER_V2))));
+    function test_Wire_RoyaltyFactory_TrustedDeployerFlipped() public view {
+        // V5 mini-redeploy wired the new Router as trusted and revoked the
+        // V4-generation Router. Confirm both sides of the flip.
+        assertTrue(_readBoolArg(ROYALTY_ROUTER_FACTORY, "trustedDeployer(address)", uint256(uint160(ROUTER_V2))));
+        assertFalse(_readBoolArg(ROYALTY_ROUTER_FACTORY, "trustedDeployer(address)", uint256(uint160(OLD_ROUTER_V4))));
     }
 
     // ============================================================
-    // NameRegistry (unchanged) - should point at V4 RouterV2
+    // NameRegistry (unchanged contract) - should point at the CURRENT
+    // live RouterV2 (V5 mini-redeploy rotated its `router` slot).
     // ============================================================
-    function test_Wire_NameRegistry_Router_IsV4() public view {
+    function test_Wire_NameRegistry_Router_IsLive() public view {
         assertEq(_readAddr(NAME_REGISTRY, "router()"), ROUTER_V2);
     }
 
     // ============================================================
-    // Base factories - all three point at V4 RouterV2
+    // Base factories - all three point at the CURRENT live RouterV2.
+    // Factory `setRouter` was called by the V5 mini-redeploy after the
+    // new Router was deployed, so old V4 routers are no longer wired.
     // ============================================================
-    function test_Wire_ERC20Factory_Router_IsV4() public view {
+    function test_Wire_ERC20Factory_Router_IsLive() public view {
         assertEq(_readAddr(ERC20_FACTORY, "router()"), ROUTER_V2);
     }
 
-    function test_Wire_ERC721AFactory_Router_IsV4() public view {
+    function test_Wire_ERC721AFactory_Router_IsLive() public view {
         assertEq(_readAddr(ERC721A_FACTORY, "router()"), ROUTER_V2);
     }
 
-    function test_Wire_ERC1155Factory_Router_IsV4() public view {
+    function test_Wire_ERC1155Factory_Router_IsLive() public view {
         assertEq(_readAddr(ERC1155_FACTORY, "router()"), ROUTER_V2);
     }
 
@@ -332,6 +346,13 @@ contract RhV4LiveStackTest is Test {
 
     function test_Wire_OldRouterV3_Paused() public view {
         assertTrue(_readBool(OLD_ROUTER_V3, "paused()"), "V3 Router must be paused");
+    }
+
+    function test_Wire_OldRouterV4_Paused() public view {
+        // V4 Router was paused during the V5 mini-redeploy — a launch tx that
+        // still targets the V4 address must revert. If this ever flips to
+        // false, front-run window opens for a partial-migration edge.
+        assertTrue(_readBool(OLD_ROUTER_V4, "paused()"), "V4 Router must be paused");
     }
 
     // ============================================================
