@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @title  RoyaltyRouterImpl
@@ -17,7 +18,7 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 ///         equal 10 000; enforced at initialize. Neither address may be zero. `Ownable` is
 ///         wired to the launcher so they can rotate their own payout wallet post-launch
 ///         (they cannot change the platform sink or the bps split).
-contract RoyaltyRouterImpl is Ownable {
+contract RoyaltyRouterImpl is Ownable, ReentrancyGuard {
     error RoyaltyRouterImpl__AlreadyInitialized();
     error RoyaltyRouterImpl__ZeroAddress();
     error RoyaltyRouterImpl__BadSum(uint256 total);
@@ -59,7 +60,7 @@ contract RoyaltyRouterImpl is Ownable {
     }
 
     /// @notice Marketplaces (or anyone) send ETH here. Split immediately per bps and forward.
-    receive() external payable {
+    receive() external payable nonReentrant {
         if (msg.value == 0) return;
         _distribute(msg.value);
     }
@@ -78,7 +79,7 @@ contract RoyaltyRouterImpl is Ownable {
     ///         receive ETH before the factory materializes it). Owner-only. Splits per the
     ///         active configuration; if uninitialized, reverts. Also useful if a distribution
     ///         reverts and leaves residue.
-    function distributeStuck() external {
+    function distributeStuck() external nonReentrant {
         uint256 bal = address(this).balance;
         if (bal == 0) revert RoyaltyRouterImpl__ZeroBalance();
         _distribute(bal);
@@ -91,7 +92,7 @@ contract RoyaltyRouterImpl is Ownable {
     ///         a front-run attacker (who initialized the clone with themselves as
     ///         launcherPayout via the old permissionless factory deploy) drain
     ///         pre-init royalties in full instead of paying the platform share.
-    function sweep() external onlyOwner {
+    function sweep() external onlyOwner nonReentrant {
         uint256 bal = address(this).balance;
         if (bal == 0) revert RoyaltyRouterImpl__ZeroBalance();
         _distribute(bal);
@@ -104,8 +105,12 @@ contract RoyaltyRouterImpl is Ownable {
         uint256 toPlatform = (amount * platformBps) / 10_000;
         uint256 toLauncher = amount - toPlatform;
 
-        if (toLauncher > 0) SafeTransferLib.safeTransferETH(launcherPayout, toLauncher);
+        // Pay platform FIRST - if launcherPayout is a contract with a reentrant
+        // receive(), it can't cannibalize the platform's slice by calling back
+        // into distributeStuck/sweep on a fresh (post-platform) balance. Combined
+        // with nonReentrant on every external entrypoint, this is defense in depth.
         if (toPlatform > 0) SafeTransferLib.safeTransferETH(platformSink, toPlatform);
+        if (toLauncher > 0) SafeTransferLib.safeTransferETH(launcherPayout, toLauncher);
 
         emit Distributed(amount, toLauncher, toPlatform);
     }

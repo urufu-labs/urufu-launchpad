@@ -197,6 +197,7 @@ export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] |
         items {
           id chainId tokenAddress launchedBy base name ticker configHash feePaid
           installedHook installedGovernance installedBondingCurve curveAddress
+          hasWhitelist payToken uruPaid
           blockNumber blockTimestamp txHash
         }
       }
@@ -443,6 +444,7 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
         items {
           id chainId tokenAddress launchedBy base name ticker configHash feePaid
           installedHook installedGovernance installedBondingCurve curveAddress
+          hasWhitelist payToken uruPaid
           blockNumber blockTimestamp txHash
         }
       }
@@ -533,6 +535,7 @@ export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerL
         items {
           id chainId tokenAddress launchedBy base name ticker configHash feePaid
           installedHook installedGovernance installedBondingCurve curveAddress
+          hasWhitelist payToken uruPaid
           blockNumber blockTimestamp txHash
         }
       }

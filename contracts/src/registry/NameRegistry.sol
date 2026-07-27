@@ -47,6 +47,10 @@ contract NameRegistry is Ownable {
     error NameRegistry__RouterAlreadySet();
     error NameRegistry__NoPendingRouter();
     error NameRegistry__RouterDelayNotPassed(uint256 readyAt);
+    /// Blocks stacking a new proposal on top of an existing one - prevents the
+    /// "burn 2 days once, then activate instantly" bypass where an owner could
+    /// pre-arm a malicious router while state was still legal via `setRouter`.
+    error NameRegistry__PendingRouterExists();
     error NameRegistry__CannotRemoveClaimedTicker(bytes32 tickerHash);
 
     // ============================================================
@@ -248,25 +252,50 @@ contract NameRegistry is Ownable {
     // Admin — onlyOwner
     // ============================================================
 
-    /// @notice Legacy setRouter - used only for the initial wire from an unset router.
-    ///         Once `router != 0`, rotation MUST go through propose/activate.
+    /// @notice Legacy setRouter - used only for the initial wire from an unset
+    ///         router. Once `router != 0`, rotation MUST go through
+    ///         propose/activate. Also CLEARS any pending proposal so a rethink
+    ///         via `setRouter` (initial wire) doesn't leave a stale malicious
+    ///         proposal armed for a delayed-activation attack.
     function setRouter(
         address newRouter
     ) external onlyOwner {
         if (router != address(0)) revert NameRegistry__RouterAlreadySet();
+        if (newRouter == address(0)) revert NameRegistry__ZeroAddress();
         emit RouterSet(router, newRouter);
         router = newRouter;
+        // Clear pending in case a proposal was made while router == 0 (fresh
+        // deploy race). Otherwise the pending value could be activated later
+        // for zero delay against the "already set" gate we just passed.
+        pendingRouter = address(0);
+        pendingRouterTs = 0;
     }
 
-    /// @notice Two-step router rotation. Owner proposes, waits `MIN_ROUTER_DELAY`,
-    ///         then activates. Compromise of the owner key still gives operators
-    ///         48h to notice + counter-sign a revocation.
+    /// @notice Two-step router rotation. Owner proposes, waits
+    ///         `MIN_ROUTER_DELAY`, then activates. Compromise of the owner key
+    ///         still gives operators 48h to notice + counter-sign a revocation.
+    ///         Rejects address(0) (would zero out `router` on activation and
+    ///         reopen the permissive `setRouter` path - full timelock bypass)
+    ///         and blocks a second proposal while one is already pending
+    ///         (prevents "stack proposals + burn 2 days once, then
+    ///         instant-rotate" attack chains).
     function proposeRouter(
         address newRouter
     ) external onlyOwner {
+        if (newRouter == address(0)) revert NameRegistry__ZeroAddress();
+        if (pendingRouter != address(0)) revert NameRegistry__PendingRouterExists();
         pendingRouter = newRouter;
         pendingRouterTs = block.timestamp + MIN_ROUTER_DELAY;
         emit RouterProposed(newRouter, pendingRouterTs);
+    }
+
+    /// Owner can withdraw a pending rotation before activation - safety valve
+    /// if the proposed address was wrong, or as a mandatory response to a
+    /// suspected key compromise while there's still time.
+    function cancelPendingRouter() external onlyOwner {
+        if (pendingRouter == address(0)) revert NameRegistry__NoPendingRouter();
+        pendingRouter = address(0);
+        pendingRouterTs = 0;
     }
 
     function activateRouter() external onlyOwner {

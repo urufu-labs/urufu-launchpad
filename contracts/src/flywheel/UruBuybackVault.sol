@@ -53,6 +53,7 @@ contract UruBuybackVault is Ownable {
     event MinUruPerEthSet(uint256 rate);
     event BuybackExecuted(uint256 ethIn, uint256 uruOut);
     event UruSwept(address indexed to, uint256 amount);
+    event EthSwept(address indexed to, uint256 amount);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
@@ -184,18 +185,20 @@ contract UruBuybackVault is Ownable {
         uint256 bal = address(this).balance;
         if (bal == 0) return;
         SafeTransferLib.safeTransferETH(distributionSink, bal);
+        emit EthSwept(distributionSink, bal);
     }
 
     /// Escape hatch for URU that arrived outside a buyback cycle. Without this,
     /// pre-transferred URU (accidental sends, or swap routers that pre-transfer
     /// before the delta window) is stranded forever - executeBuyback only
     /// forwards the balance-delta from the current swap. Forces destination =
-    /// distributionSink so URU still lands in the flywheel.
+    /// distributionSink so URU still lands in the flywheel. Uses SafeTransferLib
+    /// so a token that returns false silently reverts instead of emitting a
+    /// misleading UruSwept event with no actual balance change.
     function sweepURU() external onlyOwner {
         uint256 bal = uru.balanceOf(address(this));
         if (bal == 0) return;
-        // slither-disable-next-line unchecked-transfer
-        uru.transfer(distributionSink, bal);
+        SafeTransferLib.safeTransfer(address(uru), distributionSink, bal);
         emit UruSwept(distributionSink, bal);
     }
 }

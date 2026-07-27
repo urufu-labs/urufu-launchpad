@@ -130,8 +130,14 @@ contract RoyaltyRouterFactory is Ownable {
         address collection
     ) internal view {
         if (trustedDeployer[msg.sender]) return;
+        // Require collection to be an actual contract - blocks the edge case
+        // where a hostile fallback on a proxy or a bespoke echo-contract crafts
+        // return data that decodes to `msg.sender`, spoofing ownership.
+        if (collection.code.length == 0) revert RoyaltyRouterFactory__Unauthorized(msg.sender, collection);
         (bool ok, bytes memory data) = collection.staticcall(abi.encodeWithSignature("owner()"));
-        if (ok && data.length >= 32) {
+        // Require an exact 32-byte return so any padded / mis-sized response
+        // from a hostile fallback fails the shape check before decode.
+        if (ok && data.length == 32) {
             address collectionOwner = abi.decode(data, (address));
             if (collectionOwner != address(0) && collectionOwner == msg.sender) return;
         }

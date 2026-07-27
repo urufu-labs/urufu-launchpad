@@ -40,6 +40,7 @@ contract NftRevenueVault is Ownable {
     error NftRevenueVault__OverCommit(uint256 committed, uint256 available);
     /// setDistributionSink timelock guard for the sweep escape hatch.
     error NftRevenueVault__NothingToSweep();
+    error NftRevenueVault__ZeroAddress();
 
     event Received(address indexed from, uint256 amount);
     event EpochAdded(uint256 indexed epoch, bytes32 merkleRoot, uint256 totalAmount);
@@ -104,7 +105,7 @@ contract NftRevenueVault is Ownable {
     function sweepDust(
         address to
     ) external onlyOwner {
-        if (to == address(0)) revert NftRevenueVault__InvalidProof(); // reuse zero-address err
+        if (to == address(0)) revert NftRevenueVault__ZeroAddress();
         uint256 bal = address(this).balance;
         if (bal <= totalCommitted) revert NftRevenueVault__NothingToSweep();
         uint256 amount = bal - totalCommitted;

@@ -225,11 +225,12 @@ contract DeployV4Stack is Script {
         vm.stopBroadcast();
 
         // ============================================================
-        // 6. Royalty factory trusts the new Router for atomic launches
+        // 6. Royalty factory: NO trusted deployers wired at deploy time. RouterV2
+        //    doesn't call deployFor today - the atomic-launch integration is a
+        //    follow-up. Operator can `setTrustedDeployer(router, true)` from a
+        //    multisig once that path exists. Wiring it now would create a
+        //    permissioned deployer with no consumer.
         // ============================================================
-        vm.startBroadcast();
-        RoyaltyRouterFactory(out.royaltyRouterFactory).setTrustedDeployer(out.routerV2, true);
-        vm.stopBroadcast();
 
         // ============================================================
         // 7. Rotate external references onto V4 stack
@@ -276,35 +277,36 @@ contract DeployV4Stack is Script {
         address newRouter,
         address newGraduator
     ) internal {
-        // NameRegistry.setRouter - existing V3 NameRegistry still has the
-        // permissive setter (no timelock gate); one-time rotation to new router.
-        vm.startBroadcast();
-        NameRegistry(nameRegistry).setRouter(newRouter);
-        vm.stopBroadcast();
-
-        // Base factories' setRouter is owner-only; requires broadcaster to own
-        // OR to have been added as router (setRouter is the ERC20Factory
-        // convention). Attempt each; on failure log and continue - operator
-        // handles handoff via multisig.
+        // Every rotation is try/catch'd because the 12 preceding deploys are
+        // ALREADY on-chain by this point - if any wire reverts (broadcaster no
+        // longer owns target after handoff, unknown ownership state, etc), we
+        // do NOT unwind the whole broadcast. Failures log a specific "needs
+        // multisig" hint so the operator can finish rotation from a Safe.
+        _tryNameRegistrySetRouter(nameRegistry, newRouter);
         _tryFactorySetRouter(erc20Factory, newRouter, "ERC20Factory");
         _tryFactorySetRouter(erc721aFactory, newRouter, "ERC721AFactory");
         _tryFactorySetRouter(erc1155Factory, newRouter, "ERC1155Factory");
 
-        // Legacy CurveFactory graduator rotation - keeps in-flight curves
-        // graduating through the fixed hook + graduator. Gated on WIRE_LEGACY=1
-        // so an operator can review on-chain state first.
         bool wire = vm.envOr("WIRE_LEGACY", uint256(0)) == 1;
         if (!wire) {
             console2.log("  [pending] Legacy CurveFactory setGraduator SKIPPED (WIRE_LEGACY=0)");
             return;
         }
-        address v1 = vm.envOr("OLD_V1_CURVE_FACTORY", address(0));
-        address v2 = vm.envOr("OLD_V2_CURVE_FACTORY", address(0));
-        address v3 = vm.envOr("OLD_V3_CURVE_FACTORY", address(0));
+        _tryLegacyCfSetGraduator(vm.envOr("OLD_V1_CURVE_FACTORY", address(0)), newGraduator, "V1");
+        _tryLegacyCfSetGraduator(vm.envOr("OLD_V2_CURVE_FACTORY", address(0)), newGraduator, "V2");
+        _tryLegacyCfSetGraduator(vm.envOr("OLD_V3_CURVE_FACTORY", address(0)), newGraduator, "V3");
+    }
+
+    function _tryNameRegistrySetRouter(
+        address nameRegistry,
+        address newRouter
+    ) internal {
         vm.startBroadcast();
-        if (v1 != address(0)) ICurveFactoryOwned(v1).setGraduator(newGraduator);
-        if (v2 != address(0)) ICurveFactoryOwned(v2).setGraduator(newGraduator);
-        if (v3 != address(0)) ICurveFactoryOwned(v3).setGraduator(newGraduator);
+        try NameRegistry(nameRegistry).setRouter(newRouter) {
+            console2.log("  [ok] NameRegistry.setRouter");
+        } catch {
+            console2.log("  [warn] NameRegistry.setRouter FAILED - operator must call from owner");
+        }
         vm.stopBroadcast();
     }
 
@@ -318,6 +320,21 @@ contract DeployV4Stack is Script {
             console2.log("  [ok] factory setRouter", name);
         } catch {
             console2.log("  [warn] factory setRouter FAILED (needs multisig)", name);
+        }
+        vm.stopBroadcast();
+    }
+
+    function _tryLegacyCfSetGraduator(
+        address cf,
+        address newGraduator,
+        string memory version
+    ) internal {
+        if (cf == address(0)) return;
+        vm.startBroadcast();
+        try ICurveFactoryOwned(cf).setGraduator(newGraduator) {
+            console2.log("  [ok] legacy CurveFactory setGraduator", version);
+        } catch {
+            console2.log("  [warn] legacy CurveFactory setGraduator FAILED (needs multisig)", version);
         }
         vm.stopBroadcast();
     }
@@ -348,11 +365,36 @@ contract DeployV4Stack is Script {
         console2.log("  RoyaltyRouterFactory V4:", out.royaltyRouterFactory);
         console2.log("  RoyaltyRouterImpl V4:  ", out.royaltyRouterImpl);
         console2.log("---------------------------------------------------------");
-        console2.log("Post-deploy manual steps:");
-        console2.log("  1. FeeSplitter.setConfig(...) after minConfigDelay (~2 days).");
-        console2.log("  2. Run tools/sync-addresses.mjs to patch web/src/lib/config.ts.");
-        console2.log("  3. Update Railway indexer + compile-service env vars to V4 addresses.");
-        console2.log("  4. Fund KEEPER wallet on RH with ETH for keeper ops.");
+        console2.log("Post-deploy MANUAL steps (verify each):");
+        console2.log("  1. Verify all 12 contracts on Blockscout.");
+        console2.log("  2. node tools/sync-addresses.mjs robinhood - patches config.ts + emits Railway env block.");
+        console2.log(
+            "  3. Update Railway indexer + compile-service env vars to V4 addresses. Bump PONDER_START_BLOCK_ROBINHOOD to this deploy's block. Restart both services."
+        );
+        console2.log(
+            "  4. RouterV2.setCurveIncompatibleConfigHash(configHash, true) for every FoT/rebasing module combo (frontend list in web/src/lib/modules.ts taxesTransfers = true)."
+        );
+        console2.log(
+            "  5. FeeSplitter.setConfig(uruBuybackVault, nftRevenueVault, treasury, 4000, 3500, 2500) after minConfigDelay (~2 days) elapses. Until then, 100% of fees route to treasury sink."
+        );
+        console2.log("  6. Fund KEEPER wallet with ETH for keeper operations.");
+        console2.log(
+            "  7. Once keeper flow validated on-chain, UruDepositSink.setMinEthPerUru + UruBuybackVault.setMinUruPerEth with real market-rate floors (0 = disabled today = vulnerable to keeper-key MEV drain)."
+        );
+        console2.log("---------------------------------------------------------");
+        console2.log("MIGRATION WARNINGS (from V3-to-V4 compat audit):");
+        console2.log(
+            "  * Pause V3 RouterV2 (Router.setPaused(true)) 1 block BEFORE this broadcast to avoid mempool launches reverting mid-rotation."
+        );
+        console2.log(
+            "  * WIRE_LEGACY=1 rewires OLD CurveFactory graduators to V4 Graduator. Old-impl BondingCurves initialized post-rotation would ABI-mismatch the V4 Graduator (permanently strand). RECOMMEND: set WIRE_LEGACY=0 OR call setGraduator(0) on old factories to disable direct-init graduation entirely."
+        );
+        console2.log(
+            "  * V2 MultiHookHost platform fees are STUCK (no pushOwed). V1/V3 fees are recoverable via pushOwed. Publish claim UI wired to V1/V3 hosts per-token."
+        );
+        console2.log(
+            "  * For any pre-V4 NFT collection that never materialized its V3 RoyaltyRouter clone (deployFor was never called), force-deploy the V3 clone NOW via the V3 factory before rotating trust. Otherwise marketplace royalty sends go to a code-less address."
+        );
     }
 
     function _writeAddressBook(

@@ -298,7 +298,14 @@ contract MultiHookHost is BaseHook {
         // The previous implementation early-returned when unspecDelta <= 0, which
         // meant every exact-output swap paid ZERO platform+creator+burn fees. That
         // was a live fee leak - v4-periphery's exact-output path is trivial to reach.
-        uint256 absDelta = uint128(unspecDelta < 0 ? -unspecDelta : unspecDelta);
+        // Guard the pathological `type(int128).min` case: `-int128.min`
+        // overflows in checked arithmetic and would DoS the whole swap unlock.
+        // Practically unreachable at real curve scales (~1.7e38 tokens on the
+        // unspecified side), but a hostile hook stack or 30+ decimal token
+        // could edge into it. Clamp to uint128 max.
+        uint256 absDelta = unspecDelta == type(int128).min
+            ? uint256(uint128(type(int128).max)) + 1
+            : uint128(unspecDelta < 0 ? -unspecDelta : unspecDelta);
 
         uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
         uint256 fee = (absDelta * totalBps) / 10_000;

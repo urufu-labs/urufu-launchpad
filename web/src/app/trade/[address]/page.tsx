@@ -1842,7 +1842,10 @@ function GraduatedPanel({
     abi: v4SwapRouterAbi,
     address: (v4Router as Address | undefined) ?? undefined,
     functionName: 'swapExactETHForToken',
-    args: poolKey && wallet ? [poolKey, 1n, wallet] : undefined,
+    // 5-min deadline: signed txs that idle in the mempool longer than this
+    // revert at the router instead of executing at a stale price. V4 router
+    // added this param; it was optional pre-V4 (no such arg).
+    args: poolKey && wallet ? [poolKey, 1n, wallet, BigInt(Math.floor(Date.now() / 1000) + 300)] : undefined,
     value: inputWei,
     account: wallet,
     chainId,
@@ -1854,7 +1857,9 @@ function GraduatedPanel({
     abi: v4SwapRouterAbi,
     address: (v4Router as Address | undefined) ?? undefined,
     functionName: 'swapExactTokenForETH',
-    args: poolKey && wallet ? [poolKey, inputWei, 1n, wallet] : undefined,
+    args: poolKey && wallet
+      ? [poolKey, inputWei, 1n, wallet, BigInt(Math.floor(Date.now() / 1000) + 300)]
+      : undefined,
     account: wallet,
     chainId,
     query: {

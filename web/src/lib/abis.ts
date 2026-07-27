@@ -160,8 +160,8 @@ export const POOL_KEY_TUPLE =
   '(address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks)' as const;
 
 export const v4SwapRouterAbi = parseAbi([
-  `function swapExactETHForToken(${POOL_KEY_TUPLE} key, uint256 minOut, address recipient) payable returns (uint256 amountOut)`,
-  `function swapExactTokenForETH(${POOL_KEY_TUPLE} key, uint256 amountIn, uint256 minOut, address recipient) returns (uint256 amountOut)`,
+  `function swapExactETHForToken(${POOL_KEY_TUPLE} key, uint256 minOut, address recipient, uint256 deadline) payable returns (uint256 amountOut)`,
+  `function swapExactTokenForETH(${POOL_KEY_TUPLE} key, uint256 amountIn, uint256 minOut, address recipient, uint256 deadline) returns (uint256 amountOut)`,
 ] as const);
 
 /// Subset of Uniswap v4 `StateView` — enough to read a pool's current price + liquidity.

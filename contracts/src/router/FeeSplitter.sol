@@ -57,6 +57,12 @@ contract FeeSplitter is IFeeReceiver, Ownable {
         uint16 treasuryBps
     );
     event Swept(address indexed to, uint256 amount);
+    /// Emitted when the treasury-side transfer failed and its slice is now
+    /// sitting in the FeeSplitter awaiting `sweep()`. `Distributed.toTreasury`
+    /// carries 0 in that case; this event surfaces the stuck amount so
+    /// indexers doing sum-of-slices reconciliation can account for it without
+    /// losing the invariant total = buyback + nft + treasury.
+    event TreasuryDistributionFailed(address indexed treasury, uint256 stuck);
 
     // ============================================================
     // State
@@ -192,17 +198,22 @@ contract FeeSplitter is IFeeReceiver, Ownable {
                 toNft = 0;
             }
         }
+        uint256 stuck = 0;
         if (toTreasury > 0) {
             // Treasury attempt is best-effort too - if it reverts we don't unwind the
             // whole launch; the ETH stays in this contract for sweep() to recover.
             (bool ok,) = treasurySink.call{value: toTreasury, gas: 100_000}("");
             if (!ok) {
-                // Zero the treasury slice in the emitted event so indexers see the
-                // actual distributed amounts (residual balance stays for sweep).
+                // Record the stuck amount for the dedicated event below. Keep
+                // the emitted `Distributed` intent in the amount field so indexers
+                // doing sum-of-slices conservation checks stay balanced -
+                // stuck ETH stays in-contract for sweep() to recover.
+                stuck = toTreasury;
                 toTreasury = 0;
             }
         }
 
         emit Distributed(amount, toBuyback, toNft, toTreasury);
+        if (stuck > 0) emit TreasuryDistributionFailed(treasurySink, stuck);
     }
 }
