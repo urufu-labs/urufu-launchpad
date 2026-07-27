@@ -36,23 +36,42 @@ import { sql, hasDb } from './db.ts';
 // ---------------------------------------------------------------- config
 
 interface ChainConfig {
-  slug: 'base'; // extend when other chains get a flywheel deploy
+  slug: 'base' | 'robinhood';
   chainId: number;
   rpcUrl: string;
   vaultAddress: Address;
   gemuNftAddress: Address;
 }
 
-/// Only `base` is wired today. Add other slugs here as the flywheel lands on new
-/// chains — the frontend picks the chain from the URL path so no other change is
-/// needed to serve proofs for a new chain.
+/// Chains where the flywheel + NftRevenueVault are deployed. Add slugs as the
+/// stack lands on new chains — the frontend picks the chain from the URL path
+/// so no other change is needed to serve proofs for a new chain. Per-chain env
+/// vars follow the `<PREFIX>_NFT_REVENUE_VAULT_ADDRESS` / `<PREFIX>_RPC_URL`
+/// naming convention; unset envs cause the chain to be skipped (returns null,
+/// route responds 501). gemu NFT address differs per chain — Base uses the
+/// original Base collection, Robinhood uses the migrated RH collection at
+/// 0x60cB7082... (see project-robinhood-addresses memory).
 function chainConfigFor(slug: string): ChainConfig | null {
-  if (slug !== 'base') return null;
-  const rpcUrl = process.env.BASE_RPC_URL;
-  const vaultAddress = process.env.BASE_NFT_REVENUE_VAULT_ADDRESS as Address | undefined;
-  const gemuNftAddress = process.env.GEMU_NFT_ADDRESS as Address | undefined;
-  if (!rpcUrl || !vaultAddress || !gemuNftAddress) return null;
-  return { slug: 'base', chainId: 8453, rpcUrl, vaultAddress, gemuNftAddress };
+  if (slug === 'base') {
+    const rpcUrl = process.env.BASE_RPC_URL;
+    const vaultAddress = process.env.BASE_NFT_REVENUE_VAULT_ADDRESS as Address | undefined;
+    const gemuNftAddress = process.env.GEMU_NFT_ADDRESS as Address | undefined;
+    if (!rpcUrl || !vaultAddress || !gemuNftAddress) return null;
+    return { slug: 'base', chainId: 8453, rpcUrl, vaultAddress, gemuNftAddress };
+  }
+  if (slug === 'robinhood') {
+    const rpcUrl = process.env.ROBINHOOD_RPC_URL;
+    const vaultAddress = process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS as Address | undefined;
+    // On Robinhood the gemu NFT is a different collection than Base - read the
+    // RH-specific address if configured, otherwise fall through to the shared
+    // GEMU_NFT_ADDRESS var (safe default for single-chain deploys).
+    const gemuNftAddress =
+      (process.env.ROBINHOOD_GEMU_NFT_ADDRESS as Address | undefined)
+      ?? (process.env.GEMU_NFT_ADDRESS as Address | undefined);
+    if (!rpcUrl || !vaultAddress || !gemuNftAddress) return null;
+    return { slug: 'robinhood', chainId: 4663, rpcUrl, vaultAddress, gemuNftAddress };
+  }
+  return null;
 }
 
 /// Ponder GraphQL endpoint — same URL the frontend uses, wired via env because
