@@ -1854,6 +1854,18 @@ function GraduatedPanel({
   const slippageBps = Math.max(0, Math.min(5000, Math.round(Number(slippagePct || '0') * 100)));
   const minOut = inputWei === 0n ? 0n : (inputWei * BigInt(10_000 - slippageBps)) / 10_000n;
 
+  // 5-min tx deadline for v4 router calls. Kept in state (not computed at
+  // render) so the sim args stay stable across renders — otherwise every
+  // render would recompute Date.now(), refire useSimulateContract, and
+  // burn RPC calls. A ticker in a useEffect refreshes the anchor every 30s
+  // so long-idle tabs still get an accurate deadline when the user clicks.
+  // Also satisfies the react-hooks/purity lint (Date.now is impure).
+  const [txDeadline, setTxDeadline] = useState<bigint>(() => BigInt(Math.floor(Date.now() / 1000) + 300));
+  useEffect(() => {
+    const id = setInterval(() => setTxDeadline(BigInt(Math.floor(Date.now() / 1000) + 300)), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const buySim = useSimulateContract({
     abi: v4SwapRouterAbi,
     address: (v4Router as Address | undefined) ?? undefined,
@@ -1861,7 +1873,7 @@ function GraduatedPanel({
     // 5-min deadline: signed txs that idle in the mempool longer than this
     // revert at the router instead of executing at a stale price. V4 router
     // added this param; it was optional pre-V4 (no such arg).
-    args: poolKey && wallet ? [poolKey, 1n, wallet, BigInt(Math.floor(Date.now() / 1000) + 300)] : undefined,
+    args: poolKey && wallet ? [poolKey, 1n, wallet, txDeadline] : undefined,
     value: inputWei,
     account: wallet,
     chainId,
@@ -1873,9 +1885,7 @@ function GraduatedPanel({
     abi: v4SwapRouterAbi,
     address: (v4Router as Address | undefined) ?? undefined,
     functionName: 'swapExactTokenForETH',
-    args: poolKey && wallet
-      ? [poolKey, inputWei, 1n, wallet, BigInt(Math.floor(Date.now() / 1000) + 300)]
-      : undefined,
+    args: poolKey && wallet ? [poolKey, inputWei, 1n, wallet, txDeadline] : undefined,
     account: wallet,
     chainId,
     query: {
