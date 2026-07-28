@@ -1,6 +1,6 @@
 'use client';
 
-/// Docs page — normie-friendly guide to what urufu labs is, how to launch, and how
+/// Docs page, normie-friendly guide to what urufu labs is, how to launch, and how
 /// value routes back to holders. Uses plain language everywhere. Any deep-technical
 /// stuff lives in the shelf + on-chain readmes.
 
@@ -140,7 +140,7 @@ export default function DocsPage() {
             mixed items (like an in-game shop).
           </li>
           <li>
-            <b>drag features</b> into ur cart — anti-bot cooldowns, staking, royalties,
+            <b>drag features</b> into ur cart, anti-bot cooldowns, staking, royalties,
             deflation, voting. each one is optional; hover to see what it does.
           </li>
           <li>
@@ -155,8 +155,8 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="whitelist" title="whitelist launches" jp="関係者">
         <p>
-          if u want ur supporters to buy first — a private window before the rest of the
-          world sees the token — u can attach a <b>whitelist</b> at launch. only wallets on
+          if u want ur supporters to buy first, a private window before the rest of the
+          world sees the token, u can attach a <b>whitelist</b> at launch. only wallets on
           the WL can buy during the window; everyone else has to wait.
         </p>
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
@@ -164,7 +164,7 @@ export default function DocsPage() {
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
             <li>
               <b>the WL = holders of an existing token you point at.</b> paste any
-              ERC-20 or NFT address in the whitelist box on the create page — we snapshot
+              ERC-20 or NFT address in the whitelist box on the create page, we snapshot
               its current holders and hash them into a Merkle root that goes on-chain.
               no list upload, no CSV.
             </li>
@@ -179,19 +179,19 @@ export default function DocsPage() {
               reserved slice.
             </li>
             <li>
-              <b>1-hour fallback window</b> — after 1 hour, public <code>buy()</code>
+              <b>1-hour fallback window</b>, after 1 hour, public <code>buy()</code>
               unlocks and anyone can buy through the curve, WL or not. keeps a launch from
               being stuck forever if the WL doesn&apos;t drain the reserved slice.
             </li>
             <li>
-              WL buyers <b>hold their tokens on the curve</b> until graduation — no
+              WL buyers <b>hold their tokens on the curve</b> until graduation, no
               dump-on-launch. after graduation they call <code>claimWl()</code> once and
               their held balance transfers to them.
             </li>
           </ul>
         </div>
         <Callout tone="mint" label="who this is for">
-          projects with an existing on-chain community — a token, an NFT collection —
+          projects with an existing on-chain community, a token, an NFT collection , 
           whose holders you want to reward with first-look access. if you don&apos;t have
           one, skip WL and pick a plain curve; the sniper gate handles the general case.
         </Callout>
@@ -203,7 +203,7 @@ export default function DocsPage() {
       <Section id="uru-pay" title="paying in URU" jp="URU支払">
         <p>
           the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>{' '}
-          or <b>urufu gemu NFT</b>, u can pay the fee in URU instead — and it comes with a
+          or <b>urufu gemu NFT</b>, u can pay the fee in URU instead, and it comes with a
           discount. this is the loyalty flywheel: holders launch cheaper, and the URU they
           pay goes right back into the buyback vault that supports the URU price.
         </p>
@@ -216,7 +216,7 @@ export default function DocsPage() {
             </li>
             <li><b>hold ≥ 1 urufu gemu NFT:</b> 20% off launch fee</li>
             <li>
-              <b>hold both:</b> 50% off (capped — not the naive 60% because we max at 50%)
+              <b>hold both:</b> 50% off (capped, not the naive 60% because we max at 50%)
             </li>
             <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
           </ul>
@@ -229,7 +229,7 @@ export default function DocsPage() {
               and shows the URU amount you&apos;ll be charged (loyalty discount already applied).
             </li>
             <li>
-              the URU goes straight into the <b>deposit sink</b> — a smart contract that
+              the URU goes straight into the <b>deposit sink</b>, a smart contract that
               batches URU deposits and periodically swaps them back to ETH.
             </li>
             <li>
@@ -244,7 +244,7 @@ export default function DocsPage() {
         </div>
         <Callout tone="pink" label="not urufu gemu nft only">
           the discount + pay-in-URU path is separate from URU-holder-only launches (which
-          don&apos;t exist as a hard gate) — anyone can launch, holders just get cheaper +
+          don&apos;t exist as a hard gate), anyone can launch, holders just get cheaper +
           route more value back into the ecosystem.
         </Callout>
       </Section>
@@ -254,7 +254,7 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="trade" title="trading + graduation" jp="取引">
         <p>
-          <b>every token starts on a bonding curve</b> — a math formula that sets price from
+          <b>every token starts on a bonding curve</b>, a math formula that sets price from
           the ETH in the pool. more buys → higher price. more sells → lower. u can always
           trade because the curve is the market; no market maker or LP providers needed.
         </p>
@@ -263,9 +263,9 @@ export default function DocsPage() {
         </p>
         <ul style={bulletListStyle}>
           <li>ETH + tokens migrate to a Uniswap v4 pool</li>
-          <li><b>the LP position is math-locked forever</b> — the contract literally reverts on
+          <li><b>the LP position is math-locked forever</b>, the contract literally reverts on
             any removal attempt. not u, not the creator, not us can pull it.</li>
-          <li>trading continues on the same trade page — same UX, bigger market</li>
+          <li>trading continues on the same trade page, same UX, bigger market</li>
           <li>the creator starts earning a % of every trade (see below)</li>
         </ul>
         <Callout tone="mizuiro" label="locked forever = coded in">
@@ -276,9 +276,9 @@ export default function DocsPage() {
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 12, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ opt-in curve extras (pick at launch)</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li><b>sniper gate</b> — first N blocks after graduation, swaps revert. gives real
+            <li><b>sniper gate</b>, first N blocks after graduation, swaps revert. gives real
               ppl a beat to catch up before bots front-run.</li>
-            <li><b>buy → burn</b> — up to 20% of tokens on each buy go to 0x…dead. deflation
+            <li><b>buy → burn</b>, up to 20% of tokens on each buy go to 0x…dead. deflation
               on every trade.</li>
           </ul>
           <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
@@ -301,13 +301,13 @@ export default function DocsPage() {
             <li><b>pre-graduation:</b> the 1% curve trade fee is split between platform + creator.</li>
             <li><b>post-graduation:</b> uniswap v4 charges a 0.3% swap fee. our hook
               redirects a slice of that fee stream to u as the creator, forever.</li>
-            <li>u don&apos;t claim manually — fees accumulate to ur address and u withdraw via the
+            <li>u don&apos;t claim manually, fees accumulate to ur address and u withdraw via the
               MultiHookHost <code style={codeStyle}>claim()</code> function whenever u want.</li>
           </ul>
         </div>
         <Callout tone="mint" label="a small example">
           launch a coin, hit graduation, community trades $50k/day. at typical creator-share
-          rates, that&apos;s meaningful passive ETH monthly — no team required, no marketing tricks,
+          rates, that&apos;s meaningful passive ETH monthly, no team required, no marketing tricks,
           just from the pool doing what pools do ~
         </Callout>
         <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
@@ -342,7 +342,7 @@ export default function DocsPage() {
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ trade fee (paid per swap)</div>
           <p style={{ margin: 0, fontSize: 13 }}>
             <b>1%</b> pre-graduation, <b>0.3%</b> post-graduation (uniswap v4 standard).
-            never paid directly — deducted from swap output.
+            never paid directly, deducted from swap output.
           </p>
         </div>
 
@@ -361,33 +361,35 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="chains" title="which chain should i pick?" jp="鎖">
         <p>
-          urufu launches identical contracts on 4 chains. all have the same launch fee.
-          differ mostly by gas + who&apos;s trading:
+          right now urufu is <b>robinhood-only</b>. the launchpad, flywheel, URU token, and
+          urufu gemu NFT all live on robinhood chain (chain id 4663). other chains are
+          grayed out in the chain switcher for now and will re-enable as we expand.
         </p>
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li>
-              <b>base mainnet</b> — the default. cheap gas, huge trading community, best for
-              memes + serious launches. flywheel + URU discounts live here.
+              <b>robinhood chain</b> (live). near-zero gas, home of the urufu ecosystem.
+              every launch, every trade, every flywheel payout happens here.
             </li>
             <li>
-              <b>ethereum mainnet</b> — most credibility, most gas cost. pick for high-stakes
-              launches where u want L1 permanence.
+              <b>base mainnet</b> (soon). was the original home before the robinhood
+              migration. contracts and design are ready to redeploy when we open it back up.
             </li>
             <li>
-              <b>robinhood chain</b> — brand-new L2, near-zero gas. good for experiments +
-              first launches.
+              <b>ethereum mainnet</b> (soon). same contracts, higher gas, best for
+              high-credibility launches.
             </li>
             <li>
-              <b>base sepolia</b> — testnet. rehearse here w/ fake ETH before spending real ETH.
-              get testnet ETH from any base sepolia faucet.
+              <b>testnets</b> (soon). we&apos;ll wire up base sepolia + a robinhood testnet
+              once we open external testing.
             </li>
           </ul>
         </div>
-        <Callout tone="yolk" label="switch chains anytime">
-          the chain switcher (top-right, next to the wallet button) affects what the shop
-          builds against + where new launches land. discover + trade pages show every chain&apos;s
-          activity.
+        <Callout tone="yolk" label="why robinhood first">
+          robinhood is where the URU token and urufu gemu NFT already live, so the flywheel
+          (URU buyback + NFT holder rewards + on-token buyback-burn) loops back to holders
+          from day one. adding more chains later is a matter of redeploying, not
+          re-architecting.
         </Callout>
       </Section>
 
@@ -401,12 +403,12 @@ export default function DocsPage() {
         </p>
         <ul style={bulletListStyle}>
           <li>
-            <b>contracts are open + tested</b> — every combo compiles from the same audited
+            <b>contracts are open + tested</b>, every combo compiles from the same audited
             primitives, factory addresses are on-chain readable, internal test suite covers
             shipped combos. external audit in progress.
           </li>
           <li>
-            <b>graduated LPs can&apos;t be rugged</b> — LPLockedHook makes removal impossible.
+            <b>graduated LPs can&apos;t be rugged</b>, LPLockedHook makes removal impossible.
           </li>
           <li>
             <b>ur job: check what u&apos;re buying.</b> anyone can launch. always verify the
@@ -422,7 +424,7 @@ export default function DocsPage() {
           FAQ
           ================================================================ */}
       <Section id="faq" title="faq" jp="よくある">
-        <FAQ q="never used a crypto wallet — can i still use urufu?">
+        <FAQ q="never used a crypto wallet, can i still use urufu?">
           install metamask / rabby / coinbase wallet, fund with a little ETH, done. any
           beginner ETH guide works.
         </FAQ>
@@ -430,12 +432,12 @@ export default function DocsPage() {
           no. pick, click launch, done. we handle every line of solidity.
         </FAQ>
         <FAQ q="what if my token doesn&apos;t graduate?">
-          totally fine — it stays on the curve forever. u can still trade it. no penalty, no
+          totally fine, it stays on the curve forever. u can still trade it. no penalty, no
           creator fees (those start post-graduation).
         </FAQ>
         <FAQ q="how do i claim creator fees?">
           call <code style={codeStyle}>claim(currency)</code> on the MultiHookHost contract from
-          ur creator address. fees accumulate to u automatically on every swap — u just
+          ur creator address. fees accumulate to u automatically on every swap, u just
           withdraw when u want.
         </FAQ>
         <FAQ q="where do i see my launches + trades?">
@@ -443,7 +445,7 @@ export default function DocsPage() {
           every trade, ur current holdings, ur PnL.
         </FAQ>
         <FAQ q="can i follow other people?">
-          yes — paste a wallet address into <code style={codeStyle}>/profile/0x…</code> and
+          yes, paste a wallet address into <code style={codeStyle}>/profile/0x…</code> and
           hit follow. their activity shows up in{' '}
           <Link href="/feed" style={linkStyle}>ur feed</Link>.
         </FAQ>
@@ -452,7 +454,7 @@ export default function DocsPage() {
           the community channels for the real contract addresses so u don&apos;t buy a fake.
         </FAQ>
         <FAQ q="where&apos;s the source code?">
-          <code style={codeStyle}>github.com/urufu-labs</code> — every contract + this website,
+          <code style={codeStyle}>github.com/urufu-labs</code>, every contract + this website,
           MIT-licensed.
         </FAQ>
       </Section>

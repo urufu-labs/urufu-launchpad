@@ -117,8 +117,9 @@ export function WelcomeModal() {
                 hi ~ we&apos;re not live yet
               </div>
               <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>
-                urufu labs is a launchpad where u compose a token from real solidity primitives
-                (anti-bot, staking, voting, royalties, whatever) and ship it in one tx.
+                urufu labs is a launchpad for <b>customizable tokens</b>. u compose real
+                on-chain features (anti-bot, staking, voting, royalties, and more) then
+                ship it in one tx.
               </div>
             </div>
           </div>
@@ -143,15 +144,16 @@ export function WelcomeModal() {
                 listStyle: '"✿ "',
               }}
             >
-              <li>your token launches straight onto a bonding curve so anyone can trade day-1</li>
-              <li>once the curve fills, it graduates to a uniswap v4 pool with LP locked forever</li>
-              <li>u earn creator fees on every trade for as long as the pool exists ~</li>
+              <li>launches onto a bonding curve so anyone can trade day-1</li>
+              <li>graduates to a <b>uniswap v4 pool with a custom hook</b>, LP locked forever</li>
+              <li>the v4 hook routes trade fees to creators + flywheel + on-token buyback-burn</li>
+              <li>creators earn on every trade for as long as the pool exists ~</li>
             </ul>
           </div>
 
           <div style={{ fontSize: 11.5, color: 'var(--anchor-soft)', lineHeight: 1.45 }}>
             right now we&apos;re still <b>polishing + testing</b> on robinhood mainnet. everything is
-            real (real ETH, real contracts) — please treat as a preview and{' '}
+            real (real ETH, real contracts), so treat this as a preview and{' '}
             <b>don&apos;t launch anything u care about yet</b>. we&apos;ll announce when we&apos;re open ✿
           </div>
 

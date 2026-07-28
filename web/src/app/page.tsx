@@ -89,7 +89,7 @@ export default function HomePage() {
     return list;
   }, [chainMocks, query, tab]);
 
-  // Right-rail "live activity" — real trades from the indexer on chains with deployed
+  // Right-rail "live activity", real trades from the indexer on chains with deployed
   // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
   // without a refresh. Falls back cleanly when the indexer is down (returns [] → we
   // render the empty-state placeholder in the rail).
@@ -118,7 +118,7 @@ export default function HomePage() {
       if (freshV4 && freshV4.length > 0) setLiveV4Real(freshV4);
     };
     load();
-    // 5s poll — Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
+    // 5s poll, Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
     // should surface in ≤10s from confirm to render (indexer processing lag + one poll).
     const id = setInterval(load, 5_000);
     return () => { cancelled = true; clearInterval(id); };
@@ -185,7 +185,7 @@ export default function HomePage() {
   return (
     <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
       {/* ===================================================================
-          COMPACT HERO — one row, mascot inline, CTA on the right
+          COMPACT HERO, one row, mascot inline, CTA on the right
           =================================================================== */}
       <section
         className="uru-shell"
@@ -219,7 +219,7 @@ export default function HomePage() {
       </section>
 
       {/* ===================================================================
-          STATS STRIP — data-forward, pixel-font values
+          STATS STRIP, data-forward, pixel-font values
           =================================================================== */}
       <section
         className="grid gap-2 mb-3"
@@ -238,7 +238,7 @@ export default function HomePage() {
       </section>
 
       {/* ===================================================================
-          MAIN GRID — dense feed on the left, live-activity rail on the right
+          MAIN GRID, dense feed on the left, live-activity rail on the right
           =================================================================== */}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
             {/* -------------- feed column -------------- */}
@@ -299,7 +299,7 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              {/* Dense card grid — 3-col at lg, 2-col at sm, 1-col mobile */}
+              {/* Dense card grid, 3-col at lg, 2-col at sm, 1-col mobile */}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {filtered.slice(0, 12).map((l) => (
                   <LaunchTile key={l.address} launch={l} />
@@ -445,7 +445,7 @@ export default function HomePage() {
                 </div>
                 {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
                     URU link opens Uniswap on Robinhood with the pre-selected outputCurrency
-                    so the swap widget is pre-filled — no chain-picker fumbling. NFT link
+                    so the swap widget is pre-filled, no chain-picker fumbling. NFT link
                     goes to the collection page on OpenSea where the cheapest listing is one
                     tap away. */}
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
@@ -473,7 +473,7 @@ export default function HomePage() {
       </div>
 
       {/* ===================================================================
-          HOW IT WORKS — demoted below the feed, compact 3-tile strip
+          HOW IT WORKS, demoted below the feed, compact 3-tile strip
           =================================================================== */}
       <section style={{ marginTop: 18 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -674,7 +674,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
 
 function AgoLabel({ ts }: { ts: number }) {
   const label = useAgo(ts);
-  return <>{label ?? '—'}</>;
+  return <>{label ?? '~'}</>;
 }
 
 function StepTile({
