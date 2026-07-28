@@ -1,17 +1,27 @@
 'use client';
 
-/// TradingView lightweight-charts wrapper — candlestick + trade-count volume.
+/// TradingView lightweight-charts wrapper — dual mode:
 ///
-/// Design tradeoff: on a bonding curve, price is deterministic per trade and flat
-/// between trades — a step line is mathematically the most honest picture. But
-/// candles are what users read fluently from every other market chart on the
-/// internet. We render candles bucketed by a user-selectable interval; buckets
-/// with a single trade render as a doji (open == close), buckets with many
-/// trades show the full OHLC range. Post-graduation (v4 pool trades) this is
-/// exactly the right primitive.
+///  - **Step-line** (default when < 15 trades exist): one point per trade, flat
+///    between them, colored green if trending up / pink if trending down.
+///    Mathematically honest — every price shown IS the price a trader would
+///    have seen right after that trade landed. Good for launch-phase testing
+///    when you have 3-5 trades and candles would collapse into meaningless
+///    giant blocks.
+///
+///  - **Candlesticks + volume** (default when >= 15 trades, or user toggles):
+///    OHLC bucketed by user-selected interval (1m / 5m / 15m / 1h / 4h / 1d)
+///    with a volume histogram at the bottom. Trades-per-bucket used as
+///    volume proxy (real ETH volume would require the caller to pass the
+///    per-trade eth amount — currently not in TradePoint shape). Best for
+///    active v4 pool trading post-graduation.
+///
+///  - User can force either mode via a `[step / candles]` toggle pill in the
+///    top-left of the chart. Mode-switch resets the interval to the default
+///    for the current data range.
 ///
 /// Colors: brand mint-hot (up) + pink-hot (down) instead of the classic
-/// green/red. Volume bars use the same up/down color at 60% opacity.
+/// green/red. Volume bars use the same up/down color at 55% opacity.
 ///
 /// Units note: raw curve prices are ETH-per-token in the 1e-9 to 1e-6 ETH range —
 /// lightweight-charts' default formatter would round these to "0.00". We convert every
@@ -21,13 +31,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart,
+  AreaSeries,
   CandlestickSeries,
   HistogramSeries,
   ColorType,
+  LineType,
+  type AreaData,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
-  type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
 
@@ -39,19 +51,15 @@ export interface TradePoint {
   priceWeiPerToken: bigint;
 }
 
-/// Brand candle colors — mint-hot for up, pink-hot for down (matches --mint-hot
-/// / --pink-hot in globals.css). Solid fill + wick match so the chart reads as
-/// "sticker" flat blocks rather than the hollow classical candles.
+/// Below this many trades, default to step-line. Above, default to candles.
+/// User can override with the mode toggle.
+const CANDLE_AUTO_THRESHOLD = 15;
+
 const UP_COLOR = '#2fbf6a';
 const DOWN_COLOR = '#ff88b3';
-/// Volume bars use the same color pair at 55% alpha so the histogram doesn't
-/// steal attention from the candles.
 const UP_VOL = 'rgba(47, 191, 106, 0.55)';
 const DOWN_VOL = 'rgba(255, 136, 179, 0.55)';
 
-/// Convert wei-per-token to whichever display unit the toggle is set to. In ETH mode
-/// we plot gwei-per-token (× 1e9); in USD mode we plot USD-per-token (× ethUsd / 1e18).
-/// Both stay comfortably inside JS Number precision for typical launched-token ranges.
 function toDisplay(weiPerToken: bigint, useUsd: boolean, ethUsd: number | null): number {
   if (useUsd && ethUsd) {
     return (Number(weiPerToken) / 1e18) * ethUsd;
@@ -59,15 +67,10 @@ function toDisplay(weiPerToken: bigint, useUsd: boolean, ethUsd: number | null):
   return Number(weiPerToken) / 1e9;
 }
 
-/// lightweight-charts asserts data values fit in ±(2^53 / 100). Anything outside — from a
-/// broken oracle, an extreme AMM state, or an inverted math bug in the caller — would
-/// crash the whole chart. We clamp so a single bad point can't take the page down.
 const CHART_MAX_ABS = 9e13;
 
-/// Bucket intervals in seconds. Order matters — used to pick the default when
-/// the series spans a small time range so tiny curves don't degenerate to a
-/// single wide candle.
 const INTERVALS = [
+  { key: '1m', label: '1m', seconds: 60 },
   { key: '5m', label: '5m', seconds: 5 * 60 },
   { key: '15m', label: '15m', seconds: 15 * 60 },
   { key: '1h', label: '1h', seconds: 60 * 60 },
@@ -76,9 +79,8 @@ const INTERVALS = [
 ] as const;
 type IntervalKey = (typeof INTERVALS)[number]['key'];
 
-/// Given a time span in seconds, pick a sensible default bucket so the chart
-/// shows ~30-80 candles rather than 3 huge blocks or 1000 shard dojis.
 function pickDefaultInterval(spanSeconds: number): IntervalKey {
+  if (spanSeconds < 30 * 60) return '1m';
   if (spanSeconds < 2 * 60 * 60) return '5m';
   if (spanSeconds < 24 * 60 * 60) return '15m';
   if (spanSeconds < 7 * 24 * 60 * 60) return '1h';
@@ -86,10 +88,27 @@ function pickDefaultInterval(spanSeconds: number): IntervalKey {
   return '1d';
 }
 
-/// Bucket trade points into OHLC candles + a volume histogram (trades-per-bucket).
-/// A single-trade bucket renders as a doji (open == high == low == close), which
-/// is fine — that IS what happened. Multi-trade buckets get the full OHLC shape
-/// derived from the actual per-trade prices in that window.
+/// Step-line series — one point per trade, no aggregation.
+function toStepSeries(points: TradePoint[], useUsd: boolean, ethUsd: number | null): AreaData[] {
+  if (points.length === 0) return [];
+  const sorted = [...points]
+    .filter((p) => p.priceWeiPerToken > 0n)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const byTime = new Map<number, number>();
+  let dropped = 0;
+  for (const p of sorted) {
+    const price = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    if (Math.abs(price) > CHART_MAX_ABS) { dropped++; continue; }
+    byTime.set(p.timestamp, price);
+  }
+  if (dropped > 0) console.warn(`TradeChart: dropped ${dropped} out-of-range price points`);
+  return Array.from(byTime.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([time, value]) => ({ time: time as AreaData['time'], value }));
+}
+
+/// OHLC candles bucketed by interval + trade-count volume histogram.
 function toCandles(
   points: TradePoint[],
   useUsd: boolean,
@@ -104,14 +123,10 @@ function toCandles(
 
   type Bucket = { open: number; high: number; low: number; close: number; count: number };
   const buckets = new Map<number, Bucket>();
-  let dropped = 0;
   for (const p of sorted) {
     const price = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
     if (!Number.isFinite(price) || price <= 0) continue;
-    if (Math.abs(price) > CHART_MAX_ABS) {
-      dropped++;
-      continue;
-    }
+    if (Math.abs(price) > CHART_MAX_ABS) continue;
     const bucketStart = Math.floor(p.timestamp / intervalSeconds) * intervalSeconds;
     const b = buckets.get(bucketStart);
     if (!b) {
@@ -123,7 +138,6 @@ function toCandles(
       b.count += 1;
     }
   }
-  if (dropped > 0) console.warn(`TradeChart: dropped ${dropped} out-of-range price points`);
 
   const times = Array.from(buckets.keys()).sort((a, b) => a - b);
   const candles: CandlestickData[] = times.map((t) => {
@@ -138,49 +152,63 @@ function toCandles(
   return { candles, volumes };
 }
 
+type ChartMode = 'step' | 'candles' | 'auto';
+
 export function TradeChart({
   points,
   flashKey,
   flashSide,
 }: {
   points: TradePoint[];
-  /// When this value changes, the chart flashes green (buy) / pink (sell) for ~600ms.
-  /// Pass a monotonic counter (tx hash, incrementing nonce, or newest-trade timestamp).
   flashKey?: number | string | null;
   flashSide?: 'buy' | 'sell';
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
   const useUsd = unit === 'usd' && ethUsd !== null && ethUsd > 0;
 
-  // Auto-select bucket size from the series' time span, then let the user
-  // override via the interval pill row.
+  // Mode toggle — starts on 'auto' which picks step-line for low-trade counts
+  // and candles once activity picks up. User can force 'step' or 'candles'.
+  const [mode, setMode] = useState<ChartMode>('auto');
+  const effectiveMode: 'step' | 'candles' = useMemo(() => {
+    if (mode === 'step') return 'step';
+    if (mode === 'candles') return 'candles';
+    return points.length >= CANDLE_AUTO_THRESHOLD ? 'candles' : 'step';
+  }, [mode, points.length]);
+
   const [intervalKey, setIntervalKey] = useState<IntervalKey | null>(null);
   const spanSeconds = useMemo(() => {
     if (points.length < 2) return 0;
     const ts = points.map((p) => p.timestamp);
     return Math.max(...ts) - Math.min(...ts);
   }, [points]);
-  const effectiveInterval = useMemo(() => {
-    if (intervalKey) return intervalKey;
-    return pickDefaultInterval(spanSeconds);
-  }, [intervalKey, spanSeconds]);
+  const effectiveInterval = useMemo(
+    () => intervalKey ?? pickDefaultInterval(spanSeconds),
+    [intervalKey, spanSeconds],
+  );
   const intervalSeconds = useMemo(
     () => INTERVALS.find((i) => i.key === effectiveInterval)?.seconds ?? 60 * 60,
     [effectiveInterval],
   );
 
+  // Step-line series
+  const stepSeries = useMemo(() => toStepSeries(points, useUsd, ethUsd), [points, useUsd, ethUsd]);
+  const isUp = useMemo(() => {
+    if (stepSeries.length < 2) return true;
+    const last = stepSeries[stepSeries.length - 1].value;
+    const prev = stepSeries[stepSeries.length - 2].value;
+    return last >= prev;
+  }, [stepSeries]);
+
+  // Candle series
   const { candles, volumes } = useMemo(
     () => toCandles(points, useUsd, ethUsd, intervalSeconds),
     [points, useUsd, ethUsd, intervalSeconds],
   );
 
-  // Flash overlay — the animation is keyed on flashCounter so mounting fires the CSS keyframe
-  // from the start every time. flashKey drives when to bump the counter; flashSide picks color.
+  // Flash overlay
   const seenKeyRef = useRef<typeof flashKey>(undefined);
   const [flashCounter, setFlashCounter] = useState(0);
   const [flashActive, setFlashActive] = useState<'buy' | 'sell' | null>(null);
@@ -196,15 +224,18 @@ export function TradeChart({
     }
   }, [flashKey, flashSide]);
 
-  // Auto-tune display precision from the smallest value across all candles.
+  // Auto-tune precision — use step values if step mode, candle lows if candle mode
   const precision = useMemo(() => {
-    if (candles.length === 0) return 4;
     let min = Infinity;
-    for (const c of candles) if (c.low < min) min = c.low;
+    if (effectiveMode === 'step') {
+      for (const p of stepSeries) if (p.value < min) min = p.value;
+    } else {
+      for (const c of candles) if (c.low < min) min = c.low;
+    }
     if (!Number.isFinite(min) || min <= 0) return 6;
     const magnitude = Math.floor(Math.log10(min));
     return Math.max(2, Math.min(8, 4 - magnitude));
-  }, [candles]);
+  }, [effectiveMode, stepSeries, candles]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -219,7 +250,12 @@ export function TradeChart({
         vertLines: { color: 'rgba(58, 44, 58, 0.08)' },
         horzLines: { color: 'rgba(58, 44, 58, 0.08)' },
       },
-      rightPriceScale: { borderColor: '#3a2c3a', scaleMargins: { top: 0.06, bottom: 0.28 } },
+      rightPriceScale: {
+        borderColor: '#3a2c3a',
+        scaleMargins: effectiveMode === 'candles'
+          ? { top: 0.06, bottom: 0.28 }
+          : { top: 0.1, bottom: 0.1 },
+      },
       timeScale: { borderColor: '#3a2c3a', timeVisible: true, secondsVisible: false },
       autoSize: true,
       crosshair: {
@@ -237,49 +273,60 @@ export function TradeChart({
       },
     });
 
-    const candle = chart.addSeries(CandlestickSeries, {
-      upColor: UP_COLOR,
-      downColor: DOWN_COLOR,
-      wickUpColor: UP_COLOR,
-      wickDownColor: DOWN_COLOR,
-      borderUpColor: UP_COLOR,
-      borderDownColor: DOWN_COLOR,
-      priceFormat: {
-        type: 'price',
-        precision,
-        minMove: 1 / Math.pow(10, precision),
-      },
-    });
-    candle.setData(candles);
-    candleRef.current = candle;
-
-    // Volume pane — pinned to the bottom 22% of the chart via priceScaleId.
-    const volume = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'vol',
-      color: UP_VOL,
-    });
-    chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.78, bottom: 0 },
-    });
-    volume.setData(volumes);
-    volumeRef.current = volume;
+    if (effectiveMode === 'step') {
+      const line = chart.addSeries(AreaSeries, {
+        lineType: LineType.WithSteps,
+        lineWidth: 2,
+        lineColor: isUp ? UP_COLOR : DOWN_COLOR,
+        topColor: isUp ? 'rgba(47, 191, 106, 0.35)' : 'rgba(255, 136, 179, 0.35)',
+        bottomColor: isUp ? 'rgba(47, 191, 106, 0)' : 'rgba(255, 136, 179, 0)',
+        pointMarkersVisible: stepSeries.length <= 40,
+        pointMarkersRadius: 3,
+        priceFormat: {
+          type: 'price',
+          precision,
+          minMove: 1 / Math.pow(10, precision),
+        },
+      });
+      line.setData(stepSeries);
+    } else {
+      const candle = chart.addSeries(CandlestickSeries, {
+        upColor: UP_COLOR,
+        downColor: DOWN_COLOR,
+        wickUpColor: UP_COLOR,
+        wickDownColor: DOWN_COLOR,
+        borderUpColor: UP_COLOR,
+        borderDownColor: DOWN_COLOR,
+        priceFormat: {
+          type: 'price',
+          precision,
+          minMove: 1 / Math.pow(10, precision),
+        },
+      });
+      candle.setData(candles);
+      const volume = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'vol',
+        color: UP_VOL,
+      });
+      chart.priceScale('vol').applyOptions({
+        scaleMargins: { top: 0.78, bottom: 0 },
+      });
+      volume.setData(volumes);
+    }
 
     chart.timeScale().fitContent();
     chartRef.current = chart;
     return () => {
       chart.remove();
       chartRef.current = null;
-      candleRef.current = null;
-      volumeRef.current = null;
     };
-  }, [candles, volumes, precision, useUsd, ethUsd, unit]);
+  }, [effectiveMode, stepSeries, candles, volumes, precision, isUp, useUsd, ethUsd, unit]);
+
+  const hasData = effectiveMode === 'step' ? stepSeries.length > 0 : candles.length > 0;
 
   return (
     <div
-      // Height uses clamp() so the chart is a legible 320px on desktop but folds down to
-      // ~220px on phone-width viewports (below ~640px). Skips a media-query listener +
-      // JS re-render since it's pure CSS.
       style={{
         position: 'relative',
         width: '100%',
@@ -297,7 +344,6 @@ export function TradeChart({
           height: '100%',
         }}
       />
-      {/* Flash overlay — spans the whole wrapper. */}
       {flashActive && (
         <div
           key={flashCounter}
@@ -314,24 +360,28 @@ export function TradeChart({
           }}
         />
       )}
-      {/* Interval toggle — top-right chunky pills, matches CheekyB's style */}
+
+      {/* Mode toggle — top-left, chunky pills. Auto is selected when user
+          hasn't touched it; explicit step/candles overrides the auto rule. */}
       <div
         style={{
           position: 'absolute',
           top: 8,
-          right: 8,
+          left: 8,
           display: 'flex',
           gap: 4,
           zIndex: 4,
         }}
       >
-        {INTERVALS.map((i) => {
-          const active = i.key === effectiveInterval;
+        {(['step', 'candles'] as const).map((m) => {
+          const active = m === effectiveMode;
+          const userForced = mode === m;
           return (
             <button
-              key={i.key}
+              key={m}
               type="button"
-              onClick={() => setIntervalKey(i.key)}
+              onClick={() => setMode(userForced ? 'auto' : m)}
+              title={userForced ? 'click again for auto' : `force ${m}`}
               style={{
                 fontFamily: 'var(--font-round), Klee One, cursive',
                 fontSize: 11,
@@ -345,17 +395,57 @@ export function TradeChart({
                 lineHeight: 1,
               }}
             >
-              {i.label}
+              {m}
             </button>
           );
         })}
       </div>
-      {/* Unit label — pixel font, top-left, so users know the y-axis scale */}
+
+      {/* Interval toggle — top-right; only shown in candles mode */}
+      {effectiveMode === 'candles' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            display: 'flex',
+            gap: 4,
+            zIndex: 4,
+          }}
+        >
+          {INTERVALS.map((i) => {
+            const active = i.key === effectiveInterval;
+            return (
+              <button
+                key={i.key}
+                type="button"
+                onClick={() => setIntervalKey(i.key)}
+                style={{
+                  fontFamily: 'var(--font-round), Klee One, cursive',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  border: '1.5px solid var(--anchor)',
+                  background: active ? 'var(--mint-hot)' : 'rgba(255, 248, 231, 0.9)',
+                  color: active ? '#fff' : 'var(--anchor)',
+                  cursor: 'pointer',
+                  lineHeight: 1,
+                }}
+              >
+                {i.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Unit label — bottom-left so it doesn't fight the toggles */}
       <div
         style={{
           position: 'absolute',
-          top: 8,
-          left: 12,
+          bottom: 8,
+          left: 8,
           fontFamily: 'var(--font-pixel), monospace',
           fontSize: 10,
           color: 'var(--anchor-soft)',
@@ -366,9 +456,12 @@ export function TradeChart({
           zIndex: 4,
         }}
       >
-        price ✿ {useUsd ? 'USD per token' : 'gwei per token'} · trades per {effectiveInterval}
+        {useUsd ? 'USD per token' : 'gwei per token'}
+        {effectiveMode === 'candles' && ` · trades per ${effectiveInterval}`}
+        {effectiveMode === 'step' && ` · one point per trade`}
       </div>
-      {candles.length === 0 && (
+
+      {!hasData && (
         <div
           style={{
             position: 'absolute',
