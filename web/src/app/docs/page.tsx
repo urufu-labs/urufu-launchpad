@@ -110,6 +110,21 @@ export default function DocsPage() {
           with composable features (anti-bot, staking, royalties, voting) that compile from
           the same audited primitives ~
         </Callout>
+        <Callout tone="mint" label="powered by uniswap v4 hooks">
+          post-graduation tokens live in a{' '}
+          <a
+            href="https://docs.uniswap.org/contracts/v4/overview"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+          >
+            uniswap v4 pool
+          </a>{' '}
+          with a custom hook that routes trade fees three ways: creators, the flywheel (URU
+          buyback + urufu gemu NFT holders), and an on-token buyback-burn. v4 hooks are what
+          make the &quot;LP locked forever + earn fees forever&quot; guarantee possible in
+          the first place ~
+        </Callout>
       </Section>
 
       {/* ================================================================
