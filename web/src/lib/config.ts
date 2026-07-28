@@ -377,7 +377,7 @@ export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   base: null,
   'base-sepolia': null,
   robinhood: {
-    uruToken: '0x9fbE210007dDd8389f98d0253018E65cC48B9D24',
+    uruToken: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24',
     gemuNft: '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17',
   },
   'robinhood-testnet': null,
