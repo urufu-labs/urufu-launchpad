@@ -237,10 +237,21 @@ function tokenNet() {
 /// limit and viem throws ResponseBodyTooLargeError. 50 stays well under the limit
 /// while still giving 50x fewer HTTP round-trips than raw http().
 function batchedTransport(rpcUrl: string) {
+  // Batch aggressively — the RPC round-trip is by far the largest cost during
+  // historical sync. On a good RPC we can pack 100+ calls into one HTTP request
+  // and each batch overlaps ~10-20ms of network. Larger `wait` fills batches
+  // more completely at the cost of tail latency, which doesn't matter for
+  // historical sync (we're seconds behind head anyway) and is barely visible
+  // at live-tail (16-20ms is well under human perception).
+  //
+  // retryCount 5 (was 3) — public RPCs 429 during bursts; a couple more
+  // retries with the transport's built-in exponential backoff smooths that
+  // out without blocking forward progress.
   return http(rpcUrl, {
-    batch: { batchSize: 50, wait: 16 },
+    batch: { batchSize: 100, wait: 20 },
     fetchOptions: { keepalive: true },
-    retryCount: 3,
+    retryCount: 5,
+    timeout: 15_000,
   });
 }
 
