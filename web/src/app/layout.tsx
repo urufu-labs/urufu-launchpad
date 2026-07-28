@@ -12,6 +12,7 @@ import { AudioToggle } from '@/components/AudioToggle';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 import { PriceUnitToggle } from '@/components/PriceUnitToggle';
+import { WelcomeModal } from '@/components/WelcomeModal';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -118,6 +119,7 @@ export default function RootLayout({
         <Providers>
           <CursorMascot />
           <AudioBindings />
+          <WelcomeModal />
           <header
             className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 flex-wrap"
             style={{ borderBottom: '1.5px solid var(--anchor)', background: 'var(--cream)', color: 'var(--anchor)' }}
@@ -231,6 +233,17 @@ export default function RootLayout({
             </nav>
             <div style={{ marginTop: 10 }}>site by ❀ urufu labs ❀ last updated 2026-07-14 ❀ best viewed on desktop lol</div>
             <div style={{ marginTop: 4, opacity: 0.7 }}>a launchpad, not a landing pad (づ｡◕‿‿◕｡)づ</div>
+            <div style={{ marginTop: 4, opacity: 0.7 }}>
+              powered by{' '}
+              <a
+                href="https://docs.uniswap.org/contracts/v4/overview"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+              >
+                uniswap v4 hooks
+              </a>
+            </div>
             {/* Mobile-only theme + audio row — the header hides these under sm because
                 room is scarce; surface them here so touch users can still flip themes. */}
             <div

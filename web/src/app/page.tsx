@@ -207,24 +207,6 @@ export default function HomePage() {
           <div style={{ marginTop: 4, fontSize: 12, color: 'var(--anchor-soft)' }}>
             compose a token, ship real solidity, LP locked + earn creator fees forever ✿
           </div>
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 10.5,
-              color: 'var(--anchor-soft)',
-              fontFamily: 'var(--font-pixel), monospace',
-            }}
-          >
-            powered by{' '}
-            <a
-              href="https://docs.uniswap.org/contracts/v4/overview"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-            >
-              uniswap v4 hooks
-            </a>
-          </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link href="/create" className="uru-btn uru-btn-primary">
