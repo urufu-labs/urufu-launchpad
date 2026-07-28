@@ -16,7 +16,12 @@ import type { Address } from 'viem';
 
 import { isHiddenToken, notHidden } from './hiddenTokens';
 
-const FALLBACK_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:42069';
+/// Shared fallback for chains without their own explicit per-chain URL. `undefined`
+/// on prod when nothing is configured — in that case, indexer helpers skip the fetch
+/// entirely instead of falling back to localhost:42069 (which spammed the console
+/// with ERR_CONNECTION_REFUSED on every Vercel deploy that didn't set the env var).
+/// Dev tip: set NEXT_PUBLIC_INDEXER_URL locally to hit a single-service indexer.
+const FALLBACK_URL: string | undefined = process.env.NEXT_PUBLIC_INDEXER_URL || undefined;
 
 /// Map chain id → per-chain indexer URL if set. Falls back to the shared URL when
 /// no per-chain URL is configured. This lets deployers start with the single-service
@@ -30,17 +35,22 @@ const PER_CHAIN_URLS: Record<number, string | undefined> = {
   46630: process.env.NEXT_PUBLIC_INDEXER_URL_ROBINHOOD_TESTNET,
 };
 
-function graphqlUrlFor(chainId?: number): string {
-  const url = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
-  return `${url.replace(/\/$/, '')}/graphql`;
+/// Returns the indexer GraphQL endpoint for a chain, or null if no URL is
+/// configured. Callers MUST check for null and skip the fetch — no more silent
+/// localhost fallback that guarantees connection-refused spam in production.
+function graphqlUrlFor(chainId?: number): string | null {
+  const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+  if (!base) return null;
+  return `${base.replace(/\/$/, '')}/graphql`;
 }
 
 /// Return every configured indexer URL (per-chain + fallback), deduped. Used by cross-
 /// chain aggregate queries (`fetchRecentLaunches`, `fetchRecentTrades`, etc.) that
 /// want data from all chains at once. Callers merge the per-URL responses client-side.
+/// Returns [] when nothing is configured — callers should treat as "no data available".
 function allConfiguredUrls(): string[] {
   const urls = new Set<string>();
-  urls.add(FALLBACK_URL);
+  if (FALLBACK_URL) urls.add(FALLBACK_URL);
   for (const u of Object.values(PER_CHAIN_URLS)) if (u) urls.add(u);
   return Array.from(urls).map((u) => `${u.replace(/\/$/, '')}/graphql`);
 }
@@ -52,7 +62,9 @@ async function gql<T>(
   variables?: Record<string, unknown>,
   chainId?: number,
 ): Promise<T | null> {
-  return gqlAt<T>(graphqlUrlFor(chainId), query, variables);
+  const url = graphqlUrlFor(chainId);
+  if (!url) return null;
+  return gqlAt<T>(url, query, variables);
 }
 
 async function gqlAt<T>(
@@ -90,6 +102,11 @@ async function gqlFanout<T extends { [key: string]: { items: unknown[] } }>(
   variables?: Record<string, unknown>,
 ): Promise<T | null> {
   const urls = allConfiguredUrls();
+  if (urls.length === 0) {
+    // No indexer configured (e.g. Vercel missing NEXT_PUBLIC_INDEXER_URL_*).
+    // Skip the fetch — caller renders the empty state instead of console-spamming.
+    return null;
+  }
   if (urls.length === 1) {
     // Single-service pattern — no fanout needed.
     return gqlAt<T>(urls[0]!, query, variables);
