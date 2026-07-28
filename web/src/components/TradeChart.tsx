@@ -374,12 +374,18 @@ export function TradeChart({
       volume.setData(volumes);
     }
 
-    // Snap to the newest data on the right edge, keeping our fixed barSpacing.
-    // Deliberately NOT calling fitContent() — that would zoom to fit all bars
-    // to the width, blowing up each candle to a huge block when only a few
-    // exist. scrollToRealTime keeps candles at their configured width and
-    // just anchors the view to the most-recent bar.
-    chart.timeScale().scrollToRealTime();
+    // Zoom behavior differs by mode:
+    //  - Candles: keep bars at their fixed 8px width; scroll to the newest
+    //    bar. fitContent() here would inflate a handful of bars into giant
+    //    blocks (the earlier bug).
+    //  - Step-line: fitContent() looks right at any zoom (a line is a line),
+    //    and keeping barSpacing pinned would squish the series into a
+    //    narrow band on the right. Let it fill the width.
+    if (effectiveMode === 'candles') {
+      chart.timeScale().scrollToRealTime();
+    } else {
+      chart.timeScale().fitContent();
+    }
     chartRef.current = chart;
     return () => {
       chart.remove();
