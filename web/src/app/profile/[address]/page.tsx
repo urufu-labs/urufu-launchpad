@@ -225,8 +225,14 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   // Remote counts for the profile being viewed — powers the clickable
   // "N followers · N following" pills. Local `followingCount` above is for
   // the wallet's own feed count, not the viewed profile's counts.
+  //
+  // `remoteRefreshTick` is bumped explicitly by the follow-button handler
+  // AFTER the backend write completes, so we don't fire a refetch on the
+  // instant localStorage flip (which races the signature prompt + backend
+  // write and reads the OLD count).
   const [remoteFollowersCount, setRemoteFollowersCount] = useState<number | null>(null);
   const [remoteFollowingCount, setRemoteFollowingCount] = useState<number | null>(null);
+  const [remoteRefreshTick, setRemoteRefreshTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -239,7 +245,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       setRemoteFollowingCount(fwg.length);
     })();
     return () => { cancelled = true; };
-  }, [address, isFollowingThis]); // refetch after own follow toggle so counts feel live
+  }, [address, remoteRefreshTick]);
 
   const [modalMode, setModalMode] = useState<FollowsMode | null>(null);
 
@@ -342,12 +348,16 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               type="button"
               onClick={async () => {
                 // Optimistic local toggle for the instant button flip, then
-                // fire-and-forget the signed backend write so the followee's
-                // /followers list reflects it. If the wallet isn't connected we
-                // fall back to local-only (backend needs a signature).
+                // fire the signed backend write so the followee's /followers
+                // list reflects it. If the wallet isn't connected we fall back
+                // to local-only (backend needs a signature).
                 if (wallet) {
                   const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
                   playSfx(nowFollowing ? 'coin' : 'flip');
+                  // Backend write completed — bump the tick so the counts
+                  // pill refetches the new server-side state. Without this
+                  // the refetch races the signature and reads stale data.
+                  setRemoteRefreshTick((n) => n + 1);
                 } else {
                   const nowFollowing = toggleFollow(address);
                   playSfx(nowFollowing ? 'coin' : 'flip');
