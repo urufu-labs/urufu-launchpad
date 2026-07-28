@@ -331,6 +331,54 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               {profile.website && <MiniLink href={profile.website} label="site" />}
             </div>
           )}
+          {/* Followers / following pills — clickable to open the modal that lists
+              everyone in that bucket. Live on the LEFT side under the profile
+              info so edit/follow + feed stay on the RIGHT as a clean action
+              column. Shown for every profile (own + others). */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 10,
+              fontFamily: 'var(--font-round), Klee One, cursive',
+              fontSize: 12,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setModalMode('followers')}
+              style={{
+                padding: '3px 10px',
+                borderRadius: 999,
+                border: '1.5px solid var(--anchor)',
+                background: 'var(--cream)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: 'var(--anchor)',
+              }}
+            >
+              <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMode('following')}
+              style={{
+                padding: '3px 10px',
+                borderRadius: 999,
+                border: '1.5px solid var(--anchor)',
+                background: 'var(--cream)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 12,
+                lineHeight: 1.4,
+                color: 'var(--anchor)',
+              }}
+            >
+              <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'flex-start' }}>
@@ -378,53 +426,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               ur feed ({followingCount})
             </Link>
           )}
-        </div>
-
-        {/* Followers / following pills — clickable to open the modal that lists
-            everyone in that bucket. Shown for every profile (own + others). */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            marginTop: 10,
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 12,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setModalMode('followers')}
-            style={{
-              padding: '3px 10px',
-              borderRadius: 999,
-              border: '1.5px solid var(--anchor)',
-              background: 'var(--cream)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              fontSize: 12,
-              lineHeight: 1.4,
-              color: 'var(--anchor)',
-            }}
-          >
-            <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
-          </button>
-          <button
-            type="button"
-            onClick={() => setModalMode('following')}
-            style={{
-              padding: '3px 10px',
-              borderRadius: 999,
-              border: '1.5px solid var(--anchor)',
-              background: 'var(--cream)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              fontSize: 12,
-              lineHeight: 1.4,
-              color: 'var(--anchor)',
-            }}
-          >
-            <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
-          </button>
         </div>
       </section>
 
