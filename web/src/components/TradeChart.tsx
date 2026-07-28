@@ -287,7 +287,20 @@ export function TradeChart({
           ? { top: 0.06, bottom: 0.28 }
           : { top: 0.1, bottom: 0.1 },
       },
-      timeScale: { borderColor: '#3a2c3a', timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: '#3a2c3a',
+        timeVisible: true,
+        secondsVisible: false,
+        // Fixed bar width so a handful of candles don't inflate to giant
+        // blocks. Default was ~6px which fitContent() then overrode; with 4
+        // bars fitContent stretched each to ~100px+. Pinning barSpacing to
+        // 8px keeps them sticker-thin whether you have 4 or 400 candles.
+        barSpacing: 8,
+        // Allow zoom-out to see very old data but keep min zoom-in tight.
+        minBarSpacing: 2,
+        // Trailing padding so the newest bar isn't glued to the right edge.
+        rightOffset: 4,
+      },
       autoSize: true,
       crosshair: {
         horzLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
@@ -361,7 +374,12 @@ export function TradeChart({
       volume.setData(volumes);
     }
 
-    chart.timeScale().fitContent();
+    // Snap to the newest data on the right edge, keeping our fixed barSpacing.
+    // Deliberately NOT calling fitContent() — that would zoom to fit all bars
+    // to the width, blowing up each candle to a huge block when only a few
+    // exist. scrollToRealTime keeps candles at their configured width and
+    // just anchors the view to the most-recent bar.
+    chart.timeScale().scrollToRealTime();
     chartRef.current = chart;
     return () => {
       chart.remove();
