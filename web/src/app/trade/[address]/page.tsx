@@ -832,7 +832,15 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       </div>
     );
   }
-  if (curveQuery.isLoading) {
+  // Show the lookup skeleton while EITHER path is still resolving. The old code
+  // only checked curveQuery.isLoading, but that query is disabled until the
+  // indexer has answered — so between "page mount" and "indexer response" we
+  // fell through to the "no curve" empty state for ~1-3 seconds on slow RPCs.
+  // Now: show loading if indexer hasn't checked yet, OR we're waiting on the
+  // factory fallback because indexer had nothing.
+  const stillResolvingCurve =
+    !indexerChecked || (indexerChecked && !indexedCurveAddress && !!contracts && curveQuery.isFetching);
+  if (stillResolvingCurve) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-14 text-center">
         <Mascot size={64} mood="sleepy" />
