@@ -52,8 +52,11 @@ export interface TradePoint {
 }
 
 /// Below this many trades, default to step-line. Above, default to candles.
-/// User can override with the mode toggle.
-const CANDLE_AUTO_THRESHOLD = 15;
+/// User can override with the mode toggle. Set high enough that a
+/// bonding-curve launch (typically < 30 trades before graduation) stays on
+/// the step-line — candles look sparse and misleading with few points.
+/// Post-graduation v4 pools blow past this quickly and get real candles.
+const CANDLE_AUTO_THRESHOLD = 30;
 
 const UP_COLOR = '#2fbf6a';
 const DOWN_COLOR = '#ff88b3';
@@ -308,9 +311,24 @@ export function TradeChart({
         priceFormat: { type: 'volume' },
         priceScaleId: 'vol',
         color: UP_VOL,
+        // Hide the last-value price line + label on the volume series. Without
+        // these, the volume histogram renders a bogus "$1.0000" (or whatever
+        // the last bucket count is) using the PRICE formatter on the right
+        // axis, which reads as a real price level and cluters the chart.
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
       chart.priceScale('vol').applyOptions({
-        scaleMargins: { top: 0.78, bottom: 0 },
+        // Volume gets the bottom 15% of the chart. Top 85% left for candles.
+        // Was 22% + no explicit top-pane margin, so with sparse data the
+        // volume bar filled ~half the visible area.
+        scaleMargins: { top: 0.85, bottom: 0 },
+      });
+      // Also compress the candle pane's own margins so the candles don't
+      // hover in the middle third with dead space above and below when the
+      // price range is tight (typical for a few 0.001 ETH buys).
+      chart.priceScale('right').applyOptions({
+        scaleMargins: { top: 0.08, bottom: 0.2 },
       });
       volume.setData(volumes);
     }
