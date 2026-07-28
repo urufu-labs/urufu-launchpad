@@ -43,6 +43,7 @@ import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
+import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
 import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -606,8 +607,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           }}
           className="lg:sticky lg:top-4 lg:h-fit"
         >
+          <EcosystemHoldings visibleFor={address} chain={activeChain} />
+
           <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ holdings</div>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ launchpad holdings</div>
             {holdings === null && !loaded && <LoadingRow tight />}
             {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
               <EmptyRow label="no urufu tokens held" tight />

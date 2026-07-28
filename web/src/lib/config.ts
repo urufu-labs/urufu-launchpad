@@ -361,6 +361,28 @@ export const URU_PAY: Record<ChainKey, UruPayConfig | null> = {
   'robinhood-testnet': null,
 };
 
+/// Ecosystem token addresses (URU ERC-20 + urufu gemu ERC-721) per chain.
+/// Used for balance reads on the profile page (loyalty tier context) and
+/// eventually anywhere the launchpad needs to check holder status client-side.
+/// Only Robinhood has canonical live values today; other chains are null
+/// so a `?.` guard hides the widget cleanly.
+export interface EcosystemTokens {
+  uruToken: Address;
+  gemuNft: Address;
+}
+
+export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: {
+    uruToken: '0x9fbE210007dDd8389f98d0253018E65cC48B9D24',
+    gemuNft: '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17',
+  },
+  'robinhood-testnet': null,
+};
+
 export const COMPILE_SERVICE_URL =
   process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? 'http://localhost:3001';
 
