@@ -19,6 +19,7 @@ const SECTIONS: Section[] = [
   { id: 'creator', label: 'creator revenue', jp: '報酬' },
   { id: 'fees', label: 'fees + discounts', jp: '料金' },
   { id: 'chains', label: 'which chain', jp: '鎖' },
+  { id: 'protections', label: 'anti-bot/whale/vamp', jp: '防御' },
   { id: 'safe', label: 'is it safe', jp: '安全' },
   { id: 'faq', label: 'faq', jp: 'よくある' },
 ];
@@ -106,9 +107,15 @@ export default function DocsPage() {
           trade page + chart for anyone to trade it.
         </p>
         <Callout tone="pink" label="what makes urufu different">
-          most launchpads only launch one shape of token. urufu launches every shape, each
-          with composable features (anti-bot, staking, royalties, voting) that compile from
-          the same audited primitives ~
+          <ul className="uru-list-flower" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
+            <li><b>every module is real solidity</b>, not a clone with a shared impl. compose voting + staking + anti-bot + royalties + more in one tx.</li>
+            <li><b>launches ERC-20 AND ERC-721/1155</b>, same UI, same shop. most launchpads only ship coins.</li>
+            <li><b>graduates onto a uniswap v4 pool with a custom hook</b> that routes trade fees three ways: creator, flywheel, on-token buyback-burn.</li>
+            <li><b>LP is math-locked forever</b> post-graduation. no rugs, no vampire attacks, no team-triggered removals.</li>
+            <li><b>urufu flywheel</b>: 35% of every trade fee airdrops to urufu gemu NFT holders as ETH, 40% buys back URU on market.</li>
+            <li><b>snapshot whitelists</b>: point at any existing token, we hash its holders into a merkle root. no CSV uploads, no manual lists.</li>
+            <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
+          </ul>
         </Callout>
         <Callout tone="mint" label="powered by uniswap v4 hooks">
           post-graduation tokens live in a{' '}
@@ -390,6 +397,85 @@ export default function DocsPage() {
           (URU buyback + NFT holder rewards + on-token buyback-burn) loops back to holders
           from day one. adding more chains later is a matter of redeploying, not
           re-architecting.
+        </Callout>
+      </Section>
+
+      {/* ================================================================
+          PROTECTIONS
+          ================================================================ */}
+      <Section id="protections" title="anti-bot, anti-whale, anti-vamp" jp="防御">
+        <p>
+          launchpads that skip these details are how memecoins get sniped, ripped off, and
+          copycat-drained before the first real trader shows up. urufu bakes protections
+          in at three levels: the token, the pool, and the registry.
+        </p>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ token-level (u pick these in the shop)</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>
+              <b>anti-bot cooldown</b>: per-wallet per-block cooldown on transfers. scripted
+              bots trying to snipe every block get rate-limited into the ground.
+            </li>
+            <li>
+              <b>anti-whale caps</b>: max transaction size and max wallet holding. no single
+              buyer can accumulate more than the cap.
+            </li>
+            <li>
+              <b>pausable / blocklist / jailable</b>: emergency levers if someone abuses the
+              token. optional and owner-controlled.
+            </li>
+          </ul>
+        </div>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ registry-level (anti-vamp / anti-copycat)</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>
+              <b>names + tickers are globally unique</b> on the NameRegistry. the second
+              someone launches &quot;URU&quot;, nobody else on the launchpad can ever launch
+              a token with that name or ticker again. copycats trying to piggyback on a
+              trending launch get rejected at the contract level.
+            </li>
+            <li>
+              <b>reservation is atomic with deploy</b>. the name and ticker lock in the same
+              tx that mints the token, so there&apos;s no race window where a bot could
+              front-run and claim ur ticker before ur launch confirms.
+            </li>
+            <li>
+              <b>character rules enforced on-chain</b>. ticker length + charset validated by
+              the registry, no zero-width unicode tricks, no invisible-character imposters.
+            </li>
+          </ul>
+        </div>
+        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ pool-level (automatic on every graduation)</div>
+          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+            <li>
+              <b>anti-sniper gate</b>: the v4 hook reverts every swap for the first N blocks
+              after graduation. MEV bots that pre-signed a buy at graduation get denied.
+              real humans get in on equal footing.
+            </li>
+            <li>
+              <b>LP math-locked forever</b>: LPLockedHook makes
+              <code style={codeStyle}>removeLiquidity</code> revert unconditionally. no team
+              removal, no rug, no post-launch withdrawal. liquidity is welded to the pool.
+            </li>
+            <li>
+              <b>on-token buyback-burn</b>: up to 20% of every buy routes tokens straight to
+              <code style={codeStyle}>0x...dead</code>. deflation happens automatically on
+              every trade, not team-triggered when they feel like it.
+            </li>
+            <li>
+              <b>fee routing is contract-enforced</b>: 40% of trade fees buy back URU on
+              market, 35% goes to urufu gemu NFT holders, 25% to treasury. nobody can
+              redirect this after launch, the split is set on the FeeSplitter.
+            </li>
+          </ul>
+        </div>
+        <Callout tone="mint" label="why anti-vamp matters">
+          on most launchpads, the moment a token starts trending, ten copycats deploy the
+          same name and ticker within seconds to phish confused buyers. on urufu the
+          registry rejects those launches at the contract level, so ur brand belongs to u
+          the second the launch confirms.
         </Callout>
       </Section>
 

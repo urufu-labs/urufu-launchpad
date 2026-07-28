@@ -1485,7 +1485,8 @@ export default function CreatePage() {
               <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 5 ✿ vibes (metadata)</div>
               <div className="uru-shell-inner space-y-3">
                 <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
-                  optional. saved locally til we ship a real ipfs pipeline lol.
+                  optional. images pin to IPFS via our pinata gateway so ur token metadata
+                  travels with it wherever it&apos;s indexed ~
                 </div>
 
                 <Field label="logo">
