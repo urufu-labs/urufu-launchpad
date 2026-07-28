@@ -305,7 +305,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           timestamp: Number(t.blockTimestamp),
           priceWeiPerToken: BigInt(t.priceWeiPerToken),
         }));
-        const rec = indexed.slice().reverse().slice(0, 25).map((t) => ({
+        const rec = indexed.slice().reverse().slice(0, 200).map((t) => ({
           isBuy: t.isBuy,
           eth: BigInt(t.ethAmount),
           tokens: BigInt(t.tokenAmount),
@@ -348,7 +348,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           });
         }
         setTradePoints(pts);
-        setRecentTrades(rec.reverse().slice(0, 25));
+        setRecentTrades(rec.reverse().slice(0, 200));
       } catch (err) {
         console.warn('trade log fetch failed', err);
       }
@@ -367,7 +367,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
       );
       setRecentTrades(
-        indexed.slice().reverse().slice(0, 25).map((t) => ({
+        indexed.slice().reverse().slice(0, 200).map((t) => ({
           isBuy: t.isBuy,
           eth: BigInt(t.ethAmount),
           tokens: BigInt(t.tokenAmount),
@@ -484,7 +484,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         enriched
           .slice()
           .reverse()
-          .slice(0, 25)
+          .slice(0, 200)
           .map((e) => ({
             isBuy: e.isBuy,
             eth: e.eth,
@@ -512,13 +512,21 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   }, [tradePoints, v4TradePoints]);
 
   // Recent-trades ticker + list — merge curve trades (pre-grad) + v4 swaps (post-grad),
-  // newest-first, capped at 25. Without this the list freezes at the graduation point
-  // because curve.Trade events stop firing once the pool takes over.
-  const mergedRecentTrades = useMemo(() => {
+  // newest-first. Cap at 200 for the working pool; the header toggle picks
+  // between "compact" (default 8) and "all" for the actual rendered slice.
+  // Without the merge the list would freeze at the graduation point because
+  // curve.Trade events stop firing once the pool takes over.
+  const RECENT_TRADES_COMPACT_COUNT = 8;
+  const [showAllTrades, setShowAllTrades] = useState(false);
+  const mergedRecentTradesFull = useMemo(() => {
     return [...recentTrades, ...v4RecentTrades]
       .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 25);
+      .slice(0, 200);
   }, [recentTrades, v4RecentTrades]);
+  const mergedRecentTrades = useMemo(
+    () => (showAllTrades ? mergedRecentTradesFull : mergedRecentTradesFull.slice(0, RECENT_TRADES_COMPACT_COUNT)),
+    [mergedRecentTradesFull, showAllTrades],
+  );
 
   // ---------- Trade panel ----------
   const [side, setSide] = useState<Side>('buy');
@@ -702,7 +710,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
       );
       setRecentTrades(
-        indexed.slice().reverse().slice(0, 25).map((t) => ({
+        indexed.slice().reverse().slice(0, 200).map((t) => ({
           isBuy: t.isBuy,
           eth: BigInt(t.ethAmount),
           tokens: BigInt(t.tokenAmount),
@@ -1069,15 +1077,40 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               }}
             >
               <div className="uru-eyebrow">✿ recent trades</div>
-              <span
-                style={{
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--anchor-soft)',
-                }}
-              >
-                {mergedRecentTrades.length} shown
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-pixel), monospace',
+                    fontSize: 10,
+                    color: 'var(--anchor-soft)',
+                  }}
+                >
+                  {mergedRecentTrades.length}
+                  {mergedRecentTradesFull.length > mergedRecentTrades.length
+                    ? ` of ${mergedRecentTradesFull.length}`
+                    : ''}
+                </span>
+                {mergedRecentTradesFull.length > RECENT_TRADES_COMPACT_COUNT && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTrades((v) => !v)}
+                    style={{
+                      fontFamily: 'var(--font-round), Klee One, cursive',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: 999,
+                      border: '1.5px solid var(--anchor)',
+                      background: showAllTrades ? 'var(--mint-hot)' : 'var(--cream)',
+                      color: showAllTrades ? '#fff' : 'var(--anchor)',
+                      cursor: 'pointer',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {showAllTrades ? 'compact' : 'show all'}
+                  </button>
+                )}
+              </div>
             </div>
             {mergedRecentTrades.length === 0 ? (
               <div
