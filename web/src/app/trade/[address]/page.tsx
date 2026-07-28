@@ -748,7 +748,12 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   }, [graduated, ethReserve, gradTarget]);
 
   const tokensSold = useMemo(() => {
-    if (!curveSupply || !tokenReserve) return 0n;
+    // Post-graduation tokenReserve is legitimately 0n (curve drained into the
+    // v4 pool), which the old `!tokenReserve` guard mistook for "unloaded" and
+    // returned 0 — reading as "no tokens sold" on the graduated stats card.
+    // Use explicit undefined checks so a real 0 flows through as
+    // `curveSupply - 0 = curveSupply` (all curve tokens sold).
+    if (curveSupply === undefined || tokenReserve === undefined) return 0n;
     return (curveSupply as bigint) - (tokenReserve as bigint);
   }, [curveSupply, tokenReserve]);
 
