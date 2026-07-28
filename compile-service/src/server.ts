@@ -14,6 +14,7 @@ import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
 import { registerRewardsRoutes } from './routes/rewards.ts';
+import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
@@ -76,6 +77,16 @@ if (hasDb()) {
   app.log.info('rewards routes registered');
 } else {
   app.log.warn('DATABASE_URL not set — /rewards/* disabled (Postgres required for tree storage)');
+}
+
+// Keeper background jobs (flywheel: sweep MHH → FeeSplitter every 60m,
+// publish NFT holder epoch every 24h). Opt-in via KEEPER_ENABLED=true;
+// otherwise no-op so local dev + PR previews don't touch prod state.
+const keeperStatus = startKeeper();
+if (keeperStatus.started.length > 0) {
+  app.log.info({ started: keeperStatus.started, skipped: keeperStatus.skipped }, 'keeper loops started');
+} else {
+  app.log.info({ skipped: keeperStatus.skipped }, 'keeper not running');
 }
 
 app.post('/compile', async (request, reply) => {
