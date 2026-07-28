@@ -1769,7 +1769,7 @@ export default function CreatePage() {
               <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ currently</div>
               <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
                 <li>listening — Perfume, <i>Polyrhythm</i></li>
-                <li>testing — sepolia forks</li>
+                <li>testing — with real ETH like a maniac</li>
                 <li>obsessed with — dnd-kit spring physics </li>
                 <li>mood — 好き 好き 大好き</li>
               </ul>

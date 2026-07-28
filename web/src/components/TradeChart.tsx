@@ -112,6 +112,20 @@ function toStepSeries(points: TradePoint[], useUsd: boolean, ethUsd: number | nu
 }
 
 /// OHLC candles bucketed by interval + trade-count volume histogram.
+///
+/// Key detail: on a bonding curve, each trade IS the price movement — there's
+/// no separate bid/ask spread that could give a bucket its own open + close.
+/// If we naively use the first trade's price as `open` and the last trade's
+/// price as `close`, single-trade buckets become dojis (open == close) and
+/// even multi-trade buckets skip the "gap" between the previous bucket's
+/// close and the current bucket's open.
+///
+/// Fix: carry `lastClose` forward across buckets. Every bucket's `open` is
+/// the previous bucket's `close` (i.e., the price the market was sitting at
+/// when the bucket started). The FIRST-EVER bucket has no predecessor, so
+/// it falls back to using its first trade's price as `open` (a doji only
+/// for the very first bar of the whole series). high/low always include
+/// `open` so the wick reflects the full move.
 function toCandles(
   points: TradePoint[],
   useUsd: boolean,
@@ -126,28 +140,42 @@ function toCandles(
 
   type Bucket = { open: number; high: number; low: number; close: number; count: number };
   const buckets = new Map<number, Bucket>();
+  const bucketOrder: number[] = [];
+  let lastClose: number | null = null;
+
   for (const p of sorted) {
     const price = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
     if (!Number.isFinite(price) || price <= 0) continue;
     if (Math.abs(price) > CHART_MAX_ABS) continue;
     const bucketStart = Math.floor(p.timestamp / intervalSeconds) * intervalSeconds;
-    const b = buckets.get(bucketStart);
+    let b = buckets.get(bucketStart);
     if (!b) {
-      buckets.set(bucketStart, { open: price, high: price, low: price, close: price, count: 1 });
+      // Open = previous bucket's close (the market's state at bucket start).
+      // First-ever bucket has no predecessor — fall back to this trade's price.
+      const openAtBucketStart = lastClose ?? price;
+      b = {
+        open: openAtBucketStart,
+        high: Math.max(openAtBucketStart, price),
+        low: Math.min(openAtBucketStart, price),
+        close: price,
+        count: 1,
+      };
+      buckets.set(bucketStart, b);
+      bucketOrder.push(bucketStart);
     } else {
       b.high = Math.max(b.high, price);
       b.low = Math.min(b.low, price);
       b.close = price;
       b.count += 1;
     }
+    lastClose = price;
   }
 
-  const times = Array.from(buckets.keys()).sort((a, b) => a - b);
-  const candles: CandlestickData[] = times.map((t) => {
+  const candles: CandlestickData[] = bucketOrder.map((t) => {
     const b = buckets.get(t)!;
     return { time: t as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close };
   });
-  const volumes: HistogramData[] = times.map((t) => {
+  const volumes: HistogramData[] = bucketOrder.map((t) => {
     const b = buckets.get(t)!;
     const up = b.close >= b.open;
     return { time: t as UTCTimestamp, value: b.count, color: up ? UP_VOL : DOWN_VOL };
