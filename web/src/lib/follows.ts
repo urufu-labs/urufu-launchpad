@@ -1,11 +1,15 @@
 /// Local-first follow list. Stores the addresses YOU follow in localStorage under
-/// `uru-follows`. Because there's no shared backend yet, "followers" (people who
-/// follow YOU) can't be surfaced — only "following" is meaningful in this phase.
+/// `uru-follows` for instant UI reads, AND writes through to the compile-service
+/// backend when the user has signed at least once. The backend read path
+/// (`fetchFollowers` / `fetchFollowing` in socialApi.ts) is what powers the
+/// "who follows me" modal — localStorage can't know that.
 ///
-/// Cross-device sync + true bidirectional followers ships alongside the backend
-/// registry (phase 3).
+/// Callers that need the wallet's follow list SHOULD hit the backend for cross-
+/// device consistency, but the localStorage cache stays as the instant-hydrate
+/// source for the "follow button" on/off state.
 
 import type { Address } from 'viem';
+import { followUser, unfollowUser, type SignFn } from './socialApi';
 
 const KEY = 'uru-follows';
 const EVENT = 'urufu-follows-change';
@@ -61,6 +65,27 @@ export function toggleFollow(address: Address | string): boolean {
   if (isFollowing(target)) { unfollow(target); return false; }
   follow(target);
   return true;
+}
+
+/// Toggle + write through to backend. Updates localStorage immediately (so the
+/// button flips right away) and fires the signed backend call in the background.
+/// Backend failure is logged but doesn't reverse the local state — the caller
+/// stays optimistic. Returns the new "isFollowing" state.
+export async function toggleFollowRemote(
+  self: Address,
+  target: Address | string,
+  sign: SignFn,
+): Promise<boolean> {
+  const nextState = toggleFollow(target);
+  try {
+    const result = nextState
+      ? await followUser(self, target as Address, sign)
+      : await unfollowUser(self, target as Address, sign);
+    if (!result.ok) console.warn('follow: backend write failed', result.error);
+  } catch (err) {
+    console.warn('follow: backend write threw', err);
+  }
+  return nextState;
 }
 
 /// Subscribe to change events fired by follow/unfollow. Returns an unsubscribe fn.

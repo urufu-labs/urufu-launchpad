@@ -206,3 +206,62 @@ export async function postChat(
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
 }
+
+// ---------------------------------------------------------------- follows
+//
+// Server-side social graph. `followUser` / `unfollowUser` are signed writes;
+// `fetchFollowers` / `fetchFollowing` are public reads. Backend enriches with
+// profile so the modal renders avatars without an N+1 fetch.
+
+export interface RemoteFollowUser {
+  address: Address;
+  username: string | null;
+  avatarUrl: string | null;
+  followedAt: string;
+}
+
+export async function fetchFollowers(address: Address): Promise<RemoteFollowUser[]> {
+  const data = await getJson<{ count: number; items: RemoteFollowUser[] }>(`/followers/${address.toLowerCase()}`);
+  return data?.items ?? [];
+}
+
+export async function fetchFollowing(address: Address): Promise<RemoteFollowUser[]> {
+  const data = await getJson<{ count: number; items: RemoteFollowUser[] }>(`/following/${address.toLowerCase()}`);
+  return data?.items ?? [];
+}
+
+export async function followUser(
+  address: Address,
+  target: Address,
+  sign: SignFn,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const targetLower = target.toLowerCase();
+  const res = await signedPost(
+    `/follows/${targetLower}`,
+    'follow:add',
+    address,
+    { target: targetLower },
+    sign,
+  );
+  if (res.ok) return { ok: true };
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
+}
+
+export async function unfollowUser(
+  address: Address,
+  target: Address,
+  sign: SignFn,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const targetLower = target.toLowerCase();
+  const res = await signedPost(
+    `/follows/${targetLower}/unfollow`,
+    'follow:remove',
+    address,
+    { target: targetLower },
+    sign,
+  );
+  if (res.ok) return { ok: true };
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
+}

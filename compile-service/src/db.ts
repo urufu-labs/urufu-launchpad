@@ -100,4 +100,20 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS rewards_leaves_holder_idx ON app.rewards_leaves (chain_id, holder, epoch_id DESC)`;
+
+  /// Social graph — one row per (follower, followee) edge. Both cols lowercased
+  /// so lookups by either direction stay case-insensitive without indexing on
+  /// a lower() functional expression. `followed_at` powers "recent followers"
+  /// sort on the modal.
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.follows (
+      follower    text        NOT NULL,
+      followee    text        NOT NULL,
+      followed_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (follower, followee)
+    )
+  `;
+  // Reverse-direction lookup index: given a wallet, list everyone following it.
+  // The primary key already covers `follower -> list of followees`.
+  await sql`CREATE INDEX IF NOT EXISTS follows_followee_idx ON app.follows (followee, followed_at DESC)`;
 }

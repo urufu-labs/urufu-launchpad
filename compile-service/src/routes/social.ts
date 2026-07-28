@@ -263,4 +263,125 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     `;
     return reply.send({ ok: true });
   });
+
+  // ---------------------------------------------------------------- follows
+  //
+  // Simple social graph. Writes are signed (follow / unfollow); reads are public
+  // and paginated by client-side .slice() (limit built into query). Enriches
+  // the response with the followee/follower's profile so the modal can render
+  // avatars without a second fetch per address.
+
+  const FollowActionBody = z.object({
+    address: z.string(),
+    signature: z.string(),
+    timestamp: z.number(),
+    payload: z.object({
+      /// The target being followed / unfollowed (lowercased address).
+      target: z.string(),
+    }),
+  });
+
+  /// POST /follows/:target — signer follows target. Idempotent (ON CONFLICT DO NOTHING).
+  app.post('/follows/:target', async (req, reply) => {
+    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    const paramTarget = (req.params as { target: string }).target.toLowerCase();
+    if (!isAddress(paramTarget)) return reply.code(400).send({ code: 'BAD_TARGET' });
+    const parsed = FollowActionBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ code: 'BAD_BODY', errors: parsed.error.flatten() });
+    const { address, signature, timestamp, payload } = parsed.data;
+    const envelope: AuthEnvelope = { address, signature: signature as `0x${string}`, timestamp };
+    const auth = await verifyEnvelope('follow:add', payload, envelope);
+    if (!auth.ok) return reply.code(401).send({ code: 'UNAUTHORIZED', reason: auth.reason });
+    // Payload target must match URL target so signature can't be replayed against a different followee.
+    if (payload.target.toLowerCase() !== paramTarget) return reply.code(400).send({ code: 'TARGET_MISMATCH' });
+    // Can't follow yourself — silently succeed rather than 400 so accidental self-follow doesn't UX-break.
+    if (auth.address === paramTarget) return reply.send({ ok: true, selfIgnored: true });
+
+    await sql!`
+      INSERT INTO app.follows (follower, followee)
+      VALUES (${auth.address}, ${paramTarget})
+      ON CONFLICT (follower, followee) DO NOTHING
+    `;
+    return reply.send({ ok: true });
+  });
+
+  /// DELETE /follows/:target — signer unfollows target. Also uses POST body for
+  /// consistency (browsers strip DELETE bodies more aggressively; fastify handles
+  /// both fine but signed POST is the simpler client path).
+  app.post('/follows/:target/unfollow', async (req, reply) => {
+    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    const paramTarget = (req.params as { target: string }).target.toLowerCase();
+    if (!isAddress(paramTarget)) return reply.code(400).send({ code: 'BAD_TARGET' });
+    const parsed = FollowActionBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ code: 'BAD_BODY', errors: parsed.error.flatten() });
+    const { address, signature, timestamp, payload } = parsed.data;
+    const envelope: AuthEnvelope = { address, signature: signature as `0x${string}`, timestamp };
+    const auth = await verifyEnvelope('follow:remove', payload, envelope);
+    if (!auth.ok) return reply.code(401).send({ code: 'UNAUTHORIZED', reason: auth.reason });
+    if (payload.target.toLowerCase() !== paramTarget) return reply.code(400).send({ code: 'TARGET_MISMATCH' });
+
+    await sql!`DELETE FROM app.follows WHERE follower = ${auth.address} AND followee = ${paramTarget}`;
+    return reply.send({ ok: true });
+  });
+
+  /// GET /followers/:address — public list of everyone who follows this address.
+  /// Enriches with each follower's profile so the modal renders avatars without
+  /// a per-row fetch. Ordered by most recent follow first, capped at 200.
+  app.get<{ Params: { address: string } }>('/followers/:address', async (req, reply) => {
+    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    const addr = req.params.address.toLowerCase();
+    if (!isAddress(addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
+    const rows = await sql!<
+      { address: string; username: string | null; avatar_url: string | null; followed_at: Date }[]
+    >`
+      SELECT f.follower AS address,
+             p.username,
+             p.avatar_url,
+             f.followed_at
+      FROM app.follows f
+      LEFT JOIN app.user_profile p ON p.address = f.follower
+      WHERE f.followee = ${addr}
+      ORDER BY f.followed_at DESC
+      LIMIT 200
+    `;
+    return reply.send({
+      count: rows.length,
+      items: rows.map((r) => ({
+        address: r.address,
+        username: r.username,
+        avatarUrl: r.avatar_url,
+        followedAt: r.followed_at.toISOString(),
+      })),
+    });
+  });
+
+  /// GET /following/:address — public list of everyone this address follows.
+  /// Same shape as /followers for a uniform frontend renderer.
+  app.get<{ Params: { address: string } }>('/following/:address', async (req, reply) => {
+    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    const addr = req.params.address.toLowerCase();
+    if (!isAddress(addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
+    const rows = await sql!<
+      { address: string; username: string | null; avatar_url: string | null; followed_at: Date }[]
+    >`
+      SELECT f.followee AS address,
+             p.username,
+             p.avatar_url,
+             f.followed_at
+      FROM app.follows f
+      LEFT JOIN app.user_profile p ON p.address = f.followee
+      WHERE f.follower = ${addr}
+      ORDER BY f.followed_at DESC
+      LIMIT 200
+    `;
+    return reply.send({
+      count: rows.length,
+      items: rows.map((r) => ({
+        address: r.address,
+        username: r.username,
+        avatarUrl: r.avatar_url,
+        followedAt: r.followed_at.toISOString(),
+      })),
+    });
+  });
 }

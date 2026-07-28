@@ -40,7 +40,9 @@ import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi'
 import { safeBackgroundImage } from '@/lib/metadata';
 import { uploadImageToIpfs } from '@/lib/ipfs';
 import { playSfx } from '@/lib/audio/sfx';
-import { getFollowing, isFollowing, onFollowsChange, toggleFollow } from '@/lib/follows';
+import { getFollowing, isFollowing, onFollowsChange, toggleFollow, toggleFollowRemote } from '@/lib/follows';
+import { fetchFollowers, fetchFollowing } from '@/lib/socialApi';
+import { FollowersModal, type FollowsMode } from '@/components/FollowersModal';
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
 import { EcosystemHoldings } from '@/components/EcosystemHoldings';
@@ -57,6 +59,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const isValid = address !== ZERO_ADDR;
 
   const { address: wallet } = useAccount();
+  const { signMessageAsync: signMessageAsyncTop } = useSignMessage();
   const activeChain = useActiveChain();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -219,6 +222,27 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return onFollowsChange(refresh);
   }, [address]);
 
+  // Remote counts for the profile being viewed — powers the clickable
+  // "N followers · N following" pills. Local `followingCount` above is for
+  // the wallet's own feed count, not the viewed profile's counts.
+  const [remoteFollowersCount, setRemoteFollowersCount] = useState<number | null>(null);
+  const [remoteFollowingCount, setRemoteFollowingCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [flw, fwg] = await Promise.all([
+        fetchFollowers(address).catch(() => []),
+        fetchFollowing(address).catch(() => []),
+      ]);
+      if (cancelled) return;
+      setRemoteFollowersCount(flw.length);
+      setRemoteFollowingCount(fwg.length);
+    })();
+    return () => { cancelled = true; };
+  }, [address, isFollowingThis]); // refetch after own follow toggle so counts feel live
+
+  const [modalMode, setModalMode] = useState<FollowsMode | null>(null);
+
   const [editing, setEditing] = useState(false);
 
   if (!isValid) {
@@ -316,9 +340,18 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           ) : (
             <button
               type="button"
-              onClick={() => {
-                const nowFollowing = toggleFollow(address);
-                playSfx(nowFollowing ? 'coin' : 'flip');
+              onClick={async () => {
+                // Optimistic local toggle for the instant button flip, then
+                // fire-and-forget the signed backend write so the followee's
+                // /followers list reflects it. If the wallet isn't connected we
+                // fall back to local-only (backend needs a signature).
+                if (wallet) {
+                  const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
+                  playSfx(nowFollowing ? 'coin' : 'flip');
+                } else {
+                  const nowFollowing = toggleFollow(address);
+                  playSfx(nowFollowing ? 'coin' : 'flip');
+                }
               }}
               className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
               style={{ padding: '6px 14px', fontSize: 12 }}
@@ -335,6 +368,53 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               ur feed ({followingCount})
             </Link>
           )}
+        </div>
+
+        {/* Followers / following pills — clickable to open the modal that lists
+            everyone in that bucket. Shown for every profile (own + others). */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            marginTop: 10,
+            fontFamily: 'var(--font-round), Klee One, cursive',
+            fontSize: 12,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setModalMode('followers')}
+            style={{
+              padding: '3px 10px',
+              borderRadius: 999,
+              border: '1.5px solid var(--anchor)',
+              background: 'var(--cream)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: 'var(--anchor)',
+            }}
+          >
+            <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalMode('following')}
+            style={{
+              padding: '3px 10px',
+              borderRadius: 999,
+              border: '1.5px solid var(--anchor)',
+              background: 'var(--cream)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: 'var(--anchor)',
+            }}
+          >
+            <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
+          </button>
         </div>
       </section>
 
@@ -675,6 +755,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           onClose={() => setEditing(false)}
           onSave={(next) => { setProfile(next); setEditing(false); }}
         />
+      )}
+      {modalMode && (
+        <FollowersModal address={address} mode={modalMode} onClose={() => setModalMode(null)} />
       )}
     </div>
   );
