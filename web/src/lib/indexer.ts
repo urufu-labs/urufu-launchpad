@@ -72,24 +72,42 @@ async function gqlAt<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T | null> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query, variables }),
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
-    if (json.errors && json.errors.length > 0) {
-      console.warn('indexer errors', json.errors);
+  // Retry once after a small backoff on network/timeout/5xx. Railway's edge
+  // occasionally returns 5xx or blank responses during Ponder restarts / brief
+  // scaling blips (~1-2s windows). One quick retry catches most of these
+  // without adding noticeable latency to the normal path.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
+        if (json.errors && json.errors.length > 0) {
+          console.warn('indexer errors', json.errors);
+          return null;
+        }
+        return json.data ?? null;
+      }
+      // 5xx from Railway edge → likely a transient restart. Retry once.
+      if (res.status >= 500 && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      return null;
+    } catch {
+      // Network error / AbortError / DNS failure. Retry once.
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
       return null;
     }
-    return json.data ?? null;
-  } catch {
-    // AbortError / network error / DNS failure — silent, caller falls back.
-    return null;
   }
+  return null;
 }
 
 /// Fan out a GraphQL query across every configured indexer URL in parallel, merging
