@@ -102,6 +102,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // on the wrong chain return empty. Falls back to the picker/wallet chain only when
   // the indexer hasn't indexed this token yet (fresh launch mid-catchup).
   const [tokenHomeChain, setTokenHomeChain] = useState<ChainKey | null>(null);
+  // launcher = wallet that created this token, sourced from the indexer's
+  // launches row. Used to gate the metadata-edit affordance on the frontend so
+  // non-owners never see an edit button they can't legitimately use.
+  const [launchInfoLauncher, setLaunchInfoLauncher] = useState<Address | null>(null);
   useEffect(() => {
     if (!tokenAddress) return;
     let cancelled = false;
@@ -112,6 +116,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (!row) return;
       const key = CHAIN_ID_TO_KEY[row.chainId];
       if (key) setTokenHomeChain(key);
+      if (row.launchedBy) setLaunchInfoLauncher(row.launchedBy as Address);
     })();
     return () => { cancelled = true; };
   }, [tokenAddress]);
@@ -1210,14 +1215,18 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               browsers; falls back to localStorage for the preview / mock modes. */}
           <ChatDrawer tokenAddress={tokenAddress} chainId={readChainId} wallet={wallet} />
 
-          {/* Info sidebar (metadata) — always renders when a wallet is connected, so
-              the launcher can back-fill an image / description after launch. Server
-              rejects the write if the signer isn't the launcher. */}
+          {/* Info sidebar (metadata). Edit affordance only shows when the
+              connected wallet matches the token's launcher — belt-and-suspenders
+              alongside the server's 403 on non-launcher writes, so non-owners
+              never see an edit button they can't legitimately click. Launcher
+              address comes from the indexer's launches row we already fetch
+              above (into launchInfo). */}
           <MetadataPanel
             metadata={metadata}
             tokenAddress={tokenAddress}
             chainId={chainId}
             wallet={wallet as Address | undefined}
+            launcher={launchInfoLauncher}
             onSaved={(next) => setMetadata(next)}
           />
         </div>
@@ -1603,12 +1612,14 @@ function MetadataPanel({
   tokenAddress,
   chainId,
   wallet,
+  launcher,
   onSaved,
 }: {
   metadata: TokenMetadata | null;
   tokenAddress: Address;
   chainId: number;
   wallet: Address | undefined;
+  launcher: Address | null;
   onSaved: (next: TokenMetadata | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1617,13 +1628,18 @@ function MetadataPanel({
     metadata.twitter || metadata.telegram || metadata.discord || metadata.tiktok
   ));
 
-  if (!hasContent && !wallet) return null;
+  // Only the launcher wallet gets the edit affordance. Server enforces this too
+  // (403 NOT_LAUNCHER), but showing the button to non-owners was confusing UX
+  // and let a tester think they could edit metadata they didn't own.
+  const canEdit = !!wallet && !!launcher && wallet.toLowerCase() === launcher.toLowerCase();
+
+  if (!hasContent && !canEdit) return null;
 
   return (
     <div className="uru-shell uru-shell-tight">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <div className="uru-eyebrow">❀ about</div>
-        {wallet && (
+        {canEdit && (
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -1653,7 +1669,7 @@ function MetadataPanel({
           {metadata.tiktok && <Socialz href={metadata.tiktok} label="tiktok" />}
         </div>
       )}
-      {editing && wallet && (
+      {editing && canEdit && wallet && (
         <EditMetadataModal
           initial={metadata}
           tokenAddress={tokenAddress}
