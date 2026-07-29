@@ -23,6 +23,7 @@ import {
   AreaSeries,
   ColorType,
   LineType,
+  PriceScaleMode,
   createSeriesMarkers,
   type AreaData,
   type IChartApi,
@@ -188,12 +189,24 @@ export function TradeChart({
       },
       rightPriceScale: {
         borderColor: '#3a2c3a',
-        scaleMargins: { top: 0.1, bottom: 0.1 },
+        // Log scale so a token whose price drops 500x at graduation still
+        // shows the pre-graduation cluster + the post-graduation activity
+        // both legibly on the same chart. Standard for crypto with wide
+        // dynamic ranges. Linear-scale falls apart the moment prices span
+        // more than ~10x.
+        mode: PriceScaleMode.Logarithmic,
+        scaleMargins: { top: 0.12, bottom: 0.12 },
+        // Slightly wider label area so 5-sig-fig subscript-zero prices
+        // don't get cropped.
+        minimumWidth: 66,
       },
       timeScale: {
         borderColor: '#3a2c3a',
         timeVisible: true,
         secondsVisible: false,
+        // A little breathing room before the newest bar so the last dot
+        // isn't glued to the right edge.
+        rightOffset: 5,
       },
       autoSize: true,
       crosshair: {
@@ -360,7 +373,7 @@ export function TradeChart({
           zIndex: 4,
         }}
       >
-        {useUsd ? 'USD per token' : 'gwei per token'} · one point per trade
+        {useUsd ? 'USD per token' : 'gwei per token'} · log scale
       </div>
       {!hasData && (
         <div
