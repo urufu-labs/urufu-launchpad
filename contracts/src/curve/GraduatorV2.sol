@@ -15,13 +15,22 @@ import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 interface IHookConfig {
-    function setPoolConfig(PoolId id, uint32 antiSniperBlocks, uint16 buybackBurnBps) external;
-    function setCreator(PoolId id, address creator) external;
+    function setPoolConfig(
+        PoolId id,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external;
+    function setCreator(
+        PoolId id,
+        address creator
+    ) external;
     function creator() external view returns (address);
 }
 
 interface ICurveFactoryLookup {
-    function curveFor(address token) external view returns (address);
+    function curveFor(
+        address token
+    ) external view returns (address);
 }
 
 /// The Graduator queries these two view-getters on the calling curve to compute
@@ -191,8 +200,7 @@ contract GraduatorV2 is IUnlockCallback {
         // Rearranged to fit uint256 without overflow: multiply the 2^96 in
         // first so we don't multiply a 1e9 constant by a sqrt() output that
         // could be huge on high-priced tokens.
-        uint160 sqrtPriceX96 =
-            uint160((uint256(1e9) << 96) / FixedPointMathLib.sqrt(curveFinalPrice));
+        uint160 sqrtPriceX96 = uint160((uint256(1e9) << 96) / FixedPointMathLib.sqrt(curveFinalPrice));
 
         poolManager.initialize(key, sqrtPriceX96);
 
@@ -221,7 +229,9 @@ contract GraduatorV2 is IUnlockCallback {
         emit Graduated(token, address(defaultHook), ethAmount, tokenAmount, sqrtPriceX96, liquidity);
     }
 
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert Graduator__NotPoolManager();
         (PoolKey memory key, uint256 liquidity,,, address token) =
             abi.decode(data, (PoolKey, uint256, uint256, uint256, address));
@@ -256,19 +266,23 @@ contract GraduatorV2 is IUnlockCallback {
         return "";
     }
 
-    function _amount0(BalanceDelta d) private pure returns (int128) {
+    function _amount0(
+        BalanceDelta d
+    ) private pure returns (int128) {
         return int128(int256(BalanceDelta.unwrap(d) >> 128));
     }
 
-    function _amount1(BalanceDelta d) private pure returns (int128) {
+    function _amount1(
+        BalanceDelta d
+    ) private pure returns (int128) {
         return int128(int256(BalanceDelta.unwrap(d)));
     }
 
     /// Tiny helper — avoids importing IERC20 just for a `balanceOf` call.
-    function _tokenBalance(address token) private view returns (uint256) {
-        (bool ok, bytes memory ret) = token.staticcall(
-            abi.encodeWithSignature("balanceOf(address)", address(this))
-        );
+    function _tokenBalance(
+        address token
+    ) private view returns (uint256) {
+        (bool ok, bytes memory ret) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(this)));
         if (!ok || ret.length < 32) return 0;
         return abi.decode(ret, (uint256));
     }

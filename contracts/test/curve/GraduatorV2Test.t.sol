@@ -16,12 +16,16 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface ICurveFactoryLookup {
-    function curveFor(address token) external view returns (address);
+    function curveFor(
+        address token
+    ) external view returns (address);
     function defaultCurveSupply() external view returns (uint256);
 }
 
 interface IERC20Like {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
     function totalSupply() external view returns (uint256);
 }
 
@@ -71,7 +75,8 @@ contract GraduatorV2Test is Test {
             rpc = r;
         } catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
-        try vm.createSelectFork(rpc) {} catch {
+        try vm.createSelectFork(rpc) {}
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
@@ -92,7 +97,7 @@ contract GraduatorV2Test is Test {
             IPoolManager(POOL_MANAGER),
             IHooks(MULTI_HOOK_HOST),
             3000, // fee (matches original Graduator default)
-            60,   // tickSpacing
+            60, // tickSpacing
             CURVE_FACTORY
         );
         console2.log("GraduatorV2 deployed:", address(gv2));

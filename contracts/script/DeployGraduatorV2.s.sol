@@ -11,7 +11,9 @@ import {IHooks} from "v4-core/interfaces/IHooks.sol";
 /// as an owner-only call; we look it up and rewire it here.
 interface ICurveFactoryAdmin {
     function graduator() external view returns (address);
-    function setGraduator(address newGraduator) external;
+    function setGraduator(
+        address newGraduator
+    ) external;
     function owner() external view returns (address);
 }
 
@@ -22,7 +24,9 @@ interface ICurveFactoryAdmin {
 /// will reject the new graduator's `initialize` calls.
 interface IMultiHookHostAdmin {
     function initializer() external view returns (address);
-    function setInitializer(address newInitializer) external;
+    function setInitializer(
+        address newInitializer
+    ) external;
     function owner() external view returns (address);
 }
 
@@ -74,13 +78,7 @@ contract DeployGraduatorV2 is Script {
         vm.startBroadcast();
         // 1. Deploy the new Graduator, pointing at the same PoolManager +
         //    MultiHookHost + CurveFactory. No new secrets or config needed.
-        GraduatorV2 gv2 = new GraduatorV2(
-            IPoolManager(poolManager),
-            IHooks(mhh),
-            FEE,
-            TICK_SPACING,
-            curveFactory
-        );
+        GraduatorV2 gv2 = new GraduatorV2(IPoolManager(poolManager), IHooks(mhh), FEE, TICK_SPACING, curveFactory);
         console2.log("GraduatorV2 deployed at:", address(gv2));
 
         // 2. Rewire CurveFactory to hand out this graduator to every future
@@ -107,7 +105,10 @@ contract DeployGraduatorV2 is Script {
         console2.log("Old graduator (keep for rollback):", oldGraduator);
     }
 
-    function _envAddress(string memory key, address fallback_) internal view returns (address) {
+    function _envAddress(
+        string memory key,
+        address fallback_
+    ) internal view returns (address) {
         try vm.envAddress(key) returns (address v) {
             return v;
         } catch {
