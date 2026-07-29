@@ -441,7 +441,7 @@ export default function DocsPage() {
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ registry-level (anti-vamp / anti-copycat)</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li>
-              <b>names + tickers are globally unique</b> on the NameRegistry. the second
+              <b>names + tickers are globally unique</b>{' '}on the NameRegistry. the second
               someone launches &quot;URU&quot;, nobody else on the launchpad can ever launch
               a token with that name or ticker again. copycats trying to piggyback on a
               trending launch get rejected at the contract level.
