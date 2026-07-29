@@ -98,8 +98,19 @@ export default function CreatePage() {
   const activeChain = targetChain; // legacy alias — every downstream ref stays valid
 
   const [base, setBase] = useState<BaseType>('ERC20');
-  const [mechanic, setMechanic] = useState<'direct' | 'bonding-curve'>('direct');
-  const mechanicOnMount = useRef<'direct' | 'bonding-curve'>('direct');
+  // Two launch mechanics for ERC-20:
+  //   'quick'  — pump.fun style, safe defaults baked in (renounce, LP lock,
+  //              anti-sniper, no modules). Only inputs are name/ticker/vibes
+  //              + optional whitelist. Was previously "direct launch" but that
+  //              flow (mint-to-wallet, no curve, add LP yourself) proved
+  //              unsafe — no way to guarantee LP-lock or block dump vectors
+  //              without taking the launcher's discretion away.
+  //   'custom' — today's shop UX: full module shelf, ownership picker,
+  //              per-launch hook params. Renamed from "bonding-curve".
+  // NFT bases (ERC721A, ERC1155) don't get a mechanic choice — they can't be
+  // curved and always render the shelf + ownership flow.
+  const [mechanic, setMechanic] = useState<'quick' | 'custom'>('quick');
+  const mechanicOnMount = useRef<'quick' | 'custom'>('quick');
   const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [supplyInput, setSupplyInput] = useState('1000000');
@@ -177,7 +188,7 @@ export default function CreatePage() {
       shippedModulesForBase(base).filter((m) => {
         if (m.category !== 'hook') return true;
         if (ALWAYS_ON_HOOKS.has(m.id)) return false;
-        if (PER_LAUNCH_HOOKS.has(m.id)) return mechanic === 'bonding-curve';
+        if (PER_LAUNCH_HOOKS.has(m.id)) return mechanic === 'custom';
         return false;
       }),
     [base, mechanic],
@@ -203,7 +214,7 @@ export default function CreatePage() {
       // Modules whose whole point is a post-launch owner action would silently
       // ship broken. Grey them out here + surface the reason in the shelf tile.
       // `useCurve` is declared further down — recompute inline to avoid TDZ.
-      const curveModeOn = mechanic === 'bonding-curve' && base === 'ERC20';
+      const curveModeOn = mechanic === 'custom' && base === 'ERC20';
       if (curveModeOn && mod.requiresOwner) {
         map[mod.id] = 'needs an owner — bonding curve renounces at launch ~';
         continue;
@@ -226,7 +237,7 @@ export default function CreatePage() {
   /// Surfaced as a top-of-cart warning + used to block the launch button so
   /// users don't ship a token whose modules don't work with their mechanic.
   const ownerlessDeadModules = useMemo(() => {
-    const curveModeOn = mechanic === 'bonding-curve' && base === 'ERC20';
+    const curveModeOn = mechanic === 'custom' && base === 'ERC20';
     if (!curveModeOn) return [];
     return selectedModules
       .map((id) => moduleById(id))
@@ -358,16 +369,23 @@ export default function CreatePage() {
     query: { enabled: !!factoryAddress, staleTime: 5_000 },
   });
 
-  // When bonding curve is selected, initial supply comes from the curve factory (fixed
-  // ~800M) and recipient MUST be the Router (which then forwards to the curve on launch).
+  // Both mechanics ('quick' and 'custom') use a bonding curve for ERC-20 launches
+  // — the difference is UX (baked defaults vs full module shelf), not stack.
+  // NFT bases still take the mint-to-wallet path because our BondingCurve is
+  // ERC-20 only (v4 pools can't trade non-fungible balances).
   const curveDefaultSupplyQuery = useReadContract({
     abi: curveFactoryAbi,
     address: contracts?.CurveFactory,
     functionName: 'defaultCurveSupply',
-    query: { enabled: !!contracts && mechanic === 'bonding-curve', staleTime: 60_000 },
+    query: { enabled: !!contracts && base === 'ERC20', staleTime: 60_000 },
   });
   const curveSupplyWei = (curveDefaultSupplyQuery.data as bigint | undefined) ?? 800_000_000n * 10n ** 18n;
-  const useCurve = mechanic === 'bonding-curve' && base === 'ERC20';
+  const useCurve = base === 'ERC20';
+  /// Quick-launch defaults, evaluated once. Sniper gate is hardcoded to 5
+  /// blocks; buyback-burn is intentionally 0 per product decision (users can
+  /// still opt in via customizable curve).
+  const QUICK_ANTI_SNIPER_BLOCKS = 5;
+  const isQuick = mechanic === 'quick' && base === 'ERC20';
 
   const initialSupplyWei = useMemo(() => {
     if (useCurve) return curveSupplyWei;
@@ -410,20 +428,27 @@ export default function CreatePage() {
   // Only meaningful when useCurve is true (Router revert-guards on non-bonding-curve
   // launches too, but the frontend should send zeros to keep the invariant obvious).
   const antiSniperBlocks = useMemo<number>(() => {
-    if (!useCurve || !selectedModules.includes('AntiSniper')) return 0;
+    if (!useCurve) return 0;
+    // Quick launch bakes in a 5-block sniper gate — the pump.fun-style default
+    // that keeps snipers from consuming the first swap. The shelf is hidden so
+    // the AntiSniper module is never selected here, but we hardcode the value
+    // regardless of module basket contents in quick mode.
+    if (isQuick) return QUICK_ANTI_SNIPER_BLOCKS;
+    if (!selectedModules.includes('AntiSniper')) return 0;
     const raw = moduleParams['AntiSniper']?.gateBlocks;
     const n = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-  }, [useCurve, selectedModules, moduleParams]);
+  }, [useCurve, isQuick, selectedModules, moduleParams]);
 
   const buybackBurnBps = useMemo<number>(() => {
-    if (!useCurve || !selectedModules.includes('BuybackBurn')) return 0;
+    if (!useCurve || isQuick) return 0; // Quick mode intentionally skips buyback-burn (per product spec)
+    if (!selectedModules.includes('BuybackBurn')) return 0;
     const raw = moduleParams['BuybackBurn']?.burnBps;
     const pct = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
     if (!Number.isFinite(pct) || pct <= 0) return 0;
     // percent → bps, capped at MAX_BUYBACK_BPS = 2000 (matches MultiHookHost).
     return Math.min(2000, Math.floor(pct * 100));
-  }, [useCurve, selectedModules, moduleParams]);
+  }, [useCurve, isQuick, selectedModules, moduleParams]);
 
   const params = useMemo(
     () =>
@@ -1182,46 +1207,57 @@ export default function CreatePage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
-                    onClick={() => setMechanic('direct')}
-                    className="uru-polaroid text-left"
-                    style={{
-                      background: mechanic === 'direct' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
-                      boxShadow: mechanic === 'direct' ? '4px 4px 0 var(--pink-hot)' : undefined,
-                    }}
-                  >
-                    <div className="uru-h2" style={{ fontSize: 14 }}>
-                      ✿ direct launch
-                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>直</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      supply lands in ur wallet. u decide what to do with it (add LP yourself, airdrop, whatever)
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { if (base === 'ERC20') setMechanic('bonding-curve'); }}
+                    onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
                     disabled={base !== 'ERC20'}
                     className="uru-polaroid text-left"
                     style={{
-                      background: mechanic === 'bonding-curve' ? 'var(--mint)' : 'var(--paper-white, #fff)',
-                      boxShadow: mechanic === 'bonding-curve' ? '4px 4px 0 var(--anchor)' : undefined,
+                      background: mechanic === 'quick' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
+                      boxShadow: mechanic === 'quick' ? '4px 4px 0 var(--pink-hot)' : undefined,
                       opacity: base !== 'ERC20' ? 0.4 : 1,
                       cursor: base !== 'ERC20' ? 'not-allowed' : 'pointer',
                     }}
                   >
                     <div className="uru-h2" style={{ fontSize: 14 }}>
-                      ✿ bonding curve
+                      ✿ quick launch
+                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>速</span>
+                      {base !== 'ERC20' && (
+                        <span className="uru-stamp" style={{ marginLeft: 8, transform: 'rotate(-2deg)', background: 'var(--pink-warm)' }}>erc-20 only</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
+                      pump.fun style. just name / ticker / vibes ~ safe defaults baked in (LP locked forever, ownership renounced, sniper gate on)
+                    </div>
+                    {mechanic === 'quick' && base === 'ERC20' && (
+                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
+                        + supply auto = 800M · fee 1% · target 4 ETH · anti-sniper 5 blocks
+                      </div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
+                    disabled={base !== 'ERC20'}
+                    className="uru-polaroid text-left"
+                    style={{
+                      background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
+                      boxShadow: mechanic === 'custom' ? '4px 4px 0 var(--anchor)' : undefined,
+                      opacity: base !== 'ERC20' ? 0.4 : 1,
+                      cursor: base !== 'ERC20' ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <div className="uru-h2" style={{ fontSize: 14 }}>
+                      ✿ customizable curve
                       <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>曲線</span>
                       {base !== 'ERC20' && (
                         <span className="uru-stamp" style={{ marginLeft: 8, transform: 'rotate(-2deg)', background: 'var(--pink-warm)' }}>erc-20 only</span>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      pump.fun style. supply goes to a curve, ppl trade against it, graduates to uniswap v4 at 4 ETH raised ★
+                      same curve, more knobs. pick modules from the shelf, tune anti-sniper / buyback-burn / whitelist / etc.
                     </div>
-                    {mechanic === 'bonding-curve' && (
+                    {mechanic === 'custom' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto-set to 800M · fee 1% · target 4 ETH → grad
+                        + supply auto = 800M · fee 1% · target 4 ETH · ur modules
                       </div>
                     )}
                   </button>
@@ -1229,18 +1265,25 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* STEP 2 — shelf */}
+            {/* STEP 2 — shelf (hidden entirely in quick mode; quick mode ships
+                with no modules by design). The whitelist toggle below stays
+                visible in quick mode under a repositioned label, so the WL
+                affordance isn't lost when the shelf goes away. */}
             <section className="uru-shell">
               <span className="uru-tape uru-tape-mint" style={{ width: 82, height: 16, top: -8, right: 30, transform: 'rotate(11deg)' }} />
               <div className="flex items-baseline justify-between mb-2">
-                <div className="uru-eyebrow">step 2 ✿ the shelf</div>
-                <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-                  drag <span className="uru-arrow">→</span> or click add
-                </span>
+                <div className="uru-eyebrow">
+                  {isQuick ? 'step 2 ✿ whitelist (optional)' : 'step 2 ✿ the shelf'}
+                </div>
+                {!isQuick && (
+                  <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+                    drag <span className="uru-arrow">→</span> or click add
+                  </span>
+                )}
               </div>
 
               <div className="uru-shell-inner">
-                {available.length === 0 && (
+                {!isQuick && available.length === 0 && (
                   <div style={{ padding: 20, textAlign: 'center' }}>
                     <Mascot size={40} mood="sleepy" />
                     <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
@@ -1248,20 +1291,22 @@ export default function CreatePage() {
                     </div>
                   </div>
                 )}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {available.map((mod, i) => (
-                    <ShelfItem
-                      key={mod.id}
-                      mod={mod}
-                      tilt={TILTS[(i + 2) % TILTS.length]!}
-                      blockedReason={blockedReasons[mod.id] ?? ''}
-                      bundleWith={bundleHints[mod.id] ?? []}
-                      onQuickAdd={() => addModule(mod.id)}
-                      draggable={!coarsePointer}
-                    />
-                  ))}
-                </div>
-                {base === 'ERC20' && mechanic === 'bonding-curve' && (
+                {!isQuick && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {available.map((mod, i) => (
+                      <ShelfItem
+                        key={mod.id}
+                        mod={mod}
+                        tilt={TILTS[(i + 2) % TILTS.length]!}
+                        blockedReason={blockedReasons[mod.id] ?? ''}
+                        bundleWith={bundleHints[mod.id] ?? []}
+                        onQuickAdd={() => addModule(mod.id)}
+                        draggable={!coarsePointer}
+                      />
+                    ))}
+                  </div>
+                )}
+                {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
                   <div
                     style={{
                       marginTop: 12,
@@ -1415,11 +1460,14 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* STEP 4 — ownership. Curve mechanic force-renounces ownership on-chain
-                (see the launch payload's `ownership: useCurve ? Renounce : ...` line
-                below), so showing an interactive picker would silently lie to the
-                user. When curve is on we render a fixed "auto-renounced" card
-                instead. When direct-launch, the three-mode radio is live. */}
+            {/* STEP 4 — ownership. Quick launch bakes in ownership renounce
+                (surfaced in the step 1.5 mechanic-picker copy) so the whole
+                section is hidden there — one less thing to think about.
+                Customizable-curve + ERC-20 shows the "auto-renounced" fixed
+                card (curve mechanic force-renounces on-chain so an interactive
+                picker would silently lie). Direct-launch NFT bases keep the
+                three-mode radio live. */}
+            {!isQuick && (
             <section className="uru-shell">
               <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 4 ✿ ownership</div>
               <div className="uru-shell-inner">
@@ -1434,10 +1482,10 @@ export default function CreatePage() {
                       lineHeight: 1.5,
                     }}
                   >
-                    <b>auto-renounced</b> ~ bonding-curve launches must renounce so the
-                    curve is trustless to trade. no admin, no pause switch, no owner-only
-                    knobs. pick <b>direct launch</b> back on step 1 if u want to keep
-                    ownership.
+                    <b>auto-renounced</b> ~ customizable-curve launches must renounce so
+                    the curve is trustless to trade. no admin, no pause switch, no
+                    owner-only knobs. quick launch and NFT bases keep an ownership
+                    picker; ERC-20 curves do not.
                   </div>
                 ) : (
                   <>
@@ -1479,6 +1527,7 @@ export default function CreatePage() {
                 )}
               </div>
             </section>
+            )}
 
             {/* STEP 5 — metadata (tiny) */}
             <section className="uru-shell">
@@ -1591,6 +1640,8 @@ export default function CreatePage() {
               <div className="uru-bubble">
                 {launchedTokenAddress ? (
                   <>yayyy!! ur token is live 好き!! (づ｡◕‿‿◕｡)づ</>
+                ) : isQuick ? (
+                  <>quick launch mode ✿ safe defaults locked in — just name / ticker / vibes ~</>
                 ) : selectedModules.length === 0 ? (
                   <>hi hi!! pls drag something into the basket ~ i sorted em by category for u (◕‿◕✿)</>
                 ) : selectedModules.length === 1 ? (
@@ -1601,12 +1652,14 @@ export default function CreatePage() {
               </div>
             </div>
 
-            <CartDropZone
-              selectedModules={selectedModules}
-              moduleParams={moduleParams}
-              onRemove={removeModule}
-              onParamsChange={(id, v) => setModuleParams((prev) => ({ ...prev, [id]: v }))}
-            />
+            {!isQuick && (
+              <CartDropZone
+                selectedModules={selectedModules}
+                moduleParams={moduleParams}
+                onRemove={removeModule}
+                onParamsChange={(id, v) => setModuleParams((prev) => ({ ...prev, [id]: v }))}
+              />
+            )}
 
             {/* Curve + owner-module conflict warning. Renders only when the basket
                 has a requiresOwner module while curve mechanic is on. The launch
@@ -1627,9 +1680,10 @@ export default function CreatePage() {
                 <span>
                   ur basket has{' '}
                   <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
-                  {' '}— these have owner-only functions (pause, allowlist, etc). bonding-curve
-                  launches auto-renounce ownership so those buttons would be dead forever.
-                  drop these modules, or switch to <b>direct launch</b> up top.
+                  {' '}— these have owner-only functions (pause, allowlist, etc). every
+                  ERC-20 curve here auto-renounces ownership so those buttons would be dead
+                  forever. drop these modules, or launch a non-curve NFT base if u need
+                  ongoing admin control.
                 </span>
               </div>
             )}
