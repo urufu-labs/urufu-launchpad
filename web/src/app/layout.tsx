@@ -87,7 +87,10 @@ export const metadata: Metadata = {
     // render it fine — most auto-crop to 16:9 for their preview cards.
     // Explicit width/height + alt so crawlers don't have to fetch-and-measure
     // to lay out their preview cards (also prevents CLS in embedders).
-    images: [{ url: '/og.jpg', width: 1024, height: 1024, alt: 'urufu labs launchpad mascot' }],
+    // 1200x630 letterboxed variant (mascot on a blurred zoom of itself so
+    // there are no hard cream bars). Standard platform aspect ratio, renders
+    // uncropped on Twitter / Discord / iMessage / Slack / Bluesky.
+    images: [{ url: '/og-1200x630.jpg', width: 1200, height: 630, alt: 'urufu labs launchpad mascot' }],
     type: 'website',
     url: 'https://urufulabs.xyz',
     siteName: 'urufu labs',
@@ -96,7 +99,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: TITLE,
     description: TAGLINE,
-    images: [{ url: '/og.jpg', width: 1024, height: 1024, alt: 'urufu labs launchpad mascot' }],
+    images: [{ url: '/og-1200x630.jpg', width: 1200, height: 630, alt: 'urufu labs launchpad mascot' }],
     // Add site handle so tweets sharing the link show 'via @spoobsV1' style.
     creator: '@spoobsV1',
   },
@@ -129,6 +132,48 @@ export default function RootLayout({
             mode doesn't flash light. Source at web/public/theme-bootstrap.js. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/theme-bootstrap.js"></script>
+
+        {/* JSON-LD structured data. Two nodes in one @graph:
+             - Organization (who we are, links to social)
+             - WebSite (search + canonical URL)
+            Google + Bing + LinkedIn use these to build rich results, sitelinks,
+            and knowledge-panel entries. Kept minimal — schema.org gets picky
+            about unknown properties. Rendered inline (no state, no client
+            bundle) via dangerouslySetInnerHTML so the JSON isn't turned into
+            react children (would need to escape < / > everywhere). */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@graph': [
+                {
+                  '@type': 'Organization',
+                  '@id': 'https://urufulabs.xyz#organization',
+                  name: 'urufu labs',
+                  url: 'https://urufulabs.xyz',
+                  logo: 'https://urufulabs.xyz/og-1200x630.jpg',
+                  sameAs: ['https://x.com/spoobsV1', 'https://github.com/urufu-labs'],
+                  description:
+                    'launchpad for customizable ERC-20 tokens that graduate onto uniswap v4 with LP locked forever and fees flowing to nft holders',
+                },
+                {
+                  '@type': 'WebSite',
+                  '@id': 'https://urufulabs.xyz#website',
+                  url: 'https://urufulabs.xyz',
+                  name: 'urufu labs',
+                  publisher: { '@id': 'https://urufulabs.xyz#organization' },
+                  inLanguage: 'en',
+                  potentialAction: {
+                    '@type': 'SearchAction',
+                    target: 'https://urufulabs.xyz/discover?q={search_term_string}',
+                    'query-input': 'required name=search_term_string',
+                  },
+                },
+              ],
+            }),
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col">
         <Providers>
