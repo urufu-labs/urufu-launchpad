@@ -42,6 +42,10 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   '4663:0x2c68eda3644f8e4ff078ebcec6b5c28d0c0d6f09',
   '4663:0x55e81c3b6a626ce1442b1d5cedcbfb134cdf2c10',
   '4663:0x607e981d4bf3882b817fe3bc75c5fad9fde259a5',
+  // testToken $TEST — the pre-GraduatorV2 test launch that graduated with
+  // the 500x cliff. Hidden so it doesn't clutter discover / marquee / profile
+  // while we run a fresh graduation test through GraduatorV2.
+  '4663:0xe13a416dc7e679de10c476c70d0f6e5373752567',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
