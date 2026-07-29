@@ -83,7 +83,11 @@ export const metadata: Metadata = {
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
-    images: ['/og.svg'],
+    // JPG at 1024x1024 (square). Twitter, Discord, iMessage, Telegram all
+    // render it fine — most auto-crop to 16:9 for their preview cards.
+    // Explicit width/height + alt so crawlers don't have to fetch-and-measure
+    // to lay out their preview cards (also prevents CLS in embedders).
+    images: [{ url: '/og.jpg', width: 1024, height: 1024, alt: 'urufu labs launchpad mascot' }],
     type: 'website',
     url: 'https://urufulabs.xyz',
     siteName: 'urufu labs',
@@ -92,8 +96,19 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: TITLE,
     description: TAGLINE,
-    images: ['/og.svg'],
+    images: [{ url: '/og.jpg', width: 1024, height: 1024, alt: 'urufu labs launchpad mascot' }],
+    // Add site handle so tweets sharing the link show 'via @spoobsV1' style.
+    creator: '@spoobsV1',
   },
+  // Additional social / bot signals — helps some crawlers (Slack, LinkedIn,
+  // Bluesky) build cleaner previews than the OG defaults alone.
+  applicationName: 'urufu labs',
+  authors: [{ name: 'urufu labs', url: 'https://urufulabs.xyz' }],
+  keywords: [
+    'urufu labs', 'launchpad', 'memecoin', 'bonding curve', 'uniswap v4',
+    'robinhood chain', 'v4 hooks', 'lp locked', 'nft rewards', 'urufu gemu',
+  ],
+  category: 'DeFi',
 };
 
 export default function RootLayout({
