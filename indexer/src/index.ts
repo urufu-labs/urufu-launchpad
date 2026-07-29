@@ -65,9 +65,20 @@ interface PendingDeployed {
   configHash: `0x${string}`;
   impl: `0x${string}`;
 }
+interface PendingCurve {
+  curveAddress: `0x${string}`;
+}
 
 const pendingReserved = new Map<string, PendingReserved>();
 const pendingDeployed = new Map<string, PendingDeployed>();
+/// Same buffer pattern as pendingReserved/pendingDeployed. Populated by
+/// CurveFactory:CurveCreated (and BondingCurve:CurveInitialized as a
+/// belt-and-suspenders) whenever those fire BEFORE Router:Launched in the
+/// same tx — which is always the case when a curve is installed atomically
+/// via Router.launch (log order: CurveInitialized → CurveCreated → CurveInstalled → Launched).
+/// Router:Launched consumes + deletes at insert time so the row lands with
+/// installedBondingCurve=true + curveAddress set on the first write.
+const pendingCurve = new Map<string, PendingCurve>();
 
 ponder.on('Router:Launched', async ({ event, context }) => {
   const { token, launchedBy, base, nameHash, tickerHash, feePaid, installedHook, installedGovernance } =
@@ -77,8 +88,10 @@ ponder.on('Router:Launched', async ({ event, context }) => {
 
   const reserved = pendingReserved.get(id);
   const deployed = pendingDeployed.get(id);
+  const curve = pendingCurve.get(id);
   pendingReserved.delete(id);
   pendingDeployed.delete(id);
+  pendingCurve.delete(id);
 
   await context.db.insert(launches).values({
     id,
@@ -95,8 +108,12 @@ ponder.on('Router:Launched', async ({ event, context }) => {
     feePaid,
     installedHook,
     installedGovernance,
-    installedBondingCurve: false, // upserted by Router:CurveInstalled below
-    curveAddress: null,
+    // If the curve was installed atomically (Router.launch with installBondingCurve=true),
+    // its CurveInitialized/CurveCreated events fired earlier in this same tx and buffered
+    // the address into pendingCurve. Standalone CurveFactory.createCurve() after launch
+    // is handled by the update-in-place path in CurveFactory:CurveCreated below.
+    installedBondingCurve: curve !== undefined,
+    curveAddress: curve?.curveAddress ?? null,
     blockNumber: event.block.number,
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
@@ -124,13 +141,19 @@ ponder.on('CurveFactory:CurveCreated', async ({ event, context }) => {
   const chainId = chainIdOf(context);
   const launchId = `${chainId}-${token.toLowerCase()}`;
 
+  // Same-tx path: Router.launch installs curve → CurveCreated fires BEFORE
+  // Router.Launched writes the launches row. The .update below no-ops (row
+  // doesn't exist yet) and Launched picks curveAddress up from pendingCurve.
+  //
+  // Standalone path: launcher calls CurveFactory.createCurve() in a separate
+  // tx after launch. The launches row exists so .update writes directly, and
+  // the pendingCurve entry is harmless — never consumed but never grows past
+  // a single stale entry per token that will only ever be created once.
+  pendingCurve.set(launchId, { curveAddress: curve });
   await context.db
     .update(launches, { id: launchId })
     .set({ installedBondingCurve: true, curveAddress: curve })
-    .catch(() => {
-      // No launches row for this token yet (createCurve was called for a token launched
-      // outside the Router pipeline). The launch row isn't going to appear later — safe skip.
-    });
+    .catch(() => {});
 });
 
 ponder.on('NameRegistry:Reserved', async ({ event, context }) => {
@@ -185,24 +208,27 @@ ponder.on('BondingCurve:CurveInitialized', async ({ event, context }) => {
   const curveAddress = event.log.address;
   const id = `${chainId}-${curveAddress.toLowerCase()}`;
 
-  // Backfill the launches row so the frontend feeds bucket it correctly. Router.CurveInstalled
-  // only fires when Router.launch installs the curve atomically; a standalone
-  // CurveFactory.createCurve() bypasses that path. CurveInitialized always fires when the
-  // curve boots, so this is the single source of truth for "this launch has a curve".
-  //
-  // Try the update; log if it throws so we surface any drizzle-level id-mismatch bug in dev
-  // instead of silently swallowing with .catch. The launches row is written by Router.Launched
-  // at an earlier block, so on historical resync it's guaranteed to exist by the time this
-  // handler runs. On live indexing where launch + createCurve happen in the same tx, the
-  // events are processed in log-index order so the row is also present.
+  // Backfill the launches row so the frontend feeds bucket it correctly.
+  // Two paths:
+  //   1. Atomic-install (Router.launch with installBondingCurve=true) — this
+  //      handler fires BEFORE Router.Launched in the same tx (CurveInitialized
+  //      → CurveCreated → CurveInstalled → Launched log order). The update
+  //      below no-ops (row doesn't exist yet); we stash the curve address in
+  //      pendingCurve for Router.Launched to pick up when it inserts the row.
+  //   2. Standalone-install (CurveFactory.createCurve() called after launch)
+  //      — the launches row exists from a prior block, so update writes
+  //      straight through and the pendingCurve entry is a harmless stale
+  //      leftover (only ever grows one entry per token, never consumed).
   const launchId = `${chainId}-${token.toLowerCase()}`;
+  pendingCurve.set(launchId, { curveAddress });
   try {
     await context.db
       .update(launches, { id: launchId })
       .set({ installedBondingCurve: true, curveAddress });
     console.log(`[indexer] linked curve ${curveAddress} → launch ${launchId}`);
-  } catch (err) {
-    console.warn(`[indexer] failed to link curve → launch ${launchId}:`, err instanceof Error ? err.message : err);
+  } catch {
+    // Row doesn't exist yet — pendingCurve above will flip the fields at
+    // insert time inside the Router:Launched handler. Silent skip.
   }
 
   await context.db.insert(curves).values({
