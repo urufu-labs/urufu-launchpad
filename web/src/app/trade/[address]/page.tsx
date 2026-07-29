@@ -51,6 +51,27 @@ import { MockTradeView } from './MockTradeView';
 
 type Side = 'buy' | 'sell';
 
+/// Compute the curve's spot price (wei-per-token, 18-decimal fixed point) from
+/// its post-trade reserves. Mirrors BondingCurve.priceWeiPerToken() on-chain:
+///   price = (virtEth + realEth) * 1e18 / (virtToken + realToken)
+///
+/// This is the marginal price after the trade, which is what a trading chart
+/// should plot — versus the indexer's stored `priceWeiPerToken` field, which is
+/// the per-trade *realized average* (ETH-in / tokens-out). Realized average
+/// always sits below the true post-trade spot on a sell (making tiny sells
+/// look like disproportionate downticks) and below true post-trade spot on a
+/// buy, so plotting it produced visually misleading candles on the chart.
+function spotFromReserves(
+  virtualEth: bigint,
+  virtualToken: bigint,
+  realEth: bigint,
+  realToken: bigint,
+): bigint {
+  const denom = virtualToken + realToken;
+  if (denom === 0n) return 0n;
+  return ((virtualEth + realEth) * 10n ** 18n) / denom;
+}
+
 export default function TradePage({ params }: { params: Promise<{ address: string }> }) {
   const resolved = use(params);
   const tokenAddress = (isAddress(resolved.address) ? resolved.address : '0x0000000000000000000000000000000000000000') as Address;
@@ -192,6 +213,12 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'priceWeiPerToken' },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'graduated' },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'tradeFeeBps' },
+          // Static virtual reserves (set at CurveInitialized, never change). We
+          // read them alongside the mutable state so the chart can compute
+          // spot-after-trade prices from the reserves saved in each Trade event
+          // instead of the per-trade realized average the indexer stores.
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualEthReserve' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualTokenReserve' },
         ]
       : [],
     // Leave allowFailure as its default (true) — the results below are read as
@@ -233,6 +260,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // tradeFeeBps() returns uint16 → wagmi maps to `number`, not `bigint`. Reading it as
   // bigint made the fee row render '—' because `typeof feeBps === 'bigint'` was never true.
   const feeBps = csResults[6]?.result as number | undefined;
+  const virtualEthReserve = csResults[7]?.result as bigint | undefined;
+  const virtualTokenReserve = csResults[8]?.result as bigint | undefined;
 
   const tokenNameQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'name', chainId: readChainId });
   const tokenSymbolQ = useReadContract({ abi: erc20TokenAbi, address: tokenAddress, functionName: 'symbol', chainId: readChainId });
@@ -300,6 +329,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
   useEffect(() => {
     if (!curveAddress) return;
+    // Chart series requires virtual reserves to compute spot-after-trade prices.
+    // Bail until they load; the useReadContracts above will retrigger this
+    // effect once they arrive. Virtual reserves are static, so we only wait
+    // once per session.
+    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    const vE = virtualEthReserve;
+    const vT = virtualTokenReserve;
     let cancelled = false;
     (async () => {
       // 1) Prefer the indexer — full history, cheap query, no RPC round-trip cap.
@@ -308,7 +344,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (indexed && indexed.length > 0) {
         const pts: TradePoint[] = indexed.map((t) => ({
           timestamp: Number(t.blockTimestamp),
-          priceWeiPerToken: BigInt(t.priceWeiPerToken),
+          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
           isBuy: t.isBuy,
         }));
         const rec = indexed.slice().reverse().slice(0, 200).map((t) => ({
@@ -343,8 +379,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           const ts = Number(args.timestamp as bigint);
           const ethAmount = args.ethAmount as bigint;
           const tokenAmount = args.tokenAmount as bigint;
-          const priceWei = tokenAmount > 0n ? (ethAmount * 10n ** 18n) / tokenAmount : 0n;
-          pts.push({ timestamp: ts, priceWeiPerToken: priceWei, isBuy: args.isBuy as boolean });
+          // Trade event payload carries the post-trade reserves — same source
+          // the indexer reads. Compute spot from those so the chart tracks the
+          // curve's marginal price, not the per-trade realized average (a
+          // realized average always sits BELOW pre-trade spot on a sell and
+          // BELOW post-trade spot on a buy, making tiny sells look bigger
+          // than they are).
+          const ethReserveAfter = args.ethReserve as bigint;
+          const tokenReserveAfter = args.tokenReserve as bigint;
+          const spotWei = spotFromReserves(vE, vT, ethReserveAfter, tokenReserveAfter);
+          pts.push({ timestamp: ts, priceWeiPerToken: spotWei, isBuy: args.isBuy as boolean });
           rec.push({
             isBuy: args.isBuy as boolean,
             eth: ethAmount,
@@ -360,17 +404,24 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [publicClient, curveAddress]);
+  }, [publicClient, curveAddress, virtualEthReserve, virtualTokenReserve]);
 
   // Background poll so the recent-trades list + chart tick even without the current tab
   // firing a tx. 15s is a friendly interval — catches other users' trades on the same curve.
   useEffect(() => {
     if (!curveAddress) return;
+    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    const vE = virtualEthReserve;
+    const vT = virtualTokenReserve;
     const id = setInterval(async () => {
       const indexed = await fetchTradesForCurve(curveAddress, 500);
       if (!indexed || indexed.length === 0) return;
       setTradePoints(
-        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken), isBuy: t.isBuy })),
+        indexed.map((t) => ({
+          timestamp: Number(t.blockTimestamp),
+          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
+          isBuy: t.isBuy,
+        })),
       );
       setRecentTrades(
         indexed.slice().reverse().slice(0, 200).map((t) => ({
@@ -383,7 +434,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       );
     }, 5_000);
     return () => clearInterval(id);
-  }, [curveAddress]);
+  }, [curveAddress, virtualEthReserve, virtualTokenReserve]);
 
   // ---------- v4 pool swaps → chart points (post-graduation) ------------------
   // After graduation, the BondingCurve stops trading — the price story continues on the
@@ -708,12 +759,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // on the receipt hash so it only runs once per successful confirm.
   useEffect(() => {
     if (!receipt.data || !curveAddress) return;
+    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    const vE = virtualEthReserve;
+    const vT = virtualTokenReserve;
     let cancelled = false;
     (async () => {
       const indexed = await fetchTradesForCurve(curveAddress, 500);
       if (cancelled || !indexed) return;
       setTradePoints(
-        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken), isBuy: t.isBuy })),
+        indexed.map((t) => ({
+          timestamp: Number(t.blockTimestamp),
+          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
+          isBuy: t.isBuy,
+        })),
       );
       setRecentTrades(
         indexed.slice().reverse().slice(0, 200).map((t) => ({
