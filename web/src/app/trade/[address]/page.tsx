@@ -304,6 +304,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         const pts: TradePoint[] = indexed.map((t) => ({
           timestamp: Number(t.blockTimestamp),
           priceWeiPerToken: BigInt(t.priceWeiPerToken),
+          isBuy: t.isBuy,
         }));
         const rec = indexed.slice().reverse().slice(0, 200).map((t) => ({
           isBuy: t.isBuy,
@@ -338,7 +339,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           const ethAmount = args.ethAmount as bigint;
           const tokenAmount = args.tokenAmount as bigint;
           const priceWei = tokenAmount > 0n ? (ethAmount * 10n ** 18n) / tokenAmount : 0n;
-          pts.push({ timestamp: ts, priceWeiPerToken: priceWei });
+          pts.push({ timestamp: ts, priceWeiPerToken: priceWei, isBuy: args.isBuy as boolean });
           rec.push({
             isBuy: args.isBuy as boolean,
             eth: ethAmount,
@@ -364,7 +365,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       const indexed = await fetchTradesForCurve(curveAddress, 500);
       if (!indexed || indexed.length === 0) return;
       setTradePoints(
-        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
+        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken), isBuy: t.isBuy })),
       );
       setRecentTrades(
         indexed.slice().reverse().slice(0, 200).map((t) => ({
@@ -478,7 +479,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .sort((a, b) => a.timestamp - b.timestamp);
       if (cancelled) return;
-      setV4TradePoints(enriched.map((e) => ({ timestamp: e.timestamp, priceWeiPerToken: e.priceWeiPerToken })));
+      setV4TradePoints(enriched.map((e) => ({ timestamp: e.timestamp, priceWeiPerToken: e.priceWeiPerToken, isBuy: e.isBuy })));
       // Newest swaps first for the recent-trades list.
       setV4RecentTrades(
         enriched
@@ -707,7 +708,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       const indexed = await fetchTradesForCurve(curveAddress, 500);
       if (cancelled || !indexed) return;
       setTradePoints(
-        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken) })),
+        indexed.map((t) => ({ timestamp: Number(t.blockTimestamp), priceWeiPerToken: BigInt(t.priceWeiPerToken), isBuy: t.isBuy })),
       );
       setRecentTrades(
         indexed.slice().reverse().slice(0, 200).map((t) => ({
