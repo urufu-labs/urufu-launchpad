@@ -257,7 +257,9 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    MultiHookHost: '0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4',
+    // V5 MHH — paired with V5 GraduatorV2 (below). Replaced the mis-wired
+    // 0xd19d… MHH whose initializer slot was locked to a dead graduator.
+    MultiHookHost: '0x1Bb4666b905D81aE0b70aC63Df76Eea096efA2C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -270,7 +272,9 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  robinhood: '0x0075145DCb100D1D9d35D81E2e2ab728A0091cA1',
+  // V5 GraduatorV2 — cliff-fix + wired to V5 MultiHookHost. Superseded the
+  // 0x0075… version that was pointing at the wrong MHH.
+  robinhood: '0x0d63E9D1b8EA9b3620ba75F1D6DA69eFf4adbd02',
   'robinhood-testnet': null,
 };
 
