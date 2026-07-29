@@ -13,6 +13,42 @@ function _safeHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u);
 }
 
+/// Indexer GraphQL endpoint. Compile-service used to read `public.launches`
+/// directly from a shared Postgres, but the two services drifted onto
+/// separate Postgres instances during the Railway migration — the SQL query
+/// throws `relation "public.launches" does not exist` and the endpoint 500s
+/// before the launcher check runs. Reading through the indexer's public
+/// GraphQL keeps the two services independent + works regardless of the
+/// underlying DB topology.
+const INDEXER_URL = process.env.INDEXER_URL ?? process.env.NEXT_PUBLIC_INDEXER_URL ?? 'http://localhost:42069';
+
+/// Look up the launcher wallet for `(chainId, tokenAddress)` from the
+/// indexer's GraphQL. Returns:
+///   - launcher lower-cased address string on success
+///   - null if the indexer has no row for this token yet (fresh launch,
+///     not-yet-indexed) OR indexer is unreachable — either case is treated
+///     as `INDEXER_PENDING` upstream and blocks the write.
+async function launcherForToken(chainId: number, tokenAddress: string): Promise<string | null> {
+  const id = `${chainId}-${tokenAddress.toLowerCase()}`;
+  const query = `query LauncherByToken($id: String!) { launches(id: $id) { launchedBy } }`;
+  try {
+    const res = await fetch(`${INDEXER_URL.replace(/\/$/, '')}/graphql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { id } }),
+      // 5s cap — the indexer's realtime layer should answer well under this;
+      // a stall here would otherwise hang the write endpoint indefinitely.
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { launches?: { launchedBy?: string } | null } };
+    const raw = json.data?.launches?.launchedBy;
+    return typeof raw === 'string' ? raw.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 /// Registers the three social/UGC route groups on the compile service:
 ///   - GET/POST /token/:chainId/:address/metadata   (image, socials, description)
 ///   - GET/POST /profile/:address                    (bio, avatar, socials)
@@ -88,27 +124,17 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     if (!auth.ok) return reply.code(401).send({ code: 'UNAUTHORIZED', reason: auth.reason });
 
     const tokenAddr = payload.tokenAddress.toLowerCase();
-    // Ownership: only the launcher of the token can update its metadata. We check
-    // Ponder's `launches` table (same Postgres, public schema). If the launcher isn't
-    // recorded (indexer still catching up), we allow the write from any wallet — the
-    // metadata still requires a valid signature so it's not fully open.
-    const launcherRows = await sql!`
-      SELECT launched_by FROM public.launches
-      WHERE chain_id = ${payload.chainId} AND token_address = ${tokenAddr}
-      LIMIT 1
-    `;
-    const launcherRow = launcherRows[0];
-    if (!launcherRow) {
-      // Prior behavior: allow any signed wallet to write metadata when the indexer
-      // hadn't caught up yet. That opened a defacement window on every fresh launch —
-      // an attacker who saw a launch in mempool could plant a phishing image + socials
-      // before the indexer added the launches row. Now the endpoint waits for the
-      // indexer to confirm the launcher; the launcher retries a few seconds later. This
-      // trades a small usability blip on fresh launches for eliminating the exploit
-      // class entirely.
+    // Ownership: only the launcher of the token can update its metadata. We
+    // ask the indexer over its public GraphQL endpoint (compile-service and
+    // indexer live on separate Postgres instances post-Railway migration, so
+    // the old direct-SQL lookup against `public.launches` throws 42P01 and
+    // 500s the endpoint for both attackers AND legitimate launchers). Behavior
+    // on missing row is identical: reject with INDEXER_PENDING so an attacker
+    // can't front-run a not-yet-indexed launch to plant defacement metadata.
+    const launcher = await launcherForToken(payload.chainId, tokenAddr);
+    if (launcher === null) {
       return reply.code(409).send({ code: 'INDEXER_PENDING', message: 'launch not indexed yet — retry in a few seconds' });
     }
-    const launcher = String(launcherRow.launched_by).toLowerCase();
     if (launcher !== auth.address) {
       return reply.code(403).send({ code: 'NOT_LAUNCHER', launcher, signer: auth.address });
     }
