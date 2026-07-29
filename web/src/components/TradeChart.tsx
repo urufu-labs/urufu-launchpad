@@ -23,6 +23,7 @@ import {
   AreaSeries,
   ColorType,
   LineType,
+  LineStyle,
   PriceScaleMode,
   createSeriesMarkers,
   type AreaData,
@@ -230,15 +231,28 @@ export function TradeChart({
     });
 
     const series = chart.addSeries(AreaSeries, {
-      lineType: LineType.WithSteps,
+      // Smooth curve, not step. `WithSteps` produced the "ladder block" look
+      // where each price sits flat until the next trade jumps. Even with only
+      // a handful of trades, a smooth interpolated line reads much closer to
+      // a real trading terminal (pump.fun-style) and avoids the sharp right
+      // angles that made our sparse chart look broken.
+      lineType: LineType.Simple,
       lineWidth: 2,
       lineColor: UP_COLOR,
-      topColor: 'rgba(47, 191, 106, 0.35)',
+      topColor: 'rgba(47, 191, 106, 0.28)',
       bottomColor: 'rgba(47, 191, 106, 0)',
       // No built-in point markers. Our own createSeriesMarkers below draws
       // colored buy/sell circles at each trade, which fully replaces the
       // neutral gray dots.
       pointMarkersVisible: false,
+      // Emphasize the current price with a horizontal reference line that
+      // extends to the right axis with a colored badge — the pump.fun-style
+      // "here's the price right now" indicator.
+      priceLineVisible: true,
+      priceLineWidth: 1,
+      priceLineColor: UP_COLOR,
+      priceLineStyle: LineStyle.Dashed,
+      lastValueVisible: true,
       priceFormat: {
         type: 'price',
         precision: 4,
@@ -268,8 +282,9 @@ export function TradeChart({
     if (!series) return;
     series.applyOptions({
       lineColor: isUp ? UP_COLOR : DOWN_COLOR,
-      topColor: isUp ? 'rgba(47, 191, 106, 0.35)' : 'rgba(255, 136, 179, 0.35)',
+      topColor: isUp ? 'rgba(47, 191, 106, 0.28)' : 'rgba(255, 136, 179, 0.28)',
       bottomColor: isUp ? 'rgba(47, 191, 106, 0)' : 'rgba(255, 136, 179, 0)',
+      priceLineColor: isUp ? UP_COLOR : DOWN_COLOR,
       priceFormat: {
         type: 'price',
         precision,
