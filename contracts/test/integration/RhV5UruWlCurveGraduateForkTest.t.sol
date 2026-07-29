@@ -62,8 +62,8 @@ contract RhV5UruWlCurveGraduateForkTest is Test {
     // LIVE V5 addresses (2026-07-26)
     // ============================================================
     address internal constant ROUTER_V2 = 0x5EFA396B42210c16F2aaDE2dB1Fe7E88054c33DE;
-    address internal constant GRADUATOR = 0xaf62e66B6039cCd11a5953e3f3dB342CF7EAa489;
-    address internal constant MULTI_HOOK_HOST = 0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4;
+    address internal constant GRADUATOR = 0x0d63E9D1b8EA9b3620ba75F1D6DA69eFf4adbd02;
+    address internal constant MULTI_HOOK_HOST = 0x1Bb4666b905D81aE0b70aC63Df76Eea096efA2C4;
     address internal constant CURVE_FACTORY = 0x4631C21b066D3B289779e477fc79f13E8d0Fc248;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
     address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;

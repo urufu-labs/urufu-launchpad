@@ -85,8 +85,8 @@ contract RhV6FullLifecycleForkTest is Test {
     // Live V6 stack (post-V6-broadcast state)
     address internal constant ROUTER_V6 = 0x2dfA89FF6822C53509127b4943c97A48952dD973;
     address internal constant CURVE_FACTORY = 0x4631C21b066D3B289779e477fc79f13E8d0Fc248;
-    address internal constant GRADUATOR = 0xaf62e66B6039cCd11a5953e3f3dB342CF7EAa489;
-    address internal constant MULTI_HOOK_HOST = 0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4;
+    address internal constant GRADUATOR = 0x0d63E9D1b8EA9b3620ba75F1D6DA69eFf4adbd02;
+    address internal constant MULTI_HOOK_HOST = 0x1Bb4666b905D81aE0b70aC63Df76Eea096efA2C4;
     address internal constant V4_SWAP_ROUTER = 0x2E4cd43C07879f52422B3e83F00Be877eFD88738;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;

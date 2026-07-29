@@ -110,8 +110,8 @@ contract RhV5GraduatorAccessCheckTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
     // ---- V5 (2026-07-26) ----
-    address internal constant GRADUATOR_V5 = 0xaf62e66B6039cCd11a5953e3f3dB342CF7EAa489;
-    address internal constant MULTI_HOOK_HOST_V5 = 0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4;
+    address internal constant GRADUATOR_V5 = 0x0d63E9D1b8EA9b3620ba75F1D6DA69eFf4adbd02;
+    address internal constant MULTI_HOOK_HOST_V5 = 0x1Bb4666b905D81aE0b70aC63Df76Eea096efA2C4;
 
     // ---- Unchanged (immutable wire targets across V4->V5) ----
     address internal constant CURVE_FACTORY = 0x4631C21b066D3B289779e477fc79f13E8d0Fc248;
@@ -228,6 +228,54 @@ contract RhV5GraduatorAccessCheckTest is Test {
         assertTrue(curve.graduated(), "curve did not graduate via V5 Graduator");
         assertEq(curve.ethReserve(), 0, "graduation did not drain eth reserve");
         assertEq(curve.tokenReserve(), 0, "graduation did not drain token reserve");
+    }
+
+    // ============================================================
+    // (2b) Isolated positive path — bypass CurveFactory wire, prank
+    //      as the registered curve and hit newGraduator.execute directly.
+    //      This confirms the ACCESS-CHECK GATE alone accepts a registered
+    //      curve caller — independent of whether CurveFactory has been
+    //      rotated to the V5 Graduator (which on RH mainnet, at the block
+    //      this fork snapshots, it has NOT — see the wire test's failure).
+    //      Success criterion: the call must not revert with
+    //      `Graduator__NotAuthorizedCurve`; a revert from a downstream
+    //      cause (pool init / already initialized) still proves the gate
+    //      accepted the caller.
+    // ============================================================
+    function test_V5_AccessCheck_AcceptsRegisteredCurveWhenPranked() public {
+        (MintableERC20 token, address curveAddr) = _mintAndRegisterCurve();
+
+        // Fund the "curve" prank identity with ETH + tokens + approval so
+        // Graduator.execute survives past the gate into safeTransferFrom.
+        uint256 ethAmount = 1 ether;
+        uint256 tokenAmount = 1_000_000e18;
+        token.mint(curveAddr, tokenAmount);
+        vm.deal(curveAddr, ethAmount);
+
+        vm.startPrank(curveAddr);
+        token.approve(GRADUATOR_V5, tokenAmount);
+
+        // We deliberately do NOT assert non-revert of the whole call — the
+        // downstream v4 pool init on RH mainnet's live PoolManager may
+        // revert for reasons unrelated to the gate (e.g. hook config,
+        // pool already existing at that key). Instead we prove the gate
+        // is passed by asserting the exact NotAuthorizedCurve selector
+        // does not appear in the returndata when it reverts.
+        try IGraduatorV5(GRADUATOR_V5).execute{value: ethAmount}(
+            address(token), ethAmount, tokenAmount, 0, 0, address(this)
+        ) {
+            // gate passed AND full graduation succeeded
+        } catch (bytes memory reason) {
+            bytes4 sel;
+            assembly {
+                sel := mload(add(reason, 32))
+            }
+            assertTrue(
+                sel != IGraduatorV5.Graduator__NotAuthorizedCurve.selector,
+                "V5 gate rejected registered curve caller"
+            );
+        }
+        vm.stopPrank();
     }
 
     // ---------------------------------------------------------------- helpers
