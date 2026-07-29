@@ -102,20 +102,25 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="what" title="what is urufu labs?" jp="説明">
         <p>
-          a launchpad. pick a base (coin, nft, or mixed-item collection), drag features into
-          a cart, hit launch. u get a real ERC-20 or ERC-721/1155 on-chain in one tx, plus a
-          trade page + chart for anyone to trade it.
+          a launchpad for <b>customizable ERC-20 tokens</b>. drag features into a cart
+          (anti-bot, staking, voting, royalties, more), hit launch, get a real token
+          on-chain in one tx, plus a trade page + chart for anyone to trade.
         </p>
         <Callout tone="pink" label="what makes urufu different">
           <ul className="uru-list-flower" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
             <li><b>every module is real solidity</b>, not a clone with a shared impl. compose voting + staking + anti-bot + royalties + more in one tx.</li>
-            <li><b>launches ERC-20 AND ERC-721/1155</b>, same UI, same shop. most launchpads only ship coins.</li>
             <li><b>graduates onto a uniswap v4 pool with a custom hook</b> that routes trade fees three ways: creator, flywheel, on-token buyback-burn.</li>
             <li><b>LP is math-locked forever</b> post-graduation. no rugs, no vampire attacks, no team-triggered removals.</li>
             <li><b>urufu flywheel</b>: 35% of every trade fee airdrops to urufu gemu NFT holders as ETH, 40% buys back URU on market.</li>
             <li><b>snapshot whitelists</b>: point at any existing token, we hash its holders into a merkle root. no CSV uploads, no manual lists.</li>
             <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
+            <li><b>name + ticker are globally unique</b> via the on-chain registry, so copycat bots can&apos;t front-run ur brand.</li>
           </ul>
+        </Callout>
+        <Callout tone="mint" label="coming later">
+          NFT and mixed-item collections (ERC-721/1155) are designed and the contracts
+          are on-chain, but the launch flow for them isn&apos;t live yet. we&apos;re proving
+          the flywheel on fungible tokens first. right now the shop is coin-only.
         </Callout>
         <Callout tone="mint" label="powered by uniswap v4 hooks">
           post-graduation tokens live in a{' '}
@@ -170,10 +175,16 @@ export default function DocsPage() {
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it works</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
             <li>
-              <b>the WL = holders of an existing token you point at.</b> paste any
-              ERC-20 or NFT address in the whitelist box on the create page, we snapshot
-              its current holders and hash them into a Merkle root that goes on-chain.
-              no list upload, no CSV.
+              <b>the WL = holders of an existing token OR NFT collection you point at.</b>{' '}
+              paste any ERC-20 or ERC-721 address in the whitelist box on the create page,
+              we snapshot its current holders and hash them into a Merkle root that goes
+              on-chain. no list upload, no CSV. ERC-1155 support is a follow-up.
+            </li>
+            <li>
+              <b>works for NFT communities out of the box.</b> want ur token pre-sale gated
+              to holders of a specific NFT collection? just paste the collection address.
+              every wallet holding at least one token from that collection at snapshot time
+              lands on the WL.
             </li>
             <li>
               <b>60% of the curve supply is reserved for WL buyers</b> during the window;
