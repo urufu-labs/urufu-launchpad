@@ -81,11 +81,17 @@ function toAreaData(p: TradePoint, useUsd: boolean, ethUsd: number | null): Area
 
 function toMarker(p: TradePoint): SeriesMarker<Time> | null {
   if (p.isBuy === undefined) return null;
+  // Small colored circle sitting ON the price line (inBar position). Replaces
+  // the built-in AreaSeries pointMarkersVisible dots so buy/sell information
+  // fully substitutes for the neutral gray dots instead of double-marking.
+  // aboveBar/belowBar shapes floated visually detached from the actual price
+  // point which read as "wrong" to users. inBar circles sit exactly where the
+  // trade landed.
   return {
     time: p.timestamp as Time,
-    position: p.isBuy ? 'belowBar' : 'aboveBar',
+    position: 'inBar',
     color: p.isBuy ? UP_COLOR : DOWN_COLOR,
-    shape: p.isBuy ? 'arrowUp' : 'arrowDown',
+    shape: 'circle',
     size: 1,
   };
 }
@@ -149,10 +155,24 @@ export function TradeChart({
     }
   }, [flashKey, flashSide]);
 
-  // ONE-TIME chart creation. Runs only on mount + when the unit/precision axis
-  // options change (which do require a rebuild because they're set at chart
-  // creation, not on the series). Deliberately does NOT depend on `sorted`,
-  // so a new poll never triggers a rebuild.
+  // Refs holding the LATEST render values that the formatter closure needs.
+  // The chart-creation effect can't re-run every time unit / ethUsd changes
+  // (that would reflash the whole chart), so the priceFormatter reads from
+  // these refs instead of closing over stale state.
+  const unitRef = useRef(unit);
+  const useUsdRef = useRef(useUsd);
+  const ethUsdRef = useRef(ethUsd);
+  useEffect(() => {
+    unitRef.current = unit;
+    useUsdRef.current = useUsd;
+    ethUsdRef.current = ethUsd;
+  }, [unit, useUsd, ethUsd]);
+
+  // ONE-TIME chart creation. Only re-runs on mount / unmount. Deliberately
+  // NOT dependent on data, precision, unit, or isUp -- all of those get
+  // applied via series.applyOptions() in the data effect below. The previous
+  // version depended on isUp + precision which recalculated on every trade
+  // poll and forced a full chart teardown+repaint every ~15s.
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
@@ -182,11 +202,16 @@ export function TradeChart({
       },
       localization: {
         priceFormatter: (p: number) => {
+          // Read via refs so this closure never goes stale as unit/ethUsd
+          // change. Chart is created ONCE; this formatter runs on every
+          // hover / axis tick.
           if (!Number.isFinite(p) || p <= 0) return '~';
-          const weiPerToken = useUsd && ethUsd
-            ? BigInt(Math.round((p / ethUsd) * 1e18))
+          const uUsd = useUsdRef.current;
+          const eUsd = ethUsdRef.current;
+          const weiPerToken = uUsd && eUsd
+            ? BigInt(Math.round((p / eUsd) * 1e18))
             : BigInt(Math.round(p * 1e9));
-          return formatPrice(weiPerToken, unit, ethUsd);
+          return formatPrice(weiPerToken, unitRef.current, eUsd);
         },
       },
     });
@@ -194,15 +219,17 @@ export function TradeChart({
     const series = chart.addSeries(AreaSeries, {
       lineType: LineType.WithSteps,
       lineWidth: 2,
-      lineColor: isUp ? UP_COLOR : DOWN_COLOR,
-      topColor: isUp ? 'rgba(47, 191, 106, 0.35)' : 'rgba(255, 136, 179, 0.35)',
-      bottomColor: isUp ? 'rgba(47, 191, 106, 0)' : 'rgba(255, 136, 179, 0)',
-      pointMarkersVisible: true,
-      pointMarkersRadius: 4,
+      lineColor: UP_COLOR,
+      topColor: 'rgba(47, 191, 106, 0.35)',
+      bottomColor: 'rgba(47, 191, 106, 0)',
+      // No built-in point markers. Our own createSeriesMarkers below draws
+      // colored buy/sell circles at each trade, which fully replaces the
+      // neutral gray dots.
+      pointMarkersVisible: false,
       priceFormat: {
         type: 'price',
-        precision,
-        minMove: 1 / Math.pow(10, precision),
+        precision: 4,
+        minMove: 0.0001,
       },
     });
 
@@ -218,7 +245,25 @@ export function TradeChart({
       markerPluginRef.current = null;
       lastTimeRef.current = 0;
     };
-  }, [useUsd, ethUsd, unit, precision, isUp]);
+  }, []);
+
+  // OPTIONS effect: applies line-color (up/down mint/pink) + precision changes
+  // to the existing series WITHOUT recreating the chart. Runs whenever isUp
+  // or precision changes but leaves the chart canvas / camera / data intact.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    series.applyOptions({
+      lineColor: isUp ? UP_COLOR : DOWN_COLOR,
+      topColor: isUp ? 'rgba(47, 191, 106, 0.35)' : 'rgba(255, 136, 179, 0.35)',
+      bottomColor: isUp ? 'rgba(47, 191, 106, 0)' : 'rgba(255, 136, 179, 0)',
+      priceFormat: {
+        type: 'price',
+        precision,
+        minMove: 1 / Math.pow(10, precision),
+      },
+    });
+  }, [isUp, precision]);
 
   // REALTIME DATA effect. On first run after chart create, calls setData() with
   // the whole history. On subsequent runs it walks only the tail (points newer
