@@ -114,6 +114,11 @@ export function TradeChart({
   /// times >= the last one. We use this to decide whether a poll's newest
   /// point is 'append' or 'no-op'.
   const lastTimeRef = useRef<number>(0);
+  /// Track prior unit/rate so we can detect when the series needs a full
+  /// rebuild (values are baked in gwei-space vs USD-space; a unit flip
+  /// invalidates every existing point).
+  const prevUseUsdRef = useRef<boolean>(false);
+  const prevEthUsdRef = useRef<number | null>(null);
 
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
@@ -139,6 +144,25 @@ export function TradeChart({
     const magnitude = Math.floor(Math.log10(min));
     return Math.max(2, Math.min(8, 4 - magnitude));
   }, [sorted, useUsd, ethUsd]);
+
+  // Auto-mode the price scale. Linear is much easier to read when trades
+  // sit within a couple percent of each other (early curve activity), but
+  // log becomes essential once the range spans an order of magnitude or
+  // more (graduation cliff, big pump). Threshold of 10x is the usual
+  // heuristic in trading UIs.
+  const wantLogScale = useMemo(() => {
+    if (sorted.length < 2) return false;
+    let min = Infinity;
+    let max = 0;
+    for (const p of sorted) {
+      const v = Number(p.priceWeiPerToken);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || min <= 0 || max <= 0) return false;
+    return max / min >= 10;
+  }, [sorted]);
 
   // Flash overlay
   const seenKeyRef = useRef<typeof flashKey>(undefined);
@@ -189,13 +213,16 @@ export function TradeChart({
       },
       rightPriceScale: {
         borderColor: '#3a2c3a',
-        // Log scale so a token whose price drops 500x at graduation still
-        // shows the pre-graduation cluster + the post-graduation activity
-        // both legibly on the same chart. Standard for crypto with wide
-        // dynamic ranges. Linear-scale falls apart the moment prices span
-        // more than ~10x.
-        mode: PriceScaleMode.Logarithmic,
-        scaleMargins: { top: 0.12, bottom: 0.12 },
+        // Start on Normal so a tight-range chart (early curve trades within
+        // 1-2% of each other) shows visible wobble instead of collapsing to
+        // a flat line under log's compressed axis. The mode auto-flips to
+        // Logarithmic in the effect below whenever the visible max/min
+        // ratio exceeds ~10x (e.g. across a graduation cliff or a big
+        // pump).
+        mode: PriceScaleMode.Normal,
+        // Slightly wider vertical margin so a 3-point series doesn't sit
+        // pinned to the top/bottom edge; gives movement more room to read.
+        scaleMargins: { top: 0.18, bottom: 0.18 },
         // Slightly wider label area so 5-sig-fig subscript-zero prices
         // don't get cropped.
         minimumWidth: 66,
@@ -292,6 +319,17 @@ export function TradeChart({
     });
   }, [isUp, precision]);
 
+  // Scale-mode effect: flip Normal ↔ Logarithmic based on the range heuristic
+  // above. applyOptions on the price scale swaps mode in place with no
+  // teardown, so the axis rescales instantly without a chart reflash.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale('right').applyOptions({
+      mode: wantLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+    });
+  }, [wantLogScale]);
+
   // REALTIME DATA effect. On first run after chart create, calls setData() with
   // the whole history. On subsequent runs it walks only the tail (points newer
   // than lastTimeRef) and calls series.update() for each. This is the
@@ -302,8 +340,22 @@ export function TradeChart({
     const markers = markerPluginRef.current;
     if (!series || !chart) return;
 
-    // First data load (or unit change that reset the chart): use setData once.
-    if (lastTimeRef.current === 0) {
+    // Detect a unit / rate flip. The series stores VALUES in the current unit
+    // (gwei or USD/token), so an ETH→USD toggle — or the ETH/USD spot arriving
+    // asynchronously after the chart already rendered in gwei — makes every
+    // existing point wrong. Fix by treating this like a first load: rebuild
+    // the series with recomputed values. Without this, USD mode would keep
+    // showing gwei numbers reinterpreted as dollars (a $3.10 gw price would
+    // read as "$3.10").
+    const unitChanged =
+      prevUseUsdRef.current !== useUsd ||
+      (useUsd && prevEthUsdRef.current !== ethUsd);
+    prevUseUsdRef.current = useUsd;
+    prevEthUsdRef.current = ethUsd;
+
+    const needsFullLoad = lastTimeRef.current === 0 || unitChanged;
+
+    if (needsFullLoad) {
       const data: AreaData[] = [];
       for (const p of sorted) {
         const d = toAreaData(p, useUsd, ethUsd);
@@ -313,6 +365,11 @@ export function TradeChart({
         series.setData(data);
         lastTimeRef.current = sorted[sorted.length - 1].timestamp;
         chart.timeScale().fitContent();
+      } else if (unitChanged) {
+        // No data yet in the new unit — clear the series so we don't leave
+        // stale gwei-space points on screen after a unit flip.
+        series.setData([]);
+        lastTimeRef.current = 0;
       }
     } else {
       // Realtime tail: only push points strictly newer than what the series
@@ -387,7 +444,7 @@ export function TradeChart({
           zIndex: 4,
         }}
       >
-        {useUsd ? 'USD per token' : 'gwei per token'} · log scale
+        {useUsd ? 'USD per token' : 'gwei per token'} · {wantLogScale ? 'log' : 'linear'} scale
       </div>
       {!hasData && (
         <div

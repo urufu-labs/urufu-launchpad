@@ -120,9 +120,14 @@ export function formatPrice(weiPerToken: bigint, unit: PriceUnit, ethUsd: number
   // ETH mode — gwei per token because raw ETH-per-memecoin is like "0.0000000005 ETH"
   const gwei = Number(weiPerToken) / 1e9;
   if (!Number.isFinite(gwei) || gwei <= 0) return '—';
-  if (gwei < 10) return `${gwei.toFixed(4)} gw`;
-  if (gwei < 1000) return `${gwei.toFixed(2)} gw`;
-  return `${gwei.toLocaleString(undefined, { maximumFractionDigits: 0 })} gw`;
+  if (gwei >= 1000) return `${gwei.toLocaleString(undefined, { maximumFractionDigits: 0 })} gw`;
+  if (gwei >= 10) return `${gwei.toFixed(2)} gw`;
+  if (gwei >= 0.01) return `${gwei.toFixed(4)} gw`;
+  if (gwei >= 0.0001) return `${gwei.toFixed(6)} gw`;
+  // Sub-tick gwei — a fresh low-target curve prices tokens at < 0.0001 gw,
+  // where toFixed(4) collapses to "0.0000 gw". Fall through to the same
+  // subscript compression the USD side uses so tiny prices stay readable.
+  return `${formatSubscript(gwei)} gw`;
 }
 
 /// Format a market cap value (wei of ETH). Renders in $ or Ξ based on unit.
