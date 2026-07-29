@@ -206,8 +206,9 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
             lineHeight: 1.5,
           }}
         >
-          no owned tokens on {chain}. bonding-curve launches auto-renounce ownership, so this is
-          the direct-launch shelf ~~
+          no owned tokens on {chain}. every ERC-20 curve auto-renounces ownership at
+          launch, so this shelf only fills up if you ship an NFT base with an owner
+          you keep ~~
         </div>
       )}
 

@@ -13,7 +13,6 @@ import {
   launchKind,
   tradeCountOf,
   type MockLaunch,
-  type LaunchKind,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
@@ -22,17 +21,18 @@ import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
-// 'direct' is a peer tab that switches the pool from curve tokens to direct-mint tokens —
-// the other tabs (trending / new / near / graduated) apply curve-centric sorts and implicitly
-// filter to curve-only, so users don't see graduation progress for a token that has no curve.
-type Tab = 'trending' | 'new' | 'near' | 'graduated' | 'direct';
+// All tabs are curve-only now; the create page only launches curves (quick +
+// customizable, both fire installBondingCurve=true). The old 'direct mint' tab
+// filtered to no-curve tokens (legacy pre-rename direct launches + NFT bases),
+// but NFT bases aren't live yet and legacy direct tokens are hidden. Dropped
+// the tab to declutter the bar.
+type Tab = 'trending' | 'new' | 'near' | 'graduated';
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
   { id: 'new', label: 'new', jp: '新着' },
   { id: 'near', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
-  { id: 'direct', label: 'direct mint', jp: '直接' },
 ];
 
 // Relative time now flows through the `useAgo` hook (returns null on SSR so live
@@ -60,9 +60,9 @@ export default function HomePage() {
   }, [chainMocks]);
 
   const filtered = useMemo(() => {
-    // 'direct' tab shows direct-mint tokens; every other tab implicitly filters to curve.
-    const wantKind: LaunchKind = tab === 'direct' ? 'direct' : 'curve';
-    let list = chainMocks.filter((l) => launchKind(l) === wantKind);
+    // All tabs are curve-only after the direct-mint tab drop; non-curve tokens
+    // (legacy pre-rename direct launches + any NFT bases) never surface here.
+    let list = chainMocks.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -81,9 +81,6 @@ export default function HomePage() {
         break;
       case 'graduated':
         list = list.filter((l) => l.graduated);
-        break;
-      case 'direct':
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
     }
     return list;

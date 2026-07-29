@@ -13,7 +13,6 @@ import {
   launchKind,
   tradeCountOf,
   type MockLaunch,
-  type LaunchKind,
 } from '@/lib/mockLaunches';
 import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
@@ -22,9 +21,12 @@ import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
-// 'direct' switches the pool to direct-mint tokens; every other filter operates on curve
-// tokens only (progress / mcap / graduation are curve concepts).
-type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'direct';
+// All filters are curve-only now — the create page only launches curves (quick
+// + customizable, both fire installBondingCurve=true). The old 'direct mint'
+// filter selected no-curve tokens (legacy pre-rename direct + NFT bases); NFT
+// launches aren't shipping yet and legacy direct tokens are hidden, so the
+// filter's bucket is empty. Dropped it to keep the bar tight.
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -34,7 +36,6 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'graduated', label: 'graduated', jp: '完了' },
   { id: 'whitelist', label: 'whitelist', jp: '会員' },
   { id: 'all', label: 'all', jp: '全部' },
-  { id: 'direct', label: 'direct mint', jp: '直接' },
 ];
 
 // Relative-time formatting has moved to `useAgo` — a hook that returns null on SSR to
@@ -54,9 +55,9 @@ export default function DiscoverPage() {
   const source = feed.launches;
 
   const filtered = useMemo(() => {
-    // 'direct' filter narrows to direct-mint tokens; every other filter is curve-only.
-    const wantKind: LaunchKind = filter === 'direct' ? 'direct' : 'curve';
-    let list = source.filter((l) => launchKind(l) === wantKind);
+    // Curve-only surface (direct-mint tab was dropped along with the direct-launch
+    // mechanic). Every filter operates on tokens that have a bonding curve installed.
+    let list = source.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -87,9 +88,6 @@ export default function DiscoverPage() {
         // WL launches — filter on the indexer-populated flag; sort newest first so
         // active WL windows (recent launches) surface at the top.
         list = list.filter((l) => l.hasWhitelist === true);
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
-        break;
-      case 'direct':
         list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
       case 'all':
