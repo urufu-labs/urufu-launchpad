@@ -187,7 +187,13 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   }
 
   const positions: Position[] = useMemo(() => computePositions(allTrades), [allTrades]);
+  // Realized PnL keeps closed positions in the sum — someone who bought + sold
+  // a token still has a realized number worth showing at the aggregate stat.
   const realizedTotal = useMemo(() => positions.reduce((sum, p) => sum + p.realizedPnl, 0n), [positions]);
+  // The "positions" list itself is meant to be a snapshot of what the wallet
+  // still HOLDS from trades — a fully-sold-out entry (netTokens == 0) belongs
+  // in trade history, not here. Filter closed positions from the display.
+  const openPositions = useMemo(() => positions.filter((p) => p.netTokens > 0n), [positions]);
 
   const stats = useMemo(() => {
     let ethSpent = 0n;
@@ -526,10 +532,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
           {/* positions */}
           <section>
-            <SectionHead label="positions" jp="持高" count={positions.length} />
+            <SectionHead label="positions" jp="持高" count={openPositions.length} />
             {trades === null && !loaded && <LoadingRow />}
-            {loaded && positions.length === 0 && <EmptyRow label="no positions yet" />}
-            {positions.length > 0 && (
+            {loaded && openPositions.length === 0 && <EmptyRow label="no positions yet" />}
+            {openPositions.length > 0 && (
               <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
                 <div
                   style={{
@@ -552,7 +558,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                   <span style={{ textAlign: 'right' }}>realized pnl</span>
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {positions.map((p, i) => (
+                  {openPositions.map((p, i) => (
                     <li
                       key={p.tokenAddress}
                       style={{
@@ -563,7 +569,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         fontFamily: 'var(--font-pixel), monospace',
                         fontSize: 11,
                         padding: '5px 10px',
-                        borderBottom: i === positions.length - 1 ? 'none' : '1px dotted var(--anchor)',
+                        borderBottom: i === openPositions.length - 1 ? 'none' : '1px dotted var(--anchor)',
                         borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
                       }}
                     >

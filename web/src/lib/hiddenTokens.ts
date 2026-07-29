@@ -46,6 +46,13 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // the 500x cliff. Hidden so it doesn't clutter discover / marquee / profile
   // while we run a fresh graduation test through GraduatorV2.
   '4663:0xe13a416dc7e679de10c476c70d0f6e5373752567',
+  // $FDGDFVS + $TIGER — both curves were created after CurveFactory was
+  // rewired to a mismatched-MHH GraduatorV2. Every graduation reverts with
+  // MultiHookHost__UnauthorizedInitializer, so these curves are stuck in
+  // bonding phase forever. Hidden until we relaunch through the V5 MHH+
+  // Graduator pair.
+  '4663:0x4b44ecc4d83b50495b641bff8cc04a7fa99b754d',
+  '4663:0xdaad3893f3a12eacd2809b8da37ad6b8715f1ef3',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
