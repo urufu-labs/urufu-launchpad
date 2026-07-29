@@ -83,18 +83,17 @@ function toAreaData(p: TradePoint, useUsd: boolean, ethUsd: number | null): Area
 
 function toMarker(p: TradePoint): SeriesMarker<Time> | null {
   if (p.isBuy === undefined) return null;
-  // Small colored circle sitting ON the price line (inBar position). Replaces
-  // the built-in AreaSeries pointMarkersVisible dots so buy/sell information
-  // fully substitutes for the neutral gray dots instead of double-marking.
-  // aboveBar/belowBar shapes floated visually detached from the actual price
-  // point which read as "wrong" to users. inBar circles sit exactly where the
-  // trade landed.
+  // Compact colored square sitting ON the price line (inBar). Was a circle at
+  // size 1 -- rendered as fat 10px dots that dominated the chart with only 8
+  // trades. Squares at size 0 render as a tighter ~4px mark that reads as a
+  // trade indicator without eating the line. Squares also key better with the
+  // rest of the site's chunky-pixel aesthetic than round dots.
   return {
     time: p.timestamp as Time,
     position: 'inBar',
     color: p.isBuy ? UP_COLOR : DOWN_COLOR,
-    shape: 'circle',
-    size: 1,
+    shape: 'square',
+    size: 0,
   };
 }
 
