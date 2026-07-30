@@ -111,7 +111,7 @@ export function NotLiveYet() {
                 >
                     <div style={{ marginBottom: 4 }}>while you wait ~~</div>
                     <Link
-                        href="https://x.com/spoobsV1"
+                        href="https://x.com/urugemu"
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -120,7 +120,7 @@ export function NotLiveYet() {
                             textUnderlineOffset: 2,
                         }}
                     >
-                        follow along on x
+                        follow @urugemu
                     </Link>
                     <span style={{ margin: '0 8px', color: 'var(--anchor-soft)' }}>·</span>
                     <Link
