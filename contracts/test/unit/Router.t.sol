@@ -128,8 +128,13 @@ contract RouterTest is Test {
         assertEq(router.quote(p), ERC20_FEE);
     }
 
-    function test_Quote_ThreeModules() public view {
+    function test_Quote_ThreeModules() public {
+        // Audit fix #3: Router now derives moduleCount from moduleCountForConfig
+        // mapping, not from caller-supplied params.moduleCount. Owner must
+        // register the count that corresponds to the config hash first.
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
+        vm.prank(owner);
+        router.setModuleCountForConfig(p.configHash, 3);
         p.moduleCount = 3;
         assertEq(router.quote(p), ERC20_FEE + 2 * MODULE_ADD_ON);
     }
@@ -242,6 +247,10 @@ contract RouterTest is Test {
 
     function test_Launch_ForwardsCorrectFeeToReceiver_WithMultipleAddOns() public {
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "Loaded", "LOAD");
+        // Audit fix #3: register moduleCount for the config hash — Router
+        // now sources it from moduleCountForConfig, not params.moduleCount.
+        vm.prank(owner);
+        router.setModuleCountForConfig(p.configHash, 5);
         p.moduleCount = 5; // 4 extra
         p.installHook = true;
         p.installGovernance = true;

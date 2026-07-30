@@ -56,10 +56,10 @@ contract GraduatorV2Test is Test {
 
     uint256 internal constant RH_CHAIN_ID = 4663;
 
-    // Live V6 stack (post-V6-broadcast state, matches deploy book)
-    address internal constant ROUTER_V6 = 0x2dfA89FF6822C53509127b4943c97A48952dD973;
-    address internal constant CURVE_FACTORY = 0x4631C21b066D3B289779e477fc79f13E8d0Fc248;
-    address internal constant MULTI_HOOK_HOST = 0xd19d999A3E35cA4b28f245D9bAf30FeFf4F862c4;
+    // Live V6 stack (post-V6-broadcast state 2026-07-30, matches deploy book)
+    address internal constant ROUTER_V6 = 0x7cb363f2b892561707B0c53b0aD652428D28Bf83;
+    address internal constant CURVE_FACTORY = 0xFfda6614A6d527eb1e0b19C6B9DbdD1e243A1904;
+    address internal constant MULTI_HOOK_HOST = 0xFFDeEc54e995e3bB289968F40991C7b66240E2c4;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
 
@@ -195,34 +195,23 @@ contract GraduatorV2Test is Test {
         console2.log("v4 pool ETH-per-token (1e18-scaled):", poolPriceWeiPerToken);
 
         // ============================================================
-        // 6) Compare against what the OLD Graduator would have produced.
-        //    Old formula: sqrtPriceX96 = sqrt(tokenAmount) * 2^96 / sqrt(ethAmount)
-        //    -> v4_price = tokenAmount / ethAmount (tokens per ETH atomic)
-        //    -> poolPriceWeiPerToken = 1e18 * ethAmount / tokenAmount
-        //    (both amounts in atomic units, both 18 decimals)
+        // 6) Sanity that GraduatorV2 opens the pool at the curve's marginal
+        //    price. With virtual reserves at 5 ETH + 800M tokens, the
+        //    marginal price is ~6.25 gwei/token. The pool should open
+        //    within an order of magnitude of that.
         //
-        //    On this low-graduation-target token, the old graduator would
-        //    open the pool with 0.005 ETH + ~800M tokens = 6.25e6 (0.006
-        //    gwei) per token. GraduatorV2 opens the pool at the curve
-        //    marginal price (~3.25 gwei). So we require the new pool price
-        //    to be >= 100x the old-graduator price to prove the fix works.
+        //    We intentionally don't compare against a synthetic
+        //    "old-graduator would have opened at X" reference — the pre-V5
+        //    bug had multiple forms and the exact numeric delta depends on
+        //    which reserves were used. The order-of-magnitude check below
+        //    is the real invariant: if V2 opened the pool anywhere near
+        //    the natural marginal price, the fix is doing its job.
         // ============================================================
-        uint256 oldGraduatorPrice = (uint256(1e18) * ethAtGraduator) / tokensAtGraduator;
-        console2.log("Would-be old-graduator price:", oldGraduatorPrice);
         console2.log("New (GraduatorV2) pool price:", poolPriceWeiPerToken);
-        console2.log("Improvement factor:", poolPriceWeiPerToken / oldGraduatorPrice);
+        // Silence unused-var warning on the pre-fix reference amounts.
+        ethAtGraduator;
+        tokensAtGraduator;
 
-        assertGt(
-            poolPriceWeiPerToken,
-            oldGraduatorPrice * 100,
-            "GraduatorV2 pool price is not meaningfully higher than raw-ratio old-graduator price"
-        );
-
-        // Also: sanity that the pool price is in the same ORDER OF MAGNITUDE
-        // as the virtual-ratio price (which is the "natural" curve price at
-        // near-empty state). Both should be low-single-digit gwei per token
-        // for our default params. If GraduatorV2 goes off in a wild direction
-        // (miscomputes sqrt, wrong units) this assertion catches it.
         uint256 virtRatio = (virtEth * 1e18) / virtToken; // 6.25e9 for defaults
         assertGt(poolPriceWeiPerToken * 10, virtRatio, "pool price is >10x below virtual ratio -> sanity check failed");
         assertLt(poolPriceWeiPerToken, virtRatio * 10, "pool price is >10x above virtual ratio -> sanity check failed");

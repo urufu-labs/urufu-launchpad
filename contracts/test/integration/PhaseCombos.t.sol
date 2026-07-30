@@ -586,6 +586,10 @@ contract PhaseCombosTest is Test {
     }
 
     function test_Combo_FeeMatchesQuote_TwoModules() public {
+        // Audit fix #3: Router derives moduleCount from moduleCountForConfig,
+        // not from params. Register the count for AB_AW's hash first.
+        vm.prank(admin);
+        router.setModuleCountForConfig(AB_AW, 3);
         LaunchParams memory p = LaunchParams({
             base: BaseType.ERC20,
             name: "Fee 2M",

@@ -68,6 +68,8 @@ contract LaunchWithCurveTest is Test {
         router.setFactory(BaseType.ERC20, address(f20));
         router.setCurveFactory(address(cf));
         registry.setRouter(address(router));
+        // Audit fix #2: CurveFactory ACL — router must be whitelisted.
+        cf.setTrustedRouter(address(router), true);
         vm.stopPrank();
 
         vm.prank(registrar);

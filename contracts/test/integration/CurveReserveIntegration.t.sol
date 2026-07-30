@@ -95,6 +95,8 @@ contract CurveReserveIntegrationTest is Test {
         router.setCurveFactory(address(cf));
         registry.setRouter(address(router));
         cf.setDefaults(CURVE_SUPPLY, 800_000_000e18, 5 ether, 2 ether, 100);
+        // Audit fix #2: CurveFactory ACL — router must be whitelisted.
+        cf.setTrustedRouter(address(router), true);
         vm.stopPrank();
 
         vm.deal(launcher, 5 ether);
