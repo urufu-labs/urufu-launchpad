@@ -312,18 +312,37 @@ const networks = {
 // Contract keys are static literal strings so `ponder.on('Router:Launched', ...)`
 // in the handler file keeps its typed event args.
 
-/// Ecosystem token subscriptions — fixed addresses, Base only (URU + gemu NFT live on
-/// Base). Used by the flywheel snapshot service to compute per-holder gemu NFT
-/// allocations + surface URU balances on profile "URU holder" badges. Reads addresses
-/// from the flat `URU_TOKEN_ADDRESS` / `GEMU_NFT_ADDRESS` env vars (not the per-chain
-/// prefix pattern) since both are Base-native and were pre-existing before the
-/// launchpad. Empty-object network map disables the subscription without dropping the
-/// contract entry from the object literal — keeps TS-inferred event names stable so
-/// handlers below always typecheck.
-function ecosystemTokenNet(envKey: 'URU_TOKEN_ADDRESS' | 'GEMU_NFT_ADDRESS') {
-  const baseAddr = process.env[envKey] as `0x${string}` | undefined;
-  if (!baseAddr || !ENABLED.includes('base')) return {};
-  return { base: { address: baseAddr, startBlock: readStartBlock('base') } };
+/// Ecosystem token subscriptions — fixed addresses, may live on Base and/or
+/// Robinhood (RH is canonical post-2026-07-25 migration; Base kept for legacy
+/// reads). Used by the flywheel snapshot service to compute per-holder gemu
+/// NFT allocations + surface URU balances on profile badges.
+///
+/// Reads addresses from:
+///   - Base (legacy):  URU_TOKEN_ADDRESS, GEMU_NFT_ADDRESS (flat env vars)
+///   - Robinhood (canonical):  ROBINHOOD_URU_ADDRESS, ROBINHOOD_GEMU_NFT_ADDRESS
+/// Both networks subscribed if their address + chain enablement present. Missing
+/// address on a chain → that chain quietly dropped from the network map.
+/// Empty final map disables the subscription without dropping the contract entry
+/// from the object literal — keeps TS-inferred event names stable so handlers
+/// below always typecheck.
+///
+/// GOTCHA (2026-07-30 audit): pre-migration this only registered `base:`; when
+/// gemu NFT moved to RH the subscription silently stopped indexing → flywheel
+/// publishEpoch throwed 'no holders in indexer' every 24h. Do NOT re-narrow.
+function ecosystemTokenNet(
+  baseKey: 'URU_TOKEN_ADDRESS' | 'GEMU_NFT_ADDRESS',
+  rhKey: 'ROBINHOOD_URU_ADDRESS' | 'ROBINHOOD_GEMU_NFT_ADDRESS',
+): Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> {
+  const map: Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> = {};
+  const baseAddr = process.env[baseKey] as `0x${string}` | undefined;
+  if (baseAddr && ENABLED.includes('base')) {
+    map.base = { address: baseAddr, startBlock: readStartBlock('base') };
+  }
+  const rhAddr = process.env[rhKey] as `0x${string}` | undefined;
+  if (rhAddr && ENABLED.includes('robinhood')) {
+    map.robinhood = { address: rhAddr, startBlock: readStartBlock('robinhood') };
+  }
+  return map;
 }
 
 const contracts = {
@@ -373,8 +392,8 @@ const contracts = {
   },
   BondingCurve: { abi: bondingCurveAbi, network: bondingCurveNet() },
   Token: { abi: erc20Abi, network: tokenNet() },
-  UruToken: { abi: erc20Abi, network: ecosystemTokenNet('URU_TOKEN_ADDRESS') },
-  GemuNft: { abi: erc721Abi, network: ecosystemTokenNet('GEMU_NFT_ADDRESS') },
+  UruToken: { abi: erc20Abi, network: ecosystemTokenNet('URU_TOKEN_ADDRESS', 'ROBINHOOD_URU_ADDRESS') },
+  GemuNft: { abi: erc721Abi, network: ecosystemTokenNet('GEMU_NFT_ADDRESS', 'ROBINHOOD_GEMU_NFT_ADDRESS') },
   MultiHookHost: { abi: multiHookHostAbi, network: netFor('MULTI_HOOK_HOST') },
   FeeSplitter: { abi: feeSplitterAbi, network: netFor('FEE_SPLITTER') },
   UruBuybackVault: { abi: uruBuybackVaultAbi, network: netFor('URU_BUYBACK_VAULT') },

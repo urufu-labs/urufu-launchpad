@@ -670,10 +670,14 @@ ponder.on('UruToken:Transfer', async ({ event, context }) => {
   await indexTransfer(context, event, event.args.value);
 });
 
-// gemu NFT (Base only, fixed address, ERC-721). Same holder-tracking pipeline but each
-// Transfer moves exactly ONE token, so we pass 1n as the balance delta. The `holders`
-// row's `balance` field then stores the current NFT count for a given wallet -- feeds
-// the flywheel snapshot service that publishes Merkle roots for NftRevenueVault.claim.
+// gemu NFT (ERC-721, deployed on Base then migrated to Robinhood 2026-07-25 —
+// canonical home is now RH; Base kept for legacy reads). Subscribed on both
+// chains when their address env vars + chain enablement are present (see
+// ecosystemTokenNet in ponder.config.ts). Same holder-tracking pipeline as
+// ERC-20 but each Transfer moves exactly ONE token, so we pass 1n as the
+// balance delta. The `holders` row's `balance` field stores the current NFT
+// count for a given wallet — feeds the flywheel snapshot service that
+// publishes Merkle roots for NftRevenueVault.claim.
 ponder.on('GemuNft:Transfer', async ({ event, context }) => {
   const { from, to } = event.args;
   const chainId = chainIdOf(context);
