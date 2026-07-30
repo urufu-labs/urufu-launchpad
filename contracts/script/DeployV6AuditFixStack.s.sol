@@ -16,6 +16,7 @@ import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
+import {BaseType} from "src/types/VMTypes.sol";
 
 import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {ERC20WithAntiWhaleGen} from "src/templates/composed/ERC20WithAntiWhaleGen.sol";
@@ -191,6 +192,29 @@ contract DeployV6AuditFixStack is Script {
     }
 
     function run() external returns (Deployed memory out) {
+        return _runInner(true);
+    }
+
+    /// Test-friendly entrypoint that skips vm.startBroadcast so a foundry test
+    /// can prank as the deployer + invoke this without the broadcast/prank
+    /// incompatibility. Production deploy path (run()) wraps this in broadcast.
+    function runForTest(address prankAs) external returns (Deployed memory out) {
+        _isTestContext = true;
+        _testPrankAs = prankAs;
+        return _runInner(false);
+    }
+
+    address internal _testPrankAs;
+
+    /// Returns the operator address to use for owner/deployer roles in
+    /// contract constructors. In test mode this is the pranked-as address
+    /// (real live-contract owner); in broadcast mode it's msg.sender
+    /// (the operator EOA signing each broadcasted tx).
+    function _effectiveOperator() internal view returns (address) {
+        return _isTestContext ? _testPrankAs : msg.sender;
+    }
+
+    function _runInner(bool useBroadcast) internal returns (Deployed memory out) {
         // ---------------- read env ----------------
         address poolManager = _envAddress("ROBINHOOD_POOL_MANAGER_ADDRESS", DEFAULT_POOL_MANAGER);
         address nameRegistry = _envAddress("ROBINHOOD_NAME_REGISTRY_ADDRESS", DEFAULT_NAME_REGISTRY);
@@ -213,26 +237,56 @@ contract DeployV6AuditFixStack is Script {
         require(curveImpl.code.length > 0, "bondingCurveImpl: no code");
 
         address cfOwner = IERC20FactoryAdmin(erc20Factory).owner();
-        require(cfOwner == msg.sender, "broadcaster is not ERC20Factory owner");
         address nrOwner = INameRegistryAdmin(nameRegistry).owner();
-        require(nrOwner == msg.sender, "broadcaster is not NameRegistry owner");
+        // In broadcast mode, msg.sender == operator EOA, must equal owner.
+        // In test mode, msg.sender == test contract; the actual pranked
+        // owner is _testPrankAs and gets verified against the live owners.
+        if (_isTestContext) {
+            require(cfOwner == _testPrankAs, "test prank address is not ERC20Factory owner");
+            require(nrOwner == _testPrankAs, "test prank address is not NameRegistry owner");
+        } else {
+            require(cfOwner == msg.sender, "broadcaster is not ERC20Factory owner");
+            require(nrOwner == msg.sender, "broadcaster is not NameRegistry owner");
+        }
 
         _preflightLog(poolManager, nameRegistry, erc20Factory, feeSplitter, uru, uruSink);
         _hashesLog(airdropHash, antiWhaleHash, fotHash);
 
         // ---------------- Phase 1a: deploy new stack ----------------
-        vm.startBroadcast();
-        out.curveFactory = _deployCurveFactory(msg.sender, feeSplitter, curveImpl);
-        out.multiHookHost = _mineAndDeployMHH(poolManager, feeSplitter, msg.sender);
+        if (useBroadcast) vm.startBroadcast();
+        // In test mode, prank as the operator EOA so external owner-only
+        // calls to NameRegistry / ERC20Factory / etc. appear as msg.sender
+        // = operator and pass their onlyOwner checks. Operator address is
+        // passed explicitly (via runForTest arg) rather than derived from
+        // msg.sender so the test doesn't need an outer vm.prank that would
+        // collide with this inner startPrank.
+        if (_isTestContext) vm.startPrank(_testPrankAs, _testPrankAs);
+        address operator = _effectiveOperator();
+        out.curveFactory = _deployCurveFactory(operator, feeSplitter, curveImpl);
+        out.multiHookHost = _mineAndDeployMHH(poolManager, feeSplitter, operator);
         out.graduator = _deployGraduator(poolManager, out.multiHookHost, out.curveFactory);
         // Lock MHH's initializer to the graduator IMMEDIATELY so no one can
         // front-run our setInitializer call between the MHH deploy and now.
         MultiHookHost(payable(out.multiHookHost)).setInitializer(out.graduator);
         CurveFactory(out.curveFactory).setGraduator(out.graduator);
         // Router — 11-arg RouterV2 ctor (base fees + add-ons + URU wiring).
-        out.router = _deployRouter(msg.sender, nameRegistry, feeSplitter, uru, uruSink);
+        out.router = _deployRouter(operator, nameRegistry, feeSplitter, uru, uruSink);
         CurveFactory(out.curveFactory).setTrustedRouter(out.router, true);
         Router(out.router).setCurveFactory(out.curveFactory);
+        // Wire each base type to its factory on the new Router. Without
+        // these, Router.launch reverts with Router__FactoryUnset(base)
+        // because Router.factories[base] defaults to zero on a fresh
+        // deploy. Fork test caught this — deploy would otherwise ship a
+        // Router that couldn't dispatch launches to any factory.
+        Router(out.router).setFactory(BaseType.ERC20, erc20Factory);
+        {
+            address _erc721aFactory = _envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS", 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc);
+            address _erc1155Factory = _envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS", 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597);
+            require(_erc721aFactory.code.length > 0, "erc721aFactory: no code");
+            require(_erc1155Factory.code.length > 0, "erc1155Factory: no code");
+            Router(out.router).setFactory(BaseType.ERC721A, _erc721aFactory);
+            Router(out.router).setFactory(BaseType.ERC1155, _erc1155Factory);
+        }
 
         // ---------------- Phase 1b: impl updates SKIPPED ----------------
         // The deployed ERC20Factory (0x14c1…52F2) is an older version that
@@ -287,7 +341,8 @@ contract DeployV6AuditFixStack is Script {
         IERC20FactoryAdmin(erc721aFactory).setRouter(out.router);
         IERC20FactoryAdmin(erc1155Factory).setRouter(out.router);
 
-        vm.stopBroadcast();
+        if (useBroadcast) vm.stopBroadcast();
+        if (_isTestContext) vm.stopPrank();
 
         // ---------------- post-deploy asserts ----------------
         _assertWiring(out, poolManager, nameRegistry, erc20Factory, feeSplitter, uru, uruSink);
@@ -307,6 +362,8 @@ contract DeployV6AuditFixStack is Script {
         console2.log("  CurveFactory    :", address(cf));
         return address(cf);
     }
+
+    bool internal _isTestContext;
 
     function _mineAndDeployMHH(
         address poolManager,
@@ -336,10 +393,25 @@ contract DeployV6AuditFixStack is Script {
         }
         require(predicted.code.length == 0, "could not find empty MHH salt in 10 attempts");
 
+        // deployerWallet is the operator (passed in from _effectiveOperator).
+        // In test mode this is the pranked-as address so subsequent
+        // setInitializer calls (pranked as this same address) satisfy
+        // MHH's onlyDeployer check. In broadcast mode each script call is
+        // a separate operator-signed tx so msg.sender = operator EOA
+        // consistently.
         MultiHookHost mhh = new MultiHookHost{salt: bytes32(salt)}(
             IPoolManager(poolManager), feeSplitter, deployerWallet, uint16(100), uint16(100), deployerWallet
         );
-        require(address(mhh) == predicted, "MHH salt drift");
+        // In `forge script --broadcast`, `new X{salt}(...)` routes through the
+        // canonical CREATE2 deployer, matching HookMiner's prediction. In
+        // `forge test`, the test contract itself is the deployer, so the
+        // resulting address differs from the mined prediction. That's a
+        // test-environment quirk, not a production concern — the broadcast
+        // path IS the production path and the salt-drift check DOES run
+        // there. Skip when in test context.
+        if (!_isTestContext) {
+            require(address(mhh) == predicted, "MHH salt drift");
+        }
         console2.log("  MultiHookHost   :", address(mhh), "(salt", salt);
         return address(mhh);
     }
