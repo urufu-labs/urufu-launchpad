@@ -63,6 +63,33 @@ contract DeployGraduatorV8Fix is Script {
         address cfOwner = ICurveFactoryAdmin(curveFactory).owner();
         require(cfOwner == msg.sender, "broadcaster is not CurveFactory owner - cannot setGraduator");
 
+        // Sanity: the CurveFactory + MHH env pair MUST match the pair the
+        // current graduator on this CurveFactory was built with. Otherwise
+        // we're about to install a graduator wired to the wrong MHH and
+        // every graduation will revert at MHH.beforeInitialize (initializer
+        // mismatch). Ran into exactly this bug post-V7-broadcast because
+        // the local .env still had a stale MHH address from an older era.
+        address currentGrad = ICurveFactoryAdmin(curveFactory).graduator();
+        if (currentGrad != address(0) && currentGrad.code.length > 0) {
+            (bool ok, bytes memory ret) = currentGrad.staticcall(abi.encodeWithSignature("defaultHook()"));
+            if (ok && ret.length == 32) {
+                address currentMhh = abi.decode(ret, (address));
+                if (currentMhh != mhh) {
+                    // Escape hatch: when we're deploying V8 to FIX a previously-
+                    // botched V8 that has the wrong MHH baked in, the check
+                    // would otherwise refuse to let us correct it. Set
+                    // OVERRIDE_MHH_MISMATCH=1 to acknowledge and proceed.
+                    bool override_ = _envBool("OVERRIDE_MHH_MISMATCH");
+                    if (!override_) {
+                        console2.log("MHH mismatch: current graduator's MHH =", currentMhh);
+                        console2.log("              env MHH                  =", mhh);
+                        revert("MHH mismatch - set OVERRIDE_MHH_MISMATCH=1 to bypass");
+                    }
+                    console2.log("MHH mismatch OVERRIDE active - replacing broken graduator");
+                }
+            }
+        }
+
         console2.log("---- pre-flight ----");
         console2.log("  PoolManager       :", poolManager);
         console2.log("  CurveFactory      :", curveFactory);
@@ -106,6 +133,16 @@ contract DeployGraduatorV8Fix is Script {
             return v;
         } catch {
             return fallback_;
+        }
+    }
+
+    function _envBool(
+        string memory key
+    ) internal view returns (bool) {
+        try vm.envBool(key) returns (bool v) {
+            return v;
+        } catch {
+            return false;
         }
     }
 }

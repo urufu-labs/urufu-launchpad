@@ -257,10 +257,12 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // V7 MHH — paired with V7 GraduatorV2. Rotated 2026-07-30 alongside V7
-    // Router which added moduleCountConfigured + flagsConfigured fail-closed
-    // sentinels (audit remediation #3).
-    MultiHookHost: '0xD7634D1B30c230265A036cBd8B957069eEE0e2c4',
+    // MHH (V8-final) — deployed with V8 Graduator as a matched pair after
+    // the V7 Graduator LP-math bug stranded 4 ETH. The MHH+Graduator pair
+    // was rotated together because MHH.setInitializer is one-shot-locked;
+    // fixing the graduator alone can't re-authorize the existing MHH.
+    // Paired with Graduator 0x0Db63b8Af346c5edabF79b16A236AEDA0428e712.
+    MultiHookHost: '0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -273,9 +275,12 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  // V7 GraduatorV2 — paired with V7 MHH (0xD763…). Rotated 2026-07-30
-  // alongside V7 Router (fail-closed sentinels).
-  robinhood: '0x36234107cC240cA564B9bC168d74CA3a1e3AE2f3',
+  // Graduator V8-final — LP-math fix: opens pool at RAW REAL RATIO so both
+  // amounts absorbed fully (no stranded ETH). Also has owner + sweep()
+  // escape hatch. V7 Graduator (0x36234107…) has 4.003 ETH permanently
+  // stuck from the buggy math + no recovery function; do not point at it.
+  // Paired with MHH 0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4.
+  robinhood: '0x0Db63b8Af346c5edabF79b16A236AEDA0428e712',
   'robinhood-testnet': null,
 };
 
