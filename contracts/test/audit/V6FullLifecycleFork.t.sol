@@ -10,11 +10,19 @@ import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
+import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
 import {BaseType, LaunchParams, OwnershipMode} from "src/types/VMTypes.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IERC20V {
     function balanceOf(address) external view returns (uint256);
     function totalSupply() external view returns (uint256);
+    function approve(address, uint256) external returns (bool);
 }
 
 /// @title  V6FullLifecycleFork
@@ -34,11 +42,18 @@ interface IERC20V {
 ///         If this test passes, the deploy script broadcast is safe to
 ///         execute — the same behavior will land on-chain.
 contract V6FullLifecycleForkTest is Test {
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+
     uint256 internal constant RH_CHAIN_ID = 4663;
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
     address internal constant V5_ROUTER = 0x2dfA89FF6822C53509127b4943c97A48952dD973;
+    // Unchanged across V6 rotation — v4 core + launcher's own swap router + flywheel
+    address internal constant V4_SWAP_ROUTER = 0x2E4cd43C07879f52422B3e83F00Be877eFD88738;
+    address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+    address internal constant FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;
 
     DeployV6AuditFixStack.Deployed internal v6;
 
@@ -185,6 +200,105 @@ contract V6FullLifecycleForkTest is Test {
     //    already exercises that flow at length; we only need to prove
     //    V6 accepts a launch call and dispatches through the new stack.
     // ============================================================
+
+    // ============================================================
+    // 5. FULL LIFECYCLE on the freshly-deployed V6 stack:
+    //    launch → curve buy → graduate → v4 pool → post-grad swap
+    //    → fee accrual to FeeSplitter. This is the most important
+    //    single test in the suite — if this fails, don't broadcast.
+    // ============================================================
+
+    function test_V6_FullLifecycle_LaunchBuyGraduateSwapFees() public {
+        // PHASE 1: launch with curve installed
+        uint256 curveSupply = CurveFactory(v6.curveFactory).defaultCurveSupply();
+        LaunchParams memory p;
+        p.base = BaseType.ERC20;
+        p.name = "V6 Lifecycle";
+        p.ticker = "V6LC";
+        p.configHash = keccak256(abi.encode("ERC20", ""));
+        p.initData = abi.encode(curveSupply, v6.router, new bytes[](0));
+        p.moduleCount = 0;
+        p.installBondingCurve = true;
+        p.ownership = OwnershipMode.Renounce;
+
+        vm.deal(launcher, 20 ether);
+        uint256 launchFee = Router(v6.router).quote(p);
+        vm.prank(launcher, launcher);
+        address token = Router(v6.router).launch{value: launchFee}(p);
+        assertTrue(token != address(0), "phase1: token addr zero");
+
+        address curve = CurveFactory(v6.curveFactory).curveFor(token);
+        assertTrue(curve != address(0), "phase1: curveFor zero");
+        BondingCurve bc = BondingCurve(payable(curve));
+        assertFalse(bc.graduated(), "phase1: curve pre-graduated");
+
+        // PHASE 2: buy through the curve until graduation
+        uint256 gradTarget = CurveFactory(v6.curveFactory).defaultGraduationTargetEth();
+        uint256 buyValue = gradTarget + 0.5 ether;
+        address buyer = makeAddr("v6-lc-buyer");
+        vm.deal(buyer, buyValue + 1 ether);
+        vm.prank(buyer);
+        bc.buy{value: buyValue}(0);
+        assertTrue(bc.graduated(), "phase2: curve did not graduate");
+        assertEq(bc.ethReserve(), 0, "phase2: eth reserve not drained");
+        assertEq(bc.tokenReserve(), 0, "phase2: token reserve not drained");
+
+        // PHASE 3: verify v4 pool exists with V6 MHH as hook
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(token),
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(v6.multiHookHost)
+        });
+        PoolId poolId = poolKey.toId();
+        (uint160 sqrtPriceX96,,,) = IPoolManager(POOL_MANAGER).getSlot0(poolId);
+        assertGt(sqrtPriceX96, 0, "phase3: pool not initialized");
+        uint128 liquidity = IPoolManager(POOL_MANAGER).getLiquidity(poolId);
+        assertGt(liquidity, 0, "phase3: pool zero liquidity");
+
+        // PHASE 4: post-grad swap through V4SwapRouter
+        address swapper = makeAddr("v6-lc-swapper");
+        vm.deal(swapper, 5 ether);
+        uint256 owedTokenBefore =
+            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
+        uint256 owedEthBefore =
+            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
+
+        uint256 swapperTokensBefore = IERC20V(token).balanceOf(swapper);
+        vm.prank(swapper);
+        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactETHForToken{value: 0.1 ether}(
+            poolKey, 1, swapper, block.timestamp + 300
+        );
+        uint256 swapperTokensAfter = IERC20V(token).balanceOf(swapper);
+        assertGt(swapperTokensAfter, swapperTokensBefore, "phase4: swap didn't credit tokens");
+
+        // PHASE 5: fees accrued to FeeSplitter on V6 MHH (token side from buy)
+        uint256 owedTokenAfter =
+            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
+        assertGt(owedTokenAfter, owedTokenBefore, "phase5: FeeSplitter owed[token] didn't grow");
+
+        // Now sell to accrue ETH-side owed
+        uint256 sellSize = IERC20V(token).balanceOf(swapper) / 4;
+        vm.prank(swapper);
+        IERC20V(token).approve(V4_SWAP_ROUTER, sellSize);
+        vm.prank(swapper);
+        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactTokenForETH(
+            poolKey, sellSize, 1, swapper, block.timestamp + 300
+        );
+        uint256 owedEthAfter =
+            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
+        assertGt(owedEthAfter, owedEthBefore, "phase5b: FeeSplitter owed[eth] didn't grow");
+
+        // PHASE 6: claim proves the V6 MHH → FeeSplitter routing works
+        vm.prank(FEE_SPLITTER);
+        MultiHookHost(payable(v6.multiHookHost)).claim(Currency.wrap(address(0)));
+        assertEq(
+            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER),
+            0,
+            "phase6: owed[eth] not zeroed after claim"
+        );
+    }
 
     function test_V6_Launch_BareERC20_Succeeds() public {
         // Bare ERC20 (empty module set) → configHash = keccak(abi.encode('ERC20', ''))

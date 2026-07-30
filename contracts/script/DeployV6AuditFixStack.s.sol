@@ -381,12 +381,22 @@ contract DeployV6AuditFixStack is Script {
             uint16(100),          // creatorBps — matches V5
             deployerWallet        // MHH.deployer (setInitializer authority)
         );
+        // Under `forge script --broadcast`, `new X{salt}(...)` routes through the
+        // canonical CREATE2 factory (0x4e59b4…) — so the miner must use THAT as
+        // the deployer to get a prediction whose flag bits match the address
+        // that actually lands on-chain. Under `forge test` with vm.startPrank
+        // active, foundry attributes CREATE2 ops to the PRANK SENDER, not to
+        // address(this); so the miner has to use the same prank-sender address
+        // to predict correctly. Otherwise the deployed address's low 14 bits
+        // won't equal the required flags and PoolManager will try to dispatch
+        // to unimplemented hook methods (bricks graduation).
+        address miner = _isTestContext ? _testPrankAs : CREATE2_DEPLOYER;
         // Auto-bump startSalt past any collisions with previously-mined MHHs.
         uint256 startSalt = 0;
         uint256 salt;
         address predicted;
         for (uint256 attempt = 0; attempt < 10; ++attempt) {
-            (salt, predicted) = HookMiner.findFrom(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000, startSalt);
+            (salt, predicted) = HookMiner.findFrom(miner, requiredFlags, creation, args, 500_000, startSalt);
             if (predicted.code.length == 0) break;
             console2.log("  [skip] MHH salt already deployed, bumping past", salt);
             startSalt = salt + 1;
@@ -402,15 +412,16 @@ contract DeployV6AuditFixStack is Script {
         MultiHookHost mhh = new MultiHookHost{salt: bytes32(salt)}(
             IPoolManager(poolManager), feeSplitter, deployerWallet, uint16(100), uint16(100), deployerWallet
         );
-        // In `forge script --broadcast`, `new X{salt}(...)` routes through the
-        // canonical CREATE2 deployer, matching HookMiner's prediction. In
-        // `forge test`, the test contract itself is the deployer, so the
-        // resulting address differs from the mined prediction. That's a
-        // test-environment quirk, not a production concern — the broadcast
-        // path IS the production path and the salt-drift check DOES run
-        // there. Skip when in test context.
-        if (!_isTestContext) {
-            require(address(mhh) == predicted, "MHH salt drift");
+        // Salt-drift check runs in both modes now — mining uses the correct
+        // deployer per context (canonical CREATE2 factory in broadcast,
+        // address(this) in test). If prediction != deployed, the address's
+        // low 14 bits won't match required flags and v4 will misroute hooks.
+        if (address(mhh) != predicted) {
+            console2.log("  [drift] miner used  :", miner);
+            console2.log("  [drift] predicted   :", predicted);
+            console2.log("  [drift] actual      :", address(mhh));
+            console2.log("  [drift] address(this):", address(this));
+            revert("MHH salt drift");
         }
         console2.log("  MultiHookHost   :", address(mhh), "(salt", salt);
         return address(mhh);
