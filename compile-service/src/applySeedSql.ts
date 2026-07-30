@@ -15,10 +15,22 @@ if (!path) {
     process.exit(1);
 }
 
-const url = process.env.DATABASE_PRIVATE_URL ?? process.env.DATABASE_URL;
+// Prefer the PUBLIC URL when running locally (Railway's DATABASE_URL usually
+// points at `postgres.railway.internal` which only resolves inside their
+// private network; hitting it from a laptop → ENOTFOUND). Inside a Railway
+// container this env is absent so we fall through to DATABASE_URL (private
+// hostname works there).
+const url = process.env.DATABASE_PUBLIC_URL ?? process.env.DATABASE_URL;
 if (!url) {
     process.stderr.write('DATABASE_URL not set (run via `railway run --`)\n');
     process.exit(1);
+}
+if (url.includes('.railway.internal')) {
+    process.stderr.write(
+        `warning: DATABASE_URL points at .railway.internal — that hostname only resolves inside\n` +
+        `Railway. If this fails with ENOTFOUND, set DATABASE_PUBLIC_URL by enabling "Public\n` +
+        `Networking" on the Postgres plugin and rerun.\n`,
+    );
 }
 
 const body = readFileSync(path, 'utf8');
