@@ -131,6 +131,17 @@ contract NameRegistry is Ownable {
     /// @notice Reserve `name` and `ticker` for `token`, launched by `launchedBy`.
     /// @dev    Only callable by the Router. Reverts if either name or ticker is unavailable,
     ///         if characters or lengths violate the normalization rules, or if `token` is zero.
+    ///
+    ///         KNOWN LIMITATION — mempool front-running: this reservation is atomic
+    ///         (first-come, permanent) with no commit-reveal, so a mempool observer can
+    ///         copy a pending launch's `(name, ticker)` and submit a competing
+    ///         `Router.launch` tx with a higher priority fee. Their tx mines first,
+    ///         they get the name; the victim's tx reverts NameTaken. Impact scope:
+    ///         the victim pays gas but not the launch fee (Router refunds the excess
+    ///         ETH on revert path); the squatter must ALSO pay the full launch fee
+    ///         so this isn't a free grief. Not addressed in V6 (would need a
+    ///         commit-reveal design pass + 2-tx frontend flow); documented so anyone
+    ///         building on top of NameRegistry knows the tradeoff.
     /// @param  name        Human-readable token name (ASCII only, 1..32 chars post-trim, case-insensitive for
     /// uniqueness). @param  ticker      Market ticker (uppercase alphanumeric only, 2..10 chars).
     /// @param  token       Address of the token contract this reservation binds to.
