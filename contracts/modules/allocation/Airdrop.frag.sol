@@ -30,6 +30,13 @@
 error Airdrop__AlreadyClaimed(address recipient);
 error Airdrop__InvalidProof();
 error Airdrop__ZeroAllocation();
+/// Attempted claim would push cumulative claimed above the declared allocation.
+/// Without this cap, a launcher-supplied merkle root that sums to more than
+/// `_airdropTotalAllocation` could drain the shared reserve balance — and in
+/// composed impls that stack Airdrop with Vesting (or any other reserve-backed
+/// allocation module), a single oversized leaf would empty the sibling
+/// module's pool because both live on the same `address(this)` balance.
+error Airdrop__AllocationExceeded(uint256 requestedTotal, uint256 totalAllocation);
 
 // ============================================================
 // SECTION: VM_INJECT_EVENTS
@@ -66,11 +73,22 @@ function airdropClaim(uint256 amount, bytes32[] calldata proof) external {
     if (_airdropClaimed[msg.sender]) revert Airdrop__AlreadyClaimed(msg.sender);
     bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
     if (!MerkleProofLib.verifyCalldata(proof, _airdropRoot, leaf)) revert Airdrop__InvalidProof();
+    // The launcher-supplied merkle root is opaque to the contract — we can't
+    // sum its leaves off-chain, so the on-chain cap against the declared
+    // `_airdropTotalAllocation` is the ONLY authoritative boundary that
+    // prevents an oversized (or maliciously-oversized) tree from draining
+    // the shared reserve. Enforce BEFORE the state update + transfer so a
+    // rejection leaves no side effects.
+    uint256 newClaimedTotal = _airdropClaimedTotal + amount;
+    if (newClaimedTotal > _airdropTotalAllocation) {
+        revert Airdrop__AllocationExceeded(newClaimedTotal, _airdropTotalAllocation);
+    }
     _airdropClaimed[msg.sender] = true;
-    _airdropClaimedTotal += amount;
+    _airdropClaimedTotal = newClaimedTotal;
     // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
-    // Total supply stays fixed. If the launcher misconfigured (merkle sum >
-    // totalAllocation) claims eventually revert here when the reserve runs dry.
+    // Total supply stays fixed. The cap above guarantees `amount` never exceeds
+    // this module's allocated reserve, so composed impls (Airdrop+Vesting etc.)
+    // can no longer cross-drain sibling modules through this path.
     _transfer(address(this), msg.sender, amount);
     emit AirdropClaimed(msg.sender, amount);
 }

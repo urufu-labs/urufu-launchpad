@@ -43,6 +43,7 @@ contract ERC20WithAirdropVestingGen is ERC20, Ownable {
     error Airdrop__AlreadyClaimed(address recipient);
     error Airdrop__InvalidProof();
     error Airdrop__ZeroAllocation();
+    error Airdrop__AllocationExceeded(uint256 requestedTotal, uint256 totalAllocation);
 
     // --- from Vesting.frag.sol ---
     error Vesting__ZeroBeneficiary();
@@ -239,11 +240,18 @@ contract ERC20WithAirdropVestingGen is ERC20, Ownable {
         if (_airdropClaimed[msg.sender]) revert Airdrop__AlreadyClaimed(msg.sender);
         bytes32 leaf = keccak256(abi.encodePacked(msg.sender, amount));
         if (!MerkleProofLib.verifyCalldata(proof, _airdropRoot, leaf)) revert Airdrop__InvalidProof();
+        // Enforce cumulative allocation cap BEFORE state updates. The
+        // launcher-supplied merkle root is opaque, so this is the only
+        // authoritative bound preventing an oversized tree from draining
+        // the shared reserve balance (Airdrop + Vesting live on the same
+        // address(this) balance in composed impls).
+        uint256 newClaimedTotal = _airdropClaimedTotal + amount;
+        if (newClaimedTotal > _airdropTotalAllocation) {
+            revert Airdrop__AllocationExceeded(newClaimedTotal, _airdropTotalAllocation);
+        }
         _airdropClaimed[msg.sender] = true;
-        _airdropClaimedTotal += amount;
+        _airdropClaimedTotal = newClaimedTotal;
         // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
-        // Total supply stays fixed. If the launcher misconfigured (merkle sum >
-        // totalAllocation) claims eventually revert here when the reserve runs dry.
         _transfer(address(this), msg.sender, amount);
         emit AirdropClaimed(msg.sender, amount);
     }
