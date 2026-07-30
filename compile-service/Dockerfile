@@ -27,6 +27,12 @@ RUN pnpm install --filter @vm/compile-service --frozen-lockfile
 
 COPY compile-service/ ./compile-service/
 COPY shared/ ./shared/
+# Shipped epoch JSONs (contracts/tmp/epoch/epoch<N>.json + epoch<N>.meta.json).
+# db.ts::_seedShippedEpochs reads these on migrate() and backfills
+# app.rewards_epochs + app.rewards_leaves. Without this COPY the seed silently
+# no-ops in production and the frontend claim button stays inactive even
+# after the on-chain addEpoch broadcast.
+COPY contracts/tmp/epoch/ ./contracts/tmp/epoch/
 # `build` currently only typechecks (no emit). Run directly through tsx so we don't
 # depend on a dist/ output — swap to a real compile step when the surface stabilises.
 RUN pnpm --filter @vm/compile-service build
