@@ -167,9 +167,7 @@ contract ERC20WithAntiWhaleGen is ERC20, Ownable {
         // form skipped BOTH caps whenever either side was excluded — and
         // since the bonding curve gets excluded at launch, every curve buy
         // slipped through, defeating AntiWhale's primary-market protection.
-        if (
-            block.number < uint256(_awExpiresAtBlock) && from != address(0) && to != address(0)
-        ) {
+        if (block.number < uint256(_awExpiresAtBlock) && from != address(0) && to != address(0)) {
             if (!_awExcluded[from] && !_awExcluded[to] && amount > uint256(_awMaxTx)) {
                 revert AntiWhale__MaxTxExceeded(amount, uint256(_awMaxTx));
             }

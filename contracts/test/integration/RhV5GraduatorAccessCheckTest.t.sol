@@ -264,15 +264,15 @@ contract RhV5GraduatorAccessCheckTest is Test {
         try IGraduatorV5(GRADUATOR_V5).execute{value: ethAmount}(
             address(token), ethAmount, tokenAmount, 0, 0, address(this)
         ) {
-            // gate passed AND full graduation succeeded
-        } catch (bytes memory reason) {
+        // gate passed AND full graduation succeeded
+        }
+        catch (bytes memory reason) {
             bytes4 sel;
             assembly {
                 sel := mload(add(reason, 32))
             }
             assertTrue(
-                sel != IGraduatorV5.Graduator__NotAuthorizedCurve.selector,
-                "V5 gate rejected registered curve caller"
+                sel != IGraduatorV5.Graduator__NotAuthorizedCurve.selector, "V5 gate rejected registered curve caller"
             );
         }
         vm.stopPrank();

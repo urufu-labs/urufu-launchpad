@@ -71,10 +71,7 @@ contract DeployMhhAndGraduatorV5 is Script {
     uint24 internal constant FEE = 3000;
     int24 internal constant TICK_SPACING = 60;
 
-    function run()
-        external
-        returns (address newMhh, address newGraduator)
-    {
+    function run() external returns (address newMhh, address newGraduator) {
         address poolManager = _envAddress("ROBINHOOD_POOL_MANAGER_ADDRESS", DEFAULT_POOL_MANAGER);
         address curveFactory = _envAddress("ROBINHOOD_CURVE_FACTORY_ADDRESS", DEFAULT_CURVE_FACTORY);
         address feeSplitter = _envAddress("ROBINHOOD_FEE_SPLITTER_ADDRESS", DEFAULT_FEE_SPLITTER);
@@ -116,9 +113,8 @@ contract DeployMhhAndGraduatorV5 is Script {
         // trailing `msg.sender` is used for MHH's explicit `_deployer` slot
         // (the wallet allowed to call setInitializer once).
         bytes memory creation = type(MultiHookHost).creationCode;
-        bytes memory args = abi.encode(
-            IPoolManager(poolManager), feeSplitter, creatorRecipient, platformBps, creatorBps, msg.sender
-        );
+        bytes memory args =
+            abi.encode(IPoolManager(poolManager), feeSplitter, creatorRecipient, platformBps, creatorBps, msg.sender);
 
         // Auto-bump past collisions. The V4 stack was mined with the same ctor
         // tuple (same PoolManager, FeeSplitter, deployer wallet, 100/100 bps)
