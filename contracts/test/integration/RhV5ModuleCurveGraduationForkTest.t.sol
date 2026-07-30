@@ -158,6 +158,13 @@ contract RhV5ModuleCurveGraduationForkTest is Test {
     address internal alice = makeAddr("alice");
 
     function setUp() public {
+        // Skipped 2026-07-30: post-V8 rotation the live stack (Router, MHH,
+        // Graduator) is no longer V5. These tests hardcode V5-era addresses in
+        // their assertions and etches. Historical only — kept for reference.
+        // TODO: refactor to dynamic reads from NameRegistry.router() +
+        // CurveFactory.graduator() if the coverage is still valuable, then
+        // remove this skip. See GraduatorV2Test.t.sol for the dynamic pattern.
+        vm.skip(true);
         string memory rpc;
         try vm.envString("ROBINHOOD_RPC_URL") returns (string memory r) {
             rpc = r;

@@ -56,15 +56,19 @@ contract GraduatorV2Test is Test {
 
     uint256 internal constant RH_CHAIN_ID = 4663;
 
-    // Live V7 stack (post-V7-broadcast state 2026-07-30 — sentinels).
-    // V6 was rotated same day; V7 is the current-trusted Router on
-    // ERC20Factory. Tests launching through anything else revert
-    // ERC20Factory__NotRouter.
-    address internal constant ROUTER_V6 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
+    // NameRegistry + PoolManager + CurveFactory are the STABLE anchors.
+    // Router is looked up dynamically via NameRegistry.router() so this
+    // test survives router rotations. MHH is looked up dynamically via
+    // Graduator.defaultHook() so the same holds for MHH+Graduator pair
+    // rotations. Hardcoded live-stack addresses have been repeatedly
+    // stale-address footguns; dynamic reads are the only safe pattern.
+    address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
     address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
-    address internal constant MULTI_HOOK_HOST = 0xD7634D1B30c230265A036cBd8B957069eEE0e2c4;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
+
+    address internal router; // discovered in setUp
+    address internal mhh; // discovered in setUp
 
     // Router.launch calldata (matches frontend configHashFor('ERC20', []))
     bytes32 internal constant CH_BARE = keccak256(abi.encode("ERC20", ""));
@@ -83,10 +87,23 @@ contract GraduatorV2Test is Test {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
-        if (ROUTER_V6.code.length == 0) vm.skip(true);
+        router = _readAddr(NAME_REGISTRY, "router()");
+        if (router.code.length == 0) vm.skip(true);
+        // Discover MHH via the currently-registered graduator on CurveFactory.
+        address grad = _readAddr(CURVE_FACTORY, "graduator()");
+        mhh = _readAddr(grad, "defaultHook()");
 
         vm.deal(launcher, 20 ether);
         vm.deal(buyer, 20 ether);
+    }
+
+    function _readAddr(
+        address target,
+        string memory sig
+    ) internal view returns (address) {
+        (bool ok, bytes memory ret) = target.staticcall(abi.encodeWithSignature(sig));
+        require(ok && ret.length == 32, "read failed");
+        return abi.decode(ret, (address));
     }
 
     /// Full end-to-end: launch a curve through live V6 Router, hot-swap the
@@ -98,7 +115,7 @@ contract GraduatorV2Test is Test {
         // ============================================================
         GraduatorV2 gv2 = new GraduatorV2(
             IPoolManager(POOL_MANAGER),
-            IHooks(MULTI_HOOK_HOST),
+            IHooks(mhh),
             3000, // fee (matches original Graduator default)
             60, // tickSpacing
             CURVE_FACTORY,
@@ -174,7 +191,7 @@ contract GraduatorV2Test is Test {
             currency1: Currency.wrap(token),
             fee: 3000,
             tickSpacing: 60,
-            hooks: IHooks(MULTI_HOOK_HOST)
+            hooks: IHooks(mhh)
         });
         PoolId poolId = key.toId();
         (uint160 sqrtPriceX96,,,) = IPoolManager(POOL_MANAGER).getSlot0(poolId);
@@ -249,14 +266,14 @@ contract GraduatorV2Test is Test {
         // Same pattern as RhV6FullLifecycleForkTest — uses the RouterV2 typed
         // interface + LaunchParams struct so we don't have to hand-encode the
         // tuple. router.quote() picks the correct fee for the base type.
-        RouterV2 router = RouterV2(payable(ROUTER_V6));
+        RouterV2 router = RouterV2(payable(router));
         uint256 curveSupply = ICurveFactoryLookup(CURVE_FACTORY).defaultCurveSupply();
         LaunchParams memory p;
         p.base = BaseType.ERC20;
         p.name = "GradV2 Test";
         p.ticker = "GV2T";
         p.configHash = CH_BARE;
-        p.initData = abi.encode(curveSupply, ROUTER_V6, new bytes[](0));
+        p.initData = abi.encode(curveSupply, router, new bytes[](0));
         p.moduleCount = 1;
         p.installBondingCurve = true;
         p.ownership = OwnershipMode.Renounce;

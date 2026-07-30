@@ -59,17 +59,14 @@ contract GraduatorV8LpMathForkTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
     address internal constant ROUTER_V7 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
     address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
-    address internal constant MHH = 0xD7634D1B30c230265A036cBd8B957069eEE0e2c4;
+    // MHH is read dynamically from Graduator.defaultHook() in setUp — do not
+    // hardcode. Every graduator rotation potentially changes the paired MHH.
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant CF_OWNER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
 
     address internal launcher = makeAddr("v8-lp-fix-launcher");
     address internal buyer = makeAddr("v8-lp-fix-buyer");
 
-    /// The live V7 Graduator address — MHH.initializer is locked to this
-    /// address (setInitializer is one-shot). We etch our V8 bytecode over
-    /// this address so the MHH's authorization still recognizes it.
-    address internal constant LIVE_V7_GRADUATOR = 0x36234107cC240cA564B9bC168d74CA3a1e3AE2f3;
     GraduatorV2 internal newGrad;
 
     function setUp() public {
@@ -85,29 +82,39 @@ contract GraduatorV8LpMathForkTest is Test {
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
         if (ROUTER_V7.code.length == 0) vm.skip(true);
 
-        // Build fresh V8 graduator with correct immutables. NOT deployed at a
-        // real address — we just need its RUNTIME code to etch over the V7
-        // address. MHH.initializer is locked to the V7 address (setInitializer
-        // is one-shot), so a fresh-address graduator wouldn't be authorized.
-        GraduatorV2 tmp =
-            new GraduatorV2(IPoolManager(POOL_MANAGER), IHooks(MHH), 3000, 60, CURVE_FACTORY, address(this));
-        vm.etch(LIVE_V7_GRADUATOR, address(tmp).code);
-        // Storage on the etched address is preserved (that's the whole point
-        // of vm.etch vs vm.setCode) — but our V8 has a new `owner` storage
-        // slot. Write it via cheatcode. Slot 0 = owner (first non-immutable).
-        vm.store(LIVE_V7_GRADUATOR, bytes32(uint256(0)), bytes32(uint256(uint160(address(this)))));
-        newGrad = GraduatorV2(payable(LIVE_V7_GRADUATOR));
+        // Dynamic discovery: whichever Graduator the CurveFactory currently
+        // points at is the one whose bytecode we replace. MHH's initializer
+        // slot is one-shot-locked to that specific address, so etching over
+        // it is the only way to test the V8 raw-ratio math without deploying
+        // a new MHH+Graduator pair inside the test.
+        //
+        // This is deliberately dynamic (reads live state at fork time) instead
+        // of hardcoding — every graduator rotation is a moving target,
+        // and hardcoded addresses turn this into a stale-address footgun.
+        address currentGrad = ICurveFactoryLookup(CURVE_FACTORY).graduator();
+        address currentMhh = _defaultHookOf(currentGrad);
 
-        // CurveFactory still points at LIVE_V7_GRADUATOR (no rotate needed).
-        assertEq(
-            ICurveFactoryLookup(CURVE_FACTORY).graduator(),
-            LIVE_V7_GRADUATOR,
-            "CurveFactory.graduator should already be V7 addr"
+        GraduatorV2 tmp = new GraduatorV2(
+            IPoolManager(POOL_MANAGER), IHooks(currentMhh), 3000, 60, CURVE_FACTORY, address(this)
         );
+        vm.etch(currentGrad, address(tmp).code);
+        // Storage preserved by vm.etch; write our test contract as owner so
+        // sweep coverage below can call owner-only functions.
+        vm.store(currentGrad, bytes32(uint256(0)), bytes32(uint256(uint160(address(this)))));
+        newGrad = GraduatorV2(payable(currentGrad));
+
         assertEq(newGrad.owner(), address(this), "V8 owner slot seeded");
 
         vm.deal(launcher, 20 ether);
         vm.deal(buyer, 20 ether);
+    }
+
+    function _defaultHookOf(
+        address grad
+    ) internal view returns (address) {
+        (bool ok, bytes memory ret) = grad.staticcall(abi.encodeWithSignature("defaultHook()"));
+        require(ok && ret.length == 32, "defaultHook() read failed");
+        return abi.decode(ret, (address));
     }
 
     /// The critical regression assertion. After a full launch → buy →
