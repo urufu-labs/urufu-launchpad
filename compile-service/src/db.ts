@@ -224,11 +224,18 @@ async function _seedShippedEpochs(): Promise<void> {
                     ON CONFLICT (chain_id, epoch_id) DO NOTHING
                 `;
                 for (const l of j.leaves) {
+                    // JSON.stringify + ::jsonb cast: postgres receives a text
+                    // param whose value happens to be valid JSON, then the cast
+                    // parses it into a real jsonb array (not a jsonb string).
+                    // Round-trip on read → real JS array via postgres.js default
+                    // jsonb parsing. The client also normalizes defensively —
+                    // see web/src/lib/rewardsApi.ts::normalizeProof.
+                    const proofText = JSON.stringify(l.proof);
                     await tx`
                         INSERT INTO app.rewards_leaves (chain_id, epoch_id, holder, amount, proof_json)
                         VALUES (
                           ${j.chainId}, ${j.epochId}, ${l.holder.toLowerCase()},
-                          ${l.amount}, ${JSON.stringify(l.proof)}::jsonb
+                          ${l.amount}, ${proofText}::jsonb
                         )
                         ON CONFLICT (chain_id, epoch_id, holder) DO NOTHING
                     `;

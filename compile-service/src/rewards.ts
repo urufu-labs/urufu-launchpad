@@ -413,6 +413,25 @@ export async function vaultSummary(chainSlug: string): Promise<{
   };
 }
 
+/// Coerce a proof column to a real Hex[]. Postgres.js normally parses jsonb
+/// into a JS value automatically, but depending on how the row was inserted
+/// (raw SQL vs template literal) the column can occasionally round-trip as a
+/// JSON-encoded string — that leaks through to the client as
+/// `"[\"0x…\",\"0x…\"]"` and wagmi's writeContract rejects it with "not a
+/// valid array". Always normalize here.
+function normalizeProof(raw: Hex[] | string | unknown): Hex[] {
+  if (Array.isArray(raw)) return raw as Hex[];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed as Hex[];
+    } catch {
+      /* fall through */
+    }
+  }
+  return [];
+}
+
 export async function proofFor(
   chainSlug: string,
   epochId: number,
@@ -420,7 +439,7 @@ export async function proofFor(
 ): Promise<{ amount: string; proof: Hex[] } | null> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg || !sql) return null;
-  const rows = await sql<Array<{ amount: string; proof_json: Hex[] }>>`
+  const rows = await sql<Array<{ amount: string; proof_json: Hex[] | string }>>`
     SELECT amount, proof_json FROM app.rewards_leaves
     WHERE chain_id = ${cfg.chainId}
       AND epoch_id = ${epochId}
@@ -429,7 +448,7 @@ export async function proofFor(
   `;
   const row = rows[0];
   if (!row) return null;
-  return { amount: row.amount, proof: row.proof_json };
+  return { amount: row.amount, proof: normalizeProof(row.proof_json) };
 }
 
 /// All epochs a wallet has ANY allocation in (whether or not claimed on-chain).
@@ -441,10 +460,10 @@ export async function epochsForHolder(
 ): Promise<Array<{ epochId: number; amount: string; proof: Hex[] }>> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg || !sql) return [];
-  const rows = await sql<Array<{ epoch_id: number; amount: string; proof_json: Hex[] }>>`
+  const rows = await sql<Array<{ epoch_id: number; amount: string; proof_json: Hex[] | string }>>`
     SELECT epoch_id, amount, proof_json FROM app.rewards_leaves
     WHERE chain_id = ${cfg.chainId} AND holder = ${address.toLowerCase()}
     ORDER BY epoch_id DESC
   `;
-  return rows.map((r) => ({ epochId: r.epoch_id, amount: r.amount, proof: r.proof_json }));
+  return rows.map((r) => ({ epochId: r.epoch_id, amount: r.amount, proof: normalizeProof(r.proof_json) }));
 }

@@ -41,12 +41,35 @@ export interface EpochAllocation {
   proof: Hex[];
 }
 
+/// The API's `proof` field is stored as a JSONB column server-side. Depending
+/// on how a row was inserted (raw SQL vs postgres.js template literal), the
+/// column can round-trip as either a real array or a JSON-encoded string.
+/// Normalize both shapes into a real array so the claim button always passes
+/// wagmi a proper bytes32[] arg (viem rejects strings with "not a valid array").
+function normalizeProof(raw: unknown): Hex[] {
+  if (Array.isArray(raw)) return raw as Hex[];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed as Hex[];
+    } catch {
+      /* fall through */
+    }
+  }
+  return [];
+}
+
+function normalizeAllocation(row: unknown): EpochAllocation {
+  const r = row as { epochId: number; amount: string; proof: unknown };
+  return { epochId: r.epochId, amount: r.amount, proof: normalizeProof(r.proof) };
+}
+
 export async function fetchEpochsForHolder(
   chain: RewardsChain,
   address: Address,
 ): Promise<EpochAllocation[]> {
   const data = await getJson<{ items: EpochAllocation[] }>(`/rewards/${chain}/epochs/${address}`);
-  return data?.items ?? [];
+  return (data?.items ?? []).map(normalizeAllocation);
 }
 
 export async function fetchProof(
@@ -54,5 +77,6 @@ export async function fetchProof(
   epochId: number,
   address: Address,
 ): Promise<EpochAllocation | null> {
-  return getJson<EpochAllocation>(`/rewards/${chain}/${epochId}/${address}`);
+  const raw = await getJson<EpochAllocation>(`/rewards/${chain}/${epochId}/${address}`);
+  return raw ? normalizeAllocation(raw) : null;
 }
