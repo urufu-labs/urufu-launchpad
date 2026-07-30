@@ -100,6 +100,8 @@ contract LaunchWithLoyaltyTest is Test {
         router.setFactory(BaseType.ERC20, address(f20));
         registry.setRouter(address(router));
         router.setLoyaltyOracle(address(oracle));
+        router.setModuleCountForConfig(BARE_ERC20, 1);
+        router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
         vm.prank(registrar);

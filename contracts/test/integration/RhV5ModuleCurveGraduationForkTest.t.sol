@@ -260,6 +260,41 @@ contract RhV5ModuleCurveGraduationForkTest is Test {
             UruDepositSink(payable(live.uruSink()))
         );
         vm.etch(ROUTER_V2, address(fresh).code);
+        // Audit remediation #3: fail-closed sentinels — etched bytecode
+        // reads moduleCountConfigured + flagsConfigured mappings that are
+        // in NEW slots; the pre-existing storage on the live Router has
+        // the OLD mappings populated but nothing in the sentinel slots.
+        // Seed sentinels for every hash any test in this suite launches.
+        RouterV2 asFresh = RouterV2(payable(ROUTER_V2));
+        address routerOwner = asFresh.owner();
+        bytes32[] memory h = new bytes32[](10);
+        uint256[] memory c = new uint256[](10);
+        uint256[] memory f = new uint256[](10);
+        h[0] = BARE_ERC20;
+        c[0] = 0;
+        h[1] = ANTIBOT;
+        c[1] = 1;
+        h[2] = ANTIWHALE;
+        c[2] = 1;
+        h[3] = PAUSABLE;
+        c[3] = 1;
+        h[4] = PERMIT;
+        c[4] = 1;
+        h[5] = AIRDROP;
+        c[5] = 1;
+        h[6] = VESTING;
+        c[6] = 1;
+        h[7] = STAKING;
+        c[7] = 1;
+        h[8] = VOTES;
+        c[8] = 1;
+        h[9] = FOT; // FLAG_BALANCE_MUTATING
+        c[9] = 1;
+        f[9] = 1;
+        vm.prank(routerOwner);
+        asFresh.setModuleCountForConfigBatch(h, c);
+        vm.prank(routerOwner);
+        asFresh.setFlagsForConfigBatch(h, f);
     }
 
     // ============================================================

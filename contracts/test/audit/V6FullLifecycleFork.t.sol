@@ -149,23 +149,71 @@ contract V6FullLifecycleForkTest is Test {
     }
 
     function test_V6_Fix3_RouterModuleCount_UsesRegisteredValue() public {
-        // Verify one of the batch-registered hashes has its count set.
-        // Bare ERC20 hash (index 5 in the deploy script's array) is registered
-        // with count = 0 so a launch through it charges only the base fee.
-        bytes32 bareHash = 0xf7b8c67f3c497ace04f267a7b77845c97e685bd8ba1b0bec3d54a28e64a30acb;
-        assertEq(Router(v6.router).moduleCountForConfig(bareHash), 0, "bare hash count wrong");
-
-        // AntiWhale hash → count 1
+        // The regression: pre-fix `_quote` used `params.moduleCount` directly,
+        // letting a launcher underpay. Post-fix it MUST derive count from
+        // moduleCountForConfig[hash]. Call quote() twice with mismatched
+        // params.moduleCount values and require they match. If the fix was
+        // reverted, they'd diverge and this asserts fails.
         bytes32 antiWhaleHash = 0x638593049fc24c8e112d3d12c307afdc8ae86f6968c7fd3baf7d6c5662b53821;
         assertEq(Router(v6.router).moduleCountForConfig(antiWhaleHash), 1, "antiwhale hash count wrong");
+
+        LaunchParams memory p;
+        p.base = BaseType.ERC20;
+        p.configHash = antiWhaleHash;
+
+        p.moduleCount = 42; // caller lies
+        uint256 liarQuote = Router(v6.router).quote(p);
+        p.moduleCount = 1; // honest
+        uint256 honestQuote = Router(v6.router).quote(p);
+        assertEq(liarQuote, honestQuote, "quote must ignore caller-supplied moduleCount post-fix");
     }
 
-    function test_V6_Fix5_FoTStructuralFlag_Set() public view {
-        // FoT hash must have FLAG_BALANCE_MUTATING set + also be in the manual
-        // denylist for defense-in-depth.
+    function test_V6_Fix5_FoTStructuralFlag_BlocksLaunch() public {
+        // The regression: pre-fix curve install only consulted the manual
+        // denylist. Post-fix it OR's the FLAG_BALANCE_MUTATING flag too.
+        //
+        // Live FoT hash requires exact FoT-module initData shape to survive
+        // the factory-init call and reach the curve-incompatible check — too
+        // brittle to encode inline. Instead we test the flag path with a
+        // hash we control: take the bare ERC20 hash (whose initData is
+        // trivially valid), owner-set the flag on it, explicitly ensure the
+        // denylist is NOT set, then attempt a curve launch. If the fix is
+        // live, the FLAG alone triggers Router__CurveIncompatibleModule.
+        // If the fix were reverted, curve install would proceed (denylist=false).
+        bytes32 bareHash = keccak256(abi.encode("ERC20", ""));
+
+        vm.startPrank(DEPLOYER);
+        Router(v6.router).setFlagsForConfig(bareHash, 1); // FLAG_BALANCE_MUTATING
+        // Deliberately do NOT setCurveIncompatibleConfigHash — prove the
+        // FLAG PATH fires, not the denylist path.
+        vm.stopPrank();
+        assertEq(Router(v6.router).flagsForConfig(bareHash), 1, "flag must be set");
+        assertFalse(
+            Router(v6.router).curveIncompatibleConfigHash(bareHash),
+            "denylist must NOT be set on bareHash - would false-green through denylist path"
+        );
+
+        // Live FoT hash on prod still has both set:
         bytes32 fotHash = 0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4;
-        assertEq(Router(v6.router).flagsForConfig(fotHash), 1, "FoT flag not set");
-        assertTrue(Router(v6.router).curveIncompatibleConfigHash(fotHash), "FoT denylist not set");
+        assertEq(Router(v6.router).flagsForConfig(fotHash), 1, "live FoT flag missing");
+        assertTrue(Router(v6.router).curveIncompatibleConfigHash(fotHash), "live FoT denylist missing");
+
+        LaunchParams memory p;
+        p.base = BaseType.ERC20;
+        p.name = "FlagOnly Trap";
+        p.ticker = "FLGT";
+        p.configHash = bareHash;
+        p.initData = abi.encode(uint256(800_000_000e18), v6.router, new bytes[](0));
+        p.moduleCount = 0;
+        p.installBondingCurve = true;
+        p.ownership = OwnershipMode.Renounce;
+
+        address feeSpoofer = makeAddr("fot-launcher");
+        vm.deal(feeSpoofer, 10 ether);
+        uint256 fee = Router(v6.router).quote(p);
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__CurveIncompatibleModule.selector, bareHash));
+        vm.prank(feeSpoofer, feeSpoofer);
+        Router(v6.router).launch{value: fee}(p);
     }
 
     // ============================================================

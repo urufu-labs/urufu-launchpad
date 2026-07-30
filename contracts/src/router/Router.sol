@@ -114,6 +114,18 @@ contract Router is Ownable, ReentrancyGuard {
     /// (e.g. FeeOnTransfer) and would drift the bonding-curve's accounting on every
     /// trade. Owner maintains the blacklist via `setCurveIncompatibleConfigHash`.
     error Router__CurveIncompatibleModule(bytes32 configHash);
+    /// A configHash has no explicit module-count record. Post-fix, the Router
+    /// fails CLOSED on any hash whose moduleCountConfigured[hash] is false,
+    /// rather than treating a missing record as "zero modules" (which would
+    /// silently under-bill add-on fees for a partially-registered hash).
+    error Router__ModuleCountMissing(bytes32 configHash);
+    /// A configHash has no explicit flags record. Post-fix, the Router fails
+    /// CLOSED on any hash whose flagsConfigured[hash] is false, rather than
+    /// treating a missing record as "no restricted behavior" (which would
+    /// silently allow a balance-mutating impl to be paired with a bonding
+    /// curve if the owner had registered the impl on the factory but not
+    /// yet called setFlagsForConfig on the Router).
+    error Router__FlagsMissing(bytes32 configHash);
 
     // ============================================================
     // Events
@@ -177,6 +189,13 @@ contract Router is Ownable, ReentrancyGuard {
     /// _quote (extras = max(count-1, 0)). Owner must register real counts
     /// for every launched configHash for the fee to bill correctly.
     mapping(bytes32 => uint256) public moduleCountForConfig;
+    /// Fail-closed sentinel paired with moduleCountForConfig — set to true by
+    /// the setter regardless of the count value (even count=0 is a legitimate
+    /// explicit configuration, e.g. bare-base tokens). Zero cannot double as
+    /// "unregistered marker" because it's also a valid count. Without this
+    /// sentinel, a hash with impl registered on the factory but no Router
+    /// count-record would silently bill baseFee only.
+    mapping(bytes32 => bool) public moduleCountConfigured;
     /// Structural per-config flags set by the owner at registration time.
     /// FLAG_BALANCE_MUTATING is set for any impl whose module set includes
     /// a transfer-tax / rebasing / balance-drifting behavior (currently
@@ -186,6 +205,12 @@ contract Router is Ownable, ReentrancyGuard {
     /// authoritative, structural boundary. The denylist stays as a
     /// belt-and-braces fallback for anything the flags miss.
     mapping(bytes32 => uint256) public flagsForConfig;
+    /// Fail-closed sentinel paired with flagsForConfig — flags=0 is a
+    /// legitimate value ("no restricted behavior") so we can't infer
+    /// "unregistered" from zero alone. Owner MUST call setFlagsForConfig
+    /// for every hash — even to explicitly declare "flags = 0" — before
+    /// that hash becomes launchable.
+    mapping(bytes32 => bool) public flagsConfigured;
     uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
     /// Belt-and-braces cap that Router locally enforces on any discount returned
     /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
@@ -366,6 +391,7 @@ contract Router is Ownable, ReentrancyGuard {
         uint256 count
     ) external onlyOwner {
         moduleCountForConfig[configHash] = count;
+        moduleCountConfigured[configHash] = true;
         emit ModuleCountForConfigSet(configHash, count);
     }
 
@@ -378,6 +404,7 @@ contract Router is Ownable, ReentrancyGuard {
         if (configHashes.length != counts.length) revert Router__ZeroAddress();
         for (uint256 i = 0; i < configHashes.length; ++i) {
             moduleCountForConfig[configHashes[i]] = counts[i];
+            moduleCountConfigured[configHashes[i]] = true;
             emit ModuleCountForConfigSet(configHashes[i], counts[i]);
         }
     }
@@ -390,6 +417,7 @@ contract Router is Ownable, ReentrancyGuard {
         uint256 flags
     ) external onlyOwner {
         flagsForConfig[configHash] = flags;
+        flagsConfigured[configHash] = true;
         emit FlagsForConfigSet(configHash, flags);
     }
 
@@ -400,6 +428,7 @@ contract Router is Ownable, ReentrancyGuard {
         if (configHashes.length != flags.length) revert Router__ZeroAddress();
         for (uint256 i = 0; i < configHashes.length; ++i) {
             flagsForConfig[configHashes[i]] = flags[i];
+            flagsConfigured[configHashes[i]] = true;
             emit FlagsForConfigSet(configHashes[i], flags[i]);
         }
     }
@@ -458,6 +487,13 @@ contract Router is Ownable, ReentrancyGuard {
     function _isCurveIncompatible(
         bytes32 configHash
     ) internal view returns (bool) {
+        // Fail closed: launch flows that reach this check must have gone
+        // through owner-declared flags. If flagsConfigured is false the
+        // hash was never explicitly reviewed for balance-mutation risk;
+        // treating that as "compatible by default" reopens the exact
+        // exploit fix #5 was meant to close (attacker races between
+        // impl registration and Router.setFlagsForConfig).
+        if (!flagsConfigured[configHash]) revert Router__FlagsMissing(configHash);
         if ((flagsForConfig[configHash] & FLAG_BALANCE_MUTATING) != 0) return true;
         return curveIncompatibleConfigHash[configHash];
     }
@@ -466,13 +502,14 @@ contract Router is Ownable, ReentrancyGuard {
         LaunchParams calldata params
     ) internal view returns (uint256) {
         uint256 baseFee = fees[params.base];
-        // Derive module count from the registered mapping rather than
-        // trusting the caller-supplied params.moduleCount. Previously a
-        // launcher could submit a 5-module config with moduleCount=1 and
-        // pay only the base fee. The mapping is populated by the owner at
-        // impl registration time; if it's still zero (config never
-        // registered), the launch will fail at the factory anyway, so
-        // charging zero add-on here is safe as a fall-through.
+        // Fail closed: an unregistered hash reverts here rather than billing
+        // baseFee only. Previously the "factory will reject anyway" fallback
+        // was OK as a defense in depth, but the auditor showed that between
+        // ERC20Factory.registerImpl (registrar-role) and Router.setModuleCountForConfig
+        // (owner-role) there's a real window where a launcher could pay
+        // baseFee for an N-module hash and succeed. Fail-closed here blocks
+        // that regardless of factory state.
+        if (!moduleCountConfigured[params.configHash]) revert Router__ModuleCountMissing(params.configHash);
         uint256 registeredCount = moduleCountForConfig[params.configHash];
         uint256 extraModules = registeredCount > 0 ? registeredCount - 1 : 0;
         return baseFee + moduleAddOnFee * extraModules + (params.installHook ? hookAddOnFee : 0)

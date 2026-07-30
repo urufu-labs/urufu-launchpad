@@ -61,6 +61,12 @@ contract RouterTest is Test {
         router.setFactory(BaseType.ERC721A, address(f721));
         router.setFactory(BaseType.ERC1155, address(f1155));
         registry.setRouter(address(router));
+        // Fail-closed sentinels (audit 2026-08 remediation item #3): every
+        // configHash must have EXPLICIT moduleCount and flags records before
+        // Router.launch/quote will accept it. Seed the default test hash
+        // used by _defaultParams so unrelated tests don't have to.
+        router.setModuleCountForConfig(bytes32(uint256(1)), 1);
+        router.setFlagsForConfig(bytes32(uint256(1)), 0);
         vm.stopPrank();
 
         vm.deal(launcher, 100 ether);
@@ -299,6 +305,12 @@ contract RouterTest is Test {
             HOOK_ADD_ON,
             GOV_ADD_ON
         );
+        // Seed sentinels for the default test hash so this test reaches the
+        // FactoryUnset guard rather than the earlier ModuleCountMissing gate.
+        vm.startPrank(owner);
+        freshRouter.setModuleCountForConfig(bytes32(uint256(1)), 1);
+        freshRouter.setFlagsForConfig(bytes32(uint256(1)), 0);
+        vm.stopPrank();
 
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "Nofact", "NFC");
         vm.expectRevert(abi.encodeWithSelector(Router.Router__FactoryUnset.selector, BaseType.ERC20));

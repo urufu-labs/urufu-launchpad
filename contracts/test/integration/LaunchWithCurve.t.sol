@@ -70,6 +70,9 @@ contract LaunchWithCurveTest is Test {
         registry.setRouter(address(router));
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        // Audit remediation #3 (fail-closed sentinels).
+        router.setModuleCountForConfig(BARE_ERC20, 1);
+        router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
         vm.prank(registrar);
@@ -167,8 +170,14 @@ contract LaunchWithCurveTest is Test {
         vm.prank(admin);
         registry2.setRouter(address(bareRouter2));
         ERC20Factory f20c = new ERC20Factory(admin, address(bareRouter2), registrar);
-        vm.prank(admin);
+        vm.startPrank(admin);
         bareRouter2.setFactory(BaseType.ERC20, address(f20c));
+        // Audit remediation #3 sentinels — otherwise launch would revert
+        // Router__ModuleCountMissing before reaching the CurveFactoryUnset
+        // guard this test is asserting.
+        bareRouter2.setModuleCountForConfig(BARE_ERC20, 1);
+        bareRouter2.setFlagsForConfig(BARE_ERC20, 0);
+        vm.stopPrank();
         ERC20Template implC = new ERC20Template();
         vm.prank(registrar);
         f20c.registerImpl(BARE_ERC20, address(implC));

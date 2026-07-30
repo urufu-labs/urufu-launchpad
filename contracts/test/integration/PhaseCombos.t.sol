@@ -180,6 +180,85 @@ contract PhaseCombosTest is Test {
         f1155.registerImpl(BARE_1155, address(impl1155));
         vm.stopPrank();
 
+        // Audit remediation #3: fail-closed sentinels on Router. Every hash
+        // that any test in this suite launches through needs EXPLICIT
+        // moduleCount + flags records — else Router.launch/quote reverts
+        // with ModuleCountMissing/FlagsMissing. Batch-set all counts here
+        // (flags=0 for every hash — none carry FoT/rebasing behavior in
+        // this suite; FoT+curve is tested separately in AuditFixV6.t.sol).
+        bytes32[] memory allHashes = new bytes32[](32);
+        uint256[] memory allCounts = new uint256[](32);
+        uint256[] memory allFlags = new uint256[](32);
+        allHashes[0] = BARE_ERC20;
+        allCounts[0] = 0;
+        allHashes[1] = ANTIBOT;
+        allCounts[1] = 1;
+        allHashes[2] = ANTIWHALE;
+        allCounts[2] = 1;
+        allHashes[3] = FOT;
+        allCounts[3] = 1;
+        allHashes[4] = PAUSABLE;
+        allCounts[4] = 1;
+        allHashes[5] = PERMIT;
+        allCounts[5] = 1;
+        allHashes[6] = AIRDROP;
+        allCounts[6] = 1;
+        allHashes[7] = VESTING;
+        allCounts[7] = 1;
+        allHashes[8] = STAKING;
+        allCounts[8] = 1;
+        allHashes[9] = VOTES;
+        allCounts[9] = 1;
+        allHashes[10] = AB_AW;
+        allCounts[10] = 2;
+        allHashes[11] = AB_P;
+        allCounts[11] = 2;
+        allHashes[12] = FOT_P;
+        allCounts[12] = 2;
+        allHashes[13] = AB_AW_P;
+        allCounts[13] = 3;
+        allHashes[14] = DROP_VEST;
+        allCounts[14] = 2;
+        allHashes[15] = P_VEST;
+        allCounts[15] = 2;
+        allHashes[16] = DROP_P;
+        allCounts[16] = 2;
+        allHashes[17] = P_STK;
+        allCounts[17] = 2;
+        allHashes[18] = DROP_V;
+        allCounts[18] = 2;
+        allHashes[19] = PAUSE_P;
+        allCounts[19] = 2;
+        allHashes[20] = BARE_721;
+        allCounts[20] = 0;
+        allHashes[21] = DELAYED;
+        allCounts[21] = 1;
+        allHashes[22] = SVG;
+        allCounts[22] = 1;
+        allHashes[23] = ROYALTY;
+        allCounts[23] = 1;
+        allHashes[24] = SVG_ROYALTY;
+        allCounts[24] = 2;
+        allHashes[25] = SOULBOUND;
+        allCounts[25] = 1;
+        allHashes[26] = REFUNDABLE;
+        allCounts[26] = 1;
+        allHashes[27] = ROY_REF;
+        allCounts[27] = 2;
+        allHashes[28] = DR_REF;
+        allCounts[28] = 2;
+        allHashes[29] = BARE_1155;
+        allCounts[29] = 0;
+        allHashes[30] = SVG_SOUL;
+        allCounts[30] = 2;
+        allHashes[31] = ROY_SOUL;
+        allCounts[31] = 2;
+        // allFlags left at default 0 for all — no FoT+curve in this suite.
+        vm.startPrank(admin);
+        router.setModuleCountForConfigBatch(allHashes, allCounts);
+        router.setFlagsForConfigBatch(allHashes, allFlags);
+        vm.stopPrank();
+
         vm.deal(launcher, 500 ether);
     }
 

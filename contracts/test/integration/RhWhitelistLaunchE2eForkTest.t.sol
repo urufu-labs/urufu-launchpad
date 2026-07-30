@@ -174,6 +174,11 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         routerV2.setFactory(BaseType.ERC1155, ERC1155_FACTORY);
         routerV2.setCurveFactory(address(newCurveFactory)); // ← the fresh WL-aware one
         routerV2.setLoyaltyOracle(address(oracle));
+        // Audit remediation #3 (fail-closed sentinels) — must seed BARE_ERC20
+        // config on the fresh router so launch/quote pass the moduleCount +
+        // flags gates.
+        routerV2.setModuleCountForConfig(BARE_ERC20_CONFIG, 1);
+        routerV2.setFlagsForConfig(BARE_ERC20_CONFIG, 0);
         vm.stopPrank();
 
         _authorizeOnFactory(ERC20_FACTORY);

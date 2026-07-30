@@ -180,6 +180,22 @@ contract RhV5ComposedModulesCurveForkTest is Test {
             UruDepositSink(payable(live.uruSink()))
         );
         vm.etch(ROUTER_V2, address(fresh).code);
+        // Audit remediation #3: seed fail-closed sentinels for hashes used in this suite.
+        RouterV2 asFresh = RouterV2(payable(ROUTER_V2));
+        address routerOwner = asFresh.owner();
+        bytes32[] memory h = new bytes32[](3);
+        uint256[] memory c = new uint256[](3);
+        uint256[] memory f = new uint256[](3);
+        h[0] = HASH_ANTIBOT_ANTIWHALE;
+        c[0] = 2;
+        h[1] = HASH_ANTIBOT_PERMIT;
+        c[1] = 2;
+        h[2] = HASH_ANTIBOT_ANTIWHALE_PERMIT;
+        c[2] = 3;
+        vm.prank(routerOwner);
+        asFresh.setModuleCountForConfigBatch(h, c);
+        vm.prank(routerOwner);
+        asFresh.setFlagsForConfigBatch(h, f);
     }
 
     function _ensureFactoryPointsAtLiveRouter(

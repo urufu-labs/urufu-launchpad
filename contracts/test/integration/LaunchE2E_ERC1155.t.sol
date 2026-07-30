@@ -39,6 +39,8 @@ contract LaunchE2EERC1155Test is Test {
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC1155, address(factory));
         registry.setRouter(address(router));
+        router.setModuleCountForConfig(BARE_CONFIG, 1);
+        router.setFlagsForConfig(BARE_CONFIG, 0);
         vm.stopPrank();
 
         vm.prank(registrar);

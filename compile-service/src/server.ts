@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { keccak_256 } from '@noble/hashes/sha3';
 
 import { CompileRequestSchema } from './types.ts';
@@ -148,11 +148,18 @@ app.post('/compile', async (request, reply) => {
       templatePath = resolve(REPO_ROOT, spec.templateOverride);
     }
 
+    // If an override took effect, the template file declares a DIFFERENT
+    // base contract than `${cfg.base}Template` (e.g. ERC20VotesTemplate).
+    // Derive that name from the override filename so compose()'s rename
+    // step finds the right anchor.
+    const baseContractName = overridingModule !== null ? basename(templatePath, '.sol') : undefined;
+
     composed = compose({
       matrix,
       config: { base: cfg.base, modules: cfg.modules, params: cfg.params as Record<string, Record<string, unknown>> },
       templatePath,
       contractName: composedName(cfg.base, cfg.modules),
+      baseContractName,
       repoRoot: REPO_ROOT,
     });
   } catch (err) {

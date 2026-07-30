@@ -107,6 +107,9 @@ contract CurveGraduatorWireTest is Test {
         cf.setDefaults(cf.defaultCurveSupply(), 800_000_000e18, 5 ether, 2 ether, 100);
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        // Audit remediation #3 (fail-closed sentinels).
+        router.setModuleCountForConfig(BARE_ERC20, 1);
+        router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
         vm.prank(registrar);

@@ -90,6 +90,9 @@ contract RouterV2Test is Test {
         router.setFactory(BaseType.ERC721A, address(f721));
         router.setFactory(BaseType.ERC1155, address(f1155));
         registry.setRouter(address(router));
+        // Audit remediation #3 (fail-closed sentinels).
+        router.setModuleCountForConfig(bytes32(uint256(1)), 1);
+        router.setFlagsForConfig(bytes32(uint256(1)), 0);
         vm.stopPrank();
 
         vm.deal(launcher, 100 ether);

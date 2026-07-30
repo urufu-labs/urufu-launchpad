@@ -59,6 +59,9 @@ contract LaunchE2ETest is Test {
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC20, address(factory));
         registry.setRouter(address(router));
+        // Fail-closed sentinels (audit remediation #3).
+        router.setModuleCountForConfig(BARE_CONFIG, 1);
+        router.setFlagsForConfig(BARE_CONFIG, 0);
         vm.stopPrank();
 
         vm.prank(registrar);

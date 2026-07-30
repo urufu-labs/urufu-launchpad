@@ -336,11 +336,25 @@ contract DeployV6AuditFixStack is Script {
 
         // ---------------- Phase 1c: Router runtime config ----------------
         // moduleCountForConfig for all 13 currently-registered hashes.
+        // Setters also flip moduleCountConfigured=true (audit remediation #3
+        // fail-closed sentinel) so every currently-registered hash is
+        // launch-eligible immediately after this broadcast.
         Router(out.router).setModuleCountForConfigBatch(_registeredHashes(), _registeredCounts());
 
-        // FoT structural flag — makes _isCurveIncompatible reject the FoT hash
-        // via the flag path rather than relying on the manual denylist.
-        Router(out.router).setFlagsForConfig(fotHash, FLAG_BALANCE_MUTATING);
+        // Seed flagsForConfig for ALL 13 hashes — flags=0 for the 12 that
+        // don't carry balance-mutating behavior, FLAG_BALANCE_MUTATING for
+        // the FoT hash. Same sentinel-set-on-any-call rule: this flips
+        // flagsConfigured=true for every entry, making the corresponding
+        // hash pass the _isCurveIncompatible gate. Without this pass every
+        // legit launch would revert with Router__FlagsMissing (fail-closed).
+        {
+            bytes32[] memory hashes = _registeredHashes();
+            uint256[] memory flags_ = new uint256[](hashes.length);
+            for (uint256 i = 0; i < hashes.length; ++i) {
+                flags_[i] = hashes[i] == fotHash ? FLAG_BALANCE_MUTATING : 0;
+            }
+            Router(out.router).setFlagsForConfigBatch(hashes, flags_);
+        }
 
         // Belt-and-braces: keep the FoT hash in the manual denylist too, in
         // case someone drops the flag by accident. Redundant with flag +

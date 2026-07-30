@@ -48,6 +48,8 @@ contract LaunchE2EERC721ATest is Test {
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC721A, address(factory));
         registry.setRouter(address(router));
+        router.setModuleCountForConfig(BARE_CONFIG, 1);
+        router.setFlagsForConfig(BARE_CONFIG, 0);
         vm.stopPrank();
 
         vm.prank(registrar);
