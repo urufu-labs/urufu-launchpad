@@ -15,7 +15,7 @@
 /// page would just leak balances without giving that user any action to take.
 
 import { useEffect, useMemo, useState } from 'react';
-import { formatEther, type Address } from 'viem';
+import { formatEther, type Address, type Hex } from 'viem';
 import { useAccount, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { nftRevenueVaultAbi } from '@/lib/abis';
@@ -99,14 +99,44 @@ export function FlywheelRewards({ visibleFor }: Props) {
   );
 
   // --- claim tx handling ------------------------------------------------
-  const { writeContract, data: claimTxHash, isPending: isSubmitting, reset } = useWriteContract();
-  const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({
+  const {
+    writeContract,
+    data: claimTxHash,
+    isPending: isSubmitting,
+    error: writeError,
+    reset,
+  } = useWriteContract();
+  const { isLoading: isMining, isSuccess: isMined, error: mineError } = useWaitForTransactionReceipt({
     hash: claimTxHash,
     chainId: REWARDS_CHAIN_ID,
   });
-  const { switchChain } = useSwitchChain();
+  const { switchChain, error: switchError, isPending: isSwitching } = useSwitchChain();
   const [pendingEpoch, setPendingEpoch] = useState<number | null>(null);
+  // Set when the user clicks claim while on the wrong chain — after the switch
+  // succeeds we auto-fire the writeContract so the user doesn't have to click
+  // twice. Legacy behavior required two clicks (switch, then claim) and users
+  // consistently missed the second click.
+  const [autoClaimAfterSwitch, setAutoClaimAfterSwitch] = useState<{
+    epochId: number;
+    amount: string;
+    proof: readonly Hex[];
+  } | null>(null);
   const walletOnRewardsChain = walletChainId === REWARDS_CHAIN_ID;
+
+  // Fire the queued claim once the chain switch completes.
+  useEffect(() => {
+    if (!autoClaimAfterSwitch || !walletOnRewardsChain || !vaultAddress) return;
+    const q = autoClaimAfterSwitch;
+    setAutoClaimAfterSwitch(null);
+    setPendingEpoch(q.epochId);
+    writeContract({
+      abi: nftRevenueVaultAbi,
+      address: vaultAddress,
+      functionName: 'claim',
+      args: [BigInt(q.epochId), BigInt(q.amount), q.proof],
+      chainId: REWARDS_CHAIN_ID,
+    });
+  }, [autoClaimAfterSwitch, walletOnRewardsChain, vaultAddress, writeContract]);
 
   useEffect(() => {
     if (isMined) {
@@ -201,13 +231,20 @@ export function FlywheelRewards({ visibleFor }: Props) {
                   <button
                     type="button"
                     className="uru-chip"
-                    disabled={isSubmitting || isMining || !vaultAddress}
+                    disabled={isSubmitting || isMining || isSwitching || !vaultAddress}
                     onClick={() => {
                       if (!vaultAddress) return;
-                      // Prompt a chain switch first if the wallet isn't on Base —
-                      // wagmi's writeContract would otherwise submit the tx on the
-                      // wrong chain and revert against a nonexistent contract.
+                      // Prompt a chain switch first if the wallet isn't on
+                      // Robinhood — wagmi's writeContract would otherwise
+                      // submit the tx on the wrong chain and revert against
+                      // a nonexistent contract. Queue the claim so it auto-
+                      // fires once the switch completes (see effect above).
                       if (!walletOnRewardsChain) {
+                        setAutoClaimAfterSwitch({
+                          epochId: r.epochId,
+                          amount: r.amount,
+                          proof: r.proof,
+                        });
                         switchChain({ chainId: REWARDS_CHAIN_ID });
                         return;
                       }
@@ -221,14 +258,39 @@ export function FlywheelRewards({ visibleFor }: Props) {
                       });
                     }}
                     style={{ padding: '2px 8px', fontSize: 10 }}
-                    title={walletOnRewardsChain ? 'claim your share' : 'click to switch to Base + claim'}
+                    title={walletOnRewardsChain ? 'claim your share' : 'click to switch to Robinhood + claim'}
                   >
-                    {pendingEpoch === r.epochId && (isSubmitting || isMining) ? 'claiming...' : walletOnRewardsChain ? 'claim' : 'switch → claim'}
+                    {isSwitching
+                      ? 'switching…'
+                      : pendingEpoch === r.epochId && (isSubmitting || isMining)
+                        ? 'claiming...'
+                        : walletOnRewardsChain
+                          ? 'claim'
+                          : 'switch → claim'}
                   </button>
                 )}
               </li>
             ))}
           </ul>
+          {(writeError || switchError || mineError) && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: '4px 6px',
+                borderRadius: 4,
+                background: 'rgba(200,0,0,0.08)',
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                color: '#a11',
+                lineHeight: 1.4,
+                wordBreak: 'break-word',
+              }}
+            >
+              {switchError && <>chain switch failed: {switchError.message}</>}
+              {writeError && <>claim tx failed to submit: {writeError.message}</>}
+              {mineError && <>claim tx reverted on-chain: {mineError.message}</>}
+            </div>
+          )}
         </>
       )}
     </section>
