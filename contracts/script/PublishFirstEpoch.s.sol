@@ -6,7 +6,10 @@ import {Script, console2} from "forge-std/Script.sol";
 interface IVault {
     function owner() external view returns (address);
     function nextEpochId() external view returns (uint256);
-    function addEpoch(bytes32 merkleRoot, uint256 totalAmount) external;
+    function addEpoch(
+        bytes32 merkleRoot,
+        uint256 totalAmount
+    ) external;
 }
 
 /// @title  PublishFirstEpoch

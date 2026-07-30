@@ -24,6 +24,7 @@ import {
   formatEther,
   http,
   parseAbi,
+  parseAbiItem,
   type Address,
   type Hex,
   type PublicClient,
@@ -103,7 +104,7 @@ interface Holder {
   balance: bigint; // NFT count
 }
 
-async function fetchGemuHolders(cfg: ChainConfig): Promise<Holder[]> {
+async function fetchGemuHoldersFromIndexer(cfg: ChainConfig): Promise<Holder[]> {
   const query = `
     query GemuHolders($chainId: Int!, $token: String!) {
       holderss(
@@ -135,6 +136,67 @@ async function fetchGemuHolders(cfg: ChainConfig): Promise<Holder[]> {
       balance: BigInt(row.balance),
     }))
     .filter((h) => h.balance > 0n);
+}
+
+/// Fallback: enumerate holders directly from on-chain Transfer events. Used
+/// when the Ponder indexer returns empty (indexer not caught up, or gemu NFT
+/// contract not included in the ponder config). Walks in 9500-block chunks
+/// (RH RPC log-range cap). Slower than indexer (~30s for a well-populated
+/// collection) but bulletproof — if the NFT contract exists on-chain, this
+/// works.
+///
+/// gemu NFT was deployed at block ~18349728; we start the scan a bit before
+/// that as a safety buffer. Increase this constant only if a fresh redeploy
+/// bumps the collection to a later block (unlikely).
+const GEMU_DEPLOY_BLOCK_HINT: bigint = 18_349_000n;
+const TRANSFER_EVT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)');
+
+async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+  const head = await pub.getBlockNumber();
+  const owner = new Map<string, Address>(); // tokenId (decimal string) → current owner
+  const CHUNK = 9_500n;
+  let from = GEMU_DEPLOY_BLOCK_HINT;
+  while (from <= head) {
+    const to = from + CHUNK > head ? head : from + CHUNK;
+    const logs = await pub.getLogs({
+      address: cfg.gemuNftAddress,
+      event: TRANSFER_EVT,
+      fromBlock: from,
+      toBlock: to,
+    });
+    for (const l of logs) {
+      const a = l.args as { to?: Address; tokenId?: bigint };
+      if (a.tokenId === undefined || a.to === undefined) continue;
+      owner.set(a.tokenId.toString(), a.to.toLowerCase() as Address);
+    }
+    from = to + 1n;
+  }
+  const ZERO: Address = '0x0000000000000000000000000000000000000000';
+  const counts = new Map<Address, bigint>();
+  for (const [, o] of owner) {
+    if (o === ZERO) continue;
+    counts.set(o, (counts.get(o) ?? 0n) + 1n);
+  }
+  return [...counts.entries()].map(([address, balance]) => ({ address, balance }));
+}
+
+/// Prefer the indexer for speed; fall back to on-chain enumeration when the
+/// indexer returns empty. Logs which source served so ops can spot silent
+/// indexer regressions.
+async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+  try {
+    const fromIndexer = await fetchGemuHoldersFromIndexer(cfg);
+    if (fromIndexer.length > 0) {
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: fromIndexer.length }));
+      return fromIndexer;
+    }
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: 0, fallback: 'chain' }));
+  } catch (err) {
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'chain' }));
+  }
+  const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
+  console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: fromChain.length }));
+  return fromChain;
 }
 
 // ---------------------------------------------------------------- tree building
@@ -244,9 +306,10 @@ export async function publishEpoch(opts: {
 
   const pub = publicClientFor(cfg);
 
-  // 1. Snapshot holders from the indexer.
-  const holders = await fetchGemuHolders(cfg);
-  if (holders.length === 0) throw new Error('no gemu holders in indexer — is it caught up?');
+  // 1. Snapshot holders. Indexer preferred (fast); on-chain fallback covers
+  //    the case where Ponder isn't indexing the gemu NFT yet.
+  const holders = await fetchGemuHolders(cfg, pub);
+  if (holders.length === 0) throw new Error('no gemu holders found in indexer OR on-chain — check NFT deployment');
 
   // 2. Determine totalAmount. Default: current vault balance.
   const vaultBalance = await pub.getBalance({ address: cfg.vaultAddress });
