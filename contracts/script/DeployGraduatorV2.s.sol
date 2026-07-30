@@ -91,7 +91,8 @@ contract DeployGraduatorV2 is Script {
         vm.startBroadcast();
         // 1. Deploy the new Graduator, pointing at the same PoolManager +
         //    MultiHookHost + CurveFactory. No new secrets or config needed.
-        GraduatorV2 gv2 = new GraduatorV2(IPoolManager(poolManager), IHooks(mhh), FEE, TICK_SPACING, curveFactory);
+        GraduatorV2 gv2 =
+            new GraduatorV2(IPoolManager(poolManager), IHooks(mhh), FEE, TICK_SPACING, curveFactory, msg.sender);
         console2.log("GraduatorV2 deployed at:", address(gv2));
 
         // 2. Rewire CurveFactory to hand out this graduator to every future

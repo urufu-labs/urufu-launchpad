@@ -66,6 +66,8 @@ contract GraduatorV2 is IUnlockCallback {
     error Graduator__EthMismatch(uint256 sent, uint256 expected);
     error Graduator__ZeroAmount();
     error Graduator__NotAuthorizedCurve(address caller, address expected);
+    error Graduator__NotOwner();
+    error Graduator__ZeroAddress();
 
     event Graduated(
         address indexed token,
@@ -75,12 +77,23 @@ contract GraduatorV2 is IUnlockCallback {
         uint160 sqrtPriceX96,
         uint128 liquidity
     );
-    /// Emitted when the LP-add doesn't consume every token the curve handed us
-    /// (the common case, because the curve's virtual-reserve-inflated price
-    /// requires far fewer tokens per ETH than the raw curve ratio). The excess
-    /// is transferred to `0x000...dEaD`, matching Pump.fun's model of not
-    /// leaving orphaned supply outside the pool.
+    /// Emitted when the LP-add doesn't consume every token the curve handed us.
+    /// The excess is transferred to `0x000...dEaD`.
     event ExcessBurned(address indexed token, uint256 amount);
+    /// Emitted when the LP-add doesn't consume every wei of ETH the curve
+    /// handed us (rare — LP amounts are usually tightly matched by the
+    /// raw-ratio pricing). Refunded to the launcher, not the graduator's
+    /// owner, because that ETH belongs to the launcher's LP position — it's
+    /// their curve's accumulated fees. Prevents the 2026-07-30 bug (V7
+    /// Graduator opened pool at curve marginal price, requiring ~10x MORE
+    /// tokens per ETH than the raw ratio, leaving ~4 ETH per graduation
+    /// permanently stranded in the graduator with no recovery path).
+    event EthRefundedToLauncher(address indexed token, address indexed launcher, uint256 amount);
+    /// Emitted on owner sweep of unallocated ETH — safety net for any future
+    /// bug that lets ETH accumulate here. Non-zero only if the LP-add math
+    /// regresses; expected balance is 0 after every graduation.
+    event Swept(address indexed to, uint256 amount);
+    event OwnerSet(address indexed oldOwner, address indexed newOwner);
 
     /// Well-known burn address. Chosen for readability in explorers and
     /// consistency with the industry convention (Uniswap V2, Pump.fun, etc.).
@@ -95,13 +108,27 @@ contract GraduatorV2 is IUnlockCallback {
     int24 public immutable tickLower;
     int24 public immutable tickUpper;
 
+    /// Owner: recovers accidental ETH that a future LP-math regression might
+    /// leave here. Set at construction, transferable via setOwner. The V7
+    /// graduator (the buggy one that stranded 4 ETH) had NO owner and NO
+    /// sweep — an entire graduation's worth of ETH was permanently stuck.
+    /// Never again.
+    address public owner;
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Graduator__NotOwner();
+        _;
+    }
+
     constructor(
         IPoolManager _poolManager,
         IHooks _defaultHook,
         uint24 _fee,
         int24 _tickSpacing,
-        address _curveFactory
+        address _curveFactory,
+        address _owner
     ) {
+        if (_owner == address(0)) revert Graduator__ZeroAddress();
         poolManager = _poolManager;
         defaultHook = _defaultHook;
         fee = _fee;
@@ -109,6 +136,31 @@ contract GraduatorV2 is IUnlockCallback {
         curveFactory = ICurveFactoryLookup(_curveFactory);
         tickLower = (TickMath.MIN_TICK / _tickSpacing + 1) * _tickSpacing;
         tickUpper = (TickMath.MAX_TICK / _tickSpacing) * _tickSpacing;
+        owner = _owner;
+        emit OwnerSet(address(0), _owner);
+    }
+
+    function setOwner(
+        address newOwner
+    ) external onlyOwner {
+        if (newOwner == address(0)) revert Graduator__ZeroAddress();
+        emit OwnerSet(owner, newOwner);
+        owner = newOwner;
+    }
+
+    /// Safety net: sweep any ETH sitting on this contract. Expected balance is
+    /// ALWAYS zero after every graduation with the raw-ratio pricing (both
+    /// amounts are guaranteed to match at the raw ratio, so LP absorbs both
+    /// fully). Only fires if a future bug lets ETH accumulate.
+    function sweep(
+        address payable to
+    ) external onlyOwner {
+        if (to == address(0)) revert Graduator__ZeroAddress();
+        uint256 amount = address(this).balance;
+        if (amount > 0) {
+            SafeTransferLib.safeTransferETH(to, amount);
+        }
+        emit Swept(to, amount);
     }
 
     /// @notice Graduate a curve. Same signature as the original Graduator so
@@ -131,31 +183,28 @@ contract GraduatorV2 is IUnlockCallback {
         // Pull tokens from the curve.
         SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), tokenAmount);
 
-        // Read virtual reserves off the calling curve. Deliberately AFTER the
-        // safeTransferFrom so a curve that lies about reserves can't extract
-        // tokens before we detect it (though the auth check above already
-        // guarantees msg.sender is a legit CurveFactory-issued curve, this is
-        // belt-and-suspenders).
+        // POST-INCIDENT (2026-07-30): V7 Graduator opened the pool at the
+        // curve's MARGINAL price = (virtEth+realEth) / (virtToken+realToken).
+        // That price is a factor of ~virtToken/realToken LOWER than the
+        // raw-real ratio. Depositing the real amounts (ethAmount, tokenAmount)
+        // at that price → tokens are the limiting factor, LP absorbs all
+        // tokens but only a fraction of the ETH. The rest (~4 ETH per
+        // graduation on the 4-ETH-target config) got stranded permanently
+        // in the graduator with no recovery path.
         //
-        // Reads succeed only if msg.sender is a real BondingCurve; a
-        // non-curve contract that passes the auth check somehow would have
-        // to expose these exact getters, which the CurveFactory-registered
-        // curves do by construction.
-        uint256 virtEth = IBondingCurveReserves(msg.sender).virtualEthReserve();
-        uint256 virtToken = IBondingCurveReserves(msg.sender).virtualTokenReserve();
-
-        // Reconstruct the curve's marginal price at graduation:
-        //   priceWeiPerToken = ((virtEth + realEth) * 1e18) / (virtToken + realTokensRemaining)
-        // At the moment we're called, the curve has already zeroed its real
-        // reserves, but it just passed us those same values as `ethAmount` and
-        // `tokenAmount`. So we can rebuild the same formula the curve's
-        // `priceWeiPerToken()` view was returning immediately before the
-        // graduation trigger.
-        uint256 effEth = virtEth + ethAmount;
-        uint256 effToken = virtToken + tokenAmount;
-        // priceWeiPerToken is a 1e18-scaled fixed-point representation of
-        // ETH-per-token (matching BondingCurve.priceWeiPerToken).
-        uint256 curveFinalPrice = (effEth * 1e18) / effToken;
+        // Fix: price the pool at the RAW REAL RATIO. That guarantees both
+        // amounts are absorbed by the LP with no leftover. The price step
+        // vs. the curve's last-buy price is a modest cliff UPWARD (early
+        // curve buyers realize a small gain when they sell to the pool),
+        // not a catastrophic drop like the original raw-ratio v1 graduator
+        // had (which suffered because the graduation target was too small
+        // relative to virtual reserves — that config problem is orthogonal
+        // to the LP-math bug this contract is solving).
+        //
+        // We also keep the ETH-refund-to-launcher belt below in case any
+        // rounding leaves dust: even a wei of stuck ETH would be a bug we
+        // never want to repeat.
+        uint256 curveFinalPrice = (ethAmount * 1e18) / tokenAmount;
 
         // v4 pool config.
         PoolKey memory key;
@@ -211,19 +260,25 @@ contract GraduatorV2 is IUnlockCallback {
 
         poolManager.unlock(abi.encode(key, uint256(liquidity), ethAmount, tokenAmount, token));
 
-        // After the callback returns, any tokens NOT consumed by the LP add
-        // (typical case — the curve hands us far more tokens than the pool
-        // needs at the target price) sit in this contract. Burn them so total
-        // circulating supply reflects the actual on-market float, and no
-        // orphan tokens can be pulled by a future admin op or bug.
-        //
-        // We deliberately do NOT burn any residual ETH — v4's unlockCallback
-        // consumes exactly the ETH the pool asked for, and any excess would
-        // indicate a bug we'd want visibility into rather than silently burn.
+        // Any tokens NOT consumed by the LP add get burned so total
+        // circulating supply reflects the actual on-market float. With
+        // raw-ratio pricing this should be near-zero (rounding dust only).
         uint256 residual = _tokenBalance(token);
         if (residual > 0) {
             SafeTransferLib.safeTransfer(token, BURN_ADDRESS, residual);
             emit ExcessBurned(token, residual);
+        }
+
+        // POST-INCIDENT safety belt: if ANY ETH ended up unallocated by the
+        // LP (should never happen with raw-ratio pricing — both amounts
+        // match exactly at the raw-ratio price — but LiquidityAmounts does
+        // integer math with truncation, so rounding-dust wei can survive),
+        // refund it to the launcher. The launcher earned this ETH via curve
+        // sells; keeping it here would be theft.
+        uint256 ethResidual = address(this).balance;
+        if (ethResidual > 0 && launcher != address(0)) {
+            SafeTransferLib.safeTransferETH(launcher, ethResidual);
+            emit EthRefundedToLauncher(token, launcher, ethResidual);
         }
 
         emit Graduated(token, address(defaultHook), ethAmount, tokenAmount, sqrtPriceX96, liquidity);

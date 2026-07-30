@@ -470,7 +470,9 @@ contract DeployV6AuditFixStack is Script {
         address mhh,
         address curveFactory
     ) internal returns (address) {
-        GraduatorV2 g = new GraduatorV2(IPoolManager(poolManager), IHooks(mhh), FEE, TICK_SPACING, curveFactory);
+        GraduatorV2 g = new GraduatorV2(
+            IPoolManager(poolManager), IHooks(mhh), FEE, TICK_SPACING, curveFactory, _effectiveOperator()
+        );
         console2.log("  GraduatorV2     :", address(g));
         return address(g);
     }

@@ -101,7 +101,8 @@ contract GraduatorV2Test is Test {
             IHooks(MULTI_HOOK_HOST),
             3000, // fee (matches original Graduator default)
             60, // tickSpacing
-            CURVE_FACTORY
+            CURVE_FACTORY,
+            address(this) // owner: test contract, for sweep() coverage in fork
         );
         console2.log("GraduatorV2 deployed:", address(gv2));
 

@@ -148,7 +148,8 @@ contract DeployMhhAndGraduatorV5 is Script {
         console2.log("---- deployed ----");
         console2.log("  MHH             :", newMhh);
 
-        GraduatorV2 g = new GraduatorV2(IPoolManager(poolManager), IHooks(newMhh), FEE, TICK_SPACING, curveFactory);
+        GraduatorV2 g =
+            new GraduatorV2(IPoolManager(poolManager), IHooks(newMhh), FEE, TICK_SPACING, curveFactory, msg.sender);
         newGraduator = address(g);
         console2.log("  GraduatorV2     :", newGraduator);
 
