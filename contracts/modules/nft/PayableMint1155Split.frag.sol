@@ -72,12 +72,22 @@ function mintPayable(uint256 id, uint256 amount) external payable {
     if (msg.value != expected) revert PayableMint1155Split__WrongPrice(msg.value, expected);
 
     uint256 platformCut = (msg.value * _pmsPlatformFeeBps) / 10_000;
+
+    // CEI: complete the state change before touching an external contract.
+    // Prior order (forward platform cut → _mint) called into
+    // _pmsPlatformFeeReceiver before the mint state landed, giving that
+    // receiver a re-entry window into any of this contract's methods with
+    // the mint-in-progress not yet reflected. Even if the current receiver
+    // (FeeSplitter) doesn't exploit it, an owner rotation to a malicious
+    // receiver would. Mint first → forward last closes the window; if the
+    // forward reverts, the whole tx unwinds (payment refunded).
+    _mint(msg.sender, id, amount, "");
+
     if (platformCut > 0) {
         (bool ok,) = _pmsPlatformFeeReceiver.call{value: platformCut}("");
         if (!ok) revert PayableMint1155Split__ForwardFailed();
     }
 
-    _mint(msg.sender, id, amount, "");
     emit PayableMintedSplit(msg.sender, id, amount, msg.value, platformCut);
 }
 

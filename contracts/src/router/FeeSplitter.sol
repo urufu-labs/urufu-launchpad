@@ -26,8 +26,8 @@ import {IFeeReceiver} from "src/router/FeeReceiver.sol";
 ///         the launcher of the specific token. Removed because (a) it created a spam-launch
 ///         farming surface without adding meaningful launcher incentive (0.005 ETH kickback
 ///         per launch), and (b) real creator earnings already accrue post-graduation via
-///         v4 hooks (`FeeRedirectHook`, `MultiHookHost`) which are gated by the curve
-///         actually reaching graduation. That gate is a real market-cap threshold; farming
+///         the v4 `MultiHookHost` (creator slot on graduated pools) which is gated by the
+///         curve actually reaching graduation. That gate is a real market-cap threshold; farming
 ///         it requires 4 ETH of real trading volume, not a wash-loop.
 ///
 /// @dev    Timelock-controlled config changes are enforced by making `setConfig` reject
