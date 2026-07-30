@@ -66,8 +66,14 @@ async function loadTokenCard(address: string): Promise<{
   return { name, ticker, imageUrl };
 }
 
-export default async function OgImage({ params }: { params: { address: string } }) {
-  const { name, ticker, imageUrl } = await loadTokenCard(params.address);
+// Next.js 16 route params are Promise-shaped — the old plain-object form
+// resolved to `undefined` at runtime and `.toLowerCase()` inside
+// loadTokenCard crashed the handler in ~7ms before hitting the indexer,
+// which is exactly the 500 Discord's crawler was hitting on shared token
+// links. Awaiting the params first restores the extractor.
+export default async function OgImage({ params }: { params: Promise<{ address: string }> }) {
+  const { address } = await params;
+  const { name, ticker, imageUrl } = await loadTokenCard(address);
 
   return new ImageResponse(
     (
