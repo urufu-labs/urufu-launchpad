@@ -206,10 +206,14 @@ contract ERC20WithFoTPermitGen is ERC20, Ownable {
         if (from != address(0) && to != address(0) && !_fotExcluded[from] && !_fotExcluded[to]) {
             uint256 fee = (amount * _fotFeeBps) / 10_000;
             if (fee > 0) {
-                _burn(to, fee);
                 uint256 toTreasury = (fee * _fotTreasuryBps) / 10_000;
-                if (toTreasury > 0) _mint(_fotTreasury, toTreasury);
-                emit FeeOnTransferTaken(from, to, fee, fee - toTreasury, toTreasury);
+                uint256 toBurn = fee - toTreasury;
+                // Burn the burn slice; treasury slice TRANSFERS from recipient
+                // rather than being minted (was silently inflating supply on
+                // every taxed transfer under the old _mint-based path).
+                if (toBurn > 0) _burn(to, toBurn);
+                if (toTreasury > 0) _transfer(to, _fotTreasury, toTreasury);
+                emit FeeOnTransferTaken(from, to, fee, toBurn, toTreasury);
             }
         }
         // ============================================================

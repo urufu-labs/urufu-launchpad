@@ -11,13 +11,20 @@
 // itself) bypass the fee.
 //
 // Implementation: on `_afterTokenTransfer(from, to, amount)`, if this is a real user-to-user
-// transfer (from != 0, to != 0, neither is excluded), take fee from the RECIPIENT via `_burn` and
-// re-mint the treasury portion. The burn slice stays burned (net supply reduction). Recipient
-// effectively receives `amount - fee`.
+// transfer (from != 0, to != 0, neither is excluded), take fee from the RECIPIENT — the burn
+// portion via `_burn(to, ...)` and the treasury portion via `_transfer(to, treasury, ...)`.
+// Recipient effectively receives `amount - fee`. Net supply change per taxed transfer:
+// exactly `-burnPortion` (treasury portion is a transfer, NOT a mint).
 //
-// Recursion safety: the `_burn(to, fee)` and `_mint(treasury, split)` calls fire the hooks again
-// with either `from == 0` or `to == 0`, so this module's own hook checks (`from != 0 && to != 0`)
-// naturally exclude those recursive calls. No explicit guard needed.
+// Prior version re-minted the treasury portion via `_mint(treasury, split)`, which
+// silently increased total supply on every taxed transfer and violated the fixed-supply
+// invariant the ERC-20 templates advertise. Fixed by transferring from the recipient
+// instead of minting fresh.
+//
+// Recursion safety: the `_burn(to, ...)` call fires the hooks with `to == address(0)`,
+// naturally skipped by this module's `to != address(0)` guard. The `_transfer(to, treasury, ...)`
+// call fires with `treasury` as the recipient — treasury is inserted into `_fotExcluded`
+// at init, so the hook's `!_fotExcluded[to]` guard also skips it. No explicit re-entry guard needed.
 //
 // Not compilable on its own — spliced into `ERC20Template` by the compile service.
 
@@ -77,10 +84,18 @@ mapping(address => bool) private _fotExcluded;
 if (from != address(0) && to != address(0) && !_fotExcluded[from] && !_fotExcluded[to]) {
     uint256 fee = (amount * _fotFeeBps) / 10_000;
     if (fee > 0) {
-        _burn(to, fee);
         uint256 toTreasury = (fee * _fotTreasuryBps) / 10_000;
-        if (toTreasury > 0) _mint(_fotTreasury, toTreasury);
-        emit FeeOnTransferTaken(from, to, fee, fee - toTreasury, toTreasury);
+        uint256 toBurn = fee - toTreasury;
+        // Burn the burn slice first (net supply reduction). Fires the hook
+        // recursively with `to == 0`, naturally skipped by our from/to != 0 guard.
+        if (toBurn > 0) _burn(to, toBurn);
+        // Transfer the treasury slice from the recipient's balance, NOT mint. This
+        // preserves the fixed-supply invariant — only the burn portion reduces
+        // supply, and the treasury portion is redistributed from recipient. The
+        // recursive hook fires with `to = treasury`, skipped by `!_fotExcluded[treasury]`
+        // (treasury is added to the excluded set at init).
+        if (toTreasury > 0) _transfer(to, _fotTreasury, toTreasury);
+        emit FeeOnTransferTaken(from, to, fee, toBurn, toTreasury);
     }
 }
 

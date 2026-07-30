@@ -28,7 +28,12 @@ event AntiWhaleExcludedSet(address indexed who, bool excluded);
 // ============================================================
 uint128 private _awMaxWallet;
 uint128 private _awMaxTx;
-uint32 private _awExpiresAtBlock;
+/// Widened from uint32 to uint256. Prior version narrowed block.number to
+/// uint32 during init addition — a chain past ~4.3B blocks OR a very large
+/// expireAfterBlocks param would either truncate or wrap silently. Storage
+/// slot is the same width (packed with mapping below at 32 bytes); widening
+/// costs nothing.
+uint256 private _awExpiresAtBlock;
 mapping(address => bool) private _awExcluded;
 
 // ============================================================
@@ -39,9 +44,13 @@ mapping(address => bool) private _awExcluded;
         abi.decode(moduleData, (uint128, uint128, uint32));
     _awMaxWallet = maxWallet;
     _awMaxTx = maxTx;
-    _awExpiresAtBlock = uint32(block.number) + expireAfter;
+    // Use full-width uint256 arithmetic. block.number is uint256 on-chain; the
+    // prior uint32 cast would silently truncate past block ~4.3B (unlikely
+    // near-term but still wrong). expireAfter stays uint32 for ABI stability
+    // — it's promoted to uint256 by the compiler for the addition.
+    _awExpiresAtBlock = block.number + expireAfter;
     _awExcluded[initialOwner] = true;
-    emit AntiWhaleConfigured(maxWallet, maxTx, _awExpiresAtBlock);
+    emit AntiWhaleConfigured(maxWallet, maxTx, uint32(_awExpiresAtBlock));
 }
 
 // ============================================================
@@ -87,7 +96,11 @@ function antiWhaleConfig()
     view
     returns (uint128 maxWallet, uint128 maxTx, uint32 expiresAtBlock)
 {
-    return (_awMaxWallet, _awMaxTx, _awExpiresAtBlock);
+    // Cast internally so the getter ABI stays uint32 (matches frontend +
+    // existing test expectations); storage stayed widened to uint256 for
+    // safe arithmetic. block.number won't hit uint32 max for centuries so
+    // the cast is lossless in practice.
+    return (_awMaxWallet, _awMaxTx, uint32(_awExpiresAtBlock));
 }
 
 function antiWhaleIsExcluded(address who) external view returns (bool) {

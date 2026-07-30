@@ -81,7 +81,7 @@ contract ERC20WithAntiBotAntiWhaleGen is ERC20, Ownable {
     // --- from AntiWhale.frag.sol ---
     uint128 private _awMaxWallet;
     uint128 private _awMaxTx;
-    uint32 private _awExpiresAtBlock;
+    uint256 private _awExpiresAtBlock;
     mapping(address => bool) private _awExcluded;
     // ============================================================
     // Modules append storage variables below this marker. Solidity assigns slots by
@@ -158,9 +158,9 @@ contract ERC20WithAntiBotAntiWhaleGen is ERC20, Ownable {
                 abi.decode(moduleData[1], (uint128, uint128, uint32));
             _awMaxWallet = maxWallet;
             _awMaxTx = maxTx;
-            _awExpiresAtBlock = uint32(block.number) + expireAfter;
+            _awExpiresAtBlock = block.number + expireAfter;
             _awExcluded[initialOwner] = true;
-            emit AntiWhaleConfigured(maxWallet, maxTx, _awExpiresAtBlock);
+            emit AntiWhaleConfigured(maxWallet, maxTx, uint32(_awExpiresAtBlock));
         }
         // ============================================================
         // Modules decode their slice of `moduleData` here and set state.
@@ -267,7 +267,7 @@ contract ERC20WithAntiBotAntiWhaleGen is ERC20, Ownable {
     }
 
     function antiWhaleConfig() external view returns (uint128 maxWallet, uint128 maxTx, uint32 expiresAtBlock) {
-        return (_awMaxWallet, _awMaxTx, _awExpiresAtBlock);
+        return (_awMaxWallet, _awMaxTx, uint32(_awExpiresAtBlock));
     }
 
     function antiWhaleIsExcluded(
