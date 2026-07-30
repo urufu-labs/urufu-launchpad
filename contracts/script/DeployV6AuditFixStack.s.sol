@@ -25,10 +25,17 @@ import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTr
 interface IERC20FactoryAdmin {
     function owner() external view returns (address);
     function registrar() external view returns (address);
-    function implFor(bytes32 configHash) external view returns (address);
-    function updateImpl(bytes32 configHash, address newImpl) external;
+    function implFor(
+        bytes32 configHash
+    ) external view returns (address);
+    function updateImpl(
+        bytes32 configHash,
+        address newImpl
+    ) external;
     function router() external view returns (address);
-    function setRouter(address newRouter) external;
+    function setRouter(
+        address newRouter
+    ) external;
 }
 
 interface INameRegistryAdmin {
@@ -43,7 +50,9 @@ interface INameRegistryAdmin {
     /// state was "kept unchanged from V3"). V6 uses setRouter directly;
     /// a future NameRegistry redeploy can add the timelock at the cost
     /// of migrating reserved-name state.
-    function setRouter(address newRouter) external;
+    function setRouter(
+        address newRouter
+    ) external;
 }
 
 /// @title  DeployV6AuditFixStack — single-broadcast full rotation
@@ -121,12 +130,10 @@ contract DeployV6AuditFixStack is Script {
     /// Live configHashes for the 3 changed single-module impls, per on-chain
     /// ERC20Factory query at 2026-07-30. If new hashes are registered before
     /// V6 broadcasts, they must be added here (or the batch env-var used).
-    bytes32 internal constant DEFAULT_AIRDROP_HASH =
-        0x344f851ff67d34148ac2000b192fbc9a5cc4edd0ef612cd60c3e9d90738e7b2b;
+    bytes32 internal constant DEFAULT_AIRDROP_HASH = 0x344f851ff67d34148ac2000b192fbc9a5cc4edd0ef612cd60c3e9d90738e7b2b;
     bytes32 internal constant DEFAULT_ANTIWHALE_HASH =
         0x638593049fc24c8e112d3d12c307afdc8ae86f6968c7fd3baf7d6c5662b53821;
-    bytes32 internal constant DEFAULT_FOT_HASH =
-        0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4;
+    bytes32 internal constant DEFAULT_FOT_HASH = 0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4;
 
     /// Router fee constants matched to V5 (queried live). Change ONLY if the
     /// user explicitly requests fee adjustments as part of V6.
@@ -175,9 +182,18 @@ contract DeployV6AuditFixStack is Script {
     /// per-hash post-deploy once true counts are known.
     function _registeredCounts() internal pure returns (uint256[] memory counts) {
         counts = new uint256[](13);
-        counts[0] = 1; counts[1] = 1; counts[2] = 1; counts[3] = 1;
-        counts[4] = 2; counts[5] = 0; counts[6] = 1; counts[7] = 2;
-        counts[8] = 1; counts[9] = 2; counts[10] = 1; counts[11] = 1;
+        counts[0] = 1;
+        counts[1] = 1;
+        counts[2] = 1;
+        counts[3] = 1;
+        counts[4] = 2;
+        counts[5] = 0;
+        counts[6] = 1;
+        counts[7] = 2;
+        counts[8] = 1;
+        counts[9] = 2;
+        counts[10] = 1;
+        counts[11] = 1;
         counts[12] = 1;
     }
 
@@ -198,7 +214,9 @@ contract DeployV6AuditFixStack is Script {
     /// Test-friendly entrypoint that skips vm.startBroadcast so a foundry test
     /// can prank as the deployer + invoke this without the broadcast/prank
     /// incompatibility. Production deploy path (run()) wraps this in broadcast.
-    function runForTest(address prankAs) external returns (Deployed memory out) {
+    function runForTest(
+        address prankAs
+    ) external returns (Deployed memory out) {
         _isTestContext = true;
         _testPrankAs = prankAs;
         return _runInner(false);
@@ -214,7 +232,9 @@ contract DeployV6AuditFixStack is Script {
         return _isTestContext ? _testPrankAs : msg.sender;
     }
 
-    function _runInner(bool useBroadcast) internal returns (Deployed memory out) {
+    function _runInner(
+        bool useBroadcast
+    ) internal returns (Deployed memory out) {
         // ---------------- read env ----------------
         address poolManager = _envAddress("ROBINHOOD_POOL_MANAGER_ADDRESS", DEFAULT_POOL_MANAGER);
         address nameRegistry = _envAddress("ROBINHOOD_NAME_REGISTRY_ADDRESS", DEFAULT_NAME_REGISTRY);
@@ -280,8 +300,10 @@ contract DeployV6AuditFixStack is Script {
         // Router that couldn't dispatch launches to any factory.
         Router(out.router).setFactory(BaseType.ERC20, erc20Factory);
         {
-            address _erc721aFactory = _envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS", 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc);
-            address _erc1155Factory = _envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS", 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597);
+            address _erc721aFactory =
+                _envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS", 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc);
+            address _erc1155Factory =
+                _envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS", 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597);
             require(_erc721aFactory.code.length > 0, "erc721aFactory: no code");
             require(_erc1155Factory.code.length > 0, "erc1155Factory: no code");
             Router(out.router).setFactory(BaseType.ERC721A, _erc721aFactory);
@@ -333,8 +355,10 @@ contract DeployV6AuditFixStack is Script {
         // access after this — it's fully decommissioned. Read the OTHER factory
         // addresses from env (they're not part of the audit-fix surface but
         // must be rotated in the same tx so V5 doesn't linger with half-access).
-        address erc721aFactory = _envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS", 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc);
-        address erc1155Factory = _envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS", 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597);
+        address erc721aFactory =
+            _envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS", 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc);
+        address erc1155Factory =
+            _envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS", 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597);
         require(erc721aFactory.code.length > 0, "erc721aFactory: no code");
         require(erc1155Factory.code.length > 0, "erc1155Factory: no code");
         IERC20FactoryAdmin(erc20Factory).setRouter(out.router);
@@ -375,11 +399,11 @@ contract DeployV6AuditFixStack is Script {
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args = abi.encode(
             IPoolManager(poolManager),
-            feeSplitter,          // platform recipient
-            deployerWallet,       // default creator (per-pool overridden by Graduator)
-            uint16(100),          // platformBps — matches V5
-            uint16(100),          // creatorBps — matches V5
-            deployerWallet        // MHH.deployer (setInitializer authority)
+            feeSplitter, // platform recipient
+            deployerWallet, // default creator (per-pool overridden by Graduator)
+            uint16(100), // platformBps — matches V5
+            uint16(100), // creatorBps — matches V5
+            deployerWallet // MHH.deployer (setInitializer authority)
         );
         // Under `forge script --broadcast`, `new X{salt}(...)` routes through the
         // canonical CREATE2 factory (0x4e59b4…) — so the miner must use THAT as
@@ -448,12 +472,12 @@ contract DeployV6AuditFixStack is Script {
             owner_,
             NameRegistry(nameRegistry),
             IFeeReceiver(feeSplitter),
-            BASE_FEE,          // erc20Fee
-            BASE_FEE,          // nftFee
-            BASE_FEE,          // erc1155Fee
+            BASE_FEE, // erc20Fee
+            BASE_FEE, // nftFee
+            BASE_FEE, // erc1155Fee
             MODULE_ADD_ON_FEE, // moduleAddOn
-            HOOK_ADD_ON_FEE,   // hookAddOn
-            GOV_ADD_ON_FEE,    // governanceAddOn
+            HOOK_ADD_ON_FEE, // hookAddOn
+            GOV_ADD_ON_FEE, // governanceAddOn
             uru,
             UruDepositSink(payable(uruSink))
         );
@@ -473,10 +497,7 @@ contract DeployV6AuditFixStack is Script {
         address uruSink
     ) internal view {
         // MHH ↔ Graduator
-        require(
-            MultiHookHost(payable(out.multiHookHost)).initializer() == out.graduator,
-            "MHH.initializer wrong"
-        );
+        require(MultiHookHost(payable(out.multiHookHost)).initializer() == out.graduator, "MHH.initializer wrong");
         require(
             address(GraduatorV2(payable(out.graduator)).defaultHook()) == out.multiHookHost,
             "Graduator.defaultHook wrong"
@@ -486,8 +507,7 @@ contract DeployV6AuditFixStack is Script {
             "Graduator.curveFactory wrong"
         );
         require(
-            address(GraduatorV2(payable(out.graduator)).poolManager()) == poolManager,
-            "Graduator.poolManager wrong"
+            address(GraduatorV2(payable(out.graduator)).poolManager()) == poolManager, "Graduator.poolManager wrong"
         );
 
         // CurveFactory
@@ -500,16 +520,10 @@ contract DeployV6AuditFixStack is Script {
         require(address(Router(out.router).feeReceiver()) == feeSplitter, "Router.feeReceiver wrong");
 
         // NameRegistry activated
-        require(
-            INameRegistryAdmin(nameRegistry).router() == out.router,
-            "NameRegistry.router not rotated to V6"
-        );
+        require(INameRegistryAdmin(nameRegistry).router() == out.router, "NameRegistry.router not rotated to V6");
 
         // ERC20Factory rotated
-        require(
-            IERC20FactoryAdmin(erc20Factory).router() == out.router,
-            "ERC20Factory.router not rotated to V6"
-        );
+        require(IERC20FactoryAdmin(erc20Factory).router() == out.router, "ERC20Factory.router not rotated to V6");
 
         // Silence unused warnings — variables are meaningful for maintainers.
         uru;
@@ -551,7 +565,11 @@ contract DeployV6AuditFixStack is Script {
         console2.log("  broadcaster     :", msg.sender);
     }
 
-    function _hashesLog(bytes32 airdropHash, bytes32 antiWhaleHash, bytes32 fotHash) internal pure {
+    function _hashesLog(
+        bytes32 airdropHash,
+        bytes32 antiWhaleHash,
+        bytes32 fotHash
+    ) internal pure {
         console2.log("---- configHashes to updateImpl ----");
         console2.log("  Airdrop      :");
         console2.logBytes32(airdropHash);
@@ -561,7 +579,9 @@ contract DeployV6AuditFixStack is Script {
         console2.logBytes32(fotHash);
     }
 
-    function _successLog(Deployed memory out) internal pure {
+    function _successLog(
+        Deployed memory out
+    ) internal pure {
         console2.log("");
         console2.log("=========================================================");
         console2.log("V6 audit-fix stack LIVE (single-broadcast rotation)");
@@ -582,7 +602,10 @@ contract DeployV6AuditFixStack is Script {
 
     // ------------------------------------------------------------ env helpers
 
-    function _envAddress(string memory key, address fallback_) internal view returns (address) {
+    function _envAddress(
+        string memory key,
+        address fallback_
+    ) internal view returns (address) {
         try vm.envAddress(key) returns (address v) {
             return v;
         } catch {
@@ -590,7 +613,10 @@ contract DeployV6AuditFixStack is Script {
         }
     }
 
-    function _envBytes32(string memory key, bytes32 fallback_) internal view returns (bytes32) {
+    function _envBytes32(
+        string memory key,
+        bytes32 fallback_
+    ) internal view returns (bytes32) {
         try vm.envBytes32(key) returns (bytes32 v) {
             return v;
         } catch {

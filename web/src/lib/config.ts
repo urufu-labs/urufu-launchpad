@@ -194,7 +194,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   },
   robinhood: {
     NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
-    Router: '0x2dfA89FF6822C53509127b4943c97A48952dD973',
+    Router: '0x7cb363f2b892561707B0c53b0aD652428D28Bf83',
     FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
     ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
     ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
@@ -217,7 +217,7 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
     ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0x4631C21b066D3B289779e477fc79f13E8d0Fc248',
+    CurveFactory: '0xFfda6614A6d527eb1e0b19C6B9DbdD1e243A1904',
     BondingCurveImpl: '0x5afcA487A9DB4728fb23B1b8A2f22931d49b5Aa9',
   },
   'robinhood-testnet': null,
@@ -257,9 +257,9 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // V5 MHH — paired with V5 GraduatorV2 (below). Replaced the mis-wired
-    // 0xd19d… MHH whose initializer slot was locked to a dead graduator.
-    MultiHookHost: '0x1Bb4666b905D81aE0b70aC63Df76Eea096efA2C4',
+    // V6 MHH — paired with V6 GraduatorV2. Replaced V5 (0x1Bb4…) as part
+    // of the 2026-07-30 audit-fix rotation.
+    MultiHookHost: '0xFFDeEc54e995e3bB289968F40991C7b66240E2c4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -272,9 +272,9 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  // V5 GraduatorV2 — cliff-fix + wired to V5 MultiHookHost. Superseded the
-  // 0x0075… version that was pointing at the wrong MHH.
-  robinhood: '0x0d63E9D1b8EA9b3620ba75F1D6DA69eFf4adbd02',
+  // V6 GraduatorV2 — paired with V6 MHH (0xFFDe…). Superseded V5 (0x0d63…)
+  // as part of the 2026-07-30 audit-fix rotation.
+  robinhood: '0xBbad4F2c1716E2D7291f38CAa01f7f91134625D5',
   'robinhood-testnet': null,
 };
 

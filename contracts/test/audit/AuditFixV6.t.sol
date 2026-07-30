@@ -12,7 +12,10 @@ import {BaseType, LaunchParams} from "src/types/VMTypes.sol";
 
 /// Minimal fee-receiver stub for the audit tests.
 contract FakeFeeReceiver is IFeeReceiver {
-    function receiveFee(address, BaseType) external payable {}
+    function receiveFee(
+        address,
+        BaseType
+    ) external payable {}
     receive() external payable {}
 }
 
@@ -47,12 +50,18 @@ contract AuditFixV6Test is Test {
             OWNER,
             nameRegistry,
             feeReceiver,
-            /* erc20Fee_ */ 1 ether,
-            /* nftFee_ */ 1 ether,
-            /* erc1155Fee_ */ 1 ether,
-            /* moduleAddOn_ */ 0.1 ether,
-            /* hookAddOn_ */ 0.1 ether,
-            /* governanceAddOn_ */ 0.1 ether
+            /* erc20Fee_ */
+            1 ether,
+            /* nftFee_ */
+            1 ether,
+            /* erc1155Fee_ */
+            1 ether,
+            /* moduleAddOn_ */
+            0.1 ether,
+            /* hookAddOn_ */
+            0.1 ether,
+            /* governanceAddOn_ */
+            0.1 ether
         );
         nameRegistry.setRouter(address(router));
 
@@ -103,8 +112,7 @@ contract AuditFixV6Test is Test {
                 sel := mload(add(reason, 32))
             }
             assertTrue(
-                sel != CurveFactory.CurveFactory__UntrustedRouter.selector,
-                "trusted router must not trigger ACL error"
+                sel != CurveFactory.CurveFactory__UntrustedRouter.selector, "trusted router must not trigger ACL error"
             );
         }
     }
@@ -175,7 +183,9 @@ contract AuditFixV6Test is Test {
         // Set ONLY the flag, leave manual denylist explicitly false.
         vm.prank(OWNER);
         router.setFlagsForConfig(fotHash, 1);
-        assertFalse(router.curveIncompatibleConfigHash(fotHash), "denylist must not be set for this test to be meaningful");
+        assertFalse(
+            router.curveIncompatibleConfigHash(fotHash), "denylist must not be set for this test to be meaningful"
+        );
 
         // The flag is externally readable.
         assertEq(router.flagsForConfig(fotHash), 1, "flag must be set");

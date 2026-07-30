@@ -20,9 +20,14 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IERC20V {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
     function totalSupply() external view returns (uint256);
-    function approve(address, uint256) external returns (bool);
+    function approve(
+        address,
+        uint256
+    ) external returns (bool);
 }
 
 /// @title  V6FullLifecycleFork
@@ -96,9 +101,7 @@ contract V6FullLifecycleForkTest is Test {
     function test_V6_Wiring_MHHInitializerIsGraduator() public view {
         // The exact invariant whose breakage stranded FDGDFVS + TIGER pre-V5.
         assertEq(
-            MultiHookHost(payable(v6.multiHookHost)).initializer(),
-            v6.graduator,
-            "MHH.initializer must equal Graduator"
+            MultiHookHost(payable(v6.multiHookHost)).initializer(), v6.graduator, "MHH.initializer must equal Graduator"
         );
     }
 
@@ -140,9 +143,7 @@ contract V6FullLifecycleForkTest is Test {
 
     function test_V6_Fix2_CurveFactoryACL_RejectsUnauthorizedCaller() public {
         address attacker = makeAddr("attacker-v6");
-        vm.expectRevert(
-            abi.encodeWithSelector(CurveFactory.CurveFactory__UntrustedRouter.selector, attacker)
-        );
+        vm.expectRevert(abi.encodeWithSelector(CurveFactory.CurveFactory__UntrustedRouter.selector, attacker));
         vm.prank(attacker);
         CurveFactory(v6.curveFactory).createCurveWithConfigFor(address(0xdeadbeef), 0, 0, attacker);
     }
@@ -260,10 +261,8 @@ contract V6FullLifecycleForkTest is Test {
         // PHASE 4: post-grad swap through V4SwapRouter
         address swapper = makeAddr("v6-lc-swapper");
         vm.deal(swapper, 5 ether);
-        uint256 owedTokenBefore =
-            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
-        uint256 owedEthBefore =
-            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
+        uint256 owedTokenBefore = MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
+        uint256 owedEthBefore = MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
 
         uint256 swapperTokensBefore = IERC20V(token).balanceOf(swapper);
         vm.prank(swapper);
@@ -274,8 +273,7 @@ contract V6FullLifecycleForkTest is Test {
         assertGt(swapperTokensAfter, swapperTokensBefore, "phase4: swap didn't credit tokens");
 
         // PHASE 5: fees accrued to FeeSplitter on V6 MHH (token side from buy)
-        uint256 owedTokenAfter =
-            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
+        uint256 owedTokenAfter = MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(token), FEE_SPLITTER);
         assertGt(owedTokenAfter, owedTokenBefore, "phase5: FeeSplitter owed[token] didn't grow");
 
         // Now sell to accrue ETH-side owed
@@ -283,11 +281,8 @@ contract V6FullLifecycleForkTest is Test {
         vm.prank(swapper);
         IERC20V(token).approve(V4_SWAP_ROUTER, sellSize);
         vm.prank(swapper);
-        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactTokenForETH(
-            poolKey, sellSize, 1, swapper, block.timestamp + 300
-        );
-        uint256 owedEthAfter =
-            MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
+        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactTokenForETH(poolKey, sellSize, 1, swapper, block.timestamp + 300);
+        uint256 owedEthAfter = MultiHookHost(payable(v6.multiHookHost)).owed(Currency.wrap(address(0)), FEE_SPLITTER);
         assertGt(owedEthAfter, owedEthBefore, "phase5b: FeeSplitter owed[eth] didn't grow");
 
         // PHASE 6: claim proves the V6 MHH → FeeSplitter routing works
@@ -329,9 +324,7 @@ contract V6FullLifecycleForkTest is Test {
         vm.deal(launcher, 1 ether);
         uint256 quoted = Router(v6.router).quote(p);
         vm.prank(launcher, launcher);
-        (bool ok,) = v6.router.call{value: quoted}(
-            abi.encodeCall(Router.launch, (p))
-        );
+        (bool ok,) = v6.router.call{value: quoted}(abi.encodeCall(Router.launch, (p)));
         // Note: we assert the call succeeded rather than assertEq'ing the token
         // address because the addressing depends on the factory's clone pattern
         // + the specific salt scheme used. The point is that V6 Router routes

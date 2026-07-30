@@ -42,13 +42,17 @@ interface IRouterV5 {
     function registry() external view returns (address);
     function feeReceiver() external view returns (address);
     function paused() external view returns (bool);
-    function factories(uint8 base) external view returns (address);
+    function factories(
+        uint8 base
+    ) external view returns (address);
 }
 
 interface ICurveFactoryV5 {
     function owner() external view returns (address);
     function graduator() external view returns (address);
-    function trustedRouters(address) external view returns (bool);
+    function trustedRouters(
+        address
+    ) external view returns (bool);
 }
 
 interface INameRegistry {
@@ -159,11 +163,18 @@ contract VerifyWiring is Script {
 
     // ---------------------------------------------------------------- helpers
 
-    function _requireHasCode(address a, string memory label) internal view {
+    function _requireHasCode(
+        address a,
+        string memory label
+    ) internal view {
         require(a.code.length > 0, string.concat(label, ": no code at address"));
     }
 
-    function _requireEqAddr(address got, address want, string memory label) internal pure {
+    function _requireEqAddr(
+        address got,
+        address want,
+        string memory label
+    ) internal pure {
         if (got != want) {
             console2.log(string.concat("MISMATCH: ", label));
             console2.log("  got :", got);
@@ -172,7 +183,10 @@ contract VerifyWiring is Script {
         }
     }
 
-    function _env(string memory key, address fallback_) internal view returns (address) {
+    function _env(
+        string memory key,
+        address fallback_
+    ) internal view returns (address) {
         try vm.envAddress(key) returns (address v) {
             return v;
         } catch {
