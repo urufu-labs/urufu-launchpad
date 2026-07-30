@@ -140,6 +140,7 @@ contract Router is Ownable, ReentrancyGuard {
     event LoyaltyDiscountApplied(address indexed launcher, uint256 grossFee, uint256 discountBps, uint256 netFee);
     event CurveIncompatibleConfigHashSet(bytes32 indexed configHash, bool blocked);
     event ModuleCountForConfigSet(bytes32 indexed configHash, uint256 count);
+    event FlagsForConfigSet(bytes32 indexed configHash, uint256 flags);
 
     // ============================================================
     // Immutable state
@@ -176,6 +177,16 @@ contract Router is Ownable, ReentrancyGuard {
     /// _quote (extras = max(count-1, 0)). Owner must register real counts
     /// for every launched configHash for the fee to bill correctly.
     mapping(bytes32 => uint256) public moduleCountForConfig;
+    /// Structural per-config flags set by the owner at registration time.
+    /// FLAG_BALANCE_MUTATING is set for any impl whose module set includes
+    /// a transfer-tax / rebasing / balance-drifting behavior (currently
+    /// just FeeOnTransfer). The Router install path rejects a curve
+    /// installation for any config carrying that flag — replaces the
+    /// hand-maintained `curveIncompatibleConfigHash` denylist as an
+    /// authoritative, structural boundary. The denylist stays as a
+    /// belt-and-braces fallback for anything the flags miss.
+    mapping(bytes32 => uint256) public flagsForConfig;
+    uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
     /// Belt-and-braces cap that Router locally enforces on any discount returned
     /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
     /// = 80%). If the oracle is ever swapped for a broken impl that returns
@@ -261,7 +272,7 @@ contract Router is Ownable, ReentrancyGuard {
             // any transfer-taxing module mints a token whose actual balance never matches
             // the arithmetic reserve — every trade priced against phantom liquidity until
             // safeTransfer eventually reverts and bricks the curve.
-            if (curveIncompatibleConfigHash[params.configHash]) {
+            if (_isCurveIncompatible(params.configHash)) {
                 revert Router__CurveIncompatibleModule(params.configHash);
             }
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
@@ -371,6 +382,28 @@ contract Router is Ownable, ReentrancyGuard {
         }
     }
 
+    /// Set the flag bitset for a configHash. Owner sets FLAG_BALANCE_MUTATING
+    /// for any impl that mutates transferred amounts (FoT / rebasing) so the
+    /// install path automatically rejects a curve pairing.
+    function setFlagsForConfig(
+        bytes32 configHash,
+        uint256 flags
+    ) external onlyOwner {
+        flagsForConfig[configHash] = flags;
+        emit FlagsForConfigSet(configHash, flags);
+    }
+
+    function setFlagsForConfigBatch(
+        bytes32[] calldata configHashes,
+        uint256[] calldata flags
+    ) external onlyOwner {
+        if (configHashes.length != flags.length) revert Router__ZeroAddress();
+        for (uint256 i = 0; i < configHashes.length; ++i) {
+            flagsForConfig[configHashes[i]] = flags[i];
+            emit FlagsForConfigSet(configHashes[i], flags[i]);
+        }
+    }
+
     function setFee(
         BaseType base,
         uint256 weiAmount
@@ -410,6 +443,24 @@ contract Router is Ownable, ReentrancyGuard {
     // ============================================================
     // Internal
     // ============================================================
+
+    /// Consolidates the curve-incompatibility check. A config is incompatible
+    /// with a bonding curve if EITHER:
+    ///   - it carries the structural FLAG_BALANCE_MUTATING bit (any transfer-
+    ///     mutating module in the set — set by the owner at registration
+    ///     time; primary line of defense), OR
+    ///   - the owner has manually blacklisted it via
+    ///     curveIncompatibleConfigHash (belt-and-braces fallback for anything
+    ///     the flag missed).
+    /// Callers use this in place of the raw mapping check so future
+    /// mutability-mutating module types automatically flow through the flag
+    /// path once registered.
+    function _isCurveIncompatible(
+        bytes32 configHash
+    ) internal view returns (bool) {
+        if ((flagsForConfig[configHash] & FLAG_BALANCE_MUTATING) != 0) return true;
+        return curveIncompatibleConfigHash[configHash];
+    }
 
     function _quote(
         LaunchParams calldata params

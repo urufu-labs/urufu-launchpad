@@ -168,7 +168,7 @@ contract RouterV2 is Router {
             // arithmetic reserve vs actual balance. Mirror the block that
             // Router.launch has (Router.sol) - was missing on this URU-pay path,
             // making the blacklist bypassable via hand-crafted calls.
-            if (curveIncompatibleConfigHash[params.configHash]) {
+            if (_isCurveIncompatible(params.configHash)) {
                 revert Router__CurveIncompatibleModule(params.configHash);
             }
             uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
@@ -223,7 +223,7 @@ contract RouterV2 is Router {
         // Same FoT / rebasing gate as Router.launch. WL variants had this
         // missing at V4 - meant the on-chain blacklist could be bypassed via
         // any WL launch tx, silently drifting the curve's tokenReserve.
-        if (curveIncompatibleConfigHash[params.configHash]) {
+        if (_isCurveIncompatible(params.configHash)) {
             revert Router__CurveIncompatibleModule(params.configHash);
         }
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
@@ -277,7 +277,7 @@ contract RouterV2 is Router {
         if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
         // Same FoT / rebasing gate as Router.launch. Was missing on this
         // URU-pay + WL path too.
-        if (curveIncompatibleConfigHash[params.configHash]) {
+        if (_isCurveIncompatible(params.configHash)) {
             revert Router__CurveIncompatibleModule(params.configHash);
         }
         uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
