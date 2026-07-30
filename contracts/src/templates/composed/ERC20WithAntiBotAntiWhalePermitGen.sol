@@ -210,17 +210,21 @@ contract ERC20WithAntiBotAntiWhalePermitGen is ERC20, Ownable {
         }
 
         // --- from AntiWhale.frag.sol ---
-        // Skip if past expiry OR mint/burn OR either side excluded.
+        // Split maxTx and maxWallet exemptions. The previous single-gate
+        // form skipped BOTH caps whenever either side was excluded — and
+        // since the bonding curve gets excluded at launch, every curve buy
+        // slipped through, defeating AntiWhale's primary-market protection.
         if (
-            block.number < uint256(_awExpiresAtBlock) && from != address(0) && to != address(0) && !_awExcluded[from]
-                && !_awExcluded[to]
+            block.number < uint256(_awExpiresAtBlock) && from != address(0) && to != address(0)
         ) {
-            if (amount > uint256(_awMaxTx)) {
+            if (!_awExcluded[from] && !_awExcluded[to] && amount > uint256(_awMaxTx)) {
                 revert AntiWhale__MaxTxExceeded(amount, uint256(_awMaxTx));
             }
-            uint256 postBalance = balanceOf(to) + amount;
-            if (postBalance > uint256(_awMaxWallet)) {
-                revert AntiWhale__MaxWalletExceeded(postBalance, uint256(_awMaxWallet));
+            if (!_awExcluded[to]) {
+                uint256 postBalance = balanceOf(to) + amount;
+                if (postBalance > uint256(_awMaxWallet)) {
+                    revert AntiWhale__MaxWalletExceeded(postBalance, uint256(_awMaxWallet));
+                }
             }
         }
         // ============================================================

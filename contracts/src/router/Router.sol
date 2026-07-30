@@ -139,6 +139,7 @@ contract Router is Ownable, ReentrancyGuard {
     event LoyaltyOracleSet(address indexed oracle);
     event LoyaltyDiscountApplied(address indexed launcher, uint256 grossFee, uint256 discountBps, uint256 netFee);
     event CurveIncompatibleConfigHashSet(bytes32 indexed configHash, bool blocked);
+    event ModuleCountForConfigSet(bytes32 indexed configHash, uint256 count);
 
     // ============================================================
     // Immutable state
@@ -165,6 +166,16 @@ contract Router is Ownable, ReentrancyGuard {
     /// tokenReserve vs actual balance. The frontend also blocks these combos —
     /// the on-chain check is defense against hand-crafted txs bypassing the UI.
     mapping(bytes32 => bool) public curveIncompatibleConfigHash;
+    /// Authoritative module count per configHash, set by the owner at impl
+    /// registration time. Replaces the caller-controlled `params.moduleCount`
+    /// which was previously trusted in fee computation — a launcher could
+    /// pass moduleCount=1 for a 5-module config and underpay the module
+    /// add-on fee. Now the Router looks up the real count here.
+    /// Zero-value fallback: a hash not yet registered is treated as 0
+    /// modules, matching the historical params.moduleCount=0 semantic in
+    /// _quote (extras = max(count-1, 0)). Owner must register real counts
+    /// for every launched configHash for the fee to bill correctly.
+    mapping(bytes32 => uint256) public moduleCountForConfig;
     /// Belt-and-braces cap that Router locally enforces on any discount returned
     /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
     /// = 80%). If the oracle is ever swapped for a broken impl that returns
@@ -335,6 +346,31 @@ contract Router is Ownable, ReentrancyGuard {
         emit CurveIncompatibleConfigHashSet(configHash, blocked);
     }
 
+    /// Register the authoritative module count for a configHash. Called by
+    /// the owner once per launched configHash — usually right after the
+    /// corresponding factory.registerImpl() call. Once set, the Router uses
+    /// this value for fee calculation instead of trusting the caller.
+    function setModuleCountForConfig(
+        bytes32 configHash,
+        uint256 count
+    ) external onlyOwner {
+        moduleCountForConfig[configHash] = count;
+        emit ModuleCountForConfigSet(configHash, count);
+    }
+
+    /// Batch variant for the initial post-deploy population when N configs
+    /// need to be registered in a single tx.
+    function setModuleCountForConfigBatch(
+        bytes32[] calldata configHashes,
+        uint256[] calldata counts
+    ) external onlyOwner {
+        if (configHashes.length != counts.length) revert Router__ZeroAddress();
+        for (uint256 i = 0; i < configHashes.length; ++i) {
+            moduleCountForConfig[configHashes[i]] = counts[i];
+            emit ModuleCountForConfigSet(configHashes[i], counts[i]);
+        }
+    }
+
     function setFee(
         BaseType base,
         uint256 weiAmount
@@ -379,7 +415,15 @@ contract Router is Ownable, ReentrancyGuard {
         LaunchParams calldata params
     ) internal view returns (uint256) {
         uint256 baseFee = fees[params.base];
-        uint256 extraModules = params.moduleCount > 0 ? params.moduleCount - 1 : 0;
+        // Derive module count from the registered mapping rather than
+        // trusting the caller-supplied params.moduleCount. Previously a
+        // launcher could submit a 5-module config with moduleCount=1 and
+        // pay only the base fee. The mapping is populated by the owner at
+        // impl registration time; if it's still zero (config never
+        // registered), the launch will fail at the factory anyway, so
+        // charging zero add-on here is safe as a fall-through.
+        uint256 registeredCount = moduleCountForConfig[params.configHash];
+        uint256 extraModules = registeredCount > 0 ? registeredCount - 1 : 0;
         return baseFee + moduleAddOnFee * extraModules + (params.installHook ? hookAddOnFee : 0)
             + (params.installGovernance ? governanceAddOnFee : 0);
     }

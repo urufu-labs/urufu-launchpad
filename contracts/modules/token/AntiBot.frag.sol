@@ -47,9 +47,14 @@ mapping(address => bool) private _abAllowed;
 // Skip if we're past the gate.
 // Skip mints (from == address(0)) and burns (to == address(0)).
 // Skip if the sender is the owner (team can move tokens freely during launch).
-// Otherwise: require the recipient to be on the allowlist.
+// Otherwise: allow if EITHER endpoint is on the allowlist. Buyer-only
+// check would revert every curve→buyer trade during the gate (the buyer
+// isn't allowlisted by default). Either-endpoint matches the deployed
+// composed body — regenerating from the buyer-only form would silently
+// break primary-market trading. Same rule catches Graduator + PoolManager
+// during the graduation handoff without pre-registering every counterparty.
 if (block.number < _abGateEndsAtBlock && from != address(0) && to != address(0) && from != owner()) {
-    if (!_abAllowed[to]) {
+    if (!_abAllowed[from] && !_abAllowed[to]) {
         revert AntiBot__Gated(from, to, _abGateEndsAtBlock - block.number);
     }
 }

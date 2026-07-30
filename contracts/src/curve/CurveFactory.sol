@@ -21,6 +21,13 @@ contract CurveFactory is Ownable {
     error CurveFactory__ZeroAddress();
     error CurveFactory__CurveExists(address token);
     error CurveFactory__NotEnoughSupply(uint256 requested, uint256 balance);
+    /// createCurveWithConfigFor / createCurveWithConfigForWl were reachable by
+    /// arbitrary callers, letting anyone install themselves as launcher / v4
+    /// pool creator on a curveless token (siphoning post-graduation fees) or
+    /// squat curveFor[token] to permanently block the intended curve. Gated
+    /// to the trusted-router whitelist that already exists for the
+    /// tx.origin-recording flow.
+    error CurveFactory__UntrustedRouter(address caller);
 
     event CurveCreated(address indexed token, address indexed curve, address indexed launcher);
     event DefaultsSet(
@@ -164,6 +171,10 @@ contract CurveFactory is Ownable {
         uint16 buybackBurnBps,
         address launcher
     ) external returns (address curve) {
+        // Explicit-launcher path is Router-only. Without this gate, any
+        // caller could pass an arbitrary `launcher` address and steal
+        // creator-fee attribution on curveless tokens (or squat the mapping).
+        if (!trustedRouters[msg.sender]) revert CurveFactory__UntrustedRouter(msg.sender);
         return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
     }
 
@@ -179,6 +190,10 @@ contract CurveFactory is Ownable {
         address launcher,
         BondingCurve.WhitelistInit calldata wl
     ) external returns (address curve) {
+        // Same gating rationale as createCurveWithConfigFor above — this WL
+        // variant also accepts an arbitrary `launcher` and cannot be
+        // permissionless.
+        if (!trustedRouters[msg.sender]) revert CurveFactory__UntrustedRouter(msg.sender);
         return _createCurveWl(token, antiSniperBlocks, buybackBurnBps, launcher, wl);
     }
 

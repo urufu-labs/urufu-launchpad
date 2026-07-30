@@ -47,18 +47,30 @@ mapping(address => bool) private _awExcluded;
 // ============================================================
 // SECTION: VM_INJECT_BEFORE_TRANSFER
 // ============================================================
-// Skip if past expiry OR mint/burn OR either side excluded.
+// Split maxTx and maxWallet exemptions. The previous
+//   !_awExcluded[from] && !_awExcluded[to]
+// gate meant EITHER side being excluded skipped BOTH caps — and since
+// the bonding curve gets excluded at launch, every curve→buyer transfer
+// bypassed both maxTx and maxWallet, defeating AntiWhale's advertised
+// primary-market protection. Fixed by:
+//   - maxTx: still allows exempt SENDERS (curve, LP router, etc.) to
+//     distribute in a single tx above the per-tx cap. Recipient is not
+//     the trust boundary for tx-size.
+//   - maxWallet: keys ONLY on the recipient's exclusion. An excluded
+//     recipient (LP pool, treasury multisig, etc.) can hold any balance;
+//     everyone else — including curve buyers — is subject to the cap.
 if (
     block.number < uint256(_awExpiresAtBlock)
         && from != address(0) && to != address(0)
-        && !_awExcluded[from] && !_awExcluded[to]
 ) {
-    if (amount > uint256(_awMaxTx)) {
+    if (!_awExcluded[from] && !_awExcluded[to] && amount > uint256(_awMaxTx)) {
         revert AntiWhale__MaxTxExceeded(amount, uint256(_awMaxTx));
     }
-    uint256 postBalance = balanceOf(to) + amount;
-    if (postBalance > uint256(_awMaxWallet)) {
-        revert AntiWhale__MaxWalletExceeded(postBalance, uint256(_awMaxWallet));
+    if (!_awExcluded[to]) {
+        uint256 postBalance = balanceOf(to) + amount;
+        if (postBalance > uint256(_awMaxWallet)) {
+            revert AntiWhale__MaxWalletExceeded(postBalance, uint256(_awMaxWallet));
+        }
     }
 }
 

@@ -62,7 +62,20 @@ contract DeployGraduatorV2 is Script {
     uint24 internal constant FEE = 3000;
     int24 internal constant TICK_SPACING = 60;
 
-    function run() external {
+    function run() external pure {
+        // SUPERSEDED — this script omits the MHH.setInitializer call and
+        // will deploy a new GraduatorV2 whose PoolManager.initialize
+        // requests are rejected by beforeInitialize (because the old MHH's
+        // initializer slot is locked to a different graduator). That's the
+        // exact bug that stranded the FDGDFVS + TIGER test curves. Use
+        // script/DeployMhhAndGraduatorV5.s.sol which deploys the MHH and
+        // Graduator as a matched pair with setInitializer wired atomically.
+        revert("superseded: use script/DeployMhhAndGraduatorV5.s.sol");
+    }
+
+    /// Kept below the guard as historical reference for the intended flow.
+    /// Unreachable — run() reverts before entering this.
+    function _runLegacy_UNREACHABLE() internal {
         address poolManager = _envAddress("ROBINHOOD_POOL_MANAGER_ADDRESS", DEFAULT_POOL_MANAGER);
         address mhh = _envAddress("ROBINHOOD_MULTI_HOOK_HOST_ADDRESS", DEFAULT_MHH);
         address curveFactory = _envAddress("ROBINHOOD_CURVE_FACTORY_ADDRESS", DEFAULT_CURVE_FACTORY);
