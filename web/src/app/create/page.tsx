@@ -51,7 +51,9 @@ import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, type TokenMeta
 import { saveTokenMetadata } from '@/lib/socialApi';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
+import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 
 type OwnershipMode = 'Renounce' | 'TransferToMultisig' | 'KeepEOA';
 const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
@@ -78,6 +80,13 @@ const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
 ];
 
 export default function CreatePage() {
+  if (!LAUNCHPAD_LIVE) {
+    return <NotLiveYet />;
+  }
+  return <CreatePageContent />;
+}
+
+function CreatePageContent() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain, isPending: switchPending } = useSwitchChain();

@@ -58,7 +58,7 @@ export function NotLiveYet() {
                         fontFamily: 'var(--font-display), serif',
                         fontSize: 'clamp(32px, 7vw, 56px)',
                         lineHeight: 1.05,
-                        color: 'var(--anchor)',
+                        color: 'var(--pink-hot)',
                         margin: '0 0 12px',
                         letterSpacing: '-0.01em',
                     }}

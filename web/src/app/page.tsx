@@ -7,6 +7,7 @@ import { formatEther } from 'viem';
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
   MOCK_LAUNCHES,
   mockMarketCapEth,
@@ -39,12 +40,6 @@ const TABS: Array<{ id: Tab; label: string; jp: string }> = [
 // Relative time now flows through the `useAgo` hook (returns null on SSR so live
 // timestamps don't cause hydration mismatch or negative deltas). Rendered by <AgoLabel />
 // below.
-
-/// Pre-launch splash gate. Flip to `true` when the flywheel is verified live
-/// and no more blocking bugs remain. Change is single-line so removing the
-/// splash is one commit. The <NotLiveYet /> component + this const are the
-/// only things to delete when the site is live for real.
-const LAUNCHPAD_LIVE = false;
 
 export default function HomePage() {
   if (!LAUNCHPAD_LIVE) {
