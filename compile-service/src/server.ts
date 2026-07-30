@@ -95,14 +95,59 @@ app.post('/compile', async (request, reply) => {
     return reply.code(400).send({ code: 'INVALID_BODY', errors: parsed.error.flatten() });
   }
   const cfg = parsed.data;
-  const templatePath = TEMPLATES[cfg.base];
-  if (!templatePath) {
+  const defaultTemplate = TEMPLATES[cfg.base];
+  if (!defaultTemplate) {
     return reply.code(400).send({ code: 'UNKNOWN_BASE', base: cfg.base });
   }
+
+  // Input hardening (auditor Tier 4):
+  //   - dedupe module list: a request with duplicated module IDs would splice
+  //     each one N times, producing garbage bytecode with duplicated storage
+  //     slots + duplicated event handlers.
+  //   - canonicalize alphabetical order: on-chain module data is required to
+  //     be alphabetical-by-id because each module's slice is decoded at a
+  //     specific offset derived from that ordering. A launcher-supplied
+  //     out-of-order list decodes every module's initData at the wrong slice
+  //     boundary. Sort here BEFORE splicing so a well-formed frontend and a
+  //     malformed direct caller both end up with the same canonical output.
+  const dedupedModules = Array.from(new Set(cfg.modules));
+  if (dedupedModules.length !== cfg.modules.length) {
+    return reply.code(400).send({
+      code: 'DUPLICATE_MODULES',
+      message: 'modules list contains duplicates; each module id must appear at most once',
+    });
+  }
+  const canonicalModules = [...dedupedModules].sort((a, b) => a.localeCompare(b));
+  cfg.modules = canonicalModules;
 
   let composed;
   try {
     const matrix = loadMatrix(MATRIX_PATH);
+    // Honor `templateOverride` on any selected module. Currently only Votes
+    // declares one (needs ERC20VotesTemplate.sol for OZ checkpoint state
+    // that can't be spliced in via fragments). Without this the /compile
+    // path emits a "vote-enabled" event but the token has no delegate() /
+    // getVotes() / checkpoint history — silent divergence from the
+    // registered ERC20WithVotesGen impl.
+    //
+    // Enforce exclusivity: only ONE module in the set may declare an
+    // override. If two conflict (Votes + hypothetical future module), we
+    // reject explicitly rather than silently pick one.
+    let templatePath = defaultTemplate;
+    let overridingModule: string | null = null;
+    for (const mid of cfg.modules) {
+      const spec = matrix.modules[mid];
+      if (!spec?.templateOverride) continue;
+      if (overridingModule !== null) {
+        return reply.code(400).send({
+          code: 'TEMPLATE_OVERRIDE_CONFLICT',
+          message: `${overridingModule} and ${mid} both declare templateOverride`,
+        });
+      }
+      overridingModule = mid;
+      templatePath = resolve(REPO_ROOT, spec.templateOverride);
+    }
+
     composed = compose({
       matrix,
       config: { base: cfg.base, modules: cfg.modules, params: cfg.params as Record<string, Record<string, unknown>> },

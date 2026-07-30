@@ -9,6 +9,13 @@ export interface ModuleSpec {
   incompatibleWith: string[];
   flagged: string | null;
   fragmentPath: string;
+  /// Optional. If set, the compile-service uses THIS solidity file as the base
+  /// template instead of the default per-base template (ERC20Template.sol etc.).
+  /// Currently used by the Votes module which needs the OpenZeppelin
+  /// checkpoint state baked into the base class rather than spliced in.
+  /// Without this, /compile silently emits a token that reports Votes support
+  /// but lacks delegate() / getVotes() / checkpoint history.
+  templateOverride?: string;
   params: Record<string, unknown>;
   abiEncode: string; // canonical Solidity signature for the module's initData slice
 }
