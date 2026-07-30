@@ -56,10 +56,13 @@ contract GraduatorV2Test is Test {
 
     uint256 internal constant RH_CHAIN_ID = 4663;
 
-    // Live V6 stack (post-V6-broadcast state 2026-07-30, matches deploy book)
-    address internal constant ROUTER_V6 = 0x7cb363f2b892561707B0c53b0aD652428D28Bf83;
-    address internal constant CURVE_FACTORY = 0xFfda6614A6d527eb1e0b19C6B9DbdD1e243A1904;
-    address internal constant MULTI_HOOK_HOST = 0xFFDeEc54e995e3bB289968F40991C7b66240E2c4;
+    // Live V7 stack (post-V7-broadcast state 2026-07-30 — sentinels).
+    // V6 was rotated same day; V7 is the current-trusted Router on
+    // ERC20Factory. Tests launching through anything else revert
+    // ERC20Factory__NotRouter.
+    address internal constant ROUTER_V6 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
+    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant MULTI_HOOK_HOST = 0xD7634D1B30c230265A036cBd8B957069eEE0e2c4;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
 
