@@ -94,9 +94,8 @@ contract GraduatorV8LpMathForkTest is Test {
         address currentGrad = ICurveFactoryLookup(CURVE_FACTORY).graduator();
         address currentMhh = _defaultHookOf(currentGrad);
 
-        GraduatorV2 tmp = new GraduatorV2(
-            IPoolManager(POOL_MANAGER), IHooks(currentMhh), 3000, 60, CURVE_FACTORY, address(this)
-        );
+        GraduatorV2 tmp =
+            new GraduatorV2(IPoolManager(POOL_MANAGER), IHooks(currentMhh), 3000, 60, CURVE_FACTORY, address(this));
         vm.etch(currentGrad, address(tmp).code);
         // Storage preserved by vm.etch; write our test contract as owner so
         // sweep coverage below can call owner-only functions.

@@ -406,11 +406,14 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         // slice merges into public and the buy fits within tokenReserve).
         vm.warp(FALLBACK_TS + 1);
 
-        // Bob drives the curve to graduation via public buys. CurveFactory default
-        // grad target is 4 ETH; 5 ETH sent → 4.95 net → past target → _graduate() fires.
-        vm.deal(bob, 20 ether);
+        // Bob drives the curve to graduation via public buys. Size the buy off
+        // the live grad target + a small buffer so the test survives CurveFactory
+        // default rotations (was 4 ETH pre-chunky, 10 ETH post-chunky).
+        uint256 gradTarget = bc.graduationTargetEth();
+        uint256 buyValue = gradTarget + 1 ether;
+        vm.deal(bob, buyValue + 5 ether);
         vm.prank(bob);
-        bc.buy{value: 5 ether}(0);
+        bc.buy{value: buyValue}(0);
         assertTrue(bc.graduated(), "curve failed to graduate with WL held tokens");
 
         // The LP mint at graduation should have consumed tokenReserve; the WL-held

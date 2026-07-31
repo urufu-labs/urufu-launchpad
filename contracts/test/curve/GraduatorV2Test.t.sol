@@ -151,10 +151,13 @@ contract GraduatorV2Test is Test {
         // 4) Snapshot curve state right BEFORE graduation-triggering buy,
         //    so we can compute the expected marginal price.
         // ============================================================
-        // Buy in one shot with enough ETH to graduate. The curve's own
-        // graduate() logic zeroes reserves before calling our graduator, so
-        // we snapshot BEFORE the buy to have a stable reference point.
-        uint256 buyValue = gradTarget + 0.1 ether;
+        // Buy in one shot with enough ETH to graduate. The curve takes a
+        // trade-fee slice off the top before crediting `ethReserve`, so a
+        // grossed-up amount ≥ target / (1 - feeBps/10_000) is required. Use
+        // a 10% buffer over the naive gradTarget to comfortably clear that
+        // fee slice at any reasonable feeBps (was 0.1 ETH which was fine at
+        // 4-ETH grad + 1% fee but not at 10-ETH grad).
+        uint256 buyValue = (gradTarget * 110) / 100;
         vm.deal(buyer, buyValue + 1 ether);
 
         // Compute the EXPECTED post-buy marginal price analytically.

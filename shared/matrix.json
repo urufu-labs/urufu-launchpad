@@ -146,23 +146,6 @@
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
-    "Airdrop": {
-      "version": 2,
-      "base": ["ERC20"],
-      "requires": [],
-      "incompatibleWith": [],
-      "flagged": null,
-      "fragmentPath": "contracts/modules/allocation/Airdrop.frag.sol",
-      "params": {
-        "type": "object",
-        "required": ["merkleRoot", "totalAllocation"],
-        "properties": {
-          "merkleRoot": { "type": "string", "pattern": "^0x[a-fA-F0-9]{64}$", "description": "Off-chain merkle root over (recipient, amount) leaves." },
-          "totalAllocation": { "type": "string", "description": "Sum of every merkle leaf's amount, in wei. Reserved out of initialSupply at init and held on the token contract for claimants — total supply stays fixed." }
-        }
-      },
-      "abiEncode": "(bytes32,uint256)"
-    },
     "Refundable": {
       "version": 1,
       "base": ["ERC721A"],

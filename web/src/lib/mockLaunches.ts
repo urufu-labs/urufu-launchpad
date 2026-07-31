@@ -84,11 +84,11 @@ export function launchKind(l: MockLaunch): LaunchKind {
   return l.kind ?? (l.graduationTargetEth > 0n ? 'curve' : 'direct');
 }
 
-// Common defaults
+// Common defaults (match live CurveFactory chunky defaults 2026-07-30).
 const CURVE_SUPPLY = parseEther('800000000');
 const VIRTUAL_TOKEN = parseEther('800000000');
-const VIRTUAL_ETH = parseEther('5');
-const GRAD_TARGET = parseEther('4');
+const VIRTUAL_ETH = parseEther('17');
+const GRAD_TARGET = parseEther('10');
 const TOTAL_SUPPLY = parseEther('1000000000');
 
 /// Build a deterministic trade series from starting reserves up to a target ETH raised.

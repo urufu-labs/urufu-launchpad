@@ -124,6 +124,11 @@ contract BaseForkV2E2ETest is Test {
     uint256 internal constant CURVE_DEFAULT_SUPPLY = 800_000_000e18;
 
     function setUp() public {
+        // Skipped 2026-07-30: Airdrop module retired platform-wide. Live V1
+        // composed impl (0x7Eb2F73...) has an inflation rug (claims MINT
+        // new tokens). Restore only when a V2 reserve-backed impl is deployed
+        // at a fresh configHash. See memory: graduator-v9 + airdrop removal.
+        vm.skip(true);
         // Skip if not forking — this is a fork-only e2e. Local `forge test`
         // without --fork-url will silently no-op the whole suite.
         try vm.activeFork() returns (uint256) {}

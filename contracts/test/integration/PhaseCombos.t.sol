@@ -390,9 +390,11 @@ contract PhaseCombosTest is Test {
     }
 
     function test_Combo_ERC20_Airdrop() public {
+        // Airdrop module retired 2026-07-30 — deployed V1 composed impl has an
+        // inflation rug. Test kept as a skipped placeholder so re-enabling only
+        // needs the skip line removed once a V2 reserve-backed impl ships.
+        vm.skip(true);
         bytes[] memory m = new bytes[](1);
-        // V2 airdrop signature: (bytes32 merkleRoot, uint256 totalAllocation). Reserve
-        // 100 ether out of the 1000 ether initial supply for airdrop claimants.
         m[0] = abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100 ether));
         _launch(BaseType.ERC20, "Combo Airdrop", "CDROP", AIRDROP, _erc20InitData(1000 ether, m), 2);
     }
@@ -550,7 +552,7 @@ contract PhaseCombosTest is Test {
     }
 
     function test_Combo_ERC20_AirdropVesting() public {
-        // Sorted: Airdrop, Vesting
+        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
         bytes[] memory m = new bytes[](2);
         m[0] = _dropData();
         m[1] = _vestData();
@@ -566,7 +568,7 @@ contract PhaseCombosTest is Test {
     }
 
     function test_Combo_ERC20_AirdropPermit() public {
-        // Sorted: Airdrop, Permit
+        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
         bytes[] memory m = new bytes[](2);
         m[0] = _dropData();
         m[1] = "";
@@ -582,7 +584,7 @@ contract PhaseCombosTest is Test {
     }
 
     function test_Combo_ERC20_AirdropVotes() public {
-        // Sorted: Airdrop, Votes — uses ERC20VotesTemplate base
+        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
         bytes[] memory m = new bytes[](2);
         m[0] = _dropData();
         m[1] = "";

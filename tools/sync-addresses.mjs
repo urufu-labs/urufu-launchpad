@@ -100,7 +100,8 @@ const CONTRACT_FIELDS = [
   'ERC20WithFoTImpl',
   'ERC20WithPausableImpl',
   'ERC20WithPermitImpl',
-  'ERC20WithAirdropImpl',
+  // ERC20WithAirdropImpl removed 2026-07-30: deployed V1 composed impl has
+  // an inflation rug. Restore after V2 impl deploys at a fresh configHash.
   'ERC20WithVestingImpl',
   'ERC20WithStakingImpl',
   'ERC20WithVotesImpl',

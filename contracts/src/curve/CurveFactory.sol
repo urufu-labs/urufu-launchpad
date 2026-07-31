@@ -28,6 +28,14 @@ contract CurveFactory is Ownable {
     /// to the trusted-router whitelist that already exists for the
     /// tx.origin-recording flow.
     error CurveFactory__UntrustedRouter(address caller);
+    /// Reserve-backed modules (Airdrop / Vesting / Staking) combined took MORE
+    /// than half of `defaultCurveSupply`, starving the curve. Enforced at
+    /// _createCurve time: the balance Router hands us must be >= half of the
+    /// intended supply. This is the on-chain backstop against the "launcher
+    /// airdrops themselves 90% of supply" rug pattern — the frontend also caps
+    /// combined module allocation at 200M, but a hand-crafted tx bypassing
+    /// the UI is still blocked here.
+    error CurveFactory__ModulesOverAllocated(uint256 supplyReceived, uint256 minRequired);
 
     event CurveCreated(address indexed token, address indexed curve, address indexed launcher);
     event DefaultsSet(
@@ -224,6 +232,15 @@ contract CurveFactory is Ownable {
         // is exactly what a launcher who carved out reserves is opting into.
         uint256 supply = IERC20(token).balanceOf(msg.sender);
         if (supply == 0) revert CurveFactory__NotEnoughSupply(defaultCurveSupply, 0);
+        // Cap: combined reserve-backed-module allocations may not consume more
+        // than half of the intended curve supply. Prevents a launcher from
+        // airdropping/vesting/staking themselves 90%+ of supply and starving
+        // the curve. Enforced HERE (not inside individual module fragments)
+        // so it covers ANY combination of reserve-backed modules
+        // (Airdrop+Vesting, Airdrop+Staking, all three, future modules)
+        // without requiring per-fragment cap plumbing.
+        uint256 minSupply = defaultCurveSupply / 2;
+        if (supply < minSupply) revert CurveFactory__ModulesOverAllocated(supply, minSupply);
 
         // Deterministic clone address per (token, chainid) — same predictability as
         // Phase 1's ImplRegistry.
@@ -268,6 +285,9 @@ contract CurveFactory is Ownable {
 
         uint256 supply = IERC20(token).balanceOf(msg.sender);
         if (supply == 0) revert CurveFactory__NotEnoughSupply(defaultCurveSupply, 0);
+        // Same cap as _createCurve — see comment there for rationale.
+        uint256 minSupply = defaultCurveSupply / 2;
+        if (supply < minSupply) revert CurveFactory__ModulesOverAllocated(supply, minSupply);
 
         bytes32 salt = keccak256(abi.encode(token, block.chainid));
         curve = LibClone.cloneDeterministic(implementation, salt);

@@ -1238,7 +1238,7 @@ function CreatePageContent() {
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 4 ETH · anti-sniper 5 blocks
+                        + supply auto = 800M · fee 1% · target 10 ETH · anti-sniper 5 blocks
                       </div>
                     )}
                   </button>
@@ -1266,7 +1266,7 @@ function CreatePageContent() {
                     </div>
                     {mechanic === 'custom' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 4 ETH · ur modules
+                        + supply auto = 800M · fee 1% · target 10 ETH · ur modules
                       </div>
                     )}
                   </button>

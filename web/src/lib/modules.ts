@@ -319,35 +319,10 @@ export const MODULES: ModuleSpec[] = [
       { key: 'endTimestamp', label: 'end (unix seconds)', type: 'integer', min: 0, description: 'when everything is fully unlocked' },
     ],
   },
-  {
-    id: 'Airdrop',
-    label: '✿ airdrop list',
-    category: 'allocation',
-    status: 'shipped',
-    version: 2,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description:
-      'give tokens to a big list of ppl by uploading one hash + total. recipients claim their own share, u dont pay gas for each drop. reserve-backed — no dilution ✿',
-    abiEncode: '(bytes32,uint256)',
-    params: [
-      {
-        key: 'merkleRoot',
-        label: 'airdrop list hash',
-        type: 'string',
-        description: '0x… output from ur airdrop tool. all the wallets + amounts collapse into one hash ✿',
-      },
-      {
-        key: 'totalAllocation',
-        label: 'total tokens for the drop',
-        type: 'eth',
-        description:
-          'sum of every amount in ur merkle list. these tokens get carved out of ur launch supply and held on the token contract til claimed — no post-launch inflation ~',
-      },
-    ],
-  },
+  // Airdrop removed 2026-07-30: deployed composed impl (0x7Eb2F73…) is the
+  // V1 non-reserve-backed shape (claims MINT new tokens, inflation attack).
+  // Restore only after a V2 impl is deployed at a fresh configHash (matrix
+  // version bump). See project memory `graduator-v9-rotation-and-airdrop-removed`.
   {
     id: 'Staking',
     label: '✿ staking pool',
@@ -363,7 +338,7 @@ export const MODULES: ModuleSpec[] = [
     // ERC20Factory. Block those combos in the UI until we ship + register the
     // missing impls. FeeOnTransfer was already incompatible (would tax staking
     // reward transfers).
-    incompatibleWith: ['FeeOnTransfer', 'Airdrop', 'Vesting'],
+    incompatibleWith: ['FeeOnTransfer', 'Vesting'],
     flagged: null,
     description: 'stake this token to earn more of this token. u fund the reward pool up-front, rewards stream out linearly over the window ~ (doesnt stack with tax-on-trade, airdrop, or vesting for now)',
     abiEncode: '(uint256,uint32)',

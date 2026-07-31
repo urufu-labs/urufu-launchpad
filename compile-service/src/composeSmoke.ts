@@ -86,10 +86,11 @@ function run(): void {
     }
 
     // Case 3: Votes + another module — conflict path, but only if the other
-    // module also declares an override. Today only Votes has one, so this
-    // is a happy-path multi-module compose.
+    // module also declares an override. Today only Votes has one. Airdrop
+    // was removed 2026-07-30 (V1 impl on-chain has an inflation rug); use
+    // Permit as the second module for the multi-module compose sanity.
     {
-        const modules = ['Airdrop', 'Votes'];
+        const modules = ['Permit', 'Votes'];
         const { templatePath, overriding } = resolveTemplate(matrix, modules);
         assert.equal(overriding, 'Votes');
         const composed = compose({
@@ -97,10 +98,7 @@ function run(): void {
             config: {
                 base: 'ERC20',
                 modules,
-                params: {
-                    Votes: {},
-                    Airdrop: { merkleRoot: '0x' + '0'.repeat(64), totalAllocation: '1000000000000000000000000' },
-                },
+                params: { Votes: {}, Permit: {} },
             },
             templatePath,
             contractName: composedName('ERC20', modules),
@@ -108,7 +106,7 @@ function run(): void {
             repoRoot: REPO_ROOT,
         });
         assert.ok(composed.source.includes(`contract ${composed.contractName}`));
-        process.stdout.write(`ok: Airdrop+Votes -> ${composed.contractName}\n`);
+        process.stdout.write(`ok: Permit+Votes -> ${composed.contractName}\n`);
     }
 
     process.stdout.write('composeSmoke: all cases passed\n');

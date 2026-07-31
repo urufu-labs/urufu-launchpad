@@ -494,8 +494,11 @@ contract RhV5ModuleCurveGraduationForkTest is Test {
     // ============================================================
 
     function test_Airdrop_LaunchAndGraduate() public {
+        // Airdrop retired 2026-07-30: deployed V1 composed impl has an
+        // inflation rug. Restore only after a V2 reserve-backed impl is
+        // deployed at a fresh configHash. See memory: airdrop removal.
+        vm.skip(true);
         bytes[] memory mods = new bytes[](1);
-        // 100e18 = 100 tokens reserved. Trivial vs 800M curve supply.
         mods[0] = abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100e18));
         (address token, address curve) = _launchWithCurve(AIRDROP, "Airdrop Curve", "ADRC", abi.encode(mods), 2);
         _buyUntilGraduated(curve);

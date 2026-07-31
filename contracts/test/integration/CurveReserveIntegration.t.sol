@@ -54,6 +54,11 @@ contract CurveReserveIntegrationTest is Test {
     bytes32 internal AIRDROP = keccak256(abi.encode("ERC20", "Airdrop"));
 
     function setUp() public {
+        // Skipped 2026-07-30: Airdrop module retired platform-wide. Live V1
+        // composed impl (0x7Eb2F73...) has an inflation rug (claims MINT
+        // new tokens). Restore only when a V2 reserve-backed impl is deployed
+        // at a fresh configHash. See memory: graduator-v9 + airdrop removal.
+        vm.skip(true);
         string[] memory reserved = new string[](1);
         reserved[0] = "ETH";
         registry = new NameRegistry(admin, treasury, reserved);

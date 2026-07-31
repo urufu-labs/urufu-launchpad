@@ -27,6 +27,11 @@ contract ERC20WithAirdropGenTest is Test {
     bytes32 internal root;
 
     function setUp() public {
+        // Skipped 2026-07-30: Airdrop module retired platform-wide. Live V1
+        // composed impl (0x7Eb2F73...) has an inflation rug (claims MINT
+        // new tokens). Restore only when a V2 reserve-backed impl is deployed
+        // at a fresh configHash. See memory: graduator-v9 + airdrop removal.
+        vm.skip(true);
         aliceLeaf = keccak256(abi.encodePacked(alice, ALICE_AMT));
         bobLeaf = keccak256(abi.encodePacked(bob, BOB_AMT));
         root = aliceLeaf < bobLeaf

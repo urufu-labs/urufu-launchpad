@@ -47,7 +47,7 @@ tokensOut = (tokenReserve + V) - newEffToken
 graduationTargetEth < curveSupply · virtualEthReserve / virtualTokenReserve
 ```
 
-With Sepolia defaults (`S=800M, V=800M, v=5 ETH`), the exhaustion point is at 5 ETH reserve. Graduation triggers at 4 ETH, leaving ~11% of supply on the curve for LP.
+With RH mainnet chunky defaults (`S=800M, V=800M, v=17 ETH`), the exhaustion point is at 17 ETH reserve. Graduation triggers at 10 ETH, leaving ~26% of supply on the curve for LP (~207M tokens + ~10 ETH into the v4 pool).
 
 ### State
 
@@ -112,8 +112,8 @@ Deploys `BondingCurve` clones per token via EIP-1167 (Solady `LibClone.cloneDete
 **Owner-mutable defaults:**
 - `defaultCurveSupply` (800M on Sepolia)
 - `defaultVirtualTokenReserve` (800M)
-- `defaultVirtualEthReserve` (5 ETH)
-- `defaultGraduationTargetEth` (4 ETH)
+- `defaultVirtualEthReserve` (17 ETH on RH mainnet; was 5 pre-2026-07-30)
+- `defaultGraduationTargetEth` (10 ETH on RH mainnet; was 4 pre-2026-07-30)
 - `defaultTradeFeeBps` (100 = 1%)
 - `feeReceiver` (platform treasury)
 - `graduator` (address(0) disables v4 graduation)

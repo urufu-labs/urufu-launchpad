@@ -63,7 +63,6 @@ export interface ContractSet {
   ERC20WithFoTImpl: Address;
   ERC20WithPausableImpl: Address;
   ERC20WithPermitImpl: Address;
-  ERC20WithAirdropImpl: Address;
   ERC20WithVestingImpl: Address;
   ERC20WithStakingImpl: Address;
   ERC20WithVotesImpl: Address;
@@ -118,7 +117,6 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC20WithFoTImpl: '0xdD7c50BEb82b53F8FFa746dd85cc3BcDa43BabcD',
     ERC20WithPausableImpl: '0x19E133a55c45ce9195dd8F994C58dd97edff93BC',
     ERC20WithPermitImpl: '0x1Ccbf53F79372fBb700b0779B1fEA1E43Ba2E3e8',
-    ERC20WithAirdropImpl: '0xA46Af17d1B3C0DfeeD0E5D8d6CEb8d49698D4de1',
     ERC20WithVestingImpl: '0x7Eb2F7313557e0625Cc22De2c3EbBE879684C7AF',
     ERC20WithStakingImpl: '0x203F3687dEf60bc54280b78E6fe0d66FD26Db731',
     ERC20WithVotesImpl: '0x4601B97eE914FDcd571546D48d6D5330B28928e4',
@@ -147,7 +145,6 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC20WithFoTImpl: '0x4aa169b3407e781c18eB0D32981842899265C024',
     ERC20WithPausableImpl: '0xf501baD83fbEdeBE9227964EE107F62Cc1137f45',
     ERC20WithPermitImpl: '0xF3038eb78220e5AC6263821236Ce1fff713c26F5',
-    ERC20WithAirdropImpl: '0xA2550078c38944E30AaC46AF6B67A04f3b10Fa88',
     ERC20WithVestingImpl: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24',
     ERC20WithStakingImpl: '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17',
     ERC20WithVotesImpl: '0x485a9deA97538eC24E61dE511bD69e9E8Eea2A4d',
@@ -175,7 +172,6 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC20WithFoTImpl: '0x599C874831241638Bb531C90ab78dABb86b581FA',
     ERC20WithPausableImpl: '0xb0Ec2f41d00F23cFB7b9928e45845Dc0d7402ab3',
     ERC20WithPermitImpl: '0x3cF804B14e06b4202a7a9A921Bca132Cb618C7D4',
-    ERC20WithAirdropImpl: '0xFAC4C3623FBC2a3f2B56E523747dC8760005dF75',
     ERC20WithVestingImpl: '0xf593a5798E4DeCa20cb65Eb15f3dceD5aF1E8ca1',
     ERC20WithStakingImpl: '0xB63D60F69e3900C8d880a3766dAfe1a45f626917',
     ERC20WithVotesImpl: '0x65ce5F20Fc1aA10fed6A854D75f58a1AB95A52B0',
@@ -203,7 +199,6 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC20WithFoTImpl: '0x19E133a55c45ce9195dd8F994C58dd97edff93BC',
     ERC20WithPausableImpl: '0x1Ccbf53F79372fBb700b0779B1fEA1E43Ba2E3e8',
     ERC20WithPermitImpl: '0xA46Af17d1B3C0DfeeD0E5D8d6CEb8d49698D4de1',
-    ERC20WithAirdropImpl: '0x7Eb2F7313557e0625Cc22De2c3EbBE879684C7AF',
     ERC20WithVestingImpl: '0x203F3687dEf60bc54280b78E6fe0d66FD26Db731',
     ERC20WithStakingImpl: '0x4601B97eE914FDcd571546D48d6D5330B28928e4',
     ERC20WithVotesImpl: '0xf0a7AA9d95793DA05Ec07EAe5DDa23C1982AF0E8',
