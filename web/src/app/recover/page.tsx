@@ -198,7 +198,15 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
         }
     }, [amountInput]);
 
-    const holderBalance = (balanceQ.data as bigint | undefined) ?? 0n;
+    // Distinguish "query still loading / errored" from "data returned 0n".
+    // Collapsing them earlier meant a slow RPC or a transport error looked
+    // identical to "you actually hold zero" — and the launcher wallet who
+    // demonstrably holds 31M SPOOBS would still see "you don't hold any"
+    // during the fetch window.
+    const balanceData = balanceQ.data as bigint | undefined;
+    const holderBalance = balanceData ?? 0n;
+    const balanceKnown = balanceData !== undefined;
+    const balanceErrored = !!balanceQ.error;
     const allowance = (allowanceQ.data as bigint | undefined) ?? 0n;
     const needsApprove = parsedAmount > 0n && allowance < parsedAmount;
     const hasEnoughTokens = parsedAmount > 0n && parsedAmount <= holderBalance;
@@ -321,6 +329,24 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
                 >
                     {switching ? 'switching...' : 'switch to robinhood chain'}
                 </button>
+            ) : balanceErrored ? (
+                <div
+                    style={{
+                        marginTop: 12,
+                        padding: 8,
+                        background: 'var(--pink-warm)',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        color: 'var(--anchor)',
+                    }}
+                >
+                    ✗ couldn&apos;t read ur {orphan.tokenSymbol} balance from the chain. refresh
+                    the page or check ur RPC — token contract at {orphan.token} on robinhood.
+                </div>
+            ) : !balanceKnown ? (
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
+                    checking ur {orphan.tokenSymbol} balance...
+                </div>
             ) : holderBalance === 0n ? (
                 <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
                     u don&apos;t hold any {orphan.tokenSymbol}. nothing to recover here.
