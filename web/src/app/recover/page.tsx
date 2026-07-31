@@ -21,14 +21,8 @@ import type { Address } from 'viem';
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import {
-    ORPHAN_CURVES,
-    ORPHAN_CURVE_ABI,
-    ORPHAN_TOKEN_ABI,
-    SWEPT_AT_BLOCK,
-    searchOrphans,
-    type OrphanCurve,
-} from '@/lib/orphanCurves';
+import { bondingCurveAbi, erc20TokenAbi } from '@/lib/abis';
+import { ORPHAN_CURVES, SWEPT_AT_BLOCK, searchOrphans, type OrphanCurve } from '@/lib/orphanCurves';
 
 const RH_CHAIN_ID = CHAIN_KEY_TO_ID.robinhood;
 
@@ -159,13 +153,13 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
 
     // Live curve ETH balance (fetch fresh — snapshot is just a hint).
     const curveEth = useReadContract({
-        abi: ORPHAN_CURVE_ABI,
+        abi: bondingCurveAbi,
         address: orphan.curve,
         functionName: 'ethReserve',
         chainId: RH_CHAIN_ID,
     });
     const isGraduated = useReadContract({
-        abi: ORPHAN_CURVE_ABI,
+        abi: bondingCurveAbi,
         address: orphan.curve,
         functionName: 'graduated',
         chainId: RH_CHAIN_ID,
@@ -173,7 +167,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
 
     // Holder's token balance + current allowance to the curve.
     const balanceQ = useReadContract({
-        abi: ORPHAN_TOKEN_ABI,
+        abi: erc20TokenAbi,
         address: orphan.token,
         functionName: 'balanceOf',
         args: wallet ? [wallet] : undefined,
@@ -181,7 +175,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
         query: { enabled: mounted && !!wallet, refetchInterval: 8000 },
     });
     const allowanceQ = useReadContract({
-        abi: ORPHAN_TOKEN_ABI,
+        abi: erc20TokenAbi,
         address: orphan.token,
         functionName: 'allowance',
         args: wallet ? [wallet, orphan.curve] : undefined,
@@ -223,7 +217,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
     async function onApprove() {
         setLastStep('approve');
         await writeContractAsync({
-            abi: ORPHAN_TOKEN_ABI,
+            abi: erc20TokenAbi,
             address: orphan.token,
             functionName: 'approve',
             args: [orphan.curve, parsedAmount],
@@ -234,7 +228,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
     async function onSell() {
         setLastStep('sell');
         await writeContractAsync({
-            abi: ORPHAN_CURVE_ABI,
+            abi: bondingCurveAbi,
             address: orphan.curve,
             functionName: 'sell',
             args: [parsedAmount, 0n], // slippage = 0 (curves are low-liquidity, showing a proper quote would need extra reads; MEV isn't a concern at this scale)
@@ -338,10 +332,17 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
                         borderRadius: 6,
                         fontSize: 12,
                         color: 'var(--anchor)',
+                        wordBreak: 'break-word',
                     }}
                 >
-                    ✗ couldn&apos;t read ur {orphan.tokenSymbol} balance from the chain. refresh
-                    the page or check ur RPC — token contract at {orphan.token} on robinhood.
+                    ✗ couldn&apos;t read ur {orphan.tokenSymbol} balance:{' '}
+                    <code style={{ fontSize: 11 }}>
+                        {(balanceQ.error as Error | null)?.message?.split('\n')[0]?.slice(0, 220) ?? 'unknown'}
+                    </code>
+                    <div style={{ marginTop: 6, fontSize: 10, opacity: 0.7 }}>
+                        token {orphan.token} on robinhood (chain 4663). try a hard refresh, or
+                        check the browser console for the full error.
+                    </div>
                 </div>
             ) : !balanceKnown ? (
                 <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
