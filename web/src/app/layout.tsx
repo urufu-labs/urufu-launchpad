@@ -263,6 +263,7 @@ export default function RootLayout({
             >
               <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
               <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
+              <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>
               <a
                 href="https://x.com/urugemu"
                 target="_blank"
