@@ -21,6 +21,7 @@
 ///      loss; convert to BigInt in the component).
 ///   3. Bump `SWEPT_AT_BLOCK` to the returned `sweptAt` value.
 
+import { getAddress } from 'viem';
 import type { Address } from 'viem';
 
 export interface OrphanCurve {
@@ -45,9 +46,40 @@ export interface OrphanCurve {
 
 export const SWEPT_AT_BLOCK = 24245385;
 
-export const ORPHAN_CURVES: OrphanCurve[] = [
+/// Defensive helper: normalize every address in an orphan entry to EIP-55
+/// checksum. viem's useReadContract validates the casing before calling
+/// the RPC and throws "Address ... is invalid" on mis-checksummed input,
+/// so if a future paste from the sweep tool comes in badly cased this
+/// still delivers a working entry (rather than a card stuck in errored).
+function normalize(o: Omit<OrphanCurve, 'token' | 'curve' | 'factory' | 'launcher'> & {
+    token: string;
+    curve: string;
+    factory: string;
+    launcher: string;
+}): OrphanCurve {
+    return {
+        ...o,
+        token: getAddress(o.token),
+        curve: getAddress(o.curve),
+        factory: getAddress(o.factory),
+        launcher: getAddress(o.launcher),
+    };
+}
+
+const RAW_ORPHANS: Array<Omit<OrphanCurve, 'token' | 'curve' | 'factory' | 'launcher'> & {
+    token: string;
+    curve: string;
+    factory: string;
+    launcher: string;
+}> = [
+    // Every address below MUST be a valid EIP-55 checksum. viem strictly
+    // validates the casing in useReadContract args, so a mis-checksummed
+    // token address throws "Address ... is invalid" before the RPC call
+    // even fires (bit us on 2026-07-31 when 3 of 4 orphans had the wrong
+    // casing baked into the sweep). Get the correct casing with
+    // `cast to-check-sum-address <addr>` or viem's `getAddress()`.
     {
-        token: '0x5DABF92def16A33B3aCee2676b966Bf4d0e13996',
+        token: '0x5Dabf92def16A33B3ACeE2676B966bf4d0e13996',
         curve: '0xef68EF6927E9896ad8808f4B0E4c1d63dEF888CC',
         factory: '0x4631C21b066D3B289779e477fc79f13E8d0Fc248',
         launcher: '0x6d606cc634F20f5534fba072757F2c2C7B835Bb9',
@@ -65,7 +97,7 @@ export const ORPHAN_CURVES: OrphanCurve[] = [
         balanceWeiAtSnapshot: '1304339708055485638',
     },
     {
-        token: '0x9FcD5B654c0d3a809A8636B0cb7fdC46E7Fc6628',
+        token: '0x9FCD5b654C0d3A809A8636B0cB7FDc46E7Fc6628',
         curve: '0x0849A5305CDCc4e32420506dE92990471a028e7a',
         factory: '0xFfda6614A6d527eb1e0b19C6B9DbdD1e243A1904',
         launcher: '0x0a001467B0E3a2218E3AFcA5A7e44B61d6AcE57E',
@@ -74,7 +106,7 @@ export const ORPHAN_CURVES: OrphanCurve[] = [
         balanceWeiAtSnapshot: '607860000000000000',
     },
     {
-        token: '0x4895B5D9Aa944b0764de4Db7EA84f2a90602cF2C',
+        token: '0x4895B5d9aA944b0764De4db7eA84F2a90602CF2c',
         curve: '0xCBA3Ad3ACEFEA65f4cD4FBfB2b547b5C7E38A79e',
         factory: '0xFfda6614A6d527eb1e0b19C6B9DbdD1e243A1904',
         launcher: '0x0a001467B0E3a2218E3AFcA5A7e44B61d6AcE57E',
@@ -83,6 +115,8 @@ export const ORPHAN_CURVES: OrphanCurve[] = [
         balanceWeiAtSnapshot: '227700000000000000',
     },
 ];
+
+export const ORPHAN_CURVES: OrphanCurve[] = RAW_ORPHANS.map(normalize);
 
 /// Minimal ABI slice for the sell + approve flow the /recover page uses.
 /// Curves and tokens across every historical CF share this shape (the
