@@ -173,6 +173,15 @@ contract Router is Ownable, ReentrancyGuard {
     /// URU-pay path — caller didn't approve enough URU to meet the on-chain
     /// minimum (`minUruFee` with loyalty discount applied).
     error Router__InsufficientUru(uint256 required, uint256 provided);
+    /// setUruConfig rejected: the passed sink address has no deployed code.
+    /// EOAs, unset addresses, and to-be-deployed addresses all fail this
+    /// check; the sink must exist on-chain before Router can point at it.
+    error Router__UruSinkNoCode(address uruSink);
+    /// setUruConfig rejected: the passed sink's `uru()` immutable does not
+    /// match the URU token address being wired. Prevents Router forwarding
+    /// deposits into a sink that can't process the token (would otherwise
+    /// silently strand every URU launch fee).
+    error Router__UruSinkTokenMismatch(address expectedUru, address sinkUru);
 
     // ============================================================
     // Events
@@ -738,6 +747,14 @@ contract Router is Ownable, ReentrancyGuard {
         address uruSink_
     ) external onlyOwner {
         if (uru_ == address(0) || uruSink_ == address(0)) revert Router__ZeroAddress();
+        // Sink must be a live contract. Blocks EOAs and unset addresses that
+        // would silently accept the transferFrom + leave URU stranded.
+        if (uruSink_.code.length == 0) revert Router__UruSinkNoCode(uruSink_);
+        // Sink's own `uru` immutable must match the token we're wiring. A
+        // mismatched pair pushes URU into a sink whose keeper flow was built
+        // for a different token, stranding every deposit until manual recovery.
+        address sinkUru = address(UruDepositSink(payable(uruSink_)).uru());
+        if (sinkUru != uru_) revert Router__UruSinkTokenMismatch(uru_, sinkUru);
         uru = IERC20Like(uru_);
         uruSink = UruDepositSink(payable(uruSink_));
         emit UruConfigSet(uru_, uruSink_);

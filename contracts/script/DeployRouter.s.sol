@@ -8,6 +8,7 @@ import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {BaseType} from "src/types/VMTypes.sol";
+import {RhConfigManifest} from "./manifest/RhConfigManifest.sol";
 
 interface IFactoryLike {
     function setRouter(
@@ -42,6 +43,8 @@ interface INameRegistryLike {
 ///
 ///         Env vars:
 ///           URU_TOKEN_ADDRESS   URU token to accept as fee (required)
+///           MIN_URU_FEE         nonzero URU spam-gate floor (18 decimals, required —
+///                               script reverts if 0 or unset; matches live RH value 1000e18)
 ///           ADMIN               initial owner of Router + UruDepositSink (defaults to sender)
 ///           ERC20_FEE           override fee for ERC20 launches (default: mirrors old Router)
 ///           NFT_FEE             override fee for ERC721A launches
@@ -53,12 +56,38 @@ interface INameRegistryLike {
 ///                               so users can no longer launch through it. Requires
 ///                               broadcaster to still own the old Router.
 ///
+///         Behavior on missing ownership (audit fail-closed requirement):
+///           If the broadcaster does not own a factory / CurveFactory / NameRegistry,
+///           the script REVERTS instead of writing a partial address book. Rationale:
+///           an address book that names a Router the front-end will use but whose
+///           factory pointers still route to the OLD Router silently 404s every launch.
+///           If a multisig-signed activation flow is needed later, add a follow-up
+///           Activate.s.sol script that verifies the missing wires before committing
+///           the address book.
+///
 /// Usage:
 ///   URU_TOKEN_ADDRESS=0x9fbe...9d24 \
+///   MIN_URU_FEE=1000000000000000000000 \
 ///   bash contracts/deploy.sh Router robinhood
-contract DeployRouterV2 is Script {
+contract DeployRouter is Script {
     error DeployRouter__NoPhase1Book();
     error DeployRouter__NoFlywheelBook();
+    /// MIN_URU_FEE env var missing or set to 0. URU launch entrypoints would
+    /// accept 1 wei of URU with a zero floor; the audit rejects this outright.
+    error DeployRouter__ZeroMinUruFee();
+    /// A required owner-only wire (factory setRouter, CurveFactory trust,
+    /// NameRegistry setRouter) could not be performed because the broadcaster
+    /// does not own the target contract. Refuses to write a partial address
+    /// book. See the header comment for the multisig-handoff pattern.
+    error DeployRouter__AuthorizeSkipped(address contractAddr, string what);
+    /// Post-broadcast assertion tripped — some manifest hash did not land its
+    /// count/flags on the freshly deployed Router. Should be impossible unless
+    /// the manifest is out of sync with the batch call sizes.
+    error DeployRouter__ManifestSeedFailed(bytes32 configHash, string what);
+    /// Post-broadcast assertion tripped — Router state does not match what
+    /// the script just wrote. Should be impossible; guards against silent
+    /// setter-reverts / RPC nonce anomalies.
+    error DeployRouter__PostStateMismatch(string what);
 
     struct Deployed {
         address uruSink;
@@ -100,6 +129,12 @@ contract DeployRouterV2 is Script {
 
         address admin = vm.envOr("ADMIN", msg.sender);
         address uruToken = vm.envAddress("URU_TOKEN_ADDRESS");
+        // Nonzero floor is a required deploy parameter — auditor mandate.
+        // Fetch as uint256 (18 decimals); 0 is a hard revert since
+        // launchWithURU only guards against amount==0, so any floor at all
+        // is the difference between a real spam gate and one wei of URU.
+        uint256 minUruFee = vm.envOr("MIN_URU_FEE", uint256(0));
+        if (minUruFee == 0) revert DeployRouter__ZeroMinUruFee();
 
         // Mirror fees from the pre-existing Router by default. Old-router reads
         // are view-only, no gas cost.
@@ -130,6 +165,11 @@ contract DeployRouterV2 is Script {
             govAddOn
         );
         routerV2.setUruConfig(uruToken, address(sink));
+        // Set the URU spam-gate floor immediately so the first block the
+        // Router is reachable already enforces it. Prior to this fix,
+        // DeployRouter left minUruFee at zero and required a manual
+        // follow-up setter tx that was easy to forget.
+        routerV2.setMinUruFee(minUruFee);
 
         // Step 3: wire Router's per-base factory pointers + curve factory + loyalty
         // oracle. These are stored (not immutable), so setters do the job.
@@ -139,19 +179,28 @@ contract DeployRouterV2 is Script {
         routerV2.setCurveFactory(curveFactory);
         routerV2.setLoyaltyOracle(loyaltyOracle);
 
-        // Step 4: authorize Router on each factory (setRouter is owner-only). Skips
-        // gracefully if the broadcaster no longer owns the factory (post-multisig
-        // handoff) — operator must run those calls as Safe txs instead.
-        _authorizeOnFactory(erc20Factory, address(routerV2));
-        _authorizeOnFactory(erc721Factory, address(routerV2));
-        _authorizeOnFactory(erc1155Factory, address(routerV2));
-        _authorizeOnCurveFactory(curveFactory, address(routerV2));
+        // Step 3b: seed the fail-closed sentinels (moduleCountConfigured /
+        // flagsConfigured) for every configHash the front-end can produce.
+        // Without this, EVERY launch reverts with Router__ModuleCountMissing
+        // or Router__FlagsMissing until the operator remembers to run twelve
+        // manual setter txs. The August 2026 audit's blocker #1.
+        _seedManifestSentinels(routerV2);
+
+        // Step 4: authorize Router on each factory (setRouter is owner-only). The
+        // audit fail-closed requirement (blocker #5): if the broadcaster does NOT
+        // own the target, REVERT rather than log-and-continue. A skipped wire +
+        // a written address book equals a Router the front-end will use whose
+        // factory pointers still route to the OLD Router.
+        _authorizeOnFactoryStrict(erc20Factory, address(routerV2));
+        _authorizeOnFactoryStrict(erc721Factory, address(routerV2));
+        _authorizeOnFactoryStrict(erc1155Factory, address(routerV2));
+        _authorizeOnCurveFactoryStrict(curveFactory, address(routerV2));
 
         // Step 4b: NameRegistry.reserve is gated on msg.sender == router. The registry
         // still points at the old Router; swap it to the new Router or launches
         // through V2 will revert with NameRegistry__NotRouter. Caught by the RH URU
         // pay E2E fork test — do NOT drop this step even if the tests aren't loaded.
-        _authorizeOnNameRegistry(registry, address(routerV2));
+        _authorizeOnNameRegistryStrict(registry, address(routerV2));
 
         // Step 5 (optional): pause the old Router so users can no longer launch through
         // it. Only useful if the broadcaster is still the old-Router owner.
@@ -160,6 +209,12 @@ contract DeployRouterV2 is Script {
         }
 
         vm.stopBroadcast();
+
+        // Post-broadcast assertions. Everything above went through startBroadcast,
+        // so any revert would have bubbled up already. This pass exists as a
+        // second line of defense against silent RPC / nonce anomalies. Address
+        // book is written only after all checks pass.
+        _assertPostState(routerV2, uruToken, address(sink), minUruFee);
 
         out = Deployed({uruSink: address(sink), routerV2: address(routerV2), feeSplitter: feeSplitter});
 
@@ -173,43 +228,80 @@ contract DeployRouterV2 is Script {
         _writeAddressBook(out);
     }
 
-    function _authorizeOnFactory(
+    function _authorizeOnFactoryStrict(
         address factory,
         address routerV2
     ) internal {
         IFactoryLike f = IFactoryLike(factory);
-        if (f.owner() != msg.sender) {
-            console2.log("  [skip] factory owner != broadcaster; setRouter must be a Safe tx:", factory);
-            return;
-        }
+        if (f.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(factory, "factory.setRouter");
         f.setRouter(routerV2);
         console2.log("  [ok] setRouter on factory:", factory);
     }
 
-    function _authorizeOnCurveFactory(
+    function _authorizeOnCurveFactoryStrict(
         address curveFactory,
         address routerV2
     ) internal {
         ICurveFactoryLike cf = ICurveFactoryLike(curveFactory);
         if (cf.owner() != msg.sender) {
-            console2.log("  [skip] CurveFactory owner != broadcaster; setTrustedRouter must be a Safe tx");
-            return;
+            revert DeployRouter__AuthorizeSkipped(curveFactory, "curveFactory.setTrustedRouter");
         }
         cf.setTrustedRouter(routerV2, true);
         console2.log("  [ok] setTrustedRouter on CurveFactory");
     }
 
-    function _authorizeOnNameRegistry(
+    function _authorizeOnNameRegistryStrict(
         address registry_,
         address routerV2
     ) internal {
         INameRegistryLike reg = INameRegistryLike(registry_);
-        if (reg.owner() != msg.sender) {
-            console2.log("  [skip] NameRegistry owner != broadcaster; setRouter must be a Safe tx:", registry_);
-            return;
-        }
+        if (reg.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.setRouter");
         reg.setRouter(routerV2);
         console2.log("  [ok] setRouter on NameRegistry");
+    }
+
+    /// Seed every canonical configHash's module count + flags on the fresh
+    /// Router via batch setters (~50k gas + 20k per hash). Manifest is the
+    /// single source of truth — see `contracts/script/manifest/RhConfigManifest.sol`.
+    function _seedManifestSentinels(
+        Router router
+    ) internal {
+        (bytes32[] memory hashes, uint256[] memory counts) = RhConfigManifest.hashesAndCounts();
+        (, uint256[] memory flags) = RhConfigManifest.hashesAndFlags();
+        router.setModuleCountForConfigBatch(hashes, counts);
+        router.setFlagsForConfigBatch(hashes, flags);
+        console2.log("  [ok] seeded manifest sentinels for hashes:", hashes.length);
+    }
+
+    /// Post-broadcast state pass. Reverts on any drift between what the script
+    /// wrote and what the freshly-deployed Router now reports. Belt-and-braces
+    /// against silent RPC / nonce anomalies. Runs before the address book is
+    /// written so operators cannot ship a broken Router.
+    function _assertPostState(
+        Router router,
+        address expectedUru,
+        address expectedSink,
+        uint256 expectedMinUruFee
+    ) internal view {
+        if (address(router.uru()) != expectedUru) revert DeployRouter__PostStateMismatch("uru");
+        if (address(router.uruSink()) != expectedSink) revert DeployRouter__PostStateMismatch("uruSink");
+        if (router.minUruFee() != expectedMinUruFee) revert DeployRouter__PostStateMismatch("minUruFee");
+        RhConfigManifest.Entry[] memory entries = RhConfigManifest.all();
+        for (uint256 i = 0; i < entries.length; i++) {
+            RhConfigManifest.Entry memory e = entries[i];
+            if (!router.moduleCountConfigured(e.configHash)) {
+                revert DeployRouter__ManifestSeedFailed(e.configHash, "moduleCountConfigured");
+            }
+            if (!router.flagsConfigured(e.configHash)) {
+                revert DeployRouter__ManifestSeedFailed(e.configHash, "flagsConfigured");
+            }
+            if (router.moduleCountForConfig(e.configHash) != e.moduleCount) {
+                revert DeployRouter__ManifestSeedFailed(e.configHash, "moduleCount value");
+            }
+            if (router.flagsForConfig(e.configHash) != e.flags) {
+                revert DeployRouter__ManifestSeedFailed(e.configHash, "flags value");
+            }
+        }
     }
 
     function _pauseOldRouter(
