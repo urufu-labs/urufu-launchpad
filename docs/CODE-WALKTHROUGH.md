@@ -12,6 +12,13 @@ integration. The main risk is not that the repo is fake. The main risk is that
 the shipped product is narrower, more gated, and more operationally fragile
 than the broad README story currently implies.
 
+Branch note: this walkthrough describes local `main` unless stated otherwise.
+GitHub PR #1 (`origin/audit-round-2`) is accounted for in
+[`PR-1-ACCOUNTING.md`](./PR-1-ACCOUNTING.md). That branch removes
+`RouterV2.sol`, live-wires the loyalty oracle, and cleans up several stale
+surfaces, but it still leaves the one-launch-path and atomic first-buy issues
+open.
+
 ## Mental Model
 
 There are four loops in the system:
@@ -115,6 +122,10 @@ other balance-mutating modules break constant-product accounting.
 mirrors most launch logic, but the URU amount is caller-supplied. The contract
 only enforces an owner-configured `minUruFee` floor.
 
+PR #1 flattens `RouterV2` back into `Router.sol`. That is the right direction,
+but the resulting branch still has four public launch entrypoints rather than
+one launch request with payment and protection modes.
+
 ### Factories and Templates
 
 The factories are clone deployers:
@@ -214,8 +225,11 @@ for ETH-to-URU buybacks. `NftRevenueVault` stores Merkle-rooted reward epochs
 for gemu NFT holders.
 
 `LoyaltyOracle` is supposed to discount launch fees for URU / gemu holders, but
-the live Robinhood Router currently has no loyalty oracle configured. Until it
-is configured, discount copy should be hidden or clearly marked as pending.
+the original review found the live Robinhood Router had no loyalty oracle
+configured. PR #1/live ops superseded that finding: on 2026-08-01, the live
+Router returned `0xd13A1fb6d9c209B56044464269fce66Ed417AC2E` from
+`loyaltyOracle()`, and the oracle returned the canonical RH URU and GEMU
+addresses. Keep those checks as a release gate before advertising discounts.
 
 ## Compile Service
 
@@ -342,8 +356,9 @@ Problem:
 
 `launchWithURU` accepts whatever `uruAmount` the caller supplies and only checks
 `minUruFee`. The frontend calculates a URU amount from spot pool state, but
-hand-crafted calldata can bypass that frontend quote. Live Robinhood config has
-`minUruFee = 0`, so the practical contract floor is dust URU.
+hand-crafted calldata can bypass that frontend quote. PR #1/live ops improved
+the immediate floor: on 2026-08-01, live `minUruFee()` returned `1e21`. That is
+a nonzero floor, not full on-chain price enforcement.
 
 Change:
 
@@ -417,7 +432,7 @@ Change:
   received amounts.
 - Add tests with a fee-on-transfer token against direct `CurveFactory` paths.
 
-### 6. Discounts are claimed in product copy but not live
+### 6. Loyalty discounts need a live wiring gate
 
 Files:
 
@@ -428,14 +443,16 @@ Files:
 
 Problem:
 
-The README and UI describe loyalty discounts, but live Robinhood Router config
-has no loyalty oracle wired.
+The README and UI describe loyalty discounts. That was unsafe when the live
+Router had no oracle wired. PR #1/live ops fixed the current Robinhood wire, but
+the product still needs an automated release check so this never regresses.
 
 Change:
 
-- Wire `LoyaltyOracle` before announcing discounts, or hide the claim.
-- Add an operational wiring check that fails if discounts are advertised but
-  `loyaltyOracle == address(0)`.
+- Keep the live snapshot assertions from PR #1.
+- Fail release checks if discounts are advertised but the Router returns the
+  zero address for `loyaltyOracle()` or the oracle points at non-canonical
+  ecosystem tokens.
 
 ### 7. Docs and README overpromise the current product
 
@@ -483,24 +500,28 @@ Change:
   fee routes, LP lock, and irreversible transactions.
 - Read fee bps from contracts where possible instead of hardcoding economics.
 
-### 9. URU sink deposit analytics miss direct RouterV2 payments
+### 9. URU sink deposit analytics miss direct URU launch payments
 
 Files:
 
 - `contracts/src/router/RouterV2.sol`
+- `contracts/src/router/Router.sol`
 - `contracts/src/router/UruDepositSink.sol`
 - `indexer/src/index.ts`
 
 Problem:
 
-`UruDepositSink.deposit` emits `Deposited`, but `RouterV2` transfers URU directly
-into the sink. Launch rows can still get URU paid from `LaunchedInURU`, but
-sink-specific deposit analytics miss launch-paid URU.
+`UruDepositSink.deposit` emits `Deposited`, but local `main` has `RouterV2`
+transfer URU directly into the sink. PR #1 moves that URU entrypoint into
+`Router.sol`, but the same analytics question remains if launch-paid URU still
+bypasses a sink attribution event. Launch rows can get URU paid from
+`LaunchedInURU`; sink-specific deposit analytics still need an explicit source
+of truth.
 
 Change:
 
-- Emit a sink attribution event from RouterV2, or route through a sink method
-  that logs launch deposits.
+- Emit a sink attribution event from the URU launch path, or route through a
+  sink method that logs launch deposits.
 - Update the indexer to account for both explicit deposits and launch payments.
 
 ### 10. `installedHook` and `installedGovernance` are event truth, not protocol truth
@@ -535,7 +556,8 @@ If you are trying to understand the repo in one sitting, use this path:
 3. `web/src/lib/launchpadStatus.ts` to see whether public launch is open.
 4. `web/src/app/create/page.tsx` to understand the user-facing launch path.
 5. `contracts/src/types/VMTypes.sol` for the shape of `LaunchParams`.
-6. `contracts/src/router/Router.sol` and `RouterV2.sol` for launch execution.
+6. `contracts/src/router/Router.sol` and `RouterV2.sol` for launch execution
+   on local `main`; on PR #1, read the flattened `Router.sol`.
 7. `contracts/src/factories/ERC20Factory.sol` for clone deployment.
 8. `contracts/src/curve/CurveFactory.sol` and `BondingCurve.sol` for trading.
 9. `contracts/src/curve/GraduatorV2.sol` and `hooks/MultiHookHost.sol` for
@@ -557,6 +579,10 @@ cd contracts && forge test --match-path 'test/unit/RouterV2.t.sol'
 cd contracts && forge test --match-path 'test/unit/UruDepositSink.t.sol'
 ```
 
+On PR #1, also read/run the flattened-router coverage around
+`test/integration/RouterV2Entrypoints.t.sol`; the test name is historical, but
+the code path is the merged router surface.
+
 For release readiness, add:
 
 ```bash
@@ -571,12 +597,12 @@ changed, plus live wiring checks for deployed Robinhood addresses.
 
 ## First Repair PRs
 
-1. Fix or disable URU pay pricing.
+1. Finish URU pay pricing, or describe it honestly as floor-based payment.
 2. Make the web production build independent of live Google font downloads.
 3. Rewrite README / security / status docs to match the live product.
 4. Decide and document the config-hash immutability policy.
 5. Close the public `CurveFactory` compatibility bypass.
-6. Wire or hide loyalty discounts.
+6. Keep loyalty discounts behind a live wiring snapshot gate.
 7. Rewrite critical transaction copy and fee disclosures.
 8. Normalize URU launch deposit accounting in the indexer.
 

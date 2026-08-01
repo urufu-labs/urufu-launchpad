@@ -14,6 +14,11 @@ special, and delete or quarantine the rest until it has earned its way back.
 
 For the live market comparison behind this conclusion, see
 [`COMPETITIVE-V4-LAUNCHPAD-REVIEW.md`](./COMPETITIVE-V4-LAUNCHPAD-REVIEW.md).
+For the current accounting of GitHub PR #1, see
+[`PR-1-ACCOUNTING.md`](./PR-1-ACCOUNTING.md). PR #1 is directionally useful: it
+flattens `RouterV2` into `Router`, retires stale airdrop/config surfaces, and
+wires live loyalty discounts. It is also explicitly marked "Do not merge," and
+it does not solve the deeper one-launch-path or atomic first-buy questions.
 
 ## Direct Verdict
 
@@ -107,8 +112,8 @@ Everything else should be moved out of the public path.
 | MultiHookHost                | Yes, core         | Can one hook host carry lock, fees, anti-sniping, and burn sanely?    | Keep as the single v1 hook surface. Remove legacy hook choices.              |
 | Anti-sniping hook options    | Yes, scoped       | Can deployers choose protection without unsafe complexity?            | Keep a small preset set: off, standard, strict. Avoid arbitrary knobs first. |
 | URU / gemu fee flywheel      | Later / optional  | Is this the draw for deployers, or platform economics?                | Phase in after v4 launch mechanics are clean. Do not lead positioning.       |
-| URU launch payment           | Not until fixed   | Can the contract enforce price without trusting the frontend?         | Hide or disable until on-chain minimum/quote enforcement is real.            |
-| Loyalty discounts            | Not until wired   | Is the live Router configured with an oracle?                         | Hide until `loyaltyOracle` is nonzero and tested live.                       |
+| URU launch payment           | Needs redesign    | Can the contract enforce price without trusting the frontend?         | PR #1/live ops set a nonzero floor, but quote enforcement is still not real. |
+| Loyalty discounts            | Yes, gated        | Is the live Router configured with an oracle?                         | PR #1/live ops wired it; keep live snapshot tests before advertising it.     |
 | Whitelist launch             | Maybe             | Does this drive community launches, or just add launch failure modes? | Keep only after persistence/proof UX is durable. Otherwise defer.            |
 | ERC-721A                     | No                | Does it participate in curve/graduation/flywheel v1?                  | Defer. Keep contracts, remove public promise.                                |
 | ERC-1155                     | No                | Is multi-item commerce part of the launchpad v1?                      | Defer.                                                                       |
@@ -132,6 +137,12 @@ Files:
 - `contracts/script/DeployRouterV2.s.sol`
 - `contracts/script/RedeployRouterV6.s.sol`
 - `tools/sync-addresses.mjs`
+
+Branch note: this section describes local `main`. PR #1 deletes
+`RouterV2.sol` and flattens the router code into `Router.sol`, which fixes the
+two-contract symptom. It does not yet fix the deeper design issue because the
+PR branch still exposes separate ETH, URU, whitelist, and URU-plus-whitelist
+launch entrypoints.
 
 `Router` and `RouterV2` exist because the product evolved. `Router` is the
 original ETH launch orchestrator. `RouterV2` adds URU payment and whitelist

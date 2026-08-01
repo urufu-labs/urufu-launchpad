@@ -2,6 +2,13 @@
 
 Research snapshot: 2026-08-01.
 
+PR #1 note: GitHub PR #1 (`origin/audit-round-2`) removes the separate
+`RouterV2.sol` file and folds ETH, URU, and whitelist paths into `Router.sol`.
+That is directionally aligned with this review, but the competitive requirement
+remains stricter: users and auditors should see one launch model, not four
+public launch entrypoints with mirrored safety rules. See
+[`PR-1-ACCOUNTING.md`](./PR-1-ACCOUNTING.md).
+
 This is the competitive follow-up to the first-principles review. The question
 is no longer "do v4 hooks differentiate us?" The better question is:
 
@@ -336,7 +343,9 @@ V1 needs an integration posture:
 
 ### Should not have in v1
 
-- Router and RouterV2 as separate public architecture.
+- Router and RouterV2 as separate public architecture. If PR #1 lands, treat
+  this as partially fixed and focus on the remaining four-entrypoint launch
+  surface.
 - ERC-721A or ERC-1155 launch modes.
 - Arbitrary runtime compile/register.
 - Direct/no-sale/fixed-sale/LBP mechanics.
@@ -365,8 +374,10 @@ direct-v4 protected launch design.
 
 ### 2. Replace duplicated router paths with one launch request
 
-Competitors show simple public surfaces. Our Router/RouterV2 split is the
-opposite. One v1 router should accept one launch request and one payment mode.
+Competitors show simple public surfaces. Local `main` still has the
+Router/RouterV2 split, and PR #1 only partially resolves the smell by moving the
+same public variants into one file. One v1 router should accept one launch
+request and one payment mode.
 
 Suggested shape:
 
@@ -506,7 +517,8 @@ Those can exist later. They should not define v1.
 
 1. Freeze the v1 product as protected ERC-20 curve-to-v4 launches, or stop and
    compare against a direct-v4 protected launch design.
-2. Replace Router/RouterV2 with one launch router before launch.
+2. If PR #1 lands, finish the router simplification by collapsing the four
+   public launch entrypoints into one launch request/payment model.
 3. Add atomic launch-and-buy support, or remove any protected first-buy claim.
 4. Design the three protection presets as product policy first, then map each
    to exact contract behavior.
