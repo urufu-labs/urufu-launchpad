@@ -23,11 +23,10 @@ contract GraduatorV8AccessCheckForkTest is Test {
         string memory rpc;
         try vm.envString("ROBINHOOD_RPC_URL") returns (string memory r) {
             rpc = r;
-        }
-            catch {}
+        } catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
         try vm.createSelectFork(rpc) {}
-            catch {
+        catch {
             vm.skip(true);
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
