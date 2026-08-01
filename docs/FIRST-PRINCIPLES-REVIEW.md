@@ -24,11 +24,13 @@ issue is product boundary confusion.
 The product that does make sense:
 
 > Robinhood-chain ERC-20 launchpad with one-click bonding-curve launch, locked
-> Uniswap v4 graduation, and URU / gemu fee flywheel.
+> Uniswap v4 graduation, and useful v4 hook options that help deployers protect
+> and monetize launches.
 
 That product is coherent and differentiated. It gives deployers a simple
-anti-rug launch path and gives the urufu ecosystem a reason for launches to
-matter.
+anti-rug launch path, gives them post-graduation hook capabilities most
+launchpads do not expose, and can later route platform economics into the urufu
+ecosystem.
 
 The product that does not yet make sense:
 
@@ -59,9 +61,11 @@ For traders:
 
 For the platform:
 
-- "Collect fees in a way that reinforces URU / gemu."
+- "Own a differentiated v4 hook launch primitive, not just another token
+  deployer."
 - "Keep the protocol surface small enough to audit and operate."
 - "Make every event and UI claim factual."
+- "Optionally route fees into URU / gemu once the core launch product is solid."
 
 If a feature does not serve one of those jobs, it is probably not v1.
 
@@ -74,9 +78,11 @@ V1 should be:
 - Bonding curve only.
 - One public launch path.
 - One current curve factory / graduator / hook stack.
+- A small, understandable set of v4 hook protections, especially anti-sniping.
 - ETH launch fees first.
 - URU pay only if contract-enforced pricing is fixed.
 - Whitelist only if it stays mechanically simple and durable.
+- URU / gemu flywheel as optional platform economics, not the main user draw.
 - No runtime arbitrary compile/register.
 - No NFT / 1155 UI.
 - No direct/no-sale/fixed-sale/LBP mechanics.
@@ -86,27 +92,28 @@ Everything else should be moved out of the public path.
 
 ## Feature Triage
 
-| Feature                      | Keep for v1?      | Honest question                                                       | Recommendation                                                              |
-| ---------------------------- | ----------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Robinhood-only chain         | Yes               | Is the product tied to URU / gemu?                                    | Keep. This gives focus.                                                     |
-| ERC-20 base                  | Yes               | Is this the only base the curve/trader loop needs?                    | Keep. Make it the only visible v1 base.                                     |
-| Bonding curve launch         | Yes               | Is this the core deployer/trader mechanic?                            | Keep. Simplify around it.                                                   |
-| Uniswap v4 graduation        | Yes, but guarded  | Does v4 complexity create more value than risk?                       | Keep only if wiring checks are mandatory.                                   |
-| MultiHookHost                | Yes, narrowly     | Do creators understand the fee and lock behavior?                     | Keep as the single hook. Remove legacy hook choices from v1 mental model.   |
-| URU / gemu fee flywheel      | Yes               | Is this the differentiator?                                           | Keep. Make claims match live wiring.                                        |
-| URU launch payment           | Not until fixed   | Can the contract enforce price without trusting the frontend?         | Hide or disable until on-chain minimum/quote enforcement is real.           |
-| Loyalty discounts            | Not until wired   | Is the live Router configured with an oracle?                         | Hide until `loyaltyOracle` is nonzero and tested live.                      |
-| Whitelist launch             | Maybe             | Does this drive community launches, or just add launch failure modes? | Keep only after persistence/proof UX is durable. Otherwise defer.           |
-| ERC-721A                     | No                | Does it participate in curve/graduation/flywheel v1?                  | Defer. Keep contracts, remove public promise.                               |
-| ERC-1155                     | No                | Is multi-item commerce part of the launchpad v1?                      | Defer.                                                                      |
-| Direct/no-sale launch        | No                | Does it help the anti-rug curve product?                              | Remove from v1 docs/UI.                                                     |
-| Fixed sale / LBP             | No                | Are these implemented and core?                                       | Remove from v1 matrix story.                                                |
-| Runtime compile/register     | No                | Is this safe enough to be public infrastructure?                      | Quarantine as offline tooling.                                              |
-| Many ERC-20 modules          | Not all           | Do launchers need all of them on day one?                             | Cut to a small preset set.                                                  |
-| Owner-controlled modules     | Mostly no         | If curve launches renounce ownership, do owner functions matter?      | Remove from v1 curve path or make direct launches a separate later product. |
-| Social profiles/follows/chat | Maybe later       | Does this make launches better, or distract from launch/trade trust?  | Quarantine behind a product flag.                                           |
-| Recovery/orphans             | Yes, support-only | Do existing users need protection?                                    | Keep, but treat as support tooling, not product architecture.               |
-| Hidden token source list     | No as code        | Should production code contain migration hide-lists?                  | Move to indexer/admin data.                                                 |
+| Feature                      | Keep for v1?      | Honest question                                                       | Recommendation                                                               |
+| ---------------------------- | ----------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Robinhood-only chain         | Yes               | Is the product tied to URU / gemu?                                    | Keep. This gives focus.                                                      |
+| ERC-20 base                  | Yes               | Is this the only base the curve/trader loop needs?                    | Keep. Make it the only visible v1 base.                                      |
+| Bonding curve launch         | Yes               | Is this the core deployer/trader mechanic?                            | Keep. Simplify around it.                                                    |
+| Uniswap v4 graduation        | Yes, core         | Is v4 integration the actual market differentiator?                   | Keep. Make it the center of v1, with mandatory wiring checks.                |
+| MultiHookHost                | Yes, core         | Can one hook host carry lock, fees, anti-sniping, and burn sanely?    | Keep as the single v1 hook surface. Remove legacy hook choices.              |
+| Anti-sniping hook options    | Yes, scoped       | Can deployers choose protection without unsafe complexity?            | Keep a small preset set: off, standard, strict. Avoid arbitrary knobs first. |
+| URU / gemu fee flywheel      | Later / optional  | Is this the draw for deployers, or platform economics?                | Phase in after v4 launch mechanics are clean. Do not lead positioning.       |
+| URU launch payment           | Not until fixed   | Can the contract enforce price without trusting the frontend?         | Hide or disable until on-chain minimum/quote enforcement is real.            |
+| Loyalty discounts            | Not until wired   | Is the live Router configured with an oracle?                         | Hide until `loyaltyOracle` is nonzero and tested live.                       |
+| Whitelist launch             | Maybe             | Does this drive community launches, or just add launch failure modes? | Keep only after persistence/proof UX is durable. Otherwise defer.            |
+| ERC-721A                     | No                | Does it participate in curve/graduation/flywheel v1?                  | Defer. Keep contracts, remove public promise.                                |
+| ERC-1155                     | No                | Is multi-item commerce part of the launchpad v1?                      | Defer.                                                                       |
+| Direct/no-sale launch        | No                | Does it help the anti-rug curve product?                              | Remove from v1 docs/UI.                                                      |
+| Fixed sale / LBP             | No                | Are these implemented and core?                                       | Remove from v1 matrix story.                                                 |
+| Runtime compile/register     | No                | Is this safe enough to be public infrastructure?                      | Quarantine as offline tooling.                                               |
+| Many ERC-20 modules          | Not all           | Do launchers need all of them on day one?                             | Cut to a small preset set.                                                   |
+| Owner-controlled modules     | Mostly no         | If curve launches renounce ownership, do owner functions matter?      | Remove from v1 curve path or make direct launches a separate later product.  |
+| Social profiles/follows/chat | Maybe later       | Does this make launches better, or distract from launch/trade trust?  | Quarantine behind a product flag.                                            |
+| Recovery/orphans             | Yes, support-only | Do existing users need protection?                                    | Keep, but treat as support tooling, not product architecture.                |
+| Hidden token source list     | No as code        | Should production code contain migration hide-lists?                  | Move to indexer/admin data.                                                  |
 
 ## Architecture Smells
 
@@ -502,6 +509,8 @@ ConfigRegistry
 TokenDeployer
 CurveInstaller
 WhitelistInstaller
+HookPolicy
+AntiSniperPolicy
 OwnershipPolicy
 EventEmitter
 ```
@@ -513,6 +522,8 @@ Design rules:
 - no public curve creation unless explicitly productized;
 - no config-hash mutation without versioning;
 - no URU payment without contract-side price enforcement;
+- v4 hook behavior described as product capability, not hidden deployment
+  trivia;
 - no hidden v2/v6/v9 concepts in public names.
 
 ### Web
@@ -523,7 +534,9 @@ Make the app reflect one v1 product:
 /create
   ERC-20 curve launch only
   ETH pay only until URU is safe
+  small anti-sniping preset picker
   optional whitelist only if durable
+  plain v4 hook explanation
   simple fee and risk copy
 
 /discover
@@ -534,7 +547,7 @@ Make the app reflect one v1 product:
   curve state
   buy/sell
   graduation state
-  post-graduation v4 swap
+  post-graduation v4 swap and hook fee/protection state
 
 /recover
   support-only recovery records from API/indexer
@@ -543,6 +556,7 @@ Make the app reflect one v1 product:
 Design rules:
 
 - one launch mode first;
+- v4 hook capability visible and legible;
 - critical copy in plain language;
 - read fee/hook parameters from chain where possible;
 - no planned modules in active UI config;
@@ -622,7 +636,8 @@ If the answer to 8 is yes, delete or defer it.
 
 - Split create/trade/profile pages by responsibility.
 - Remove planned modules from active config.
-- Reduce ERC-20 modules to a small launch preset menu.
+- Reduce ERC-20 modules to a small launch preset menu, but keep a
+  deliberately-scoped anti-sniping lane.
 - Rewrite financial copy in plain language.
 
 ### Phase 4: Decide future lanes
@@ -630,7 +645,8 @@ If the answer to 8 is yes, delete or defer it.
 Only after v1 is clean, decide separately whether to bring back:
 
 - URU pay;
-- whitelists;
+- the URU / gemu fee flywheel as a user-facing value prop;
+- whitelists beyond the simplest durable community-protection version;
 - NFT / 1155 bases;
 - runtime compile/register;
 - social profiles/chat/follows;
@@ -645,7 +661,11 @@ answer to "why does v1 need this now?"
 The current repo is not hopeless. It is overgrown.
 
 The core worth preserving is the ERC-20 curve launch -> v4 locked graduation ->
-URU/gemu flywheel loop. That is the spine.
+deployer-selectable hook protections loop. That is the spine.
+
+The URU/gemu flywheel can still be valuable, but it is platform economics. The
+market-facing draw is the v4 integration: locked liquidity, creator/platform fee
+routing, and anti-sniping protection that other launchpads do not make simple.
 
 Everything else should be treated as suspect until it proves it belongs on that
 spine. Simplicity is not aesthetic here; it is the security model.

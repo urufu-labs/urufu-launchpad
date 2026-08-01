@@ -5,10 +5,12 @@ piece does, how a launch moves through the system, and which areas should be
 changed first before opening the launchpad to real users.
 
 The short version: this is a real Robinhood-chain token launchpad with a
-contract deploy path, bonding-curve trading, Uniswap v4 graduation, and a
-fee flywheel for URU / urufu gemu. The main risk is not that the repo is fake.
-The main risk is that the shipped product is narrower, more gated, and more
-operationally fragile than the broad README story currently implies.
+contract deploy path, bonding-curve trading, Uniswap v4 graduation, and v4
+hook features that can protect and monetize launched tokens. The URU / urufu
+gemu flywheel is useful platform economics, but the main product draw is the v4
+integration. The main risk is not that the repo is fake. The main risk is that
+the shipped product is narrower, more gated, and more operationally fragile
+than the broad README story currently implies.
 
 ## Mental Model
 
@@ -16,8 +18,9 @@ There are four loops in the system:
 
 1. A deployer creates a token.
 2. Traders buy and sell it on a bonding curve.
-3. Successful curves graduate into Uniswap v4 with locked liquidity.
-4. Launch, trade, and post-graduation fees feed the URU / gemu flywheel.
+3. Successful curves graduate into Uniswap v4 with locked liquidity and hook
+   behavior.
+4. Hook fees and, later, platform fee routing can feed the URU / gemu flywheel.
 
 ```mermaid
 flowchart TD
@@ -162,7 +165,9 @@ Important files:
 
 ### Hooks
 
-The hook layer is the anti-rug / revenue layer after graduation.
+The hook layer is the main product differentiator after graduation. This is
+where the launchpad can offer protections and economics that generic token
+factories do not provide.
 
 `MultiHookHost` is the main current hook. It can:
 
@@ -170,6 +175,10 @@ The hook layer is the anti-rug / revenue layer after graduation.
 - take platform and creator fees from swaps;
 - optionally burn a slice of buy output;
 - let the platform and creator claim accrued fees.
+
+For v1, the hook surface should stay small and legible. Anti-sniping is worth
+supporting, but preferably as a few presets rather than an open-ended pile of
+expert knobs.
 
 The live Robinhood hook config currently has both `platformBps` and
 `creatorBps` set to 100, meaning swaps pay a 1% platform slice plus a 1%
@@ -180,7 +189,9 @@ to revert so the graduated pool cannot be drained by the launcher.
 
 ## Flywheel
 
-The flywheel is what makes this more than a generic token factory.
+The flywheel is platform economics layered around the launchpad. It can be
+valuable, but it is not the main external reason a deployer chooses this product.
+That reason should be v4 hook-enabled launches.
 
 Launch fees and other protocol proceeds flow through:
 
@@ -279,7 +290,8 @@ Core libraries:
 The current best product framing is:
 
 > Robinhood-chain ERC-20 launchpad with opinionated anti-rug defaults,
-> bonding-curve trading, locked v4 graduation, and URU / gemu fee flywheel.
+> bonding-curve trading, locked v4 graduation, and deployer-friendly v4 hook
+> protections.
 
 That is clearer than the broader "pick any base, compose anything, deploy any
 mechanic" story because the UI currently keeps NFT / 1155 bases disabled and
