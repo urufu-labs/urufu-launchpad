@@ -549,7 +549,7 @@ export function moduleById(id: string): ModuleSpec | undefined {
 /// Client-side config hash. Two paths:
 ///   1. Tuples with ONLY v1 modules (no reserve-backed): legacy formula
 ///      `keccak256(abi.encode(base, sortedModuleIds.join(',')))`.
-///      Matches every impl DeployPhase1.s.sol registered — existing tokens
+///      Matches every impl Router deploy.s.sol registered — existing tokens
 ///      launched under these hashes keep working, existing impls stay pinned.
 ///   2. Tuples containing ANY v2+ module: version-tagged formula
 ///      `keccak256(abi.encode(base, sortedModuleIdsWithVersion.join(',')))`

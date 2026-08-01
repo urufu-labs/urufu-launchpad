@@ -9,7 +9,7 @@ import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
 
 /// @notice Deploys `V4SwapRouter` for the launchpad's post-graduation trade widget.
 ///         One router per chain, wired to the chain's PoolManager. Writes a small
-///         `deployment-v4router.<chainid>.json` book so sync-addresses can propagate
+///         `deployment-v4router.<chainid>.json` book so update the shared address book (edit .env manually)
 ///         it to the web app alongside the other subsystem books.
 contract DeployV4SwapRouter is Script {
     using stdJson for string;

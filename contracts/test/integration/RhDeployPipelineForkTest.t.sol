@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Test, console2} from "forge-std/Test.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {FeeSplitter} from "src/router/FeeSplitter.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
@@ -39,7 +38,7 @@ interface ICurveFactoryOwned {
 ///         actually wires up cleanly before we spend real RH gas.
 ///
 ///         What this test does NOT cover (tracked as separate tests):
-///           - MultiHookHost redeploy via MigrateToV2Hook (CREATE2-hook mining)
+///           - MultiHookHost redeploy via the CREATE2-hook mining step
 ///           - URU pay E2E (approve → launchWithURU → sink pull)
 ///           - Post-graduation swap fee flow into FeeSplitter
 ///
@@ -75,7 +74,7 @@ contract RhDeployPipelineForkTest is Test {
     NftRevenueVault internal nftVault;
     UruBuybackVault internal buybackVault;
     UruDepositSink internal uruSink;
-    RouterV2 internal routerV2;
+    Router internal routerV2;
 
     function setUp() public {
         // Fork RH. Skip cleanly if RPC isn't configured — this keeps CI green when the env
@@ -102,7 +101,7 @@ contract RhDeployPipelineForkTest is Test {
 
         _runFlywheelDeploy();
         _runConfigureFlywheel();
-        _runDeployRouterV2();
+        _runDeployRouter();
     }
 
     // -----------------------------------------------------------
@@ -135,16 +134,16 @@ contract RhDeployPipelineForkTest is Test {
     }
 
     // -----------------------------------------------------------
-    // Pipeline: mirror of DeployRouterV2.s.sol (sink + RouterV2 + factory rewire)
+    // Pipeline: mirror of DeployRouterV2.s.sol (sink + Router + factory rewire)
     // -----------------------------------------------------------
-    function _runDeployRouterV2() internal {
+    function _runDeployRouter() internal {
         vm.startPrank(admin);
         uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
 
         // Mirror the pre-existing Router fees so quotes stay consistent.
         Router old = Router(payable(OLD_ROUTER));
 
-        routerV2 = new RouterV2(
+        routerV2 = new Router(
             admin,
             NameRegistry(NAME_REGISTRY),
             IFeeReceiver(address(splitter)),
@@ -153,10 +152,9 @@ contract RhDeployPipelineForkTest is Test {
             old.fees(BaseType.ERC1155),
             old.moduleAddOnFee(),
             old.hookAddOnFee(),
-            old.governanceAddOnFee(),
-            URU_TOKEN,
-            uruSink
+            old.governanceAddOnFee()
         );
+        routerV2.setUruConfig(URU_TOKEN, address(uruSink));
 
         routerV2.setFactory(BaseType.ERC20, ERC20_FACTORY);
         routerV2.setFactory(BaseType.ERC721A, ERC721A_FACTORY);
@@ -165,7 +163,7 @@ contract RhDeployPipelineForkTest is Test {
         routerV2.setLoyaltyOracle(address(oracle));
         vm.stopPrank();
 
-        // Authorize RouterV2 on each factory by pranking as the current factory owner.
+        // Authorize Router on each factory by pranking as the current factory owner.
         // On mainnet this will be a multisig; the script warns + skips in that case, but
         // the fork test just impersonates so the wiring assertions still run.
         _authorizeOnFactory(ERC20_FACTORY, address(routerV2));
@@ -234,7 +232,7 @@ contract RhDeployPipelineForkTest is Test {
         assertEq(routerV2.loyaltyOracle(), address(oracle));
     }
 
-    function test_Factories_AuthorizeRouterV2() public view {
+    function test_Factories_AuthorizeRouter() public view {
         assertEq(IFactoryOwned(ERC20_FACTORY).router(), address(routerV2), "ERC20Factory.router");
         assertEq(IFactoryOwned(ERC721A_FACTORY).router(), address(routerV2), "ERC721AFactory.router");
         assertEq(IFactoryOwned(ERC1155_FACTORY).router(), address(routerV2), "ERC1155Factory.router");

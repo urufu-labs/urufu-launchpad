@@ -101,12 +101,15 @@ contract CurveFactoryTest is Test {
     }
 
     function test_SetDefaults_OnlyOwner() public {
+        // Values must satisfy CurveFactory._validateCurveDefaults so the test
+        // exercises the OWNER gate, not the math gate. maxReachable here is
+        // 800M * 10 / 800M = 10 ETH, target 4 ETH < 10 ETH — reachable.
         vm.expectRevert();
-        factory.setDefaults(1e18, 1e18, 1e18, 1e18, 100);
+        factory.setDefaults(800_000_000e18, 800_000_000e18, 10 ether, 4 ether, 100);
 
         vm.prank(owner);
-        factory.setDefaults(500_000_000e18, 100_000_000e18, 0.5 ether, 10 ether, 50);
-        assertEq(factory.defaultCurveSupply(), 500_000_000e18);
+        factory.setDefaults(800_000_000e18, 800_000_000e18, 10 ether, 4 ether, 50);
+        assertEq(factory.defaultCurveSupply(), 800_000_000e18);
         assertEq(factory.defaultTradeFeeBps(), 50);
     }
 

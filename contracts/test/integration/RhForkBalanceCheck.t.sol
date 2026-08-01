@@ -81,9 +81,8 @@ contract RhForkBalanceCheck is Test {
         );
         mhh = MultiHookHost(payable(hookAddr));
 
-        graduator = new GraduatorV2(
-            IPoolManager(RH_POOL_MANAGER), IHooks(hookAddr), 3000, 60, address(curveFactory), admin
-        );
+        graduator =
+            new GraduatorV2(IPoolManager(RH_POOL_MANAGER), IHooks(hookAddr), 3000, 60, address(curveFactory), admin);
 
         vm.prank(admin);
         mhh.setInitializer(address(graduator));

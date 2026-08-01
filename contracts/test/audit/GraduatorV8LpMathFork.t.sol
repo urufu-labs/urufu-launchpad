@@ -8,7 +8,7 @@ import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
+import {Router} from "src/router/Router.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 interface ICurveFactoryLookup {
@@ -196,7 +196,7 @@ contract GraduatorV8LpMathForkTest is Test {
         p.installBondingCurve = true;
         p.ownership = OwnershipMode.Renounce;
 
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         uint256 launchFee = router.quote(p);
         vm.prank(launcher);
         token = router.launch{value: launchFee}(p);

@@ -139,21 +139,9 @@ contract ERC721AFactory is IVMFactory, Ownable {
         emit ImplRegistered(configHash, impl, msg.sender);
     }
 
-    /// @notice Owner-only in-place impl rotation. See ERC20Factory.updateImpl for the
-    ///         full contract; the shape is identical here.
-    function updateImpl(
-        bytes32 configHash,
-        address newImpl
-    ) external {
-        if (msg.sender != owner()) revert ERC721AFactory__NotOwner();
-        address oldImpl = impls[configHash];
-        if (oldImpl == address(0)) revert ERC721AFactory__UnknownConfig(configHash);
-        if (newImpl == address(0)) revert ERC721AFactory__ZeroAddress();
-        if (newImpl.code.length == 0) revert ERC721AFactory__NotAContract();
-
-        impls[configHash] = newImpl;
-        emit ImplUpdated(configHash, oldImpl, newImpl);
-    }
+    // updateImpl removed 2026-07-31 for the same reason as ERC20Factory —
+    // configHash must commit to bytecode so Router's metadata sentinels can't
+    // drift. See ERC20Factory.sol for the full rationale.
 
     // ============================================================
     // Views

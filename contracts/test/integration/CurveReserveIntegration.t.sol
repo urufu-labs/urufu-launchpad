@@ -10,7 +10,6 @@ import {FeeReceiver, IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {ERC20Factory} from "src/factories/ERC20Factory.sol";
 import {ERC20Template} from "src/templates/ERC20Template.sol";
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
-import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
@@ -32,7 +31,6 @@ contract CurveReserveIntegrationTest is Test {
     ERC20Factory internal f20;
     ERC20Template internal bareImpl;
     ERC20WithVestingGen internal vestingImpl;
-    ERC20WithAirdropGen internal airdropImpl;
 
     BondingCurve internal curveImpl;
     CurveFactory internal cf;
@@ -47,18 +45,11 @@ contract CurveReserveIntegrationTest is Test {
     uint256 internal constant BASE_FEE = 0.05 ether;
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
     uint256 internal constant VESTING_ALLOCATION = 100_000_000e18;
-    uint256 internal constant AIRDROP_ALLOCATION = 50_000_000e18;
 
     bytes32 internal BARE_ERC20 = keccak256(abi.encode("ERC20", ""));
     bytes32 internal VESTING = keccak256(abi.encode("ERC20", "Vesting"));
-    bytes32 internal AIRDROP = keccak256(abi.encode("ERC20", "Airdrop"));
 
     function setUp() public {
-        // Skipped 2026-07-30: Airdrop module retired platform-wide. Live V1
-        // composed impl (0x7Eb2F73...) has an inflation rug (claims MINT
-        // new tokens). Restore only when a V2 reserve-backed impl is deployed
-        // at a fresh configHash. See memory: graduator-v9 + airdrop removal.
-        vm.skip(true);
         string[] memory reserved = new string[](1);
         reserved[0] = "ETH";
         registry = new NameRegistry(admin, treasury, reserved);
@@ -78,7 +69,6 @@ contract CurveReserveIntegrationTest is Test {
         f20 = new ERC20Factory(admin, address(router), registrar);
         bareImpl = new ERC20Template();
         vestingImpl = new ERC20WithVestingGen();
-        airdropImpl = new ERC20WithAirdropGen();
 
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC20, address(f20));
@@ -88,8 +78,6 @@ contract CurveReserveIntegrationTest is Test {
         f20.registerImpl(BARE_ERC20, address(bareImpl));
         vm.prank(registrar);
         f20.registerImpl(VESTING, address(vestingImpl));
-        vm.prank(registrar);
-        f20.registerImpl(AIRDROP, address(airdropImpl));
 
         // Wire the curve factory. Uses CURVE_SUPPLY as the default; virtual reserves
         // sized so a modest ETH pool trips graduation before the curve token pool

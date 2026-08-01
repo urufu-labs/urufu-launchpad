@@ -18,9 +18,9 @@ interface FeedState {
 
 import { isHiddenToken } from './hiddenTokens';
 
-// Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
-// no longer belongs on these because there are real launches to show. Kept as a lazy read so
-// tree-shaking of unused chain configs doesn't matter.
+// Chains where CONTRACTS[chain] has been populated with real deployed addresses — the mock
+// preview no longer belongs on these because there are real launches to show. Kept as a
+// lazy read so tree-shaking of unused chain configs doesn't matter.
 function hasLiveContracts(chainId: number): boolean {
   const key = CHAIN_ID_TO_KEY[chainId] as ChainKey | undefined;
   return key ? CONTRACTS[key] !== null : false;

@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20 as SoladyERC20} from "solady/tokens/ERC20.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
@@ -337,51 +336,18 @@ contract AuditFixV6Test is Test {
     }
 
     /// Positive path: clean hash (no flag, no denylist) with installBondingCurve
-    /// must NOT be blocked by the fix. Curve install proceeds normally —
-    /// verifies the fix doesn't over-block legitimate curve launches.
-    function test_Audit5_CleanConfig_LaunchWithCurve_NotBlockedByFix() public {
-        bytes32 cleanHash = bytes32(uint256(0xC1EAA));
-
-        vm.startPrank(OWNER);
-        router.setFactory(BaseType.ERC20, address(mockFactory20));
-        router.setCurveFactory(address(curveFactory));
-        curveFactory.setTrustedRouter(address(router), true); // fix #2 wiring
-        router.setModuleCountForConfig(cleanHash, 1);
-        router.setFlagsForConfig(cleanHash, 0); // explicit "no restricted behavior"
-        // Deliberately: no setCurveIncompatibleConfigHash.
-        vm.stopPrank();
-
-        // Make MockFactory return a fresh TestERC20 with the curveSupply so the
-        // curve-install path can pull tokens.
-        uint256 curveSupply = curveFactory.defaultCurveSupply();
-        TestERC20 preToken = new TestERC20("Clean", "CLN", address(router), curveSupply);
-        mockFactory20.setNextDeployedToken(address(preToken));
-
-        LaunchParams memory p;
-        p.base = BaseType.ERC20;
-        p.name = "Clean";
-        p.ticker = "CLN";
-        p.configHash = cleanHash;
-        p.moduleCount = 1;
-        p.installBondingCurve = true;
-        p.ownership = OwnershipMode.Renounce;
-
-        // Should NOT revert with CurveIncompatibleModule. It may revert deeper
-        // (MockFactory doesn't emit a real Router-owned token that supports
-        // approve→transferFrom fully) — the meaningful assertion here is
-        // that the fix-introduced error is not the one that fires.
-        try router.launch{value: BASE_FEE}(p) {
-        // If it fully succeeded, great — fix is not over-blocking.
-        }
-        catch (bytes memory reason) {
-            bytes4 sel;
-            assembly {
-                sel := mload(add(reason, 32))
-            }
-            assertTrue(
-                sel != Router.Router__CurveIncompatibleModule.selector,
-                "clean hash must NOT trigger CurveIncompatibleModule"
-            );
-        }
+    /// must launch through the full pipeline. The prior version of this test
+    /// used a MockFactory whose token doesn't fully support approve/transferFrom
+    /// and swallowed every revert as long as it wasn't CurveIncompatibleModule —
+    /// meaning the test passed even when curve launches were broken for an
+    /// unrelated reason (T-2 from the 2026-07-30 audit). Replaced by the live
+    /// stack coverage in ChunkyModuleMatrixFork::test_Matrix_Bare_LaunchGraduate
+    /// and SetChunkyDefaultsFork::test_ChunkyDefaults_LiveStack_LaunchGraduateSwapFees_FullE2E,
+    /// which both run through the REAL Router → NameRegistry → ERC20Factory →
+    /// CurveFactory pipeline against a live RH mainnet fork and hard-assert
+    /// token != 0 + curveFor(token) != 0 + a full graduation. Keeping this
+    /// slot as a documentation stub so audit crossrefs still resolve.
+    function test_Audit5_CleanConfig_LaunchWithCurve_NotBlockedByFix() public pure {
+        // Intentionally empty. See docstring above.
     }
 }

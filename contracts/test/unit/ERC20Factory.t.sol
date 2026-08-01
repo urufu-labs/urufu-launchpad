@@ -93,49 +93,10 @@ contract ERC20FactoryTest is Test {
         factory.registerImpl(keccak256("nc"), makeAddr("eoa"));
     }
 
-    // =========================================================
-    // updateImpl — owner-gated in-place rotation for V2 template refactors
-    // =========================================================
-
-    function test_UpdateImpl_HappyPath() public {
-        ERC20Template newImpl = new ERC20Template();
-        vm.expectEmit(true, true, true, true, address(factory));
-        emit ERC20Factory.ImplUpdated(BARE_CONFIG, address(impl), address(newImpl));
-        vm.prank(owner);
-        factory.updateImpl(BARE_CONFIG, address(newImpl));
-        assertEq(factory.implFor(BARE_CONFIG), address(newImpl), "impl swapped");
-    }
-
-    function test_UpdateImpl_RevertsIfNotOwner() public {
-        ERC20Template newImpl = new ERC20Template();
-        vm.expectRevert(ERC20Factory.ERC20Factory__NotOwner.selector);
-        vm.prank(registrar);
-        factory.updateImpl(BARE_CONFIG, address(newImpl));
-
-        vm.expectRevert(ERC20Factory.ERC20Factory__NotOwner.selector);
-        vm.prank(stranger);
-        factory.updateImpl(BARE_CONFIG, address(newImpl));
-    }
-
-    function test_UpdateImpl_RevertsIfHashNotRegistered() public {
-        ERC20Template newImpl = new ERC20Template();
-        bytes32 unknown = keccak256("never-registered");
-        vm.expectRevert(abi.encodeWithSelector(ERC20Factory.ERC20Factory__UnknownConfig.selector, unknown));
-        vm.prank(owner);
-        factory.updateImpl(unknown, address(newImpl));
-    }
-
-    function test_UpdateImpl_RevertsOnZeroImpl() public {
-        vm.expectRevert(ERC20Factory.ERC20Factory__ZeroAddress.selector);
-        vm.prank(owner);
-        factory.updateImpl(BARE_CONFIG, address(0));
-    }
-
-    function test_UpdateImpl_RevertsIfNewImplHasNoCode() public {
-        vm.expectRevert(ERC20Factory.ERC20Factory__NotAContract.selector);
-        vm.prank(owner);
-        factory.updateImpl(BARE_CONFIG, makeAddr("eoa-not-a-contract"));
-    }
+    // updateImpl tests removed 2026-07-31 alongside the function itself. A
+    // configHash must commit to its bytecode so Router's fail-closed metadata
+    // sentinels (moduleCountConfigured / flagsConfigured) can't drift. New
+    // impl revisions require a fresh configHash + fresh sentinel stamps.
 
     // =========================================================
     // deploy

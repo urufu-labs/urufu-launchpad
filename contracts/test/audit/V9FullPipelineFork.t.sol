@@ -12,7 +12,6 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 import {DeployV9StackFix} from "script/DeployV9StackFix.s.sol";
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
@@ -151,7 +150,7 @@ contract V9FullPipelineForkTest is Test {
     function test_V9_FullPipeline_BareLaunch_Graduate_Swap_Fees() public {
         // -------- PHASE 1: launch bare ERC20 --------
         LaunchParams memory p = _bareLaunchParams("V9 Pipeline", "V9P");
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         uint256 fee = router.quote(p);
         vm.deal(launcher, fee + 1 ether);
         vm.prank(launcher);

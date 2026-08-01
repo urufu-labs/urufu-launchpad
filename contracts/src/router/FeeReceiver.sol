@@ -16,9 +16,14 @@ interface IFeeReceiver {
 /// @title  FeeReceiver
 /// @notice Minimal ETH sink for Router launch fees. Emits a per-launch event with the launcher
 ///         and base type, and lets the owner sweep to treasury on demand.
-/// @dev    No conversion, no swap, no forwarding. A v2 receiver (auto-swap-to-USDC, streaming
-///         payout, etc.) can drop in without touching Router because Router only depends on
-///         `IFeeReceiver`. See docs/SPEC-router.md §FeeReceiver.
+/// @dev    NOT the production fee receiver on Robinhood — the live Router points at
+///         `FeeSplitter` (`ROBINHOOD_FEE_SPLITTER_ADDRESS` in `.env`), which implements
+///         the same `IFeeReceiver` interface and additionally forwards to URU buyback +
+///         NFT revenue vault + launcher share. This concrete is retained as (a) the
+///         reference implementation of the interface, and (b) the minimal fee sink used
+///         by ~14 unit / integration tests that don't want to pull in the full flywheel
+///         plumbing. No live chain deploys a `FeeReceiver` — production is always
+///         `FeeSplitter`. See docs/SPEC-router.md §FeeReceiver.
 contract FeeReceiver is IFeeReceiver, Ownable {
     // ============================================================
     // Errors

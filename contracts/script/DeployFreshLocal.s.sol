@@ -26,7 +26,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 ///         a local anvil fork of a chain that already has v4 deployed (Ethereum
 ///         mainnet, Base, Robinhood).
 ///
-///         Unlike `DeployStack.s.sol` (an upgrade script that assumes a live
+///         Unlike `the historical stack deploy` (an upgrade script that assumes a live
 ///         NameRegistry / factories / LoyaltyOracle already exist), this script
 ///         assumes NOTHING pre-exists except the v4 PoolManager itself.
 ///
@@ -130,7 +130,7 @@ contract DeployFreshLocal is Script {
         s.feeReceiver = address(feeReceiver);
 
         // ---- 3. Router --------------------------------------------------
-        // Fees mirror the mainnet-target defaults in DeployPhase1.
+        // Fees mirror the mainnet-target defaults in Router deploy.
         Router router = new Router(
             admin,
             registry,

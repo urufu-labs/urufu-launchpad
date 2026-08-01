@@ -17,7 +17,6 @@ import {ERC20WithAntiWhaleGen} from "src/templates/composed/ERC20WithAntiWhaleGe
 import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTransferGen.sol";
 import {ERC20WithPausableGen} from "src/templates/composed/ERC20WithPausableGen.sol";
 import {ERC20WithPermitGen} from "src/templates/composed/ERC20WithPermitGen.sol";
-import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
 import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
 import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
@@ -25,11 +24,8 @@ import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAnti
 import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
 import {ERC20WithFoTPermitGen} from "src/templates/composed/ERC20WithFoTPermitGen.sol";
 import {ERC20WithAntiBotAntiWhalePermitGen} from "src/templates/composed/ERC20WithAntiBotAntiWhalePermitGen.sol";
-import {ERC20WithAirdropVestingGen} from "src/templates/composed/ERC20WithAirdropVestingGen.sol";
 import {ERC20WithPermitVestingGen} from "src/templates/composed/ERC20WithPermitVestingGen.sol";
-import {ERC20WithAirdropPermitGen} from "src/templates/composed/ERC20WithAirdropPermitGen.sol";
 import {ERC20WithPermitStakingGen} from "src/templates/composed/ERC20WithPermitStakingGen.sol";
-import {ERC20WithAirdropVotesGen} from "src/templates/composed/ERC20WithAirdropVotesGen.sol";
 import {ERC20WithPausablePermitGen} from "src/templates/composed/ERC20WithPausablePermitGen.sol";
 import {ERC721AWithDelayedRevealGen} from "src/templates/composed/ERC721AWithDelayedRevealGen.sol";
 import {ERC721AWithOnChainSVGGen} from "src/templates/composed/ERC721AWithOnChainSVGGen.sol";
@@ -74,14 +70,13 @@ contract PhaseCombosTest is Test {
     uint256 internal constant BASE_FEE = 0.05 ether;
     uint256 internal constant MODULE_ADD = 0.01 ether;
 
-    // ---- Config hashes (mirror DeployPhase1)
+    // ---- Config hashes (mirror Router deploy)
     bytes32 internal BARE_ERC20 = keccak256(abi.encode("ERC20", ""));
     bytes32 internal ANTIBOT = keccak256(abi.encode("ERC20", "AntiBot"));
     bytes32 internal ANTIWHALE = keccak256(abi.encode("ERC20", "AntiWhale"));
     bytes32 internal FOT = keccak256(abi.encode("ERC20", "FeeOnTransfer"));
     bytes32 internal PAUSABLE = keccak256(abi.encode("ERC20", "Pausable"));
     bytes32 internal PERMIT = keccak256(abi.encode("ERC20", "Permit"));
-    bytes32 internal AIRDROP = keccak256(abi.encode("ERC20", "Airdrop"));
     bytes32 internal VESTING = keccak256(abi.encode("ERC20", "Vesting"));
     bytes32 internal STAKING = keccak256(abi.encode("ERC20", "Staking"));
     bytes32 internal VOTES = keccak256(abi.encode("ERC20", "Votes"));
@@ -89,11 +84,8 @@ contract PhaseCombosTest is Test {
     bytes32 internal AB_P = keccak256(abi.encode("ERC20", "AntiBot,Permit"));
     bytes32 internal FOT_P = keccak256(abi.encode("ERC20", "FeeOnTransfer,Permit"));
     bytes32 internal AB_AW_P = keccak256(abi.encode("ERC20", "AntiBot,AntiWhale,Permit"));
-    bytes32 internal DROP_VEST = keccak256(abi.encode("ERC20", "Airdrop,Vesting"));
     bytes32 internal P_VEST = keccak256(abi.encode("ERC20", "Permit,Vesting"));
-    bytes32 internal DROP_P = keccak256(abi.encode("ERC20", "Airdrop,Permit"));
     bytes32 internal P_STK = keccak256(abi.encode("ERC20", "Permit,Staking"));
-    bytes32 internal DROP_V = keccak256(abi.encode("ERC20", "Airdrop,Votes"));
     bytes32 internal PAUSE_P = keccak256(abi.encode("ERC20", "Pausable,Permit"));
     bytes32 internal BARE_721 = keccak256(abi.encode("ERC721A", ""));
     bytes32 internal DELAYED = keccak256(abi.encode("ERC721A", "DelayedReveal"));
@@ -150,7 +142,6 @@ contract PhaseCombosTest is Test {
         f20.registerImpl(FOT, address(new ERC20WithFeeOnTransferGen()));
         f20.registerImpl(PAUSABLE, address(new ERC20WithPausableGen()));
         f20.registerImpl(PERMIT, address(new ERC20WithPermitGen()));
-        f20.registerImpl(AIRDROP, address(new ERC20WithAirdropGen()));
         f20.registerImpl(VESTING, address(new ERC20WithVestingGen()));
         f20.registerImpl(STAKING, address(new ERC20WithStakingGen()));
         f20.registerImpl(VOTES, address(new ERC20WithVotesGen()));
@@ -158,11 +149,8 @@ contract PhaseCombosTest is Test {
         f20.registerImpl(AB_P, address(new ERC20WithAntiBotPermitGen()));
         f20.registerImpl(FOT_P, address(new ERC20WithFoTPermitGen()));
         f20.registerImpl(AB_AW_P, address(new ERC20WithAntiBotAntiWhalePermitGen()));
-        f20.registerImpl(DROP_VEST, address(new ERC20WithAirdropVestingGen()));
         f20.registerImpl(P_VEST, address(new ERC20WithPermitVestingGen()));
-        f20.registerImpl(DROP_P, address(new ERC20WithAirdropPermitGen()));
         f20.registerImpl(P_STK, address(new ERC20WithPermitStakingGen()));
-        f20.registerImpl(DROP_V, address(new ERC20WithAirdropVotesGen()));
         f20.registerImpl(PAUSE_P, address(new ERC20WithPausablePermitGen()));
 
         f721.registerImpl(BARE_721, address(impl721));
@@ -186,9 +174,11 @@ contract PhaseCombosTest is Test {
         // with ModuleCountMissing/FlagsMissing. Batch-set all counts here
         // (flags=0 for every hash — none carry FoT/rebasing behavior in
         // this suite; FoT+curve is tested separately in AuditFixV6.t.sol).
-        bytes32[] memory allHashes = new bytes32[](32);
-        uint256[] memory allCounts = new uint256[](32);
-        uint256[] memory allFlags = new uint256[](32);
+        // 4 Airdrop entries (AIRDROP, DROP_VEST, DROP_P, DROP_V) dropped
+        // 2026-07-31 alongside the composed impl deletions.
+        bytes32[] memory allHashes = new bytes32[](28);
+        uint256[] memory allCounts = new uint256[](28);
+        uint256[] memory allFlags = new uint256[](28);
         allHashes[0] = BARE_ERC20;
         allCounts[0] = 0;
         allHashes[1] = ANTIBOT;
@@ -201,58 +191,50 @@ contract PhaseCombosTest is Test {
         allCounts[4] = 1;
         allHashes[5] = PERMIT;
         allCounts[5] = 1;
-        allHashes[6] = AIRDROP;
+        allHashes[6] = VESTING;
         allCounts[6] = 1;
-        allHashes[7] = VESTING;
+        allHashes[7] = STAKING;
         allCounts[7] = 1;
-        allHashes[8] = STAKING;
+        allHashes[8] = VOTES;
         allCounts[8] = 1;
-        allHashes[9] = VOTES;
-        allCounts[9] = 1;
-        allHashes[10] = AB_AW;
+        allHashes[9] = AB_AW;
+        allCounts[9] = 2;
+        allHashes[10] = AB_P;
         allCounts[10] = 2;
-        allHashes[11] = AB_P;
+        allHashes[11] = FOT_P;
         allCounts[11] = 2;
-        allHashes[12] = FOT_P;
-        allCounts[12] = 2;
-        allHashes[13] = AB_AW_P;
-        allCounts[13] = 3;
-        allHashes[14] = DROP_VEST;
+        allHashes[12] = AB_AW_P;
+        allCounts[12] = 3;
+        allHashes[13] = P_VEST;
+        allCounts[13] = 2;
+        allHashes[14] = P_STK;
         allCounts[14] = 2;
-        allHashes[15] = P_VEST;
+        allHashes[15] = PAUSE_P;
         allCounts[15] = 2;
-        allHashes[16] = DROP_P;
-        allCounts[16] = 2;
-        allHashes[17] = P_STK;
-        allCounts[17] = 2;
-        allHashes[18] = DROP_V;
-        allCounts[18] = 2;
-        allHashes[19] = PAUSE_P;
-        allCounts[19] = 2;
-        allHashes[20] = BARE_721;
-        allCounts[20] = 0;
-        allHashes[21] = DELAYED;
+        allHashes[16] = BARE_721;
+        allCounts[16] = 0;
+        allHashes[17] = DELAYED;
+        allCounts[17] = 1;
+        allHashes[18] = SVG;
+        allCounts[18] = 1;
+        allHashes[19] = ROYALTY;
+        allCounts[19] = 1;
+        allHashes[20] = SVG_ROYALTY;
+        allCounts[20] = 2;
+        allHashes[21] = SOULBOUND;
         allCounts[21] = 1;
-        allHashes[22] = SVG;
+        allHashes[22] = REFUNDABLE;
         allCounts[22] = 1;
-        allHashes[23] = ROYALTY;
-        allCounts[23] = 1;
-        allHashes[24] = SVG_ROYALTY;
+        allHashes[23] = ROY_REF;
+        allCounts[23] = 2;
+        allHashes[24] = DR_REF;
         allCounts[24] = 2;
-        allHashes[25] = SOULBOUND;
-        allCounts[25] = 1;
-        allHashes[26] = REFUNDABLE;
-        allCounts[26] = 1;
-        allHashes[27] = ROY_REF;
+        allHashes[25] = BARE_1155;
+        allCounts[25] = 0;
+        allHashes[26] = SVG_SOUL;
+        allCounts[26] = 2;
+        allHashes[27] = ROY_SOUL;
         allCounts[27] = 2;
-        allHashes[28] = DR_REF;
-        allCounts[28] = 2;
-        allHashes[29] = BARE_1155;
-        allCounts[29] = 0;
-        allHashes[30] = SVG_SOUL;
-        allCounts[30] = 2;
-        allHashes[31] = ROY_SOUL;
-        allCounts[31] = 2;
         // allFlags left at default 0 for all — no FoT+curve in this suite.
         vm.startPrank(admin);
         router.setModuleCountForConfigBatch(allHashes, allCounts);
@@ -389,15 +371,10 @@ contract PhaseCombosTest is Test {
         _launch(BaseType.ERC20, "Combo Permit", "CPERM", PERMIT, _erc20InitData(1000 ether, m), 2);
     }
 
-    function test_Combo_ERC20_Airdrop() public {
-        // Airdrop module retired 2026-07-30 — deployed V1 composed impl has an
-        // inflation rug. Test kept as a skipped placeholder so re-enabling only
-        // needs the skip line removed once a V2 reserve-backed impl ships.
-        vm.skip(true);
-        bytes[] memory m = new bytes[](1);
-        m[0] = abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100 ether));
-        _launch(BaseType.ERC20, "Combo Airdrop", "CDROP", AIRDROP, _erc20InitData(1000 ether, m), 2);
-    }
+    // Airdrop module retired 2026-07-31 — deployed V1 composed impl had an
+    // inflation rug. Single + composed Airdrop tests removed alongside the
+    // template files. Vesting / Staking below cover the reserve-backed carve
+    // invariant equivalently for the remaining audit surface.
 
     function test_Combo_ERC20_Vesting() public {
         bytes[] memory m = new bytes[](1);
@@ -501,13 +478,6 @@ contract PhaseCombosTest is Test {
         return abi.encode(uint16(500), uint16(5000), uint16(5000), treasury);
     }
 
-    function _dropData() internal pure returns (bytes memory) {
-        // V2 airdrop signature: (bytes32 merkleRoot, uint256 totalAllocation). All
-        // multi-module combos share this same allocation (100 ether) so the initial
-        // 1000-ether supply comfortably covers overlapping reserves.
-        return abi.encode(bytes32(uint256(0xdeadbeef)), uint256(100 ether));
-    }
-
     function _vestData() internal returns (bytes memory) {
         return abi.encode(
             makeAddr("vestBeneficiary"),
@@ -551,14 +521,6 @@ contract PhaseCombosTest is Test {
         _launch(BaseType.ERC20, "Combo AbAwP", "CABAWP", AB_AW_P, _erc20InitData(1000 ether, m), 4);
     }
 
-    function test_Combo_ERC20_AirdropVesting() public {
-        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
-        bytes[] memory m = new bytes[](2);
-        m[0] = _dropData();
-        m[1] = _vestData();
-        _launch(BaseType.ERC20, "Combo DropVest", "CDVEST", DROP_VEST, _erc20InitData(1000 ether, m), 3);
-    }
-
     function test_Combo_ERC20_PermitVesting() public {
         // Sorted: Permit, Vesting
         bytes[] memory m = new bytes[](2);
@@ -567,28 +529,12 @@ contract PhaseCombosTest is Test {
         _launch(BaseType.ERC20, "Combo PVest", "CPVEST", P_VEST, _erc20InitData(1000 ether, m), 3);
     }
 
-    function test_Combo_ERC20_AirdropPermit() public {
-        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
-        bytes[] memory m = new bytes[](2);
-        m[0] = _dropData();
-        m[1] = "";
-        _launch(BaseType.ERC20, "Combo DropP", "CDP", DROP_P, _erc20InitData(1000 ether, m), 3);
-    }
-
     function test_Combo_ERC20_PermitStaking() public {
         // Sorted: Permit, Staking
         bytes[] memory m = new bytes[](2);
         m[0] = "";
         m[1] = _stakingData();
         _launch(BaseType.ERC20, "Combo PStk", "CPSTK", P_STK, _erc20InitData(1000 ether, m), 3);
-    }
-
-    function test_Combo_ERC20_AirdropVotes() public {
-        vm.skip(true); // Airdrop retired 2026-07-30 (V1 impl inflation rug)
-        bytes[] memory m = new bytes[](2);
-        m[0] = _dropData();
-        m[1] = "";
-        _launch(BaseType.ERC20, "Combo DropV", "CDV", DROP_V, _erc20InitData(1000 ether, m), 3);
     }
 
     function test_Combo_ERC20_PausablePermit() public {

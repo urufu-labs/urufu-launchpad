@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {DeployV6AuditFixStack} from "script/DeployV6AuditFixStack.s.sol";
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
@@ -244,7 +243,7 @@ contract V6FullLifecycleForkTest is Test {
     // 4. End-to-end launch through V6. Uses a raw call so we can test
     //    with a minimal LaunchParams tuple without depending on the full
     //    LaunchParams struct's field layout (which may shift across
-    //    RouterV2 versions). Not a full lifecycle test — the module
+    //    Router versions). Not a full lifecycle test — the module
     //    curve graduation suite (RhV5ModuleCurveGraduationForkTest)
     //    already exercises that flow at length; we only need to prove
     //    V6 accepts a launch call and dispatches through the new stack.

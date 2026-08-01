@@ -92,8 +92,7 @@ contract NftLaunchPathsTest is LocalV4Stack {
         router.setFactory(BaseType.ERC721A, address(f721));
         router.setFactory(BaseType.ERC1155, address(f1155));
 
-        bytes32[5] memory hashes =
-            [CH_721_BARE, CH_1155_BARE, CH_721_ROYALTY, CH_721_SOULBOUND, CH_1155_SUPPLY];
+        bytes32[5] memory hashes = [CH_721_BARE, CH_1155_BARE, CH_721_ROYALTY, CH_721_SOULBOUND, CH_1155_SUPPLY];
         for (uint256 i; i < hashes.length; ++i) {
             router.setModuleCountForConfig(hashes[i], i < 2 ? 1 : 2);
             router.setFlagsForConfig(hashes[i], 0);

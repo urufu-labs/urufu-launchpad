@@ -16,7 +16,7 @@ interface IERC20Minimal {
 
 /// @title  UruDepositSink
 /// @notice Holding pool for URU paid as launchpad deploy fees. Deposits push URU here
-///         (RouterV2 does the transferFrom); an off-chain keeper periodically drains
+///         (Router does the transferFrom); an off-chain keeper periodically drains
 ///         the URU balance by swapping URU → ETH on an allowlisted swap target and
 ///         forwarding the resulting ETH to `distributionSink` (typically the
 ///         `FeeSplitter` — which then splits ETH into buyback + NFT + treasury).
@@ -93,7 +93,7 @@ contract UruDepositSink is Ownable {
         minConfigDelay = minConfigDelay_;
     }
 
-    /// @notice Optional explicit deposit path — RouterV2 uses direct transferFrom() into
+    /// @notice Optional explicit deposit path — Router uses direct transferFrom() into
     ///         this contract, but external integrators can call this to log attribution.
     function deposit(
         uint256 amount

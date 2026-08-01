@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
@@ -43,7 +42,7 @@ interface INameRegistryLike {
 ///
 ///         Env vars:
 ///           URU_TOKEN_ADDRESS   URU token to accept as fee (required)
-///           ADMIN               initial owner of RouterV2 + UruDepositSink (defaults to sender)
+///           ADMIN               initial owner of Router + UruDepositSink (defaults to sender)
 ///           ERC20_FEE           override fee for ERC20 launches (default: mirrors old Router)
 ///           NFT_FEE             override fee for ERC721A launches
 ///           ERC1155_FEE         override fee for ERC1155 launches
@@ -56,10 +55,10 @@ interface INameRegistryLike {
 ///
 /// Usage:
 ///   URU_TOKEN_ADDRESS=0x9fbe...9d24 \
-///   bash contracts/deploy.sh RouterV2 robinhood
+///   bash contracts/deploy.sh Router robinhood
 contract DeployRouterV2 is Script {
-    error DeployRouterV2__NoPhase1Book();
-    error DeployRouterV2__NoFlywheelBook();
+    error DeployRouter__NoPhase1Book();
+    error DeployRouter__NoFlywheelBook();
 
     struct Deployed {
         address uruSink;
@@ -72,8 +71,8 @@ contract DeployRouterV2 is Script {
         string memory phase1Path = string.concat("deployment.", chainId, ".json");
         string memory flywheelPath = string.concat("deployment-flywheel.", chainId, ".json");
 
-        if (!vm.exists(phase1Path)) revert DeployRouterV2__NoPhase1Book();
-        if (!vm.exists(flywheelPath)) revert DeployRouterV2__NoFlywheelBook();
+        if (!vm.exists(phase1Path)) revert DeployRouter__NoPhase1Book();
+        if (!vm.exists(flywheelPath)) revert DeployRouter__NoFlywheelBook();
 
         string memory phase1 = vm.readFile(phase1Path);
         string memory flywheel = vm.readFile(flywheelPath);
@@ -84,7 +83,7 @@ contract DeployRouterV2 is Script {
         address erc721Factory = vm.parseJsonAddress(phase1, ".ERC721AFactory");
         address erc1155Factory = vm.parseJsonAddress(phase1, ".ERC1155Factory");
         // Prefer the WL-aware CurveFactory when its book exists (see
-        // DeployCurveFactoryV2). Falls back to the pre-WL CurveFactory from Phase1 for
+        // SetChunkyDefaults). Falls back to the pre-WL CurveFactory from Phase1 for
         // deployments that haven't yet migrated. This makes launchWithWhitelist work
         // out of the box on RH once both scripts have been run.
         string memory curveFactoryV2Path = string.concat("deployment-curvefactoryv2.", chainId, ".json");
@@ -117,9 +116,9 @@ contract DeployRouterV2 is Script {
         // Step 1: deploy the URU sink pointed at FeeSplitter for its ETH proceeds.
         UruDepositSink sink = new UruDepositSink(admin, uruToken, feeSplitter, 2 days);
 
-        // Step 2: deploy RouterV2 pointed at FeeSplitter as its ETH-fee receiver
+        // Step 2: deploy Router pointed at FeeSplitter as its ETH-fee receiver
         // and at the sink for its URU-fee receiver.
-        RouterV2 routerV2 = new RouterV2(
+        Router routerV2 = new Router(
             admin,
             NameRegistry(registry),
             IFeeReceiver(feeSplitter),
@@ -128,12 +127,11 @@ contract DeployRouterV2 is Script {
             erc1155Fee,
             moduleAddOn,
             hookAddOn,
-            govAddOn,
-            uruToken,
-            sink
+            govAddOn
         );
+        routerV2.setUruConfig(uruToken, address(sink));
 
-        // Step 3: wire RouterV2's per-base factory pointers + curve factory + loyalty
+        // Step 3: wire Router's per-base factory pointers + curve factory + loyalty
         // oracle. These are stored (not immutable), so setters do the job.
         routerV2.setFactory(BaseType.ERC20, erc20Factory);
         routerV2.setFactory(BaseType.ERC721A, erc721Factory);
@@ -141,7 +139,7 @@ contract DeployRouterV2 is Script {
         routerV2.setCurveFactory(curveFactory);
         routerV2.setLoyaltyOracle(loyaltyOracle);
 
-        // Step 4: authorize RouterV2 on each factory (setRouter is owner-only). Skips
+        // Step 4: authorize Router on each factory (setRouter is owner-only). Skips
         // gracefully if the broadcaster no longer owns the factory (post-multisig
         // handoff) — operator must run those calls as Safe txs instead.
         _authorizeOnFactory(erc20Factory, address(routerV2));
@@ -150,7 +148,7 @@ contract DeployRouterV2 is Script {
         _authorizeOnCurveFactory(curveFactory, address(routerV2));
 
         // Step 4b: NameRegistry.reserve is gated on msg.sender == router. The registry
-        // still points at the old Router; swap it to the new RouterV2 or launches
+        // still points at the old Router; swap it to the new Router or launches
         // through V2 will revert with NameRegistry__NotRouter. Caught by the RH URU
         // pay E2E fork test — do NOT drop this step even if the tests aren't loaded.
         _authorizeOnNameRegistry(registry, address(routerV2));
@@ -170,7 +168,7 @@ contract DeployRouterV2 is Script {
             console2.log("  [note] wired to WL-aware CurveFactory:", curveFactory);
         } else {
             console2.log("  [note] wired to legacy CurveFactory:", curveFactory);
-            console2.log("         WL launches will revert until DeployCurveFactoryV2 has been run.");
+            console2.log("         WL launches will revert until SetChunkyDefaults has been run.");
         }
         _writeAddressBook(out);
     }
@@ -231,7 +229,7 @@ contract DeployRouterV2 is Script {
         address uruToken
     ) internal pure {
         console2.log("=========================================================");
-        console2.log("RouterV2 stack deployed");
+        console2.log("Router stack deployed");
         console2.log("=========================================================");
         console2.log("  UruDepositSink:   ", out.uruSink);
         console2.log("  RouterV2:         ", out.routerV2);
@@ -243,7 +241,7 @@ contract DeployRouterV2 is Script {
         console2.log("Next steps:");
         console2.log("  1. Run ConfigureRouterV2Keeper to allowlist the URU->ETH keeper");
         console2.log("     on UruDepositSink (mirror of ConfigureFlywheel for buyback).");
-        console2.log("  2. node tools/sync-addresses.mjs robinhood");
+        console2.log("  2. update .env addresses manually");
         console2.log("     (updates web/src/lib/config.ts CONTRACTS.robinhood.Router)");
         console2.log("  3. Frontend cutover: URU/ETH toggle on the create page.");
     }

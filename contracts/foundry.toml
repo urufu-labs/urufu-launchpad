@@ -12,9 +12,7 @@ optimizer = true
 optimizer_runs = 10_000
 via_ir = true
 
-# Allow reading local fixture files in tests; write access is scoped to the deployment
-# address book DeployPhase1 emits (deployment.<chainid>.json at the contracts/ root).
-# Foundry does prefix matching on path, so `./deployment.` catches every chain-id variant.
+# Allow reading + writing local fixture files (test outputs, epoch JSONs).
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "write", path = "./" },

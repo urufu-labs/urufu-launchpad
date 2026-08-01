@@ -169,7 +169,7 @@ export default function CatalogPage() {
             color: 'var(--anchor)',
           }}
         >
-          <b>◐ not deployed on {CHAIN_LABELS[chainKey]}</b> ~ addresses fill in after DeployPhase1
+          <b>◐ not deployed on {CHAIN_LABELS[chainKey]}</b> ~ addresses fill in after Router deploy
           broadcasts. shapes are correct tho.
         </div>
       )}

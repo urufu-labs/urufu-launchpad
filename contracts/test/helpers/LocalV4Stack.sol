@@ -115,18 +115,15 @@ abstract contract LocalV4Stack is Test {
         address hookAddr = address((uint160(0xBEEF) << 144) | MHH_FLAGS);
         deployCodeTo(
             "MultiHookHost.sol:MultiHookHost",
-            abi.encode(IPoolManager(address(poolManager)), address(feeReceiver), admin, uint16(100), uint16(100), admin),
+            abi.encode(
+                IPoolManager(address(poolManager)), address(feeReceiver), admin, uint16(100), uint16(100), admin
+            ),
             hookAddr
         );
         mhh = MultiHookHost(payable(hookAddr));
 
         graduator = new GraduatorV2(
-            IPoolManager(address(poolManager)),
-            IHooks(hookAddr),
-            FEE,
-            TICK_SPACING,
-            address(curveFactory),
-            admin
+            IPoolManager(address(poolManager)), IHooks(hookAddr), FEE, TICK_SPACING, address(curveFactory), admin
         );
 
         vm.prank(admin);
@@ -149,7 +146,7 @@ abstract contract LocalV4Stack is Test {
     /// suites can launch the way a real user does rather than poking
     /// `CurveFactory` directly.
     ///
-    /// @dev Note the live chain runs `RouterV2`, but `RouterV2 is Router` and
+    /// @dev Note the live chain runs `RouterV2`, but `Router is Router` and
     ///      does NOT override `launch()` — a standard ETH launch executes this
     ///      exact code on both. RouterV2's additions (`launchWithURU`,
     ///      `launchWithWhitelist`) are separate entrypoints, out of scope here.

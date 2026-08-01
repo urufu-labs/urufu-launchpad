@@ -15,7 +15,7 @@ import {Router} from "src/router/Router.sol";
 ///         UruBuybackVault) and wires them into a live Phase 1 deployment.
 ///
 ///         Prereqs:
-///           1. `DeployPhase1` broadcast (address book at `deployment.<chainid>.json`)
+///           1. `Router deploy` broadcast (address book at `deployment.<chainid>.json`)
 ///           2. `URU_TOKEN_ADDRESS` + `GEMU_NFT_ADDRESS` env vars set — see
 ///              `docs/references/ecosystem-contracts.md`
 ///
