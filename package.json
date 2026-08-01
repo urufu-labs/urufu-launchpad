@@ -33,7 +33,7 @@
     "contracts:rehearse:combos": "cd contracts && bash rehearse-combos.sh ${CHAIN:-sepolia}",
     "contracts:deploy:registry": "cd contracts && bash deploy.sh NameRegistry ${CHAIN:-robinhood}",
     "contracts:deploy:v4router": "cd contracts && bash deploy.sh V4SwapRouter ${CHAIN:-robinhood}",
-    "contracts:deploy:routerv2": "cd contracts && bash deploy.sh RouterV2 ${CHAIN:-robinhood}",
+    "contracts:deploy:router": "cd contracts && bash deploy.sh Router ${CHAIN:-robinhood}",
     "contracts:deploy:flywheel": "cd contracts && bash deploy.sh Flywheel ${CHAIN:-robinhood}",
     "contracts:configure:flywheel": "cd contracts && bash deploy.sh ConfigureFlywheel ${CHAIN:-robinhood}",
     "contracts:deploy:chunkydefaults": "cd contracts && bash deploy.sh SetChunkyDefaults ${CHAIN:-robinhood}",

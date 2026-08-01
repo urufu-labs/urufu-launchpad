@@ -34,7 +34,7 @@ interface ICurveFactoryOwned {
 
 /// @notice Fork test that runs the RH URU-pay deploy pipeline end-to-end against the
 ///         REAL deployed Robinhood chain state. Proves the deploy sequence
-///           Flywheel → ConfigureFlywheel → DeployRouterV2 → factory rewires
+///           Flywheel → ConfigureFlywheel → DeployRouter → factory rewires
 ///         actually wires up cleanly before we spend real RH gas.
 ///
 ///         What this test does NOT cover (tracked as separate tests):
@@ -134,7 +134,7 @@ contract RhDeployPipelineForkTest is Test {
     }
 
     // -----------------------------------------------------------
-    // Pipeline: mirror of DeployRouterV2.s.sol (sink + Router + factory rewire)
+    // Pipeline: mirror of DeployRouter.s.sol (sink + Router + factory rewire)
     // -----------------------------------------------------------
     function _runDeployRouter() internal {
         vm.startPrank(admin);
