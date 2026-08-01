@@ -81,6 +81,8 @@ V1 should be:
 - Bonding curve only.
 - One public launch path.
 - One current curve factory / graduator / hook stack.
+- Atomic launch support: create, seed, and optional first buy in one
+  transaction.
 - A small, understandable set of v4 hook protections, especially anti-sniping.
 - ETH launch fees first.
 - URU pay only if contract-enforced pricing is fixed.
@@ -100,6 +102,7 @@ Everything else should be moved out of the public path.
 | Robinhood-only chain         | Yes               | Is the product tied to URU / gemu?                                    | Keep. This gives focus.                                                      |
 | ERC-20 base                  | Yes               | Is this the only base the curve/trader loop needs?                    | Keep. Make it the only visible v1 base.                                      |
 | Bonding curve launch         | Yes               | Is this the core deployer/trader mechanic?                            | Keep. Simplify around it.                                                    |
+| Atomic initial buy           | Yes, core         | Can launchers avoid a bot-front-runnable gap after curve creation?    | Add a `launchAndBuy` path, or make initial buy impossible to advertise.      |
 | Uniswap v4 graduation        | Yes, core         | Is v4 integration the actual market differentiator?                   | Keep. Make it the center of v1, with mandatory wiring checks.                |
 | MultiHookHost                | Yes, core         | Can one hook host carry lock, fees, anti-sniping, and burn sanely?    | Keep as the single v1 hook surface. Remove legacy hook choices.              |
 | Anti-sniping hook options    | Yes, scoped       | Can deployers choose protection without unsafe complexity?            | Keep a small preset set: off, standard, strict. Avoid arbitrary knobs first. |
@@ -521,6 +524,7 @@ EventEmitter
 Design rules:
 
 - no duplicated launch sequence;
+- no snipeable gap between curve creation and an advertised creator first buy;
 - no user-supplied event claims;
 - no public curve creation unless explicitly productized;
 - no config-hash mutation without versioning;
@@ -537,6 +541,7 @@ Make the app reflect one v1 product:
 /create
   ERC-20 curve launch only
   ETH pay only until URU is safe
+  optional atomic first buy with slippage protection
   small anti-sniping preset picker
   optional whitelist only if durable
   plain v4 hook explanation
@@ -625,6 +630,8 @@ If the answer to 8 is yes, delete or defer it.
 - Fix or disable URU pay.
 - Decide whether there is one Router or a redesigned v1 Launchpad.
 - Remove duplicated launch paths.
+- Add an atomic launch-and-buy path, or explicitly remove creator-first-buy
+  promises from v1.
 - Make production web builds independent of Google font downloads.
 - Add live wiring checks as a release gate.
 

@@ -299,7 +299,38 @@ forces ERC-20 launches through bonding curves.
 
 ## Problem Areas to Change First
 
-### 1. URU launch pricing is not enforced enough on-chain
+### 1. Launch has no atomic first-buy path
+
+Files:
+
+- `contracts/src/router/Router.sol`
+- `contracts/src/curve/CurveFactory.sol`
+- `contracts/src/curve/BondingCurve.sol`
+- `web/src/app/create/page.tsx`
+
+Problem:
+
+`Router.launch` deploys the token, reserves the name, and installs the bonding
+curve in one transaction. That is good. But any extra ETH is refunded, not used
+as an initial buy, and the first actual purchase happens later through
+`BondingCurve.buy`. If the product advertises a creator/seed first buy, that
+separate transaction creates a bot-front-runnable gap between market creation
+and intended entry.
+
+Change:
+
+- Add an atomic `launchAndBuy` path, or fold `initialBuyEth` and
+  `minTokensOut` into the redesigned v1 launch request.
+- Ensure the router creates/seeds the curve, executes the buy, and sends tokens
+  to the configured recipient before returning.
+- Account for the current `BondingCurve.buy` recipient behavior: it pays
+  `msg.sender`, so the implementation likely needs `buyFor(recipient)` or a
+  router-forward path that still respects token module restrictions.
+- Keep the current refund behavior for plain launches where `initialBuyEth = 0`.
+- Add tests proving no external transaction can observe a curve before the
+  router-executed first buy in the same launch transaction.
+
+### 2. URU launch pricing is not enforced enough on-chain
 
 Files:
 
@@ -321,7 +352,7 @@ Change:
 - Longer term, require a signed quote, TWAP oracle, or other contract-verifiable
   pricing rule tied to the ETH fee.
 
-### 2. Launch gate and production build need to be made real
+### 3. Launch gate and production build need to be made real
 
 Files:
 
@@ -342,7 +373,7 @@ Change:
 - Self-host or vendor the fonts used in `layout.tsx`.
 - Make `pnpm --filter web build` pass in a clean environment before release.
 
-### 3. Config hash immutability is overstated
+### 4. Config hash immutability is overstated
 
 Files:
 
@@ -364,7 +395,7 @@ Change:
 - If rotation remains, expose implementation history and codehash in the UI.
 - Update docs to stop claiming strict immutability.
 
-### 4. Direct curve creation can bypass Router compatibility policy
+### 5. Direct curve creation can bypass Router compatibility policy
 
 Files:
 
@@ -386,7 +417,7 @@ Change:
   received amounts.
 - Add tests with a fee-on-transfer token against direct `CurveFactory` paths.
 
-### 5. Discounts are claimed in product copy but not live
+### 6. Discounts are claimed in product copy but not live
 
 Files:
 
@@ -406,7 +437,7 @@ Change:
 - Add an operational wiring check that fails if discounts are advertised but
   `loyaltyOracle == address(0)`.
 
-### 6. Docs and README overpromise the current product
+### 7. Docs and README overpromise the current product
 
 Files:
 
@@ -430,7 +461,7 @@ Change:
 - Keep `docs/NFT-ACTIVATION.md` as the source of truth for unlocking NFT / 1155.
 - Update security posture with current test counts and known full-suite caveats.
 
-### 7. UI fee and risk copy should be calmer and more exact
+### 8. UI fee and risk copy should be calmer and more exact
 
 Files:
 
@@ -452,7 +483,7 @@ Change:
   fee routes, LP lock, and irreversible transactions.
 - Read fee bps from contracts where possible instead of hardcoding economics.
 
-### 8. URU sink deposit analytics miss direct RouterV2 payments
+### 9. URU sink deposit analytics miss direct RouterV2 payments
 
 Files:
 
@@ -472,7 +503,7 @@ Change:
   that logs launch deposits.
 - Update the indexer to account for both explicit deposits and launch payments.
 
-### 9. `installedHook` and `installedGovernance` are event truth, not protocol truth
+### 10. `installedHook` and `installedGovernance` are event truth, not protocol truth
 
 Files:
 

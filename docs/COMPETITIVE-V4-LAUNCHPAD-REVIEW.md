@@ -41,6 +41,7 @@ into a v4 pool whose behavior you understand."
 | Bankr                 | Agent/social token launching, Robinhood/Base support, v4 pools, creator rewards, API integration                                                  | Distribution and launch surface matter. A better contract architecture alone will not win if launches are invisible.                        |
 | Pons                  | Robinhood launchpad included in Uniswap Launches; press-reported V2 points at v4 hooks, ETH bonding curves, ETH creator payouts, and custom pairs | This may overlap our exact curve-to-v4 path. We need a sharper reason to exist than "bonding curve then v4."                                |
 | Long.xyz              | Uniswap Launches integration and time/epoch-style launch metadata through Mobula integration docs                                                 | Calendar/epoch launches may be easier for users to understand than reserve-triggered graduation.                                            |
+| Hyde.fun              | Robinhood v4 launchpad team publicly emphasizes atomic create + seed + first buy                                                                  | Anti-sniping is not only a hook problem. We need to remove the launch-to-first-buy transaction gap.                                         |
 | Doppler / Uniswap CCA | v4 hook-based auction and price discovery, anti-snipe/anti-MEV framing, no separate migration in Uniswap's launchpad docs                         | Serious builders will compare us to CCA-style launches, not only meme launchpads.                                                           |
 
 ## Programmable
@@ -220,6 +221,34 @@ as time-bounded launch epochs. Urufu's reserve-triggered curve graduation may
 be a better market mechanic, but it is not automatically simpler. We need the
 UI to explain graduation state as plainly as a countdown.
 
+## Hyde.fun And Atomic Launches
+
+Hyde.fun's public note is worth treating as a design requirement, not just a
+tweet. Their point: one common snipe vector is the gap between token/market
+creation and the deployer's first buy. If those are separate transactions, bots
+can observe the newly created market and insert before the intended buyer.
+
+The mechanical fix is atomic launch:
+
+```text
+one transaction:
+  create token
+  seed curve or pool
+  execute first buy
+```
+
+No external transaction can land between internal calls in the same transaction,
+so there is no mempool gap to front-run. This does not prevent backruns after
+the launch transaction lands, and it does not replace post-launch hook
+protections. It covers a different surface: the moment before the first real
+trade.
+
+This maps directly to urufu. Current Router logic deploys the token and installs
+the bonding curve in one transaction, but surplus ETH is refunded and the first
+actual curve buy is a separate `BondingCurve.buy()` call. If v1 advertises a
+creator first buy or seed buy, that buy should be part of the launch call with a
+minimum output check.
+
 ## Doppler And Uniswap CCA
 
 This is the architectural comparison that matters most.
@@ -287,6 +316,7 @@ V1 needs an integration posture:
 - ERC-20 only.
 - ETH payment first.
 - Bonding curve only if we can explain why it beats direct v4 launch.
+- Atomic create + seed + optional first buy, with slippage protection.
 - V4 hook from the beginning of the product story.
 - Locked post-graduation liquidity.
 - Three deployer-facing protection presets: off, standard, strict.
@@ -296,7 +326,8 @@ V1 needs an integration posture:
 
 ### Should have
 
-- Initial buy policy that is explicit and enforced, if included.
+- Initial buy policy that is explicit about recipient, amount, slippage, and
+  whether the buy is protected by atomic launch.
 - Whitelist or allowlist only as part of the strict protection preset.
 - A launch card that previews supply, allocation, fees, protections, lock, and
   graduation rules before signing.
@@ -369,7 +400,25 @@ struct LaunchPayment {
 URU can exist later as a payment mode. It should not create another launch
 surface.
 
-### 3. Make hook policy a product object
+### 3. Remove the token-create-to-first-buy gap
+
+The current urufu Router creates the token and curve atomically, but it refunds
+extra ETH instead of using it for a first buy. That means an advertised deployer
+entry can only happen in a later transaction.
+
+V1 should either:
+
+- support `launchAndBuy`, where `msg.value = launchFee + initialBuyEth`, the
+  router creates the curve, executes the buy through a recipient-aware curve
+  path or safe router-forward step, enforces `minTokensOut`, and sends tokens to
+  the configured recipient; or
+- stop advertising creator first buys as a protected launch feature.
+
+This is separate from hook-based anti-sniping. Atomic launch removes the
+pre-first-buy insertion point. Hook policy manages trades after the curve or v4
+pool exists.
+
+### 4. Make hook policy a product object
 
 `MultiHookHost` should not be invisible plumbing. It should be represented as a
 small immutable launch policy:
@@ -386,7 +435,7 @@ small immutable launch policy:
 Every UI and indexer surface should render the same policy. No hidden launch
 rules.
 
-### 4. Cover both launch moments
+### 5. Cover both launch moments
 
 If we keep curve-to-v4, there are two places snipers care about:
 
@@ -397,7 +446,7 @@ Only protecting post-graduation v4 swaps is not enough. Either the curve needs
 its own launch protection, or the product copy must be honest that protection
 starts at v4 graduation.
 
-### 5. Optimize for aggregator compatibility
+### 6. Optimize for aggregator compatibility
 
 The launchpad should emit and index events that external surfaces can consume:
 
@@ -446,21 +495,24 @@ Those can exist later. They should not define v1.
    the table?
 3. What exact moment does "anti-sniping" protect: first curve buy, first v4
    swap, or both?
-4. Are we willing to make protection presets immutable per launch?
-5. What launch details must every trader see before buying?
-6. What event/API shape would make a launch aggregator want to list us?
-7. Which current repo features would we delete if competitors did not exist?
+4. Should deployers be able to perform an atomic first buy in the launch
+   transaction?
+5. Are we willing to make protection presets immutable per launch?
+6. What launch details must every trader see before buying?
+7. What event/API shape would make a launch aggregator want to list us?
+8. Which current repo features would we delete if competitors did not exist?
 
 ## Recommended Next Moves
 
 1. Freeze the v1 product as protected ERC-20 curve-to-v4 launches, or stop and
    compare against a direct-v4 protected launch design.
 2. Replace Router/RouterV2 with one launch router before launch.
-3. Design the three protection presets as product policy first, then map each
+3. Add atomic launch-and-buy support, or remove any protected first-buy claim.
+4. Design the three protection presets as product policy first, then map each
    to exact contract behavior.
-4. Remove the future product matrix from the public create path.
-5. Add an aggregator-minded event/indexer spec.
-6. Keep URU/gemu economics as phase two unless they are contract-enforced and
+5. Remove the future product matrix from the public create path.
+6. Add an aggregator-minded event/indexer spec.
+7. Keep URU/gemu economics as phase two unless they are contract-enforced and
    easy to explain.
 
 ## Source Links
@@ -493,5 +545,7 @@ Those can exist later. They should not define v1.
   <https://docs.mobula.io/almanac/robinhood-launchpads/pons>
 - Mobula Long.xyz integration docs:
   <https://docs.mobula.io/almanac/robinhood-launchpads/longxyz>
+- Hyde.fun atomic launch note:
+  <https://x.com/hydefunX/status/2083402010217328707>
 - Crypto.news Pons V2 report:
   <https://crypto.news/robinhood-chain-launchpad-pons-announces-v2-with-uniswap-v4-upgrade/>
