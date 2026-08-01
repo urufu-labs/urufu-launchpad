@@ -5,7 +5,9 @@ import {Test, console2} from "forge-std/Test.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 
 interface ICurveFactoryLookup {
-    function curveFor(address token) external view returns (address);
+    function curveFor(
+        address token
+    ) external view returns (address);
 }
 
 /// Attempts to call `execute` on the LIVE V8 Graduator with an
@@ -19,9 +21,15 @@ contract GraduatorV8AccessCheckForkTest is Test {
 
     function setUp() public {
         string memory rpc;
-        try vm.envString("ROBINHOOD_RPC_URL") returns (string memory r) { rpc = r; } catch {}
+        try vm.envString("ROBINHOOD_RPC_URL") returns (string memory r) {
+            rpc = r;
+        }
+            catch {}
         if (bytes(rpc).length == 0) rpc = "https://rpc.mainnet.chain.robinhood.com";
-        try vm.createSelectFork(rpc) {} catch { vm.skip(true); }
+        try vm.createSelectFork(rpc) {}
+            catch {
+            vm.skip(true);
+        }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
         if (LIVE_GRADUATOR.code.length == 0) vm.skip(true);
     }
@@ -67,15 +75,9 @@ contract GraduatorV8AccessCheckForkTest is Test {
         address realCurve = makeAddr("realCurveAddr");
         vm.deal(attacker, 1 ether);
 
-        vm.mockCall(
-            CURVE_FACTORY,
-            abi.encodeWithSignature("curveFor(address)", fakeToken),
-            abi.encode(realCurve)
-        );
+        vm.mockCall(CURVE_FACTORY, abi.encodeWithSignature("curveFor(address)", fakeToken), abi.encode(realCurve));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(GraduatorV2.Graduator__NotAuthorizedCurve.selector, attacker, realCurve)
-        );
+        vm.expectRevert(abi.encodeWithSelector(GraduatorV2.Graduator__NotAuthorizedCurve.selector, attacker, realCurve));
         vm.prank(attacker);
         GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 1}(fakeToken, 1, 1, 0, 0, address(0));
     }

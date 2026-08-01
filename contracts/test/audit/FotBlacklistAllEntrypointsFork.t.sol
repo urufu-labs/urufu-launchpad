@@ -136,7 +136,10 @@ contract FotBlacklistAllEntrypointsForkTest is Test {
         });
     }
 
-    function _seedUru(address to, uint256 amount) internal {
+    function _seedUru(
+        address to,
+        uint256 amount
+    ) internal {
         // Try `deal` first — works if URU is a standard OZ ERC20 with a
         // balances mapping foundry can locate. If it can't, fall back to
         // stealing from the URU contract itself (or any large holder).
