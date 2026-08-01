@@ -1108,7 +1108,7 @@ function CreatePageContent() {
               <div>
                 <div className="uru-h2" style={{ fontSize: 15 }}>oh no,, contracts arent live on this chain yet ~~</div>
                 <div style={{ fontSize: 12, marginTop: 4, color: 'var(--anchor-soft)' }}>
-                  u can browse everything, but launch stays disabled til DeployPhase1 broadcasts and addresses
+                  u can browse everything, but launch stays disabled til Router deploy broadcasts and addresses
                   land in <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>web/src/lib/config.ts</code>.
                 </div>
               </div>

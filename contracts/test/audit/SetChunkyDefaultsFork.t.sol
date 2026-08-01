@@ -13,7 +13,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SetChunkyDefaults} from "script/SetChunkyDefaults.s.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
+import {Router} from "src/router/Router.sol";
 import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
@@ -76,7 +76,7 @@ contract SetChunkyDefaultsForkTest is Test {
 
     function test_LiveStack_WiringIntact_AllAddressesMatch() public view {
         CurveFactory cf = CurveFactory(CURVE_FACTORY);
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         GraduatorV2 grad = GraduatorV2(payable(GRADUATOR));
         MultiHookHost mhh = MultiHookHost(payable(MULTI_HOOK_HOST));
 
@@ -130,7 +130,7 @@ contract SetChunkyDefaultsForkTest is Test {
         p.installBondingCurve = true;
         p.ownership = OwnershipMode.Renounce;
 
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         uint256 fee = router.quote(p);
         vm.deal(launcher, fee + 1 ether);
         vm.prank(launcher);

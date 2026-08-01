@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {FeeReceiver, IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
@@ -32,7 +31,7 @@ contract MockUruRV2 is ERC20 {
 }
 
 contract RouterV2Test is Test {
-    RouterV2 internal router;
+    Router internal router;
     NameRegistry internal registry;
     FeeReceiver internal feeReceiver;
     UruDepositSink internal uruSink;
@@ -64,7 +63,7 @@ contract RouterV2Test is Test {
         uru = new MockUruRV2();
         uruSink = new UruDepositSink(owner, address(uru), address(feeReceiver), 2 days);
 
-        router = new RouterV2(
+        router = new Router(
             owner,
             registry,
             IFeeReceiver(address(feeReceiver)),
@@ -73,9 +72,7 @@ contract RouterV2Test is Test {
             ERC1155_FEE,
             MODULE_ADD_ON,
             HOOK_ADD_ON,
-            GOV_ADD_ON,
-            address(uru),
-            uruSink
+            GOV_ADD_ON
         );
 
         f20 = new MockFactory();
@@ -86,6 +83,7 @@ contract RouterV2Test is Test {
         f1155.setRouter(address(router));
 
         vm.startPrank(owner);
+        router.setUruConfig(address(uru), address(uruSink));
         router.setFactory(BaseType.ERC20, address(f20));
         router.setFactory(BaseType.ERC721A, address(f721));
         router.setFactory(BaseType.ERC1155, address(f1155));
@@ -136,38 +134,18 @@ contract RouterV2Test is Test {
         assertEq(router.fees(BaseType.ERC20), ERC20_FEE);
     }
 
-    function test_Constructor_RevertsOnZeroURU() public {
-        vm.expectRevert(RouterV2.RouterV2__ZeroAddress.selector);
-        new RouterV2(
-            owner,
-            registry,
-            IFeeReceiver(address(feeReceiver)),
-            ERC20_FEE,
-            NFT_FEE,
-            ERC1155_FEE,
-            MODULE_ADD_ON,
-            HOOK_ADD_ON,
-            GOV_ADD_ON,
-            address(0),
-            uruSink
-        );
+    function test_SetUruConfig_RevertsOnZeroURU() public {
+        // Post-flatten, URU wiring is set via setUruConfig (previously done
+        // in the RouterV2 shim's constructor). Same zero-check applies.
+        vm.expectRevert(Router.Router__ZeroAddress.selector);
+        vm.prank(owner);
+        router.setUruConfig(address(0), address(uruSink));
     }
 
-    function test_Constructor_RevertsOnZeroSink() public {
-        vm.expectRevert(RouterV2.RouterV2__ZeroAddress.selector);
-        new RouterV2(
-            owner,
-            registry,
-            IFeeReceiver(address(feeReceiver)),
-            ERC20_FEE,
-            NFT_FEE,
-            ERC1155_FEE,
-            MODULE_ADD_ON,
-            HOOK_ADD_ON,
-            GOV_ADD_ON,
-            address(uru),
-            UruDepositSink(payable(address(0)))
-        );
+    function test_SetUruConfig_RevertsOnZeroSink() public {
+        vm.expectRevert(Router.Router__ZeroAddress.selector);
+        vm.prank(owner);
+        router.setUruConfig(address(uru), address(0));
     }
 
     // =========================================================
@@ -211,7 +189,7 @@ contract RouterV2Test is Test {
         // We can't easily predict `token` before the call, so match on the launchedBy
         // topic + non-indexed uruPaid amount and let token slot through.
         vm.expectEmit(false, true, false, true, address(router));
-        emit RouterV2.LaunchedInURU(address(0), launcher, URU_FEE_AMOUNT);
+        emit Router.LaunchedInURU(address(0), launcher, URU_FEE_AMOUNT);
 
         router.launchWithURU(p, URU_FEE_AMOUNT);
         vm.stopPrank();
@@ -232,7 +210,7 @@ contract RouterV2Test is Test {
 
     function test_LaunchWithURU_RevertsOnZeroURU() public {
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
-        vm.expectRevert(RouterV2.RouterV2__ZeroURU.selector);
+        vm.expectRevert(Router.Router__ZeroURU.selector);
         vm.prank(launcher);
         router.launchWithURU(p, 0);
     }
@@ -250,8 +228,8 @@ contract RouterV2Test is Test {
         // Wipe the ERC20 factory (setFactory to non-zero only — use a fresh factory
         // then reset via a workaround: the guard is `factory == address(0)`, and
         // setFactory rejects zero. Simulate by launching a base with no factory set.)
-        // Simpler: unset ERC1155 factory via a fresh RouterV2 that doesn't wire it.
-        RouterV2 bare = new RouterV2(
+        // Simpler: unset ERC1155 factory via a fresh Router that doesn't wire it.
+        Router bare = new Router(
             owner,
             registry,
             IFeeReceiver(address(feeReceiver)),
@@ -260,10 +238,10 @@ contract RouterV2Test is Test {
             ERC1155_FEE,
             MODULE_ADD_ON,
             HOOK_ADD_ON,
-            GOV_ADD_ON,
-            address(uru),
-            uruSink
+            GOV_ADD_ON
         );
+        vm.prank(owner);
+        bare.setUruConfig(address(uru), address(uruSink));
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
         vm.startPrank(launcher);
         uru.approve(address(bare), URU_FEE_AMOUNT);

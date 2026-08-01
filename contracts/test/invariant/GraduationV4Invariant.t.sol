@@ -51,7 +51,7 @@ contract GraduationHandler is LocalV4Stack {
         actors.push(makeAddr("g-bob"));
         actors.push(makeAddr("g-carol"));
         for (uint256 i; i < actors.length; ++i) {
-            vm.deal(actors[i], 1_000 ether);
+            vm.deal(actors[i], 1000 ether);
         }
         _launch();
     }
@@ -66,9 +66,8 @@ contract GraduationHandler is LocalV4Stack {
     /// just the curve in isolation.
     function _launch() internal {
         uint256 n = tokens.length;
-        (address t, BondingCurve c) = _launchViaRouter(
-            string.concat("Inv", vm.toString(n)), string.concat("INV", vm.toString(n)), actors[0]
-        );
+        (address t, BondingCurve c) =
+            _launchViaRouter(string.concat("Inv", vm.toString(n)), string.concat("INV", vm.toString(n)), actors[0]);
         tokens.push(t);
         curves.push(address(c));
         launchCount++;

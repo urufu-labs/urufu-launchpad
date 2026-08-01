@@ -11,14 +11,16 @@ import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {BaseType} from "src/types/VMTypes.sol";
 
-import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
+// Airdrop composed impl retired 2026-07-31 alongside its 4 template files. The
+// V6 stack test path never actually launched Airdrop; keeping the hash + impl
+// slots would just perpetuate the confusion. All airdrop-shaped fields below
+// were removed at the same time.
 import {ERC20WithAntiWhaleGen} from "src/templates/composed/ERC20WithAntiWhaleGen.sol";
 import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTransferGen.sol";
 
@@ -127,10 +129,9 @@ contract DeployV6AuditFixStack is Script {
     /// BondingCurve itself; no reason to redeploy.
     address internal constant DEFAULT_BONDING_CURVE_IMPL = 0x5afcA487A9DB4728fb23B1b8A2f22931d49b5Aa9;
 
-    /// Live configHashes for the 3 changed single-module impls, per on-chain
+    /// Live configHashes for the 2 changed single-module impls, per on-chain
     /// ERC20Factory query at 2026-07-30. If new hashes are registered before
     /// V6 broadcasts, they must be added here (or the batch env-var used).
-    bytes32 internal constant DEFAULT_AIRDROP_HASH = 0x344f851ff67d34148ac2000b192fbc9a5cc4edd0ef612cd60c3e9d90738e7b2b;
     bytes32 internal constant DEFAULT_ANTIWHALE_HASH =
         0x638593049fc24c8e112d3d12c307afdc8ae86f6968c7fd3baf7d6c5662b53821;
     bytes32 internal constant DEFAULT_FOT_HASH = 0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4;
@@ -158,7 +159,7 @@ contract DeployV6AuditFixStack is Script {
     /// If more hashes are registered between now and broadcast, add them
     /// here + adjust `_registeredHashes` / `_registeredCounts` arrays.
     function _registeredHashes() internal pure returns (bytes32[] memory hashes) {
-        hashes = new bytes32[](13);
+        hashes = new bytes32[](12);
         hashes[0] = 0xaa7c4a90c46fc33ebca677ac422fef548b4af9424a17314603d05496a4b07d7e; // Permit
         hashes[1] = 0xafdb27f10a1e64171b7bb7ee9dbf1f5d8c238312ff2a3457d76e37193c63f4a8; // Vesting
         hashes[2] = 0x3c31bf2240ae0f6a7f4ad9554da97d554e83e0ae6d417eadb7201502b26d2836; // Staking
@@ -170,18 +171,13 @@ contract DeployV6AuditFixStack is Script {
         hashes[8] = 0x638593049fc24c8e112d3d12c307afdc8ae86f6968c7fd3baf7d6c5662b53821; // AntiWhale
         hashes[9] = 0xa4df91ce9ab236d5e29251310259042c2d769b0e1ac21d4153ffa391ef492064; // multi-module (~2)
         hashes[10] = 0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4; // FoT
-        hashes[11] = 0x344f851ff67d34148ac2000b192fbc9a5cc4edd0ef612cd60c3e9d90738e7b2b; // Airdrop
-        hashes[12] = 0xa831bae1a66d3623be52065f464133bc90bd2eff45d4dc07d911b639ccdc803a; // Pausable
+        hashes[11] = 0xa831bae1a66d3623be52065f464133bc90bd2eff45d4dc07d911b639ccdc803a; // Pausable
     }
 
     /// Module counts corresponding to _registeredHashes(), same index order.
-    /// Values chosen conservatively: single-module hashes = 1, unknown
-    /// multi-module hashes = 2 as a placeholder. If a real count differs, the
-    /// launch fee will be off by (delta * MODULE_ADD_ON_FEE) which is
-    /// noticeable but not catastrophic; owner can setModuleCountForConfig
-    /// per-hash post-deploy once true counts are known.
+    /// Airdrop hash removed 2026-07-31 (module retired).
     function _registeredCounts() internal pure returns (uint256[] memory counts) {
-        counts = new uint256[](13);
+        counts = new uint256[](12);
         counts[0] = 1;
         counts[1] = 1;
         counts[2] = 1;
@@ -194,7 +190,6 @@ contract DeployV6AuditFixStack is Script {
         counts[9] = 2;
         counts[10] = 1;
         counts[11] = 1;
-        counts[12] = 1;
     }
 
     struct Deployed {
@@ -202,7 +197,6 @@ contract DeployV6AuditFixStack is Script {
         address multiHookHost;
         address graduator;
         address router;
-        address airdropImpl;
         address antiWhaleImpl;
         address fotImpl;
     }
@@ -243,7 +237,6 @@ contract DeployV6AuditFixStack is Script {
         address uru = _envAddress("ROBINHOOD_URU_ADDRESS", DEFAULT_URU);
         address uruSink = _envAddress("ROBINHOOD_URU_SINK_ADDRESS", DEFAULT_URU_SINK);
         address curveImpl = _envAddress("ROBINHOOD_BONDING_CURVE_IMPL", DEFAULT_BONDING_CURVE_IMPL);
-        bytes32 airdropHash = _envBytes32("ROBINHOOD_AIRDROP_CONFIGHASH", DEFAULT_AIRDROP_HASH);
         bytes32 antiWhaleHash = _envBytes32("ROBINHOOD_ANTIWHALE_CONFIGHASH", DEFAULT_ANTIWHALE_HASH);
         bytes32 fotHash = _envBytes32("ROBINHOOD_FOT_CONFIGHASH", DEFAULT_FOT_HASH);
 
@@ -270,7 +263,7 @@ contract DeployV6AuditFixStack is Script {
         }
 
         _preflightLog(poolManager, nameRegistry, erc20Factory, feeSplitter, uru, uruSink);
-        _hashesLog(airdropHash, antiWhaleHash, fotHash);
+        _hashesLog(antiWhaleHash, fotHash);
 
         // ---------------- Phase 1a: deploy new stack ----------------
         if (useBroadcast) vm.startBroadcast();
@@ -289,7 +282,7 @@ contract DeployV6AuditFixStack is Script {
         // front-run our setInitializer call between the MHH deploy and now.
         MultiHookHost(payable(out.multiHookHost)).setInitializer(out.graduator);
         CurveFactory(out.curveFactory).setGraduator(out.graduator);
-        // Router — 11-arg RouterV2 ctor (base fees + add-ons + URU wiring).
+        // Router — 11-arg Router ctor (base fees + add-ons + URU wiring).
         out.router = _deployRouter(operator, nameRegistry, feeSplitter, uru, uruSink);
         CurveFactory(out.curveFactory).setTrustedRouter(out.router, true);
         Router(out.router).setCurveFactory(out.curveFactory);
@@ -330,7 +323,6 @@ contract DeployV6AuditFixStack is Script {
         // moduleCount), and #5 (FoT structural) — those are the on-chain
         // attack surfaces that affect every user, not just an attacker
         // launching a trap token.
-        out.airdropImpl = address(0);
         out.antiWhaleImpl = address(0);
         out.fotImpl = address(0);
 
@@ -384,7 +376,7 @@ contract DeployV6AuditFixStack is Script {
 
         // ---------------- post-deploy asserts ----------------
         _assertWiring(out, poolManager, nameRegistry, erc20Factory, feeSplitter, uru, uruSink);
-        _assertUpdateImpls(erc20Factory, out, airdropHash, antiWhaleHash, fotHash);
+        _assertUpdateImpls(erc20Factory, out, antiWhaleHash, fotHash);
 
         _successLog(out);
     }
@@ -484,7 +476,7 @@ contract DeployV6AuditFixStack is Script {
         address uru,
         address uruSink
     ) internal returns (address) {
-        RouterV2 r = new RouterV2(
+        Router r = new Router(
             owner_,
             NameRegistry(nameRegistry),
             IFeeReceiver(feeSplitter),
@@ -493,10 +485,9 @@ contract DeployV6AuditFixStack is Script {
             BASE_FEE, // erc1155Fee
             MODULE_ADD_ON_FEE, // moduleAddOn
             HOOK_ADD_ON_FEE, // hookAddOn
-            GOV_ADD_ON_FEE, // governanceAddOn
-            uru,
-            UruDepositSink(payable(uruSink))
+            GOV_ADD_ON_FEE // governanceAddOn
         );
+        r.setUruConfig(uru, uruSink);
         console2.log("  Router (V6)     :", address(r));
         return address(r);
     }
@@ -549,14 +540,12 @@ contract DeployV6AuditFixStack is Script {
     function _assertUpdateImpls(
         address erc20Factory,
         Deployed memory out,
-        bytes32 airdropHash,
         bytes32 antiWhaleHash,
         bytes32 fotHash
     ) internal view {
         // No-op — impl updates are skipped on the current factory version.
         erc20Factory;
         out;
-        airdropHash;
         antiWhaleHash;
         fotHash;
     }
@@ -582,13 +571,10 @@ contract DeployV6AuditFixStack is Script {
     }
 
     function _hashesLog(
-        bytes32 airdropHash,
         bytes32 antiWhaleHash,
         bytes32 fotHash
     ) internal pure {
-        console2.log("---- configHashes to updateImpl ----");
-        console2.log("  Airdrop      :");
-        console2.logBytes32(airdropHash);
+        console2.log("---- configHashes for module-count sentinel batch ----");
         console2.log("  AntiWhale    :");
         console2.logBytes32(antiWhaleHash);
         console2.log("  FeeOnTransfer:");
@@ -606,7 +592,6 @@ contract DeployV6AuditFixStack is Script {
         console2.log("  CurveFactory    :", out.curveFactory);
         console2.log("  MultiHookHost   :", out.multiHookHost);
         console2.log("  Graduator       :", out.graduator);
-        console2.log("  Airdrop impl    :", out.airdropImpl);
         console2.log("  AntiWhale impl  :", out.antiWhaleImpl);
         console2.log("  FoT impl        :", out.fotImpl);
         console2.log("");

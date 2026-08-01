@@ -97,7 +97,7 @@ contract UruDepositSinkTest is Test {
     }
 
     function test_ExecuteConversion_HappyPath() public {
-        // Push 1000 URU into the sink (as if RouterV2 did it via transferFrom).
+        // Push 1000 URU into the sink (as if Router did it via transferFrom).
         uru.mint(address(sink), 1000e18);
 
         vm.prank(owner);

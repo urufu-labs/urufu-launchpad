@@ -4,9 +4,11 @@ pragma solidity 0.8.26;
 import {Test, console2} from "forge-std/Test.sol";
 
 import {CurveFactory} from "src/curve/CurveFactory.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
+import {Router} from "src/router/Router.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
+import {LoyaltyOracle} from "src/flywheel/LoyaltyOracle.sol";
+import {RoyaltyRouterFactory} from "src/flywheel/RoyaltyRouterFactory.sol";
 
 /// @title  RhLiveStackSnapshot
 /// @notice The anti-staleness fence. Runs on every `forge test` and fails
@@ -51,6 +53,11 @@ contract RhLiveStackSnapshotTest is Test {
     address internal constant FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;
     address internal constant V4_SWAP_ROUTER = 0x2E4cd43C07879f52422B3e83F00Be877eFD88738;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
+    address internal constant LOYALTY_ORACLE = 0xd13A1fb6d9c209B56044464269fce66Ed417AC2E;
+    address internal constant ROYALTY_ROUTER_FACTORY = 0x6309D5EcBbE9E2093D5b0f08AD86dDDa6988dB05;
+    // Ecosystem tokens (canonical post-2026-07-25 RH migration).
+    address internal constant URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
+    address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
 
     function setUp() public {
         string memory rpc;
@@ -78,7 +85,7 @@ contract RhLiveStackSnapshotTest is Test {
     }
 
     function test_Snapshot_Router_PointsAtCurveFactoryPin() public view {
-        assertEq(RouterV2(payable(ROUTER_V7)).curveFactory(), CURVE_FACTORY, "Router.curveFactory != pin");
+        assertEq(Router(payable(ROUTER_V7)).curveFactory(), CURVE_FACTORY, "Router.curveFactory != pin");
     }
 
     function test_Snapshot_CurveFactory_TrustsRouterAndPointsAtGraduatorPin() public view {
@@ -99,7 +106,33 @@ contract RhLiveStackSnapshotTest is Test {
 
     function test_Snapshot_Owners_AllMatchDeployer() public view {
         assertEq(CurveFactory(CURVE_FACTORY).owner(), DEPLOYER, "CF.owner != deployer");
-        assertEq(RouterV2(payable(ROUTER_V7)).owner(), DEPLOYER, "Router.owner != deployer");
+        assertEq(Router(payable(ROUTER_V7)).owner(), DEPLOYER, "Router.owner != deployer");
         assertEq(GraduatorV2(payable(GRADUATOR)).owner(), DEPLOYER, "Graduator.owner != deployer");
+        assertEq(LoyaltyOracle(LOYALTY_ORACLE).owner(), DEPLOYER, "LoyaltyOracle.owner != deployer");
+        assertEq(
+            RoyaltyRouterFactory(ROYALTY_ROUTER_FACTORY).owner(), DEPLOYER, "RoyaltyRouterFactory.owner != deployer"
+        );
     }
+
+    /// LoyaltyOracle must point at post-migration RH URU + GEMU. On 2026-08-01 an
+    /// audit caught this pair still holding the pre-migration Base addresses,
+    /// silently zeroing every launch-fee discount. Fail loud if it happens again.
+    function test_Snapshot_LoyaltyOracle_PointsAtCanonicalEcosystemTokens() public view {
+        LoyaltyOracle lo = LoyaltyOracle(LOYALTY_ORACLE);
+        assertEq(lo.uruToken(), URU, "LoyaltyOracle.uruToken != canonical RH URU");
+        assertEq(lo.gemuNft(), GEMU_NFT, "LoyaltyOracle.gemuNft != canonical RH GEMU");
+    }
+
+    /// Router must be wired to the LoyaltyOracle pin. Zero means every launch
+    /// runs at full fee even when the caller qualifies for a discount.
+    function test_Snapshot_Router_WiredToLoyaltyOracle() public view {
+        assertEq(Router(payable(ROUTER_V7)).loyaltyOracle(), LOYALTY_ORACLE, "Router.loyaltyOracle != pin");
+    }
+
+    // NOTE: no `trustedDeployer[Router] == true` assertion on RoyaltyRouterFactory.
+    // Router does not call the royalty factory today (no atomic royalty-router
+    // materialization during launch). Any wallet that owns the freshly launched
+    // collection can call `deployFor` post-launch and pass the owner-based auth
+    // check without Router needing trusted-deployer status. Add this assertion
+    // only if Router is later extended to materialize the clone during launch.
 }

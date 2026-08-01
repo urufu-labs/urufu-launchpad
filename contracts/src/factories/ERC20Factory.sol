@@ -144,29 +144,14 @@ contract ERC20Factory is IVMFactory, Ownable {
         emit ImplRegistered(configHash, impl, msg.sender);
     }
 
-    /// @notice Rotate an already-registered impl in place. Owner-only. Emits the
-    ///         swap for auditability. Existing tokens don't move — they were
-    ///         immutable-cloned from whichever impl was set at their launch time.
-    ///         Only NEW launches through this configHash pick up the new bytecode.
-    ///
-    /// @dev    Introduced so V2 reserve-backed template refactors could roll out
-    ///         without minting a new configHash (and forcing frontend churn). The
-    ///         function is intentionally scoped to "same configHash, new impl" —
-    ///         it does NOT let the owner assign an arbitrary impl to any hash from
-    ///         scratch (that's registerImpl's job, which is one-shot per hash).
-    function updateImpl(
-        bytes32 configHash,
-        address newImpl
-    ) external {
-        if (msg.sender != owner()) revert ERC20Factory__NotOwner();
-        address oldImpl = impls[configHash];
-        if (oldImpl == address(0)) revert ERC20Factory__UnknownConfig(configHash);
-        if (newImpl == address(0)) revert ERC20Factory__ZeroAddress();
-        if (newImpl.code.length == 0) revert ERC20Factory__NotAContract();
-
-        impls[configHash] = newImpl;
-        emit ImplUpdated(configHash, oldImpl, newImpl);
-    }
+    // updateImpl removed 2026-07-31: a configHash MUST commit to its bytecode
+    // for the Router's fail-closed metadata sentinels (moduleCountConfigured /
+    // flagsConfigured) to mean anything. Prior in-place rotation let the owner
+    // swap the impl behind an existing hash while the Router's sentinels kept
+    // reporting the ORIGINAL metadata, silently reopening the config-vs-impl
+    // drift attack. New impl revisions require a fresh configHash + a fresh
+    // registerImpl + a fresh setModuleCountForConfig + setFlagsForConfig set.
+    // Frontend churn is a fair price for the security binding.
 
     // ============================================================
     // Views

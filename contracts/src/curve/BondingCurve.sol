@@ -38,6 +38,15 @@ contract BondingCurve is ReentrancyGuard {
     error BondingCurve__Slippage(uint256 got, uint256 min);
     error BondingCurve__ExceedsSupply(uint256 requested, uint256 available);
     error BondingCurve__ZeroAddress();
+    // NOTE: parameter-sanity checks (fee cap, non-zero reserves, reachable
+    // graduation target) live in CurveFactory.setDefaults / _validateCurveDefaults
+    // only. Mirroring them in _init was tried on 2026-07-31 and broke legitimate
+    // edge-case tests that intentionally construct curves with unreachable
+    // targets to exercise the tokenReserve-exhaustion clamp in buy(). The
+    // production path (Router → CurveFactory) still catches admin errors at
+    // the factory boundary; a curve constructed directly with hostile params
+    // could sit in an unsafe state, but the only way to reach that path is
+    // to bypass the factory entirely, which is outside the trust model.
     /// Public `buy()` called during the whitelist-exclusive window. Only
     /// `buyWithProof` works before `fallbackTs`; after it, `buy()` opens to everyone.
     /// The revert carries the timestamp so the caller knows exactly when to retry.

@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {FeeSplitter} from "src/router/FeeSplitter.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
@@ -50,11 +49,11 @@ interface IERC20Metadata {
 }
 
 /// @notice Fork test that exercises the full whitelisted-curve launch flow through
-///         RouterV2 on Robinhood. Proves the launchWithWhitelist entry actually
+///         Router on Robinhood. Proves the launchWithWhitelist entry actually
 ///         installs a WL curve, that eligible wallets can buy the reserved slice via
 ///         proof, and non-eligible wallets can't drain past the public cap.
 ///
-///         Same pipeline setup as RhUruPayE2eForkTest (Flywheel + RouterV2 + wire
+///         Same pipeline setup as RhUruPayE2eForkTest (Flywheel + Router + wire
 ///         factories + repoint NameRegistry). Adds a live WL launch on top.
 contract RhWhitelistLaunchE2eForkTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
@@ -67,8 +66,8 @@ contract RhWhitelistLaunchE2eForkTest is Test {
     /// The RH-deployed CurveFactory address — kept as reference. This test does NOT
     /// use it because the on-chain factory doesn't have `createCurveWithConfigForWl`.
     /// We deploy a fresh WL-aware CurveFactory (+ fresh BondingCurve impl) in setUp
-    /// and point RouterV2 at that instead. Same pattern will be needed for real RH
-    /// deploy — a DeployCurveFactoryV2 step tracked as a follow-up task.
+    /// and point Router at that instead. Same pattern will be needed for real RH
+    /// deploy — a SetChunkyDefaults step tracked as a follow-up task.
     address internal constant OLD_CURVE_FACTORY = 0xFF0b02818B0d39Bd43019b2ceb2d952C29dD851c;
     /// Existing RH Graduator — WL launches reuse this; hook migration is orthogonal.
     address internal constant RH_GRADUATOR = 0x426294dC9afFEF39033412611433f91f59438Ac9;
@@ -95,7 +94,7 @@ contract RhWhitelistLaunchE2eForkTest is Test {
 
     FeeSplitter internal splitter;
     UruDepositSink internal uruSink;
-    RouterV2 internal routerV2;
+    Router internal routerV2;
     /// Fresh WL-aware CurveFactory — replaces the RH-deployed one for launches through RouterV2.
     CurveFactory internal newCurveFactory;
 
@@ -130,7 +129,7 @@ contract RhWhitelistLaunchE2eForkTest is Test {
 
     /// Deploy a fresh WL-aware CurveFactory + BondingCurve impl. Wires the same
     /// graduator that RH already uses so graduated pools land at the existing
-    /// MultiHookHost. Real deploy needs the equivalent as a DeployCurveFactoryV2
+    /// MultiHookHost. Real deploy needs the equivalent as a SetChunkyDefaults
     /// script (tracked as a follow-up task).
     function _deployNewCurveFactory() internal {
         BondingCurve impl = new BondingCurve();
@@ -156,7 +155,7 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
 
         Router old = Router(payable(OLD_ROUTER));
-        routerV2 = new RouterV2(
+        routerV2 = new Router(
             admin,
             NameRegistry(NAME_REGISTRY),
             IFeeReceiver(address(splitter)),
@@ -165,10 +164,9 @@ contract RhWhitelistLaunchE2eForkTest is Test {
             old.fees(BaseType.ERC1155),
             old.moduleAddOnFee(),
             old.hookAddOnFee(),
-            old.governanceAddOnFee(),
-            URU_TOKEN,
-            uruSink
+            old.governanceAddOnFee()
         );
+        routerV2.setUruConfig(URU_TOKEN, address(uruSink));
         routerV2.setFactory(BaseType.ERC20, ERC20_FACTORY);
         routerV2.setFactory(BaseType.ERC721A, ERC721A_FACTORY);
         routerV2.setFactory(BaseType.ERC1155, ERC1155_FACTORY);
@@ -184,7 +182,7 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         _authorizeOnFactory(ERC20_FACTORY);
         _authorizeOnFactory(ERC721A_FACTORY);
         _authorizeOnFactory(ERC1155_FACTORY);
-        // The fresh factory is admin-owned; add RouterV2 as trusted without pranking.
+        // The fresh factory is admin-owned; add Router as trusted without pranking.
         vm.prank(admin);
         newCurveFactory.setTrustedRouter(address(routerV2), true);
         address regOwner = _ownerOf(NAME_REGISTRY);
@@ -361,7 +359,7 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         // confuse the pairing.
         uint256 fee = routerV2.fees(BaseType.ERC20);
         vm.prank(launcher);
-        vm.expectRevert(RouterV2.RouterV2__WlRequiresBondingCurve.selector);
+        vm.expectRevert(Router.Router__WlRequiresBondingCurve.selector);
         routerV2.launchWithWhitelist{value: fee}(p, wl);
     }
 

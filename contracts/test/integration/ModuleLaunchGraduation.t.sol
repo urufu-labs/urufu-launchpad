@@ -15,7 +15,6 @@ import {ERC20WithPermitGen} from "src/templates/composed/ERC20WithPermitGen.sol"
 import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
 import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
-import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTransferGen.sol";
 import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAntiBotAntiWhaleGen.sol";
 
@@ -231,14 +230,9 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
         _graduateAndSwap(token, curve);
     }
 
-    function test_Airdrop_GraduatesWithReducedCurveSupply() public {
-        bytes32 ch = _register("Airdrop", address(new ERC20WithAirdropGen()), 2);
-        bytes[] memory md = new bytes[](1);
-        md[0] = abi.encode(keccak256("some-merkle-root"), uint256(25_000_000e18));
-        (address token, BondingCurve curve) = _launch(ch, "Airdrop Mod", "ADM", md);
-        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "airdrop did not carve out supply");
-        _graduateAndSwap(token, curve);
-    }
+    // Airdrop test removed 2026-07-31: Airdrop module retired platform-wide (V1
+    // composed impl has an inflation rug). Vesting + Staking above cover the
+    // reserve-backed carve invariant identically.
 
     /// The over-allocation guard: reserve-backed modules may not consume more
     /// than half the intended curve supply, or the curve starves.

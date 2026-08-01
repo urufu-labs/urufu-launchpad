@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
+import {Router} from "src/router/Router.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
@@ -266,10 +266,10 @@ contract GraduatorV2Test is Test {
     }
 
     function _launchBareErc20WithCurve() internal returns (address token, address curveAddr) {
-        // Same pattern as RhV6FullLifecycleForkTest — uses the RouterV2 typed
+        // Same pattern as RhV6FullLifecycleForkTest — uses the Router typed
         // interface + LaunchParams struct so we don't have to hand-encode the
         // tuple. router.quote() picks the correct fee for the base type.
-        RouterV2 router = RouterV2(payable(router));
+        Router r = Router(payable(router));
         uint256 curveSupply = ICurveFactoryLookup(CURVE_FACTORY).defaultCurveSupply();
         LaunchParams memory p;
         p.base = BaseType.ERC20;
@@ -281,10 +281,10 @@ contract GraduatorV2Test is Test {
         p.installBondingCurve = true;
         p.ownership = OwnershipMode.Renounce;
 
-        uint256 launchFee = router.quote(p);
+        uint256 launchFee = r.quote(p);
         vm.deal(launcher, launchFee + 20 ether);
         vm.prank(launcher);
-        token = router.launch{value: launchFee}(p);
+        token = r.launch{value: launchFee}(p);
         require(token != address(0), "token addr is zero");
         curveAddr = ICurveFactoryLookup(CURVE_FACTORY).curveFor(token);
         require(curveAddr != address(0), "no curve for token");

@@ -162,12 +162,7 @@ contract LiquidityRemover {
         (PoolKey memory key, int24 tickLower, int24 tickUpper) = abi.decode(data, (PoolKey, int24, int24));
         pm.modifyLiquidity(
             key,
-            ModifyLiquidityParams({
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                liquidityDelta: -1,
-                salt: bytes32(0)
-            }),
+            ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: -1, salt: bytes32(0)}),
             ""
         );
         return "";

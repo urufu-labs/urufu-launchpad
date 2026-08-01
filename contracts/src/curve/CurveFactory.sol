@@ -36,6 +36,26 @@ contract CurveFactory is Ownable {
     /// combined module allocation at 200M, but a hand-crafted tx bypassing
     /// the UI is still blocked here.
     error CurveFactory__ModulesOverAllocated(uint256 supplyReceived, uint256 minRequired);
+    /// setDefaults validation — one bad admin call would otherwise brick every
+    /// future launch with under/overflow, division-by-zero, or an unreachable
+    /// graduation target. Enforced at the mutable setter AND mirrored in
+    /// BondingCurve._init as defense in depth.
+    error CurveFactory__InvalidTradeFee(uint16 provided, uint16 max);
+    error CurveFactory__InvalidCurveSupply();
+    error CurveFactory__InvalidVirtualTokenReserve();
+    error CurveFactory__InvalidVirtualEthReserve();
+    error CurveFactory__InvalidGraduationTarget();
+    /// `graduationTargetEth` must be strictly less than the maximum ETH the
+    /// curve can accumulate before its token side exhausts. Otherwise buys
+    /// exhaust the token reserve first and `_graduate` never fires — every
+    /// buyer sits stuck in bonding phase with the curve fully drained of
+    /// tokens but ETH short of the target.
+    error CurveFactory__UnreachableGraduationTarget(uint256 target, uint256 maxReachable);
+
+    /// Hard cap on the per-trade fee. 30% is deep into "rug-shaped" territory
+    /// already; anything above is almost certainly an admin typo. Kept as a
+    /// constant for defense-in-depth mirroring in BondingCurve._init.
+    uint16 public constant MAX_TRADE_FEE_BPS = 3000;
 
     event CurveCreated(address indexed token, address indexed curve, address indexed launcher);
     event DefaultsSet(
@@ -98,12 +118,47 @@ contract CurveFactory is Ownable {
         uint256 graduationTargetEth_,
         uint16 tradeFeeBps_
     ) external onlyOwner {
+        _validateCurveDefaults(
+            curveSupply_, virtualTokenReserve_, virtualEthReserve_, graduationTargetEth_, tradeFeeBps_
+        );
         defaultCurveSupply = curveSupply_;
         defaultVirtualTokenReserve = virtualTokenReserve_;
         defaultVirtualEthReserve = virtualEthReserve_;
         defaultGraduationTargetEth = graduationTargetEth_;
         defaultTradeFeeBps = tradeFeeBps_;
         emit DefaultsSet(curveSupply_, virtualTokenReserve_, virtualEthReserve_, graduationTargetEth_, tradeFeeBps_);
+    }
+
+    /// Shared validation for both `setDefaults` and any future per-curve override
+    /// path. Enforces: non-zero supply + reserves, fee within cap, and — the one
+    /// that actually catches admin typos — that the graduation target is
+    /// mathematically reachable given the virtual-reserve shape. Without the
+    /// reachability check, `graduationTargetEth = 1_000_000 ether` with the
+    /// current chunky defaults would let buyers drain the whole token side
+    /// while ethReserve was still short of the target, stranding the curve
+    /// forever.
+    function _validateCurveDefaults(
+        uint256 curveSupply_,
+        uint256 virtualTokenReserve_,
+        uint256 virtualEthReserve_,
+        uint256 graduationTargetEth_,
+        uint16 tradeFeeBps_
+    ) internal pure {
+        if (tradeFeeBps_ > MAX_TRADE_FEE_BPS) {
+            revert CurveFactory__InvalidTradeFee(tradeFeeBps_, MAX_TRADE_FEE_BPS);
+        }
+        if (curveSupply_ == 0) revert CurveFactory__InvalidCurveSupply();
+        if (virtualTokenReserve_ == 0) revert CurveFactory__InvalidVirtualTokenReserve();
+        if (virtualEthReserve_ == 0) revert CurveFactory__InvalidVirtualEthReserve();
+        if (graduationTargetEth_ == 0) revert CurveFactory__InvalidGraduationTarget();
+        // Reachability: max ETH the curve can accumulate before its token side
+        // fully drains is `curveSupply * virtualEth / virtualToken`. All values
+        // are ~1e26 max in practice; the intermediate product stays well under
+        // 2^256 (worst realistic case: 1e27 * 1e19 = 1e46, uint256 fits 1.16e77).
+        uint256 maxReachable = (curveSupply_ * virtualEthReserve_) / virtualTokenReserve_;
+        if (graduationTargetEth_ >= maxReachable) {
+            revert CurveFactory__UnreachableGraduationTarget(graduationTargetEth_, maxReachable);
+        }
     }
 
     function setFeeReceiver(

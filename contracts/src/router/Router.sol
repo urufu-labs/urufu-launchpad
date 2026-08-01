@@ -7,6 +7,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
+import {UruDepositSink} from "src/router/UruDepositSink.sol";
+import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 interface ICurveFactoryLike {
@@ -90,12 +92,43 @@ interface IModuleAllowanceSetters {
     ) external;
 }
 
+/// Whitelist-aware CurveFactory entry. Only reached from the WL launch
+/// entrypoints; separate from ICurveFactoryLike so the WL surface stays
+/// scoped to those code paths.
+interface ICurveFactoryWlLike {
+    function createCurveWithConfigForWl(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) external returns (address curve);
+}
+
 /// @title  Router
 /// @notice User-facing entry to the launchpad. Collects the launch fee, dispatches to the correct
 ///         base-type factory, atomically reserves the name in `NameRegistry`, dispatches ownership
 ///         per the launcher's chosen mode, refunds any excess ETH, and emits `Launched`.
 /// @dev    See docs/SPEC-router.md. `nonReentrant` on `launch`; owner is a multisig post-deploy;
 ///         `paused` is flagged as a censorship vector — mitigations documented in the SPEC.
+///
+///         Launch entrypoints (all four flatten into one contract as of 2026-07-31):
+///           - `launch(params)` payable — ETH fee → `feeReceiver`
+///           - `launchWithURU(params, uruAmount)` — pulls URU into `uruSink`, keeper
+///             drains → ETH → `feeReceiver` out of band
+///           - `launchWithWhitelist(params, wl)` payable — ETH-pay + WL-enabled curve
+///           - `launchWithURUAndWhitelist(params, uruAmount, wl)` — URU-pay + WL curve
+///
+///         URU + WL surface is inert until the owner calls `setUruConfig(uru, uruSink)`
+///         post-deploy. Before that the URU entrypoints revert `Router__UruUnconfigured`.
+///         This lets local + unit tests instantiate Router with a 9-arg constructor and
+///         skip URU setup entirely; production deploy calls the setter as one extra tx.
+///
+///         Prior to 2026-07-31 the URU + WL surface lived in a separate `RouterV2`
+///         contract inheriting this one. Auditors kept asking why two files; the answer
+///         (audit ergonomics on the split) never landed. Flattened into a single Router
+///         contract. Any git history on `RouterV2.sol` from before that date is the
+///         old superclass shape.
 contract Router is Ownable, ReentrancyGuard {
     // ============================================================
     // Errors
@@ -126,6 +159,20 @@ contract Router is Ownable, ReentrancyGuard {
     /// curve if the owner had registered the impl on the factory but not
     /// yet called setFlagsForConfig on the Router).
     error Router__FlagsMissing(bytes32 configHash);
+    /// URU-pay entrypoint called before the owner ran `setUruConfig`. Live
+    /// deploy sets URU immediately; tests can construct Router without URU
+    /// and only reach this error if they try to use URU-pay paths without
+    /// wiring up the setter first.
+    error Router__UruUnconfigured();
+    /// URU-pay call with zero amount. Distinct from `Router__InsufficientUru`
+    /// so hand-crafted-tx debugging is unambiguous.
+    error Router__ZeroURU();
+    /// WL variants require `installBondingCurve = true` — there's no curve to
+    /// whitelist otherwise.
+    error Router__WlRequiresBondingCurve();
+    /// URU-pay path — caller didn't approve enough URU to meet the on-chain
+    /// minimum (`minUruFee` with loyalty discount applied).
+    error Router__InsufficientUru(uint256 required, uint256 provided);
 
     // ============================================================
     // Events
@@ -153,6 +200,28 @@ contract Router is Ownable, ReentrancyGuard {
     event CurveIncompatibleConfigHashSet(bytes32 indexed configHash, bool blocked);
     event ModuleCountForConfigSet(bytes32 indexed configHash, uint256 count);
     event FlagsForConfigSet(bytes32 indexed configHash, uint256 flags);
+
+    /// Paired 1:1 with the standard `Launched` event; joins on `token`.
+    /// `Launched.feePaid` is 0 on URU launches — indexers should read
+    /// `uruPaid` from here for those.
+    event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid);
+    event UruConfigSet(address indexed uru, address indexed uruSink);
+    event MinUruFeeSet(uint256 amount);
+
+    /// Emitted alongside `Launched` when a whitelist-enabled curve is
+    /// created. Same launch = same `token` topic across `Launched`,
+    /// `LaunchedInURU` (if URU-paid), and `LaunchedWithWhitelist` (if
+    /// WL-enabled). Indexers stitch on `token`.
+    event LaunchedWithWhitelist(
+        address indexed token,
+        address indexed launchedBy,
+        bytes32 whitelistRoot,
+        uint256 reservedTokens,
+        uint256 maxWlPerAddress,
+        uint64 fallbackTs,
+        address sourceTokenAddress,
+        uint32 sourceChainId
+    );
 
     // ============================================================
     // Immutable state
@@ -212,6 +281,21 @@ contract Router is Ownable, ReentrancyGuard {
     /// that hash becomes launchable.
     mapping(bytes32 => bool) public flagsConfigured;
     uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
+
+    /// URU token + sink for the URU-pay entrypoints. Both start at address(0);
+    /// the owner wires them via `setUruConfig(uru_, uruSink_)` post-deploy.
+    /// Kept mutable rather than immutable so a fresh Router can be deployed
+    /// against a chain that doesn't yet have URU (tests, base chain rollout)
+    /// and still be operational for ETH launches. URU-pay entrypoints guard
+    /// on `address(uru) == 0` and revert `Router__UruUnconfigured`.
+    IERC20Like public uru;
+    UruDepositSink public uruSink;
+    /// Minimum URU (18 decimals) the caller must approve to launch via a URU
+    /// entrypoint. Zero (default) leaves the URU path wide open. Post-deploy
+    /// the owner sets a sensible floor — the frontend already quotes fair
+    /// ETH-equivalent, this is a hand-crafted-tx spam gate. Loyalty discount
+    /// applies to this floor exactly like the ETH path.
+    uint256 public minUruFee;
     /// Belt-and-braces cap that Router locally enforces on any discount returned
     /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
     /// = 80%). If the oracle is ever swapped for a broken impl that returns
@@ -337,6 +421,182 @@ contract Router is Ownable, ReentrancyGuard {
         address launcher
     ) external view returns (uint256) {
         return _quoteFor(params, launcher);
+    }
+
+    /// @notice View for frontends to render the effective URU floor a specific
+    ///         wallet would need. Applies the same loyalty discount as the ETH
+    ///         path so URU quotes reflect the wallet's holdings.
+    function minUruFeeFor(
+        address launcher
+    ) external view returns (uint256) {
+        return _minUruFeeFor(launcher);
+    }
+
+    // ============================================================
+    // URU-pay + whitelisted-curve launch entrypoints
+    // ============================================================
+
+    /// @notice Launch a new token by paying the deploy fee in URU. Caller must
+    ///         have approved this Router for at least `uruAmount` of URU first.
+    ///         Non-payable — attach zero ETH.
+    /// @dev    Mirrors `launch()` — factory dispatch, registry reserve, curve
+    ///         install, ownership dispatch — but the fee leg pulls URU into
+    ///         `uruSink`. Keeper drains sink → ETH → `feeReceiver` out of band.
+    function launchWithURU(
+        LaunchParams calldata params,
+        uint256 uruAmount
+    ) external nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
+        if (uruAmount == 0) revert Router__ZeroURU();
+        // On-chain URU floor with loyalty discount applied — same discount rate
+        // as the ETH path so a holder isn't worse off in URU.
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert Router__InsufficientUru(required, uruAmount);
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        // Interactions.
+        // Pull URU from user directly into the sink — user must have approved THIS Router.
+        // Any excess above the "quoted" ETH-equivalent stays in the sink; the flywheel
+        // just gets slightly more. No per-user refund on the URU path.
+        SafeTransferLib.safeTransferFrom(address(uru), msg.sender, address(uruSink), uruAmount);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        // Same bonding-curve install as parent Router.launch. Router still holds the
+        // curve-supply tokens (as initialRecipient) and can approve the factory.
+        if (params.installBondingCurve) {
+            if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+            if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+            // FoT / rebasing / balance-mutating configs would drift the curve's
+            // arithmetic reserve vs actual balance. Mirror the block that
+            // `launch` has — was missing on this URU-pay path in the V2
+            // superclass, making the blacklist bypassable via hand-crafted calls.
+            if (_isCurveIncompatible(params.configHash)) {
+                revert Router__CurveIncompatibleModule(params.configHash);
+            }
+            uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+            IERC20Like(token).approve(curveFactory, supply);
+            address curve = ICurveFactoryLike(curveFactory)
+                .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
+            emit CurveInstalled(token, curve);
+            _grantCurveModuleAllowances(token, curve);
+        }
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        // Standard Launched event with feePaid = 0 (no ETH), plus paired URU event.
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
+        emit LaunchedInURU(token, msg.sender, uruAmount);
+    }
+
+    /// @notice Launch a new token with a whitelisted bonding curve, paying the
+    ///         launch fee in ETH. Same flow as `launch` but installs the curve
+    ///         via the whitelist-aware factory entry, binding a Merkle root +
+    ///         reserved slice.
+    /// @dev    Requires `params.installBondingCurve = true`.
+    function launchWithWhitelist(
+        LaunchParams calldata params,
+        BondingCurve.WhitelistInit calldata wl
+    ) external payable nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
+
+        uint256 fee = _quoteFor(params, msg.sender);
+        if (msg.value < fee) revert Router__InsufficientFee(fee, msg.value);
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        feeReceiver.receiveFee{value: fee}(msg.sender, params.base);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        // WL curve install — only structural difference from the standard launch flow.
+        if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+        IERC20Like(token).approve(curveFactory, supply);
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
+        emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        uint256 refund = msg.value - fee;
+        if (refund > 0) SafeTransferLib.safeTransferETH(msg.sender, refund);
+
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, fee, params);
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
+    }
+
+    /// @notice URU-pay variant of `launchWithWhitelist`.
+    function launchWithURUAndWhitelist(
+        LaunchParams calldata params,
+        uint256 uruAmount,
+        BondingCurve.WhitelistInit calldata wl
+    ) external nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
+        if (uruAmount == 0) revert Router__ZeroURU();
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert Router__InsufficientUru(required, uruAmount);
+        if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        SafeTransferLib.safeTransferFrom(address(uru), msg.sender, address(uruSink), uruAmount);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+        IERC20Like(token).approve(curveFactory, supply);
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
+        emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
+        emit LaunchedInURU(token, msg.sender, uruAmount);
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
     }
 
     // ============================================================
@@ -467,6 +727,30 @@ contract Router is Ownable, ReentrancyGuard {
         uint256 amount = address(this).balance;
         SafeTransferLib.safeTransferETH(to, amount);
         emit Swept(to, amount);
+    }
+
+    /// @notice Owner wires up URU-pay support. Both `uru_` and `uruSink_` must
+    ///         be non-zero. Callable multiple times if URU or sink ever needs
+    ///         to be rotated (they stay mutable for that reason). Until this
+    ///         is called at least once, every URU entrypoint reverts.
+    function setUruConfig(
+        address uru_,
+        address uruSink_
+    ) external onlyOwner {
+        if (uru_ == address(0) || uruSink_ == address(0)) revert Router__ZeroAddress();
+        uru = IERC20Like(uru_);
+        uruSink = UruDepositSink(payable(uruSink_));
+        emit UruConfigSet(uru_, uruSink_);
+    }
+
+    /// @notice Owner sets the URU-side minimum fee (18 decimals). Applies to
+    ///         both launchWithURU and launchWithURUAndWhitelist. Zero disables
+    ///         the floor.
+    function setMinUruFee(
+        uint256 amount
+    ) external onlyOwner {
+        minUruFee = amount;
+        emit MinUruFeeSet(amount);
     }
 
     // ============================================================
@@ -642,5 +926,56 @@ contract Router is Ownable, ReentrancyGuard {
         address who
     ) internal {
         try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
+    }
+
+    /// URU-side min-fee resolver with the launcher's loyalty discount applied.
+    /// Used by both the on-chain guard (in launchWithURU) and the external view
+    /// (`minUruFeeFor`) that the frontend calls to render quotes.
+    function _minUruFeeFor(
+        address launcher
+    ) internal view returns (uint256) {
+        uint256 floor = minUruFee;
+        if (floor == 0) return 0;
+        uint16 discountBps = _discountBpsFor(launcher);
+        return floor - (floor * discountBps) / 10_000;
+    }
+
+    /// Extracted so all four launch entrypoints emit the same 8-arg `Launched`
+    /// event without every outer function paying the stack cost of inlining.
+    /// The extraction was originally forced by `forge coverage --ir-minimum`'s
+    /// stack-too-deep threshold on the WL entrypoints; keeping it as one
+    /// helper simplifies indexer schemas too (one code path emits it).
+    function _emitLaunched(
+        address token,
+        address launcher,
+        BaseType base,
+        bytes32 nameHash,
+        bytes32 tickerHash,
+        uint256 feePaid,
+        LaunchParams calldata params
+    ) internal {
+        emit Launched(
+            token, launcher, base, nameHash, tickerHash, feePaid, params.installHook, params.installGovernance
+        );
+    }
+
+    /// Extracted from both WL entrypoints for the same stack-too-deep reason
+    /// as `_emitLaunched`. Struct read from calldata; no runtime cost beyond
+    /// the extra JUMP.
+    function _emitLaunchedWithWhitelist(
+        address token,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) internal {
+        emit LaunchedWithWhitelist(
+            token,
+            launcher,
+            wl.root,
+            wl.reservedTokens,
+            wl.maxWlPerAddress,
+            wl.fallbackTs,
+            wl.sourceTokenAddress,
+            wl.sourceChainId
+        );
     }
 }
