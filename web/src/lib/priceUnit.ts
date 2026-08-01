@@ -80,9 +80,13 @@ function writeCachedPrice(usd: number): void {
 /// Uses whatever's in cache immediately (even stale) so a returning user sees dollar
 /// figures right away; refreshes from Coingecko in the background.
 export function useEthUsd(): number | null {
-  const [usd, setUsd] = useState<number | null>(() => readCachedPrice()?.usd ?? null);
+  // Start from the SSR-safe fallback. Reading localStorage in the initial client
+  // render can make labels like "gwei per token" hydrate as "USD per token".
+  const [usd, setUsd] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const initial = readCachedPrice()?.usd ?? null;
+    if (initial !== null) setUsd(initial);
     const load = async () => {
       const cached = readCachedPrice();
       if (cached && Date.now() - cached.at < ETH_USD_TTL_MS) return;
