@@ -12,6 +12,9 @@ product versions. The right move is not to keep patching every evolved surface.
 The right move is to choose a smaller v1, protect the pieces that make it
 special, and delete or quarantine the rest until it has earned its way back.
 
+For the live market comparison behind this conclusion, see
+[`COMPETITIVE-V4-LAUNCHPAD-REVIEW.md`](./COMPETITIVE-V4-LAUNCHPAD-REVIEW.md).
+
 ## Direct Verdict
 
 Do not ship the current product as-is.
