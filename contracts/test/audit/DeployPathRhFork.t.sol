@@ -429,6 +429,78 @@ contract DeployPathRhForkTest is Test {
         p.installBondingCurve = true;
         p.ownership = OwnershipMode.Renounce;
     }
+
+    /// Auditor sub-item: URU-paid launch. Fresh Router's minUruFee is
+    /// MIN_URU_FEE (1000e18) from env — NOT the live-mainnet type(uint256).max
+    /// poison, since each test deploys a FRESH Router locally. Deals URU to
+    /// a launcher, approves, launches. Verifies token created + URU landed
+    /// in UruDepositSink.
+    function test_FreshDeploy_UruPaidLaunchWorks() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("uru-launcher");
+        vm.deal(launcher, 5 ether);
+
+        uint256 uruAmount = MIN_URU_FEE * 2;
+        deal(RH_URU, launcher, uruAmount);
+        assertEq(IERC20Like(RH_URU).balanceOf(launcher), uruAmount, "URU deal failed");
+
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        p.installBondingCurve = false; // simpler URU path — no curve concerns
+        p.initData = ""; // bare, no curve → no init payload needed
+
+        uint256 sinkBefore = IERC20Like(RH_URU).balanceOf(s.uruDepositSink);
+        vm.startPrank(launcher);
+        IERC20Like(RH_URU).approve(s.router, uruAmount);
+        address token = Router(payable(s.router)).launchWithURU(p, uruAmount);
+        vm.stopPrank();
+
+        assertGt(token.code.length, 0, "URU launch didn't deploy a token");
+        assertEq(
+            IERC20Like(RH_URU).balanceOf(s.uruDepositSink) - sinkBefore,
+            uruAmount,
+            "UruDepositSink didn't receive the URU fee"
+        );
+    }
+
+    /// Auditor sub-item: creator/platform fee accrual. After a post-grad
+    /// swap, MHH.afterSwap credits `owed[currency][platform]` +
+    /// `owed[currency][creator]`. Full lifecycle → swap → read both.
+    function test_FreshDeploy_CreatorPlatformFeeAccrues() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("fee-launcher");
+        address trader = makeAddr("fee-trader");
+        vm.deal(launcher, 5 ether);
+
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        uint256 fee = Router(payable(s.router)).quote(p);
+        vm.prank(launcher);
+        address token = Router(payable(s.router)).launch{value: fee}(p);
+        BondingCurve curve = BondingCurve(payable(CurveFactory(s.curveFactory).curveFor(token)));
+
+        uint256 target = curve.graduationTargetEth();
+        vm.deal(trader, target + 5 ether);
+        vm.startPrank(trader);
+        curve.buy{value: (target * 120) / 100}(0);
+        vm.stopPrank();
+        assertTrue(curve.graduated(), "setup: curve did not graduate");
+
+        // Trigger MHH.afterSwap via a v4 swap.
+        PoolKey memory key = _poolKeyFor(token, s.multiHookHost);
+        V4SwapRouter swapper = V4SwapRouter(payable(s.v4SwapRouter));
+        vm.deal(trader, 5 ether);
+        vm.prank(trader);
+        swapper.swapExactETHForToken{value: 1 ether}(key, 0, trader, block.timestamp + 600);
+
+        // Fees accrue in the unspecified currency. For exact-input ETH the
+        // unspec is the token — read owed[token][platform] and
+        // owed[token][creator]. Creator was set by Graduator to the launcher
+        // at pool init (in graduate → setCreator via curve.launcher).
+        MultiHookHost mhh = MultiHookHost(payable(s.multiHookHost));
+        uint256 platformOwed = mhh.owed(Currency.wrap(token), s.feeReceiver);
+        uint256 creatorOwed = mhh.owed(Currency.wrap(token), launcher);
+        assertGt(platformOwed, 0, "platform fee did not accrue on post-grad swap");
+        assertGt(creatorOwed, 0, "creator fee did not accrue on post-grad swap");
+    }
 }
 
 // Minimal unlock-callback harness that tries to remove liquidity from a v4
