@@ -9,4 +9,4 @@
 ///
 /// Removal flow: flip this to `true`, delete web/src/components/NotLiveYet.tsx,
 /// clean up the import + branch in web/src/app/page.tsx + web/src/app/create/page.tsx.
-export const LAUNCHPAD_LIVE = false;
+export const LAUNCHPAD_LIVE = true;
