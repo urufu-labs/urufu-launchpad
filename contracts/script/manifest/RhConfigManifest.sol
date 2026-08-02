@@ -60,21 +60,55 @@ library RhConfigManifest {
     ///
     /// INTENTIONALLY EXCLUDED (do NOT re-add without owner sign-off — these
     /// have a documented security concern):
-    ///   • `keccak256(abi.encode("ERC20", "Airdrop,Vesting"))` — 0x903cca…f3d2
+    ///   • `keccak256(abi.encode("ERC20", "Airdrop"))`         — 0x344f85…7b2b
     ///   • `keccak256(abi.encode("ERC20", "Airdrop,Permit"))`  — 0xa4df91…2064
-    /// Both are Airdrop combos. The Airdrop V1 composed impls were retired
-    /// (`project_airdrop_retired_2026_07_30.md`) because the deployed impls
-    /// contain an inflation-rug bug. `ERC20Factory.registerImpl` is one-shot,
-    /// so those two hashes remain pointed at the rugged impls on the LIVE
-    /// factory today. A hand-crafted launch tx (bypassing the frontend,
-    /// which no longer produces these hashes) can still resolve to the
-    /// rugged impl. Live mitigation is a separate follow-up — see the PR
-    /// description under "additional finding".
+    ///   • `keccak256(abi.encode("ERC20", "Airdrop,Vesting"))` — 0x903cca…f3d2
+    /// All three are Airdrop combos. The Airdrop V1 composed impls were
+    /// retired (`project_airdrop_retired_2026_07_30.md`) because the deployed
+    /// impls contain an inflation-rug bug. `ERC20Factory.registerImpl` is
+    /// one-shot, so these three hashes remain pointed at the rugged impls on
+    /// the LIVE factory today. A hand-crafted launch tx (bypassing the
+    /// frontend, which no longer produces these hashes) could still resolve
+    /// to the rugged impl.
+    ///
+    /// LIVE MITIGATION: all three hashes are exposed via
+    /// `retiredAirdropHashes()` below and MUST be passed to
+    /// `Router.setConfigHashBanned(hash, true)` at every Router deploy /
+    /// rotation. DeployRouter + DeployFreshLocal + ActivateRouter all read
+    /// from that list and the deploy scripts refuse to write an address book
+    /// unless every entry is confirmed banned on the new Router. See PR #1
+    /// audit round 2 v5 for the auditor's rationale.
     ///
     /// When Airdrop V2 ships, register at a NEW configHash (tagged with the
     /// version suffix per `configHashFor` V2 branch); do not reuse the retired
     /// V1 hashes.
     uint256 internal constant COUNT = 10;
+    uint256 internal constant RETIRED_COUNT = 3;
+
+    /// Every configHash that must be BANNED on every Router deploy / rotation.
+    /// Source of truth for `Router.setConfigHashBanned` calls in DeployRouter,
+    /// DeployFreshLocal, ActivateRouter (post-cutover verify), and the
+    /// production-rotation fork test. Do NOT hand-maintain this list anywhere
+    /// else — every consumer must read from here.
+    function retiredAirdropHashes() internal pure returns (bytes32[] memory hashes) {
+        hashes = new bytes32[](RETIRED_COUNT);
+        // Standalone Airdrop (1 module, V1 formula).
+        hashes[0] = 0x344f851ff67d34148ac2000b192fbc9a5cc4edd0ef612cd60c3e9d90738e7b2b;
+        // Airdrop+Permit (V1 formula, sorted alphabetically: "Airdrop,Permit").
+        hashes[1] = 0xa4df91ce9ab236d5e29251310259042c2d769b0e1ac21d4153ffa391ef492064;
+        // Airdrop+Vesting (V1 formula, sorted: "Airdrop,Vesting").
+        hashes[2] = 0x903cca7212ee848c97d09fd3417f909ddbf131965f0b66e4d995d6eb7b49f3d2;
+    }
+
+    /// Human-readable label for each retired hash — used in log lines +
+    /// revert reasons only, not consumed by contract logic. Order MUST match
+    /// `retiredAirdropHashes()`.
+    function retiredAirdropLabels() internal pure returns (string[] memory labels) {
+        labels = new string[](RETIRED_COUNT);
+        labels[0] = "Airdrop";
+        labels[1] = "Airdrop+Permit";
+        labels[2] = "Airdrop+Vesting";
+    }
 
     /// Return the full manifest as a memory array. Order is stable — do not
     /// re-sort. If order ever changes, snapshot tests that pin by index will
