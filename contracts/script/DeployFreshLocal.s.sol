@@ -138,6 +138,13 @@ contract DeployFreshLocal is Script {
     error DeployFresh__PostStateMismatch(string what);
     error DeployFresh__ManifestSeedFailed(bytes32 configHash, string what);
     error DeployFresh__MhhSaltMiningFailed();
+    /// ADMIN env must equal the broadcaster. Every owner-only setter and
+    /// registrar call in this script runs under msg.sender — if ADMIN is a
+    /// different address (e.g. a multisig), those setters revert silently
+    /// under Unauthorized (audit round 2 medium #5). Correct multisig
+    /// handoff pattern: run this script with ADMIN=broadcaster, then run
+    /// `HandoffOwnership.s.sol` from the multisig context after deploy.
+    error DeployFresh__AdminMustEqualBroadcaster(address admin, address broadcaster);
 
     /// Test-context flag flipped by runForTest(). vm.startBroadcast can't be
     /// used inside a forge test — the setter calls between constructor + owner
@@ -233,6 +240,12 @@ contract DeployFreshLocal is Script {
 
         address admin = vm.envOr("ADMIN", msg.sender);
         address treasury = vm.envOr("TREASURY", msg.sender);
+        // Enforce ADMIN == broadcaster (audit round 2 medium #5). All
+        // owner-only setter and registrar calls below run under msg.sender;
+        // any mismatch reverts silently. If a multisig should own the stack,
+        // deploy under a temporary EOA with ADMIN=broadcaster and use
+        // HandoffOwnership.s.sol post-deploy to transfer ownership.
+        if (admin != msg.sender) revert DeployFresh__AdminMustEqualBroadcaster(admin, msg.sender);
         _adminForPrank = admin;
         uint256 uruThreshold = vm.envOr("URU_THRESHOLD", uint256(100_000e18));
         uint16 nftHolderBps = uint16(vm.envOr("NFT_HOLDER_BPS", uint256(2000)));
@@ -292,7 +305,12 @@ contract DeployFreshLocal is Script {
         s.royaltyRouterFactory = address(royaltyFactory);
 
         // ---------------- Phase 2: core ----------------
-        NameRegistry registry = new NameRegistry(admin, treasury, new string[](0));
+        // Seed the canonical reserved-ticker list at construction time. Without
+        // this, the fresh registry lets the first user launch official-looking
+        // symbols (ETH, WETH, USDC, etc.). Audit round 2 medium #6. Matches
+        // the DeployNameRegistry canonical list plus ecosystem tokens URU,
+        // CHIBI, GEMU.
+        NameRegistry registry = new NameRegistry(admin, treasury, _reservedTickers());
         s.nameRegistry = address(registry);
 
         // Router uses FeeSplitter directly as its feeReceiver — no intermediate
@@ -444,6 +462,44 @@ contract DeployFreshLocal is Script {
         _nextSteps(splitterDelay, address(splitter), address(buybackVault), address(nftVault), treasury);
     }
 
+    /// Reserved tickers baked into every fresh NameRegistry. Blocks first-
+    /// user squatting on well-known symbols. Keep this list in sync with
+    /// `DeployNameRegistry._initialReservedTickers()`; when a new symbol
+    /// gets protected in one place, update the other in the same PR.
+    /// The last 3 entries (URU, CHIBI, GEMU) are ecosystem-specific.
+    function _reservedTickers() internal pure returns (string[] memory list) {
+        list = new string[](29);
+        list[0] = "ETH";
+        list[1] = "WETH";
+        list[2] = "USDC";
+        list[3] = "USDT";
+        list[4] = "DAI";
+        list[5] = "WBTC";
+        list[6] = "MATIC";
+        list[7] = "LINK";
+        list[8] = "UNI";
+        list[9] = "AAVE";
+        list[10] = "COMP";
+        list[11] = "MKR";
+        list[12] = "SUSHI";
+        list[13] = "CRV";
+        list[14] = "LDO";
+        list[15] = "PEPE";
+        list[16] = "SHIB";
+        list[17] = "DOGE";
+        list[18] = "BASE";
+        list[19] = "OP";
+        list[20] = "ARB";
+        list[21] = "SOL";
+        list[22] = "BNB";
+        list[23] = "AVAX";
+        list[24] = "NEAR";
+        list[25] = "ATOM";
+        list[26] = "URU";
+        list[27] = "CHIBI";
+        list[28] = "GEMU";
+    }
+
     /// Deploy MultiHookHost via the canonical CREATE2 singleton at
     /// `CREATE2_DEPLOYER`. Explicit call rather than `new X{salt}` sugar so
     /// the deploy path is identical between forge-script broadcast (where
@@ -569,11 +625,40 @@ contract DeployFreshLocal is Script {
         console2.log("  RoyaltyRouterFactory:", s.royaltyRouterFactory);
     }
 
-    /// Writes `deployment-fresh.<chainid>.json`. Legacy consumers (LocalE2E)
-    /// read the small set of top-level keys — router, curveFactory,
-    /// multiHookHost, v4SwapRouter, poolManager — so those key names are
-    /// preserved for backward compatibility.
+    /// Writes FOUR address-book files so every downstream tool (ConfigureFlywheel,
+    /// HandoffOwnership, LocalE2E, frontend/indexer generators) can consume the
+    /// fresh deployment without any format-adapter step. Audit round 2 HIGH #4
+    /// closed by this fan-out.
+    ///
+    ///   deployment-fresh.<chainId>.json     — full 20-field dump for humans
+    ///                                          and the LocalE2E path (which reads
+    ///                                          .router, .curveFactory,
+    ///                                          .multiHookHost, .v4SwapRouter,
+    ///                                          .poolManager keys unchanged).
+    ///   deployment.<chainId>.json           — legacy Phase 1 shape consumed by
+    ///                                          HandoffOwnership: PascalCase keys
+    ///                                          NameRegistry, FeeReceiver, Router,
+    ///                                          ERC20Factory, ERC721AFactory,
+    ///                                          ERC1155Factory, CurveFactory.
+    ///   deployment-flywheel.<chainId>.json  — legacy flywheel shape consumed by
+    ///                                          ConfigureFlywheel + HandoffOwnership:
+    ///                                          FeeSplitter, LoyaltyOracle,
+    ///                                          NftRevenueVault, UruBuybackVault,
+    ///                                          RoyaltyRouterFactory.
+    ///   deployment-routerv2.<chainId>.json  — legacy Router-rotation shape
+    ///                                          consumed by the frontend sync
+    ///                                          path: RouterV2, UruDepositSink,
+    ///                                          FeeSplitter, status=ACTIVE.
     function _write(
+        Stack memory s
+    ) internal {
+        _writeFresh(s);
+        _writeLegacyPhase1(s);
+        _writeLegacyFlywheel(s);
+        _writeLegacyRouterV2(s);
+    }
+
+    function _writeFresh(
         Stack memory s
     ) internal {
         string memory o = "fresh";
@@ -599,6 +684,52 @@ contract DeployFreshLocal is Script {
         vm.serializeAddress(o, "uruToken", s.uruToken);
         string memory json = vm.serializeAddress(o, "gemuNft", s.gemuNft);
         vm.writeJson(json, string.concat("./deployment-fresh.", vm.toString(block.chainid), ".json"));
+    }
+
+    function _writeLegacyPhase1(
+        Stack memory s
+    ) internal {
+        string memory o = "phase1";
+        vm.serializeAddress(o, "NameRegistry", s.nameRegistry);
+        // Router uses FeeSplitter directly as the feeReceiver in the fresh
+        // deploy — the legacy "FeeReceiver" key must point at it so
+        // HandoffOwnership hands off the right contract.
+        vm.serializeAddress(o, "FeeReceiver", s.feeReceiver);
+        vm.serializeAddress(o, "Router", s.router);
+        vm.serializeAddress(o, "ERC20Factory", s.erc20Factory);
+        vm.serializeAddress(o, "ERC721AFactory", s.erc721AFactory);
+        vm.serializeAddress(o, "ERC1155Factory", s.erc1155Factory);
+        string memory json = vm.serializeAddress(o, "CurveFactory", s.curveFactory);
+        vm.writeJson(json, string.concat("./deployment.", vm.toString(block.chainid), ".json"));
+    }
+
+    function _writeLegacyFlywheel(
+        Stack memory s
+    ) internal {
+        string memory o = "fly";
+        vm.serializeAddress(o, "FeeSplitter", s.feeReceiver);
+        vm.serializeAddress(o, "LoyaltyOracle", s.loyaltyOracle);
+        vm.serializeAddress(o, "NftRevenueVault", s.nftRevenueVault);
+        vm.serializeAddress(o, "UruBuybackVault", s.uruBuybackVault);
+        vm.serializeAddress(o, "RoyaltyRouterFactory", s.royaltyRouterFactory);
+        string memory json = vm.serializeAddress(o, "RoyaltyRouterImpl", s.royaltyRouterImpl);
+        vm.writeJson(json, string.concat("./deployment-flywheel.", vm.toString(block.chainid), ".json"));
+    }
+
+    function _writeLegacyRouterV2(
+        Stack memory s
+    ) internal {
+        string memory o = "rv2";
+        vm.serializeUint(o, "chainId", block.chainid);
+        vm.serializeAddress(o, "RouterV2", s.router);
+        vm.serializeAddress(o, "UruDepositSink", s.uruDepositSink);
+        vm.serializeAddress(o, "FeeSplitter", s.feeReceiver);
+        // Fresh deploy = fresh NameRegistry with router set in-broadcast via
+        // setRouter, so we're ACTIVE. (Router rotations that go through
+        // proposeRouter/activateRouter emit PENDING_ACTIVATION via
+        // DeployRouter.s.sol instead.)
+        string memory json = vm.serializeString(o, "status", "ACTIVE");
+        vm.writeJson(json, string.concat("./deployment-routerv2.", vm.toString(block.chainid), ".json"));
     }
 
     function _nextSteps(

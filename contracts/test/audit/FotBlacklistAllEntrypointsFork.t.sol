@@ -100,6 +100,17 @@ contract FotBlacklistAllEntrypointsForkTest is Test {
         if (!router.moduleCountConfigured(BARE_HASH)) {
             router.setModuleCountForConfig(BARE_HASH, 0);
         }
+        // Live minUruFee was raised to type(uint256).max on 2026-08-01 as an
+        // emergency mitigation to disable the URU-launch attack surface
+        // (retired-Airdrop hashes were bypassable via launchWithURU because
+        // that entrypoint doesn't call _quote and so the earlier count-poison
+        // fix didn't reach it — see PR #1 audit round 2 v3). The overflow
+        // makes minUruFeeFor() revert during THIS TEST's setup, so temp-
+        // restore a sane floor for the fork snapshot. Only affects this
+        // test's fork; live state is untouched.
+        if (router.minUruFee() == type(uint256).max) {
+            router.setMinUruFee(1000e18);
+        }
         vm.stopPrank();
     }
 

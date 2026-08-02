@@ -182,6 +182,12 @@ contract Router is Ownable, ReentrancyGuard {
     /// deposits into a sink that can't process the token (would otherwise
     /// silently strand every URU launch fee).
     error Router__UruSinkTokenMismatch(address expectedUru, address sinkUru);
+    /// Launch through a configHash the owner has explicitly banned. Used to
+    /// permanently retire a compromised or obsolete impl at a specific hash
+    /// without needing a Router redeploy. Setter is `setConfigHashBanned`.
+    /// All four launch entrypoints check this bit before any other work, so
+    /// banning a hash reverts ETH, URU, WL, and URU+WL launches uniformly.
+    error Router__ConfigHashBanned(bytes32 configHash);
 
     // ============================================================
     // Events
@@ -216,6 +222,7 @@ contract Router is Ownable, ReentrancyGuard {
     event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid);
     event UruConfigSet(address indexed uru, address indexed uruSink);
     event MinUruFeeSet(uint256 amount);
+    event ConfigHashBanned(bytes32 indexed configHash, bool banned);
 
     /// Emitted alongside `Launched` when a whitelist-enabled curve is
     /// created. Same launch = same `token` topic across `Launched`,
@@ -291,6 +298,19 @@ contract Router is Ownable, ReentrancyGuard {
     mapping(bytes32 => bool) public flagsConfigured;
     uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
 
+    /// Owner-controlled block-list of configHashes that are permanently
+    /// forbidden from launching through this Router — regardless of ETH,
+    /// URU, or whitelist path. Introduced 2026-08-01 after audit round 2
+    /// showed that the earlier count-poison mitigation (setting
+    /// moduleCountForConfig to type(uint256).max) only blocked the ETH
+    /// path (which routes through _quote and overflows). URU + WL paths
+    /// bypass _quote entirely and were still exploitable through retired
+    /// impls whose bytecode remains permanently pinned to the factory
+    /// (registerImpl is one-shot; updateImpl was removed by M-1 audit fix).
+    /// The banning check runs earliest in every launch entrypoint so a
+    /// banned hash cannot deploy under any pricing path.
+    mapping(bytes32 => bool) public bannedConfigHash;
+
     /// URU token + sink for the URU-pay entrypoints. Both start at address(0);
     /// the owner wires them via `setUruConfig(uru_, uruSink_)` post-deploy.
     /// Kept mutable rather than immutable so a fresh Router can be deployed
@@ -358,6 +378,7 @@ contract Router is Ownable, ReentrancyGuard {
         LaunchParams calldata params
     ) external payable nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
 
         uint256 fee = _quoteFor(params, msg.sender);
         if (msg.value < fee) revert Router__InsufficientFee(fee, msg.value);
@@ -456,6 +477,7 @@ contract Router is Ownable, ReentrancyGuard {
         uint256 uruAmount
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
         if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
         if (uruAmount == 0) revert Router__ZeroURU();
         // On-chain URU floor with loyalty discount applied — same discount rate
@@ -519,6 +541,7 @@ contract Router is Ownable, ReentrancyGuard {
         BondingCurve.WhitelistInit calldata wl
     ) external payable nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
         if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
 
         uint256 fee = _quoteFor(params, msg.sender);
@@ -568,6 +591,7 @@ contract Router is Ownable, ReentrancyGuard {
         BondingCurve.WhitelistInit calldata wl
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
         if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
         if (uruAmount == 0) revert Router__ZeroURU();
         uint256 required = _minUruFeeFor(msg.sender);
@@ -758,6 +782,26 @@ contract Router is Ownable, ReentrancyGuard {
         uru = IERC20Like(uru_);
         uruSink = UruDepositSink(payable(uruSink_));
         emit UruConfigSet(uru_, uruSink_);
+    }
+
+    /// @notice Owner permanently bans (or un-bans) a configHash from all four
+    ///         launch entrypoints. Once true, `launch`, `launchWithURU`,
+    ///         `launchWithWhitelist`, and `launchWithURUAndWhitelist` all
+    ///         revert with `Router__ConfigHashBanned(hash)` for that hash.
+    ///
+    ///         Use this to retire a compromised or obsolete impl at a
+    ///         specific hash without redeploying Router. Prior to this
+    ///         mechanism the only options were pausing the whole Router or
+    ///         setting `moduleCountForConfig` to a value that overflows the
+    ///         fee-quote math — the latter only blocked the ETH path (URU
+    ///         and WL bypass `_quote`), which is the exact hole that
+    ///         motivated adding this mapping.
+    function setConfigHashBanned(
+        bytes32 configHash,
+        bool banned
+    ) external onlyOwner {
+        bannedConfigHash[configHash] = banned;
+        emit ConfigHashBanned(configHash, banned);
     }
 
     /// @notice Owner sets the URU-side minimum fee (18 decimals). Applies to

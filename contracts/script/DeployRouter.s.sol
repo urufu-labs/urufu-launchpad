@@ -29,8 +29,15 @@ interface INameRegistryLike {
     function setRouter(
         address newRouter
     ) external;
+    function proposeRouter(
+        address newRouter
+    ) external;
+    function activateRouter() external;
     function router() external view returns (address);
+    function pendingRouter() external view returns (address);
+    function pendingRouterTs() external view returns (uint256);
     function owner() external view returns (address);
+    function MIN_ROUTER_DELAY() external view returns (uint256);
 }
 
 /// @notice Deploys the URU-pay stack on Robinhood: `UruDepositSink` + `RouterV2` pointed
@@ -200,7 +207,7 @@ contract DeployRouter is Script {
         // still points at the old Router; swap it to the new Router or launches
         // through V2 will revert with NameRegistry__NotRouter. Caught by the RH URU
         // pay E2E fork test — do NOT drop this step even if the tests aren't loaded.
-        _authorizeOnNameRegistryStrict(registry, address(routerV2));
+        bool nameRegistryActivated = _authorizeOnNameRegistryStrict(registry, address(routerV2));
 
         // Step 5 (optional): pause the old Router so users can no longer launch through
         // it. Only useful if the broadcaster is still the old-Router owner.
@@ -225,7 +232,7 @@ contract DeployRouter is Script {
             console2.log("  [note] wired to legacy CurveFactory:", curveFactory);
             console2.log("         WL launches will revert until SetChunkyDefaults has been run.");
         }
-        _writeAddressBook(out);
+        _writeAddressBook(out, nameRegistryActivated);
     }
 
     function _authorizeOnFactoryStrict(
@@ -250,14 +257,41 @@ contract DeployRouter is Script {
         console2.log("  [ok] setTrustedRouter on CurveFactory");
     }
 
+    /// NameRegistry rotation: if the current router is address(0) we're a
+    /// greenfield chain and can call setRouter directly (which enforces
+    /// "must be unset first"). If it's already pointed at the OLD Router,
+    /// we're a rotation and must go through the two-phase
+    /// proposeRouter → wait MIN_ROUTER_DELAY (2 days) → activateRouter
+    /// flow. The activation is a follow-up operator broadcast — this
+    /// script only proposes.
+    ///
+    /// The address book emitted by _writeAddressBook flags the deployment
+    /// as PENDING_ACTIVATION whenever this path is taken. Frontend / indexer
+    /// must NOT flip to the new Router until an operator runs
+    /// `contracts/script/ActivateRouter.s.sol` after the delay.
     function _authorizeOnNameRegistryStrict(
         address registry_,
-        address routerV2
-    ) internal {
+        address newRouter
+    ) internal returns (bool activated) {
         INameRegistryLike reg = INameRegistryLike(registry_);
         if (reg.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.setRouter");
-        reg.setRouter(routerV2);
-        console2.log("  [ok] setRouter on NameRegistry");
+        address currentRouter = reg.router();
+        if (currentRouter == address(0)) {
+            // Greenfield: setRouter accepts.
+            reg.setRouter(newRouter);
+            console2.log("  [ok] setRouter on NameRegistry (greenfield)");
+            return true;
+        }
+        // Rotation: setRouter would revert with NameRegistry__RouterAlreadySet.
+        // Propose the new Router; operator activates after MIN_ROUTER_DELAY.
+        // A previous propose that hasn't been activated OR canceled will make
+        // this revert with NameRegistry__PendingRouterExists — a signal that
+        // an earlier rotation is still in flight; halt and diagnose.
+        reg.proposeRouter(newRouter);
+        console2.log("  [ok] proposeRouter on NameRegistry (rotation pending)");
+        console2.log("  [warn] NameRegistry activation is timelock-gated; run ActivateRouter after:");
+        console2.log("         ready-at (unix): ", reg.pendingRouterTs());
+        return false;
     }
 
     /// Seed every canonical configHash's module count + flags on the fresh
@@ -338,16 +372,27 @@ contract DeployRouter is Script {
         console2.log("  3. Frontend cutover: URU/ETH toggle on the create page.");
     }
 
+    /// Emits the address book, marked ACTIVE or PENDING_ACTIVATION depending
+    /// on whether the NameRegistry rotation landed synchronously (greenfield
+    /// setRouter path) or was proposed for later activation (timelock-gated
+    /// proposeRouter path). Frontend + indexer MUST refuse to flip to a
+    /// PENDING_ACTIVATION Router until the operator runs ActivateRouter.
     function _writeAddressBook(
-        Deployed memory out
+        Deployed memory out,
+        bool nameRegistryActivated
     ) internal {
         string memory obj = "routerv2";
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeAddress(obj, "UruDepositSink", out.uruSink);
         vm.serializeAddress(obj, "FeeSplitter", out.feeSplitter);
-        string memory json = vm.serializeAddress(obj, "RouterV2", out.routerV2);
+        vm.serializeAddress(obj, "RouterV2", out.routerV2);
+        string memory json = vm.serializeString(obj, "status", nameRegistryActivated ? "ACTIVE" : "PENDING_ACTIVATION");
         string memory outPath = string.concat("deployment-routerv2.", vm.toString(block.chainid), ".json");
         vm.writeJson(json, outPath);
         console2.log("Address book written:", outPath);
+        if (!nameRegistryActivated) {
+            console2.log("  [status] PENDING_ACTIVATION - do NOT publish this Router in web/indexer configs");
+            console2.log("           until ActivateRouter.s.sol runs post-timelock.");
+        }
     }
 }

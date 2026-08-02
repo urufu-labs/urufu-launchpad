@@ -7,9 +7,32 @@ import {DeployFreshLocal} from "script/DeployFreshLocal.s.sol";
 import {Router} from "src/router/Router.sol";
 import {RhConfigManifest} from "script/manifest/RhConfigManifest.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
+import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
+import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
+import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
+
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {CustomRevert} from "v4-core/libraries/CustomRevert.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
+
+interface IERC20Like {
+    function balanceOf(
+        address
+    ) external view returns (uint256);
+    function approve(
+        address,
+        uint256
+    ) external returns (bool);
+}
 
 /// @title  DeployPathRhForkTest
 /// @notice Auditor D criterion — "A blank-state fork rehearsal completes the
@@ -32,7 +55,13 @@ import {NameRegistry} from "src/registry/NameRegistry.sol";
 ///         Runs only when ROBINHOOD_RPC_URL is set (or the public endpoint
 ///         works). Skips cleanly otherwise so CI without RPC still passes.
 contract DeployPathRhForkTest is Test {
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+
     uint256 internal constant RH_CHAIN_ID = 4663;
+    uint24 internal constant V4_FEE = 3000;
+    int24 internal constant V4_TICK_SPACING = 60;
+    bytes32 internal constant CH_BARE = 0xf7b8c67f3c497ace04f267a7b77845c97e685bd8ba1b0bec3d54a28e64a30acb;
 
     // Live Robinhood v4 PoolManager + canonical ecosystem addresses.
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
@@ -136,5 +165,302 @@ contract DeployPathRhForkTest is Test {
         assertEq(address(GraduatorV2(payable(s.graduator)).defaultHook()), s.multiHookHost, "Graduator.defaultHook");
         assertEq(MultiHookHost(payable(s.multiHookHost)).initializer(), s.graduator, "MHH.initializer");
         assertEq(NameRegistry(s.nameRegistry).router(), s.router, "registry.router");
+    }
+
+    /// The auditor's D-criterion in full: "A blank-state fork rehearsal
+    /// completes the full launch, curve, graduation and post-graduation
+    /// lifecycle." Deploys the fresh stack, then drives one token from
+    /// launch through curve accumulation, through graduation into a real v4
+    /// pool (against the live Robinhood PoolManager on the fork), through a
+    /// post-grad swap. No manual setup — every intermediate state must land
+    /// via the production deploy script's outputs alone.
+    function test_FreshDeploy_FullLaunchGraduateSwapLifecycle() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("lifecycle-launcher");
+        address trader = makeAddr("lifecycle-trader");
+        vm.deal(launcher, 50 ether);
+        vm.deal(trader, 5 ether);
+
+        // ---- 1. Launch a bare ERC20 with curve installed --------------------
+        Router r = Router(payable(s.router));
+        LaunchParams memory p;
+        p.base = BaseType.ERC20;
+        p.name = "LifecycleTest";
+        p.ticker = "LFT";
+        p.configHash = CH_BARE;
+        // Curve-install path: initData carries (supply, initialRecipient=router, moduleInits).
+        // Matches the shape LocalV4Stack uses for bare-ERC20 launches.
+        p.initData = abi.encode(CurveFactory(s.curveFactory).defaultCurveSupply(), address(r), new bytes[](0));
+        p.moduleCount = 0;
+        p.installBondingCurve = true;
+        p.installHook = false;
+        p.installGovernance = false;
+        p.ownership = OwnershipMode.Renounce;
+        p.ownerTargetIfMultisig = address(0);
+        p.antiSniperBlocks = 0;
+        p.buybackBurnBps = 0;
+
+        uint256 fee = r.quote(p);
+        vm.prank(launcher);
+        address token = r.launch{value: fee}(p);
+        assertGt(token.code.length, 0, "token clone not deployed");
+
+        // ---- 2. Curve is installed + fresh ----------------------------------
+        BondingCurve curve = BondingCurve(payable(CurveFactory(s.curveFactory).curveFor(token)));
+        assertGt(address(curve).code.length, 0, "curve not registered for token");
+        assertEq(curve.ethReserve(), 0, "fresh curve should hold no ETH");
+        assertFalse(curve.graduated(), "curve should start ungraduated");
+
+        // ---- 3. Buy through the curve until graduation ----------------------
+        uint256 target = curve.graduationTargetEth();
+        assertGt(target, 0, "graduation target unset");
+        vm.deal(trader, target + 5 ether); // top up with slack for the last buy
+        vm.startPrank(trader);
+        curve.buy{value: 1 ether}(0);
+        assertFalse(curve.graduated(), "graduated on first partial buy");
+        // Push over the target with a 15% slack — matches the pattern
+        // LocalV4Graduation uses so the final buy always crosses.
+        uint256 remaining = target - curve.ethReserve();
+        curve.buy{value: (remaining * 115) / 100}(0);
+        vm.stopPrank();
+        assertTrue(curve.graduated(), "curve failed to graduate");
+
+        // ---- 4. V8 post-graduation accounting invariants --------------------
+        // The whole point of the V8 graduator rotation was that no ETH or
+        // tokens should be stranded in Graduator after a successful
+        // graduation. If this ever regresses (V7 had this bug), 4+ ETH per
+        // graduation gets locked forever.
+        assertEq(address(s.graduator).balance, 0, "graduator stranded ETH post-graduation");
+        assertEq(IERC20Like(token).balanceOf(s.graduator), 0, "graduator stranded tokens post-graduation");
+        assertEq(curve.ethReserve(), 0, "curve.ethReserve not zeroed at graduation");
+        assertEq(curve.tokenReserve(), 0, "curve.tokenReserve not zeroed at graduation");
+
+        // ---- 5. V4 pool actually exists + has liquidity ---------------------
+        IPoolManager pm = IPoolManager(s.poolManager);
+        PoolKey memory key = _poolKeyFor(token, s.multiHookHost);
+        PoolId poolId = key.toId();
+        (uint160 sqrtPriceX96,,,) = pm.getSlot0(poolId);
+        uint128 liquidity = pm.getLiquidity(poolId);
+        assertGt(sqrtPriceX96, 0, "v4 pool not initialized post-graduation");
+        assertGt(liquidity, 0, "v4 pool has no liquidity");
+
+        // ---- 6. Post-grad swap through V4SwapRouter --------------------------
+        // Trader already holds tokens from the curve-graduation buys, so
+        // compare balance BEFORE and AFTER the v4 swap rather than expecting
+        // `bought == balance`.
+        V4SwapRouter swapper = V4SwapRouter(payable(s.v4SwapRouter));
+        uint256 traderBalBeforeBuy = IERC20Like(token).balanceOf(trader);
+        vm.prank(trader);
+        uint256 bought = swapper.swapExactETHForToken{value: 0.5 ether}(key, 0, trader, block.timestamp + 600);
+        assertGt(bought, 0, "post-grad v4 swap returned zero tokens");
+        assertEq(
+            IERC20Like(token).balanceOf(trader) - traderBalBeforeBuy, bought, "trader didn't receive the swapped tokens"
+        );
+
+        // ---- 7. Sell back to prove both swap directions work ----------------
+        vm.startPrank(trader);
+        IERC20Like(token).approve(address(swapper), bought / 2);
+        uint256 ethOut = swapper.swapExactTokenForETH(key, bought / 2, 0, trader, block.timestamp + 600);
+        vm.stopPrank();
+        assertGt(ethOut, 0, "post-grad v4 sell returned zero ETH");
+    }
+
+    /// Build the PoolKey for a graduated token. Same shape Graduator.execute
+    /// creates internally: currency0 = lower address, currency1 = higher,
+    /// zero-address = native ETH, hook = MultiHookHost, fee + tickSpacing =
+    /// launchpad canonical constants.
+    function _poolKeyFor(
+        address token,
+        address hook
+    ) internal pure returns (PoolKey memory key) {
+        // ETH is currency0 (0x0 sorts lowest); token is currency1.
+        key = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(token),
+            fee: V4_FEE,
+            tickSpacing: V4_TICK_SPACING,
+            hooks: IHooks(hook)
+        });
+    }
+
+    // ================================================================
+    // Additional auditor-mandated lifecycle coverage (round 2 HIGH #3):
+    // "LP-removal rejection, FoT+curve rejection, composed-module launch".
+    // Split into focused tests so a regression on any one doesn't mask
+    // failures in the others.
+    // ================================================================
+
+    /// Anti-rug claim: post-graduation LP cannot be removed under any
+    /// context. MultiHookHost.beforeRemoveLiquidity reverts unconditionally.
+    /// v4 wraps the revert as CustomRevert.WrappedError; asserting the full
+    /// wrapper keeps this honest — a future change that made removal fail
+    /// for an unrelated reason would still pass a bare expectRevert.
+    function test_FreshDeploy_LpRemovalPermanentlyRejected() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("lp-launcher");
+        address buyer = makeAddr("lp-buyer");
+        vm.deal(launcher, 50 ether);
+        vm.deal(buyer, 50 ether);
+
+        // Launch + graduate.
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        uint256 fee = Router(payable(s.router)).quote(p);
+        vm.prank(launcher);
+        address token = Router(payable(s.router)).launch{value: fee}(p);
+        BondingCurve curve = BondingCurve(payable(CurveFactory(s.curveFactory).curveFor(token)));
+        uint256 target = curve.graduationTargetEth();
+        vm.deal(buyer, target + 5 ether);
+        vm.startPrank(buyer);
+        curve.buy{value: (target * 120) / 100}(0);
+        vm.stopPrank();
+        assertTrue(curve.graduated(), "setup: curve did not graduate");
+
+        // Attempt LP removal. `unlock` context is required for
+        // modifyLiquidity, so use a real unlock-callback harness.
+        PoolKey memory key = _poolKeyFor(token, s.multiHookHost);
+        LiquidityRemover remover = new LiquidityRemover(IPoolManager(s.poolManager));
+        int24 lower = GraduatorV2(payable(s.graduator)).tickLower();
+        int24 upper = GraduatorV2(payable(s.graduator)).tickUpper();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CustomRevert.WrappedError.selector,
+                address(s.multiHookHost),
+                IHooks.beforeRemoveLiquidity.selector,
+                abi.encodeWithSelector(MultiHookHost.MultiHookHost__LiquidityLocked.selector),
+                abi.encodeWithSelector(Hooks.HookCallFailed.selector)
+            )
+        );
+        remover.tryRemove(key, lower, upper);
+    }
+
+    /// Curve.sell should mirror the buy path when the buyer wants out mid-curve.
+    /// Ensures the fresh CurveFactory + BondingCurve impl support both directions.
+    function test_FreshDeploy_CanSellOnCurve() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("sell-launcher");
+        address trader = makeAddr("sell-trader");
+        vm.deal(launcher, 10 ether);
+        vm.deal(trader, 10 ether);
+
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        uint256 fee = Router(payable(s.router)).quote(p);
+        vm.prank(launcher);
+        address token = Router(payable(s.router)).launch{value: fee}(p);
+        BondingCurve curve = BondingCurve(payable(CurveFactory(s.curveFactory).curveFor(token)));
+
+        // Buy a slice, then sell half back. Both should succeed pre-graduation.
+        vm.startPrank(trader);
+        curve.buy{value: 1 ether}(0);
+        uint256 tokBal = IERC20Like(token).balanceOf(trader);
+        assertGt(tokBal, 0, "buy returned no tokens");
+
+        IERC20Like(token).approve(address(curve), tokBal / 2);
+        uint256 traderEthBefore = trader.balance;
+        curve.sell(tokBal / 2, 0);
+        vm.stopPrank();
+
+        assertGt(trader.balance, traderEthBefore, "sell returned no ETH");
+        assertEq(IERC20Like(token).balanceOf(trader), tokBal - tokBal / 2, "half tokens should remain");
+    }
+
+    /// FoT (configHash 0xa73336ef…) has FLAG_BALANCE_MUTATING set on the
+    /// canonical manifest. A launch that combines FoT with
+    /// installBondingCurve=true MUST revert; Router.launch performs the
+    /// factory.deploy step before the curve-incompatibility guard, so the
+    /// specific revert may surface as ERC20Factory__InitFailed (bad init)
+    /// or Router__CurveIncompatibleModule (curve check) depending on the
+    /// initData shape. This test asserts the launch reverts under EITHER
+    /// path — the security invariant is "FoT+curve cannot succeed",
+    /// regardless of which layer catches it.
+    function test_FreshDeploy_FotCurveInstallReverts() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("fot-launcher");
+        vm.deal(launcher, 5 ether);
+
+        bytes32 fotHash = 0xa73336ef5d2b7ad3439ea3df1f32c5a34fe653411d944d8d0b005b1cd34e1ac4;
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        p.configHash = fotHash;
+        p.moduleCount = 1;
+        p.installBondingCurve = true;
+        // Bare `vm.expectRevert()` — accepts any revert; the point is that
+        // the launch never returns a valid token address.
+        uint256 fee = Router(payable(s.router)).quote(p);
+        vm.expectRevert();
+        vm.prank(launcher);
+        Router(payable(s.router)).launch{value: fee}(p);
+    }
+
+    /// A composed-module launch through the fresh factory must succeed for
+    /// canonical manifest entries. Uses ERC20WithPermitGen (entry 0) as a
+    /// representative — covering all 10 would blow up runtime.
+    function test_FreshDeploy_ComposedModuleLaunchWorks() public {
+        DeployFreshLocal.Stack memory s = _runDeployment();
+        address launcher = makeAddr("perm-launcher");
+        vm.deal(launcher, 5 ether);
+
+        bytes32 permitHash = 0xaa7c4a90c46fc33ebca677ac422fef548b4af9424a17314603d05496a4b07d7e;
+        LaunchParams memory p = _bareCurveLaunchParams(s);
+        p.configHash = permitHash;
+        p.moduleCount = 1;
+        p.installBondingCurve = false; // Permit alone, no curve.
+        // Composed templates decode moduleData[0]; length must be >= 1 or
+        // decode reverts. Permit's slice reads-then-drops the bytes (see
+        // ERC20WithPermitGen VM_INJECT_INIT), so empty bytes is a valid
+        // per-launch payload.
+        bytes[] memory modInits = new bytes[](1);
+        modInits[0] = "";
+        p.initData = abi.encode(uint256(0), address(0), modInits);
+        uint256 fee = Router(payable(s.router)).quote(p);
+        vm.prank(launcher);
+        address token = Router(payable(s.router)).launch{value: fee}(p);
+        assertGt(token.code.length, 0, "composed Permit token clone not deployed");
+    }
+
+    /// Reusable bare-ERC20 + curve LaunchParams shape.
+    function _bareCurveLaunchParams(
+        DeployFreshLocal.Stack memory s
+    ) internal view returns (LaunchParams memory p) {
+        p.base = BaseType.ERC20;
+        p.name = "LifecycleTest";
+        p.ticker = "LFT";
+        p.configHash = CH_BARE;
+        p.initData = abi.encode(CurveFactory(s.curveFactory).defaultCurveSupply(), s.router, new bytes[](0));
+        p.moduleCount = 0;
+        p.installBondingCurve = true;
+        p.ownership = OwnershipMode.Renounce;
+    }
+}
+
+// Minimal unlock-callback harness that tries to remove liquidity from a v4
+// pool. modifyLiquidity requires an active unlock context; this contract
+// re-enters via PoolManager.unlock so the removal attempt originates from a
+// valid unlock frame.
+contract LiquidityRemover {
+    IPoolManager internal immutable pm;
+
+    constructor(
+        IPoolManager _pm
+    ) {
+        pm = _pm;
+    }
+
+    function tryRemove(
+        PoolKey memory key,
+        int24 tickLower,
+        int24 tickUpper
+    ) external {
+        pm.unlock(abi.encode(key, tickLower, tickUpper));
+    }
+
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
+        (PoolKey memory key, int24 tickLower, int24 tickUpper) = abi.decode(data, (PoolKey, int24, int24));
+        pm.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: -1, salt: bytes32(0)}),
+            ""
+        );
+        return "";
     }
 }

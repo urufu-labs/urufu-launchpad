@@ -73,6 +73,7 @@ case "$SCRIPT" in
   NameRegistry)       TARGET="script/DeployNameRegistry.s.sol:DeployNameRegistry" ;;
   V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   Router|RouterV2)    TARGET="script/DeployRouter.s.sol:DeployRouter" ;;
+  ActivateRouter)     TARGET="script/ActivateRouter.s.sol:ActivateRouter" ;;
   Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;
   ConfigureFlywheel)  TARGET="script/ConfigureFlywheel.s.sol:ConfigureFlywheel" ;;
   HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
