@@ -8,6 +8,7 @@ import {Router} from "src/router/Router.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {FeeReceiver, IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
+import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 import {MockFactory} from "test/mocks/MockFactory.sol";
@@ -276,6 +277,162 @@ contract RouterV2Test is Test {
         uru.approve(address(router), URU_FEE_AMOUNT);
         vm.expectRevert(Router.Router__ZeroAddress.selector);
         router.launchWithURU(p, URU_FEE_AMOUNT);
+        vm.stopPrank();
+    }
+
+    // =========================================================
+    // bannedConfigHash — added 2026-08-01 after audit round 2 caught
+    // that the earlier count-poison mitigation only blocked the ETH
+    // path (URU + WL bypass _quote). This mapping is the clean fix:
+    // owner-only, checked FIRST in every launch entrypoint.
+    // =========================================================
+
+    function test_SetConfigHashBanned_OnlyOwner() public {
+        bytes32 h = bytes32(uint256(0xdead));
+        // 0x82b42900 = Solady Ownable.Unauthorized() selector.
+        vm.expectRevert(bytes4(0x82b42900));
+        vm.prank(stranger);
+        router.setConfigHashBanned(h, true);
+    }
+
+    function test_SetConfigHashBanned_TogglesAndEmits() public {
+        bytes32 h = bytes32(uint256(0xdead));
+        vm.expectEmit(true, false, false, true, address(router));
+        emit Router.ConfigHashBanned(h, true);
+        vm.prank(owner);
+        router.setConfigHashBanned(h, true);
+        assertTrue(router.bannedConfigHash(h));
+
+        vm.prank(owner);
+        router.setConfigHashBanned(h, false);
+        assertFalse(router.bannedConfigHash(h));
+    }
+
+    function test_BannedHash_LaunchReverts() public {
+        bytes32 h = bytes32(uint256(1)); // the sentinel-seeded hash
+        vm.prank(owner);
+        router.setConfigHashBanned(h, true);
+
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "Banned", "BAN");
+        p.configHash = h;
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__ConfigHashBanned.selector, h));
+        vm.prank(launcher);
+        router.launch{value: ERC20_FEE}(p);
+    }
+
+    function test_BannedHash_LaunchWithURUReverts() public {
+        bytes32 h = bytes32(uint256(1));
+        vm.prank(owner);
+        router.setConfigHashBanned(h, true);
+
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "Banned", "BAN");
+        p.configHash = h;
+        vm.startPrank(launcher);
+        uru.approve(address(router), URU_FEE_AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__ConfigHashBanned.selector, h));
+        router.launchWithURU(p, URU_FEE_AMOUNT);
+        vm.stopPrank();
+    }
+}
+
+// Separate contract for the whitelist-path tests so the LaunchParams needs the
+// bonding curve pre-conditions and the mock factory can accept it. Kept in the
+// same file so it stays close to its sibling banned-hash tests above.
+contract RouterBannedConfigHashWlTest is Test {
+    Router internal router;
+    NameRegistry internal registry;
+    FeeReceiver internal feeReceiver;
+    UruDepositSink internal uruSink;
+    MockUruRV2 internal uru;
+    MockFactory internal f20;
+
+    address internal owner = makeAddr("owner");
+    address internal treasury = makeAddr("treasury");
+    address internal launcher = makeAddr("launcher");
+
+    uint256 internal constant ERC20_FEE = 0.05 ether;
+    uint256 internal constant URU_AMOUNT = 100e18;
+    bytes4 internal constant UNAUTHORIZED_SELECTOR = 0x82b42900;
+    bytes32 internal constant HASH = bytes32(uint256(1));
+
+    function setUp() public {
+        registry = new NameRegistry(owner, treasury, new string[](0));
+        feeReceiver = new FeeReceiver(owner);
+        uru = new MockUruRV2();
+        uruSink = new UruDepositSink(owner, address(uru), address(feeReceiver), 2 days);
+        router = new Router(
+            owner,
+            registry,
+            IFeeReceiver(address(feeReceiver)),
+            ERC20_FEE,
+            0.05 ether,
+            0.05 ether,
+            0.01 ether,
+            0.1 ether,
+            0.1 ether
+        );
+        f20 = new MockFactory();
+        f20.setRouter(address(router));
+
+        vm.startPrank(owner);
+        router.setUruConfig(address(uru), address(uruSink));
+        router.setFactory(BaseType.ERC20, address(f20));
+        registry.setRouter(address(router));
+        router.setModuleCountForConfig(HASH, 1);
+        router.setFlagsForConfig(HASH, 0);
+        router.setConfigHashBanned(HASH, true); // ban the hash upfront
+        vm.stopPrank();
+
+        vm.deal(launcher, 100 ether);
+        uru.mint(launcher, 10_000e18);
+    }
+
+    /// launchWithWhitelist should reject a banned hash BEFORE the WL-specific
+    /// installBondingCurve check runs, so the revert selector is
+    /// Router__ConfigHashBanned rather than Router__WlRequiresBondingCurve.
+    function test_BannedHash_LaunchWithWhitelistReverts() public {
+        LaunchParams memory p = LaunchParams({
+            base: BaseType.ERC20,
+            name: "Banned",
+            ticker: "BAN",
+            configHash: HASH,
+            initData: hex"",
+            moduleCount: 1,
+            installHook: false,
+            installGovernance: false,
+            installBondingCurve: true,
+            ownership: OwnershipMode.Renounce,
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
+        });
+        BondingCurve.WhitelistInit memory wl;
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__ConfigHashBanned.selector, HASH));
+        vm.prank(launcher);
+        router.launchWithWhitelist{value: 1 ether}(p, wl);
+    }
+
+    function test_BannedHash_LaunchWithURUAndWhitelistReverts() public {
+        LaunchParams memory p = LaunchParams({
+            base: BaseType.ERC20,
+            name: "Banned",
+            ticker: "BAN",
+            configHash: HASH,
+            initData: hex"",
+            moduleCount: 1,
+            installHook: false,
+            installGovernance: false,
+            installBondingCurve: true,
+            ownership: OwnershipMode.Renounce,
+            ownerTargetIfMultisig: address(0),
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0
+        });
+        BondingCurve.WhitelistInit memory wl;
+        vm.startPrank(launcher);
+        uru.approve(address(router), URU_AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__ConfigHashBanned.selector, HASH));
+        router.launchWithURUAndWhitelist(p, URU_AMOUNT, wl);
         vm.stopPrank();
     }
 }

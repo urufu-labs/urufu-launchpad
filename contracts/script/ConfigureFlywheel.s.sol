@@ -40,6 +40,23 @@ import {UruBuybackVault} from "src/flywheel/UruBuybackVault.sol";
 /// Usage:
 ///   forge script script/ConfigureFlywheel.s.sol:ConfigureFlywheel \
 ///     --rpc-url $BASE_RPC_URL --broadcast --private-key $DEV_PRIVATE_KEY -vvvv
+interface IUruDepositSinkLike {
+    function isKeeper(
+        address
+    ) external view returns (bool);
+    function isSwapTarget(
+        address
+    ) external view returns (bool);
+    function setKeeper(
+        address keeper,
+        bool allowed
+    ) external;
+    function setSwapTarget(
+        address target,
+        bool allowed
+    ) external;
+}
+
 contract ConfigureFlywheel is Script {
     error ConfigureFlywheel__NoFlywheelBook();
     error ConfigureFlywheel__BadSplit(uint256 total);
@@ -52,6 +69,22 @@ contract ConfigureFlywheel is Script {
         address feeSplitterAddr = vm.parseJsonAddress(book, ".FeeSplitter");
         address nftVaultAddr = vm.parseJsonAddress(book, ".NftRevenueVault");
         address buybackVaultAddr = vm.parseJsonAddress(book, ".UruBuybackVault");
+
+        // UruDepositSink also has a keeper + swap-target allowlist. It lives
+        // in the fresh-deploy or router-rotation address book (not the
+        // flywheel book which pre-dates URU-pay). Try fresh first, then
+        // routerv2, then skip if neither is present — an operator running
+        // against a legacy Base-era stack won't have URU pay wired at all.
+        address uruSinkAddr;
+        string memory freshPath = string.concat("deployment-fresh.", vm.toString(block.chainid), ".json");
+        if (vm.exists(freshPath)) {
+            uruSinkAddr = vm.parseJsonAddress(vm.readFile(freshPath), ".uruDepositSink");
+        } else {
+            string memory rvPath = string.concat("deployment-routerv2.", vm.toString(block.chainid), ".json");
+            if (vm.exists(rvPath)) {
+                uruSinkAddr = vm.parseJsonAddress(vm.readFile(rvPath), ".UruDepositSink");
+            }
+        }
 
         address keeper = vm.envAddress("KEEPER");
         address swapTarget = vm.envAddress("SWAP_TARGET");
@@ -83,16 +116,40 @@ contract ConfigureFlywheel is Script {
         // --- Job 1: UruBuybackVault allowlists (no timelock) -----------------
         if (!vault.isKeeper(keeper)) {
             vault.setKeeper(keeper, true);
-            console2.log("  [ok] keeper allowlisted");
+            console2.log("  [ok] UruBuybackVault keeper allowlisted");
         } else {
-            console2.log("  [skip] keeper already allowlisted");
+            console2.log("  [skip] UruBuybackVault keeper already allowlisted");
         }
 
         if (!vault.isSwapTarget(swapTarget)) {
             vault.setSwapTarget(swapTarget, true);
-            console2.log("  [ok] swap target allowlisted");
+            console2.log("  [ok] UruBuybackVault swap target allowlisted");
         } else {
-            console2.log("  [skip] swap target already allowlisted");
+            console2.log("  [skip] UruBuybackVault swap target already allowlisted");
+        }
+
+        // --- Job 1b: UruDepositSink allowlists ----------------------------
+        // Same keeper + swap-target pattern as UruBuybackVault. The sink
+        // holds URU paid as deploy fees, and the keeper swaps URU to ETH
+        // through an allowlisted swap target for forwarding to FeeSplitter.
+        // Skips cleanly when the sink isn't in any deployment book (legacy
+        // pre-URU-pay stacks).
+        if (uruSinkAddr != address(0)) {
+            IUruDepositSinkLike sink = IUruDepositSinkLike(uruSinkAddr);
+            if (!sink.isKeeper(keeper)) {
+                sink.setKeeper(keeper, true);
+                console2.log("  [ok] UruDepositSink keeper allowlisted");
+            } else {
+                console2.log("  [skip] UruDepositSink keeper already allowlisted");
+            }
+            if (!sink.isSwapTarget(swapTarget)) {
+                sink.setSwapTarget(swapTarget, true);
+                console2.log("  [ok] UruDepositSink swap target allowlisted");
+            } else {
+                console2.log("  [skip] UruDepositSink swap target already allowlisted");
+            }
+        } else {
+            console2.log("  [skip] UruDepositSink not in address book (pre-URU-pay stack)");
         }
 
         // --- Job 2: FeeSplitter splits (timelock-gated) ----------------------
