@@ -3,6 +3,9 @@ pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
 
+import {Router} from "src/router/Router.sol";
+import {RhConfigManifest} from "./manifest/RhConfigManifest.sol";
+
 interface INameRegistry {
     function router() external view returns (address);
     function pendingRouter() external view returns (address);
@@ -11,39 +14,165 @@ interface INameRegistry {
     function owner() external view returns (address);
 }
 
-/// @title  ActivateRouter
-/// @notice Post-timelock second phase of a Router rotation. After
-///         `DeployRouter` proposes the new Router on `NameRegistry`, the
-///         registry enforces a 2-day delay before the rotation can be
-///         activated (`MIN_ROUTER_DELAY = 2 days`). This script performs
-///         the activation once the timelock has elapsed and re-marks the
-///         address book as ACTIVE.
+interface IFactoryLike {
+    function setRouter(
+        address newRouter
+    ) external;
+    function router() external view returns (address);
+    function owner() external view returns (address);
+}
+
+interface ICurveFactoryLike {
+    function setTrustedRouter(
+        address router_,
+        bool trusted_
+    ) external;
+    function trustedRouters(
+        address
+    ) external view returns (bool);
+    function owner() external view returns (address);
+}
+
+/// @title  ActivateRouter — Phase 2 of a Router rotation
+/// @notice The atomic cutover that follows `DeployRouter.s.sol` Phase 1 staging.
+///         Phase 1 staged the new Router silently: sentinels seeded, retired
+///         hashes banned, CurveFactory pre-trusted, `proposeRouter` on
+///         NameRegistry (2-day timelock). Factories were NOT touched — the
+///         OLD Router keeps taking launches throughout the pending window.
+///
+///         Phase 2 (this script) does everything else in ONE broadcast so the
+///         cutover window is a single block, not two days:
+///
+///           0. Preflight (all reverts before any state change):
+///              - pendingRouter matches env
+///              - timelock elapsed
+///              - new Router has all 10 manifest sentinels seeded
+///              - new Router has all 3 retired-Airdrop hashes banned
+///              - new Router owned by broadcaster (setPaused later requires it)
+///              - all factories + CurveFactory owned by broadcaster
+///
+///           1. `factory.setRouter(new)` for ERC20 / ERC721A / ERC1155
+///           2. `curveFactory.setTrustedRouter(old, false)` (untrust old)
+///           3. `nameRegistry.activateRouter()`
+///           4. `oldRouter.setPaused(true)` (best-effort — only if we own it
+///              AND `SKIP_PAUSE_OLD_ROUTER != 1`)
+///           5. Post-cutover verify: every wire agrees, address book flipped
+///              to LIVE. Reverts on drift.
+///
+///         Recommended execution: broadcast as a single multisig batch. Any
+///         intermediate revert unwinds the whole batch, so the split-brain
+///         window is exactly the transaction ordering INSIDE one atomic
+///         execution — zero user-visible outage.
 ///
 ///         Env:
 ///           ROBINHOOD_NAME_REGISTRY_ADDRESS  (required)
 ///           ROBINHOOD_ROUTER_ADDRESS         (required — must match pending)
-///
-///         Errors it prints (all fatal):
-///           - NameRegistry has no pending router (deploy step never ran, or
-///             activation already happened, or activation was canceled).
-///           - Pending router differs from ROBINHOOD_ROUTER_ADDRESS (env
-///             drift; deploying operator staged a different Router than the
-///             activator env points at).
-///           - Timelock not yet passed (retry after readyAt).
+///           ROBINHOOD_OLD_ROUTER_ADDRESS     (required — for pause + untrust)
+///           ROBINHOOD_ERC20_FACTORY_ADDRESS     (required)
+///           ROBINHOOD_ERC721A_FACTORY_ADDRESS   (required)
+///           ROBINHOOD_ERC1155_FACTORY_ADDRESS   (required)
+///           ROBINHOOD_CURVE_FACTORY_ADDRESS     (required — WL-aware CF if migrated)
+///           SKIP_PAUSE_OLD_ROUTER              "1" to skip pausing (default: pause)
 ///
 ///         Run:
-///           ROBINHOOD_NAME_REGISTRY_ADDRESS=0x… \
-///           ROBINHOOD_ROUTER_ADDRESS=0x… \
-///           bash contracts/deploy.sh ActivateRouter robinhood
+///           source .env && bash contracts/deploy.sh ActivateRouter robinhood
 contract ActivateRouter is Script {
+    // Preflight errors
     error ActivateRouter__NoPendingRouter(address registry);
     error ActivateRouter__PendingMismatch(address expectedRouter, address actualPending);
     error ActivateRouter__TimelockNotPassed(uint256 readyAt);
+    error ActivateRouter__ManifestNotSeeded(bytes32 configHash, string what);
+    error ActivateRouter__RetiredHashNotBanned(bytes32 configHash);
+    error ActivateRouter__NotOwner(address contractAddr, string what);
+    error ActivateRouter__OldRouterNotBroadcasterOwned();
+    // Post-cutover errors
+    error ActivateRouter__PostFactoryMismatch(address factory, address expected);
+    error ActivateRouter__PostRegistryMismatch(address expected);
+    error ActivateRouter__PostCurveTrustMismatch(address router_, bool expected);
 
     function run() external {
         address registryAddr = vm.envAddress("ROBINHOOD_NAME_REGISTRY_ADDRESS");
         address expectedRouter = vm.envAddress("ROBINHOOD_ROUTER_ADDRESS");
+        address oldRouter = vm.envAddress("ROBINHOOD_OLD_ROUTER_ADDRESS");
+        address erc20Factory = vm.envAddress("ROBINHOOD_ERC20_FACTORY_ADDRESS");
+        address erc721Factory = vm.envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS");
+        address erc1155Factory = vm.envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS");
+        address curveFactory = vm.envAddress("ROBINHOOD_CURVE_FACTORY_ADDRESS");
+        bool skipPause = vm.envOr("SKIP_PAUSE_OLD_ROUTER", uint256(0)) == 1;
 
+        _preflight(registryAddr, expectedRouter, oldRouter, erc20Factory, erc721Factory, erc1155Factory, curveFactory);
+
+        console2.log("---- Phase 2: atomic cutover ----");
+        console2.log("  registry     :", registryAddr);
+        console2.log("  new router   :", expectedRouter);
+        console2.log("  old router   :", oldRouter);
+        console2.log("  erc20 factory:", erc20Factory);
+        console2.log("  erc721 factry:", erc721Factory);
+        console2.log("  erc1155 fact.:", erc1155Factory);
+        console2.log("  curve factory:", curveFactory);
+
+        vm.startBroadcast();
+
+        // 1) Rewire per-base factories. Each setRouter is a single-slot
+        // overwrite — no rollback if a later step reverts, but the whole
+        // multisig batch is atomic if signed as one.
+        IFactoryLike(erc20Factory).setRouter(expectedRouter);
+        console2.log("  [ok] setRouter on ERC20Factory");
+        IFactoryLike(erc721Factory).setRouter(expectedRouter);
+        console2.log("  [ok] setRouter on ERC721AFactory");
+        IFactoryLike(erc1155Factory).setRouter(expectedRouter);
+        console2.log("  [ok] setRouter on ERC1155Factory");
+
+        // 2) Untrust old Router on CurveFactory. New Router was pre-trusted in
+        // Phase 1, so cutting off the old one after factory rewire is safe —
+        // no in-flight launch depends on the old Router still being trusted.
+        ICurveFactoryLike(curveFactory).setTrustedRouter(oldRouter, false);
+        console2.log("  [ok] setTrustedRouter(false) on CurveFactory for old Router");
+
+        // 3) Flip NameRegistry pointer. Now every path — reserve() included —
+        // routes through the new Router.
+        INameRegistry(registryAddr).activateRouter();
+        console2.log("  [ok] activateRouter on NameRegistry");
+
+        // 4) Pause the old Router (unless explicitly skipped). Even without
+        // factory or registry trust, an unpaused old Router still accepts
+        // launch() calls that revert deep in the stack — pausing surfaces a
+        // clean revert at the entrypoint instead.
+        if (!skipPause) {
+            Router(payable(oldRouter)).setPaused(true);
+            console2.log("  [ok] setPaused(true) on old Router");
+        } else {
+            console2.log("  [skip] SKIP_PAUSE_OLD_ROUTER=1 - old Router left unpaused");
+        }
+
+        vm.stopBroadcast();
+
+        // 5) Post-cutover verify. Reverts on any wire that didn't land.
+        _postCutoverVerify(
+            registryAddr, expectedRouter, oldRouter, erc20Factory, erc721Factory, erc1155Factory, curveFactory
+        );
+
+        console2.log("");
+        console2.log("======================================================");
+        console2.log("Phase 2 complete - new Router is LIVE");
+        console2.log("======================================================");
+        _flipAddressBookToLive();
+    }
+
+    // -------------------------------------------------------------
+    // Preflight — all reverts BEFORE any state change
+    // -------------------------------------------------------------
+
+    function _preflight(
+        address registryAddr,
+        address expectedRouter,
+        address oldRouter,
+        address erc20Factory,
+        address erc721Factory,
+        address erc1155Factory,
+        address curveFactory
+    ) internal view {
+        // NameRegistry: pending must exist, match, and be past timelock
         INameRegistry reg = INameRegistry(registryAddr);
         address pending = reg.pendingRouter();
         if (pending == address(0)) revert ActivateRouter__NoPendingRouter(registryAddr);
@@ -51,21 +180,105 @@ contract ActivateRouter is Script {
         uint256 readyAt = reg.pendingRouterTs();
         if (block.timestamp < readyAt) revert ActivateRouter__TimelockNotPassed(readyAt);
 
-        console2.log("---- activating router ----");
-        console2.log("  registry :", registryAddr);
-        console2.log("  pending  :", pending);
-        console2.log("  ready at :", readyAt);
-        console2.log("  now      :", block.timestamp);
+        // Ownership: broadcaster must own everything Phase 2 mutates
+        if (reg.owner() != msg.sender) revert ActivateRouter__NotOwner(registryAddr, "nameRegistry.activateRouter");
+        if (IFactoryLike(erc20Factory).owner() != msg.sender) {
+            revert ActivateRouter__NotOwner(erc20Factory, "erc20Factory.setRouter");
+        }
+        if (IFactoryLike(erc721Factory).owner() != msg.sender) {
+            revert ActivateRouter__NotOwner(erc721Factory, "erc721Factory.setRouter");
+        }
+        if (IFactoryLike(erc1155Factory).owner() != msg.sender) {
+            revert ActivateRouter__NotOwner(erc1155Factory, "erc1155Factory.setRouter");
+        }
+        if (ICurveFactoryLike(curveFactory).owner() != msg.sender) {
+            revert ActivateRouter__NotOwner(curveFactory, "curveFactory.setTrustedRouter");
+        }
+        // Old Router pause is best-effort but required by default — if the
+        // broadcaster doesn't own it, either set SKIP_PAUSE_OLD_ROUTER=1 or
+        // add the ownership handoff before Phase 2.
+        bool skipPause = vm.envOr("SKIP_PAUSE_OLD_ROUTER", uint256(0)) == 1;
+        if (!skipPause) {
+            (bool ok, bytes memory ret) = oldRouter.staticcall(abi.encodeWithSignature("owner()"));
+            if (!ok || ret.length < 32) revert ActivateRouter__OldRouterNotBroadcasterOwned();
+            if (abi.decode(ret, (address)) != msg.sender) revert ActivateRouter__OldRouterNotBroadcasterOwned();
+        }
 
-        vm.startBroadcast();
-        reg.activateRouter();
-        vm.stopBroadcast();
+        // New Router: all manifest sentinels seeded + all retired hashes banned
+        Router newRouter = Router(payable(expectedRouter));
+        RhConfigManifest.Entry[] memory entries = RhConfigManifest.all();
+        for (uint256 i = 0; i < entries.length; i++) {
+            RhConfigManifest.Entry memory e = entries[i];
+            if (!newRouter.moduleCountConfigured(e.configHash)) {
+                revert ActivateRouter__ManifestNotSeeded(e.configHash, "moduleCountConfigured");
+            }
+            if (!newRouter.flagsConfigured(e.configHash)) {
+                revert ActivateRouter__ManifestNotSeeded(e.configHash, "flagsConfigured");
+            }
+            if (newRouter.moduleCountForConfig(e.configHash) != e.moduleCount) {
+                revert ActivateRouter__ManifestNotSeeded(e.configHash, "moduleCount value");
+            }
+            if (newRouter.flagsForConfig(e.configHash) != e.flags) {
+                revert ActivateRouter__ManifestNotSeeded(e.configHash, "flags value");
+            }
+        }
+        bytes32[] memory retired = RhConfigManifest.retiredAirdropHashes();
+        for (uint256 i = 0; i < retired.length; i++) {
+            if (!newRouter.bannedConfigHash(retired[i])) revert ActivateRouter__RetiredHashNotBanned(retired[i]);
+        }
+    }
 
-        address activeRouter = reg.router();
-        require(activeRouter == expectedRouter, "activateRouter: router mismatch post-activate");
-        console2.log("  [ok] NameRegistry.router now:", activeRouter);
-        console2.log("");
-        console2.log("Next step: update the address book status ACTIVE for");
-        console2.log(string.concat("  deployment-routerv2.", vm.toString(block.chainid), ".json"));
+    // -------------------------------------------------------------
+    // Post-cutover verify — reverts on any wire that didn't land
+    // -------------------------------------------------------------
+
+    function _postCutoverVerify(
+        address registryAddr,
+        address expectedRouter,
+        address oldRouter,
+        address erc20Factory,
+        address erc721Factory,
+        address erc1155Factory,
+        address curveFactory
+    ) internal view {
+        if (IFactoryLike(erc20Factory).router() != expectedRouter) {
+            revert ActivateRouter__PostFactoryMismatch(erc20Factory, expectedRouter);
+        }
+        if (IFactoryLike(erc721Factory).router() != expectedRouter) {
+            revert ActivateRouter__PostFactoryMismatch(erc721Factory, expectedRouter);
+        }
+        if (IFactoryLike(erc1155Factory).router() != expectedRouter) {
+            revert ActivateRouter__PostFactoryMismatch(erc1155Factory, expectedRouter);
+        }
+        if (INameRegistry(registryAddr).router() != expectedRouter) {
+            revert ActivateRouter__PostRegistryMismatch(expectedRouter);
+        }
+        ICurveFactoryLike cf = ICurveFactoryLike(curveFactory);
+        if (!cf.trustedRouters(expectedRouter)) {
+            revert ActivateRouter__PostCurveTrustMismatch(expectedRouter, true);
+        }
+        if (cf.trustedRouters(oldRouter)) {
+            revert ActivateRouter__PostCurveTrustMismatch(oldRouter, false);
+        }
+    }
+
+    function _flipAddressBookToLive() internal {
+        string memory chainId = vm.toString(block.chainid);
+        string memory outPath = string.concat("deployment-routerv2.", chainId, ".json");
+        if (!vm.exists(outPath)) {
+            console2.log("  [note] no existing", outPath, "to flip - skipping");
+            return;
+        }
+        string memory obj = "routerv2-live";
+        // Preserve prior addresses, overwrite status. We re-read the fields
+        // to avoid clobbering keys that other tooling relies on.
+        string memory prior = vm.readFile(outPath);
+        vm.serializeUint(obj, "chainId", vm.parseJsonUint(prior, ".chainId"));
+        vm.serializeAddress(obj, "UruDepositSink", vm.parseJsonAddress(prior, ".UruDepositSink"));
+        vm.serializeAddress(obj, "FeeSplitter", vm.parseJsonAddress(prior, ".FeeSplitter"));
+        vm.serializeAddress(obj, "RouterV2", vm.parseJsonAddress(prior, ".RouterV2"));
+        string memory json = vm.serializeString(obj, "status", "LIVE");
+        vm.writeJson(json, outPath);
+        console2.log("  [ok] address book flipped to LIVE:", outPath);
     }
 }

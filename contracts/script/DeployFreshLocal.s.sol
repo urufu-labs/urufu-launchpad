@@ -137,6 +137,9 @@ contract DeployFreshLocal is Script {
     error DeployFresh__PoolManagerNoCode();
     error DeployFresh__PostStateMismatch(string what);
     error DeployFresh__ManifestSeedFailed(bytes32 configHash, string what);
+    /// Post-state assertion tripped — a retired Airdrop configHash is not banned
+    /// on the freshly-deployed Router. Refuses to write the address book.
+    error DeployFresh__RetiredHashNotBanned(bytes32 configHash);
     error DeployFresh__MhhSaltMiningFailed();
     /// ADMIN env must equal the broadcaster. Every owner-only setter and
     /// registrar call in this script runs under msg.sender — if ADMIN is a
@@ -387,6 +390,20 @@ contract DeployFreshLocal is Script {
         router.setModuleCountForConfigBatch(hashes, counts);
         router.setFlagsForConfigBatch(hashes, flags);
 
+        // ---------------- Phase 5b: ban retired Airdrop hashes ----------
+        // Fresh stack must also ban these — the retired impls aren't on this
+        // greenfield ERC20Factory today, but the ban is a
+        // safe-by-construction gate so no code path can produce a Router
+        // that accepts a retired hash if someone later registerImpl's one
+        // by mistake. Post-state assertion in _assertRouterState enforces
+        // it landed.
+        {
+            bytes32[] memory retired = RhConfigManifest.retiredAirdropHashes();
+            for (uint256 i = 0; i < retired.length; i++) {
+                router.setConfigHashBanned(retired[i], true);
+            }
+        }
+
         // ---------------- Phase 6: bonding curve + graduator ------------
         BondingCurve curveImpl = new BondingCurve();
         s.bondingCurveImpl = address(curveImpl);
@@ -572,6 +589,14 @@ contract DeployFreshLocal is Script {
             }
             if (router.flagsForConfig(e.configHash) != e.flags) {
                 revert DeployFresh__ManifestSeedFailed(e.configHash, "flags");
+            }
+        }
+        // Retired-hash bans — refuse to ship a Router that isn't
+        // safe-by-construction against the retired Airdrop attack vector.
+        bytes32[] memory retired = RhConfigManifest.retiredAirdropHashes();
+        for (uint256 i = 0; i < retired.length; i++) {
+            if (!router.bannedConfigHash(retired[i])) {
+                revert DeployFresh__RetiredHashNotBanned(retired[i]);
             }
         }
     }
