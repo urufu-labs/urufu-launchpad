@@ -25,6 +25,13 @@ interface IHookConfig {
         address creator
     ) external;
     function creator() external view returns (address);
+    /// URU-A12: read-back views for graduation-time verification.
+    function creators(
+        PoolId id
+    ) external view returns (address);
+    function poolConfig(
+        PoolId id
+    ) external view returns (uint32 launchBlock, uint32 antiSniperBlocks, uint16 buybackBurnBps);
 }
 
 interface ICurveFactoryLookup {
@@ -68,6 +75,13 @@ contract GraduatorV2 is IUnlockCallback {
     error Graduator__NotAuthorizedCurve(address caller, address expected);
     error Graduator__NotOwner();
     error Graduator__ZeroAddress();
+    /// URU-A12: post-`setPoolConfig` read-back showed values other than the
+    /// ones the Graduator just wrote. Either the hook silently rejected them
+    /// or an attacker pre-planted config before graduation.
+    error Graduator__HookConfigMismatch();
+    /// URU-A12: post-`setCreator` read-back showed a creator address other
+    /// than the launcher. Reverts graduation atomically.
+    error Graduator__HookCreatorMismatch(address expected, address actual);
 
     event Graduated(
         address indexed token,
@@ -216,21 +230,41 @@ contract GraduatorV2 is IUnlockCallback {
 
         PoolId poolId = key.toId();
         IHookConfig hookCfg = IHookConfig(address(defaultHook));
-        try hookCfg.setPoolConfig(poolId, antiSniperBlocks, buybackBurnBps) {
-        // config landed
-        }
-            catch {
-            // hook doesn't implement it (pre-v2 fallback) — pool still opens.
-        }
+        // URU-A12: `setPoolConfig` and `setCreator` are MANDATORY. Previously
+        // wrapped in try/catch, which let a pool launch without the promised
+        // anti-sniper window, without the promised buyback-burn slice, or with
+        // an attacker-planted creator address. Now the call reverts if the hook
+        // rejects — and we read back the exact values before initialize.
+        hookCfg.setPoolConfig(poolId, antiSniperBlocks, buybackBurnBps);
 
         address creatorForPool = launcher;
         if (creatorForPool == address(0)) {
+            // Only the fallback creator read stays best-effort — legacy hooks
+            // that don't expose `creator()` are still allowed as long as the
+            // launcher explicitly opts out of a creator recipient (rare;
+            // launcher == 0 is normally a defensive default in tests, not a
+            // production configuration).
             try hookCfg.creator() returns (address fallbackCreator) {
                 creatorForPool = fallbackCreator;
             } catch {}
         }
         if (creatorForPool != address(0)) {
-            try hookCfg.setCreator(poolId, creatorForPool) {} catch {}
+            hookCfg.setCreator(poolId, creatorForPool);
+        }
+
+        // URU-A12: read back and verify. If setPoolConfig / setCreator landed
+        // different values than we wrote (attacker pre-plant, silent partial
+        // failure, wrong-hook-address deploy), the graduation reverts before
+        // `poolManager.initialize` freezes the config forever.
+        (, uint32 configuredAntiSniper, uint16 configuredBurn) = hookCfg.poolConfig(poolId);
+        if (configuredAntiSniper != antiSniperBlocks || configuredBurn != buybackBurnBps) {
+            revert Graduator__HookConfigMismatch();
+        }
+        if (creatorForPool != address(0)) {
+            address configuredCreator = hookCfg.creators(poolId);
+            if (configuredCreator != creatorForPool) {
+                revert Graduator__HookCreatorMismatch(creatorForPool, configuredCreator);
+            }
         }
 
         // Compute sqrtPriceX96 for the CURVE's final price, not the raw

@@ -1,5 +1,5 @@
 {
-  "filter_paths": "lib/|test/|script/",
+  "filter_paths": "lib/|test/",
   "exclude_informational": false,
   "exclude_low": false,
   "exclude_medium": false,

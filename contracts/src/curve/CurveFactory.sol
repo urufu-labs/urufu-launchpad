@@ -51,6 +51,16 @@ contract CurveFactory is Ownable {
     /// buyer sits stuck in bonding phase with the curve fully drained of
     /// tokens but ETH short of the target.
     error CurveFactory__UnreachableGraduationTarget(uint256 target, uint256 maxReachable);
+    /// URU-A05: bonding curve requires a live Graduator contract at creation time.
+    /// address(0) would let the curve mark itself graduated but never move ETH to a
+    /// v4 pool, permanently stranding funds. Blocked at both `setGraduator` and every
+    /// curve-creation entrypoint.
+    error CurveFactory__GraduatorUnset();
+    error CurveFactory__GraduatorNotContract(address graduator);
+    /// URU-A11 tangent: constrain the safety-margin setter so admin can't set 0 (no
+    /// margin) or >= 5000 bps (target below half of reachable, making launches
+    /// effectively impossible).
+    error CurveFactory__BadSafetyMargin(uint16 bps);
 
     /// Hard cap on the per-trade fee. 30% is deep into "rug-shaped" territory
     /// already; anything above is almost certainly an admin typo. Kept as a
@@ -78,6 +88,13 @@ contract CurveFactory is Ownable {
     uint256 public defaultVirtualEthReserve;
     uint256 public defaultGraduationTargetEth;
     uint16 public defaultTradeFeeBps;
+
+    /// URU-A03: reachability check must leave a safety margin so an actual buy
+    /// that crosses the target doesn't trip `BondingCurve__ExceedsSupply` at
+    /// the graduation buy itself. Default 500 bps (5%) — target must be at
+    /// least 5% below theoretical max. Owner-tunable via
+    /// `setGraduationSafetyMarginBps`.
+    uint16 public graduationSafetyMarginBps = 500;
 
     mapping(address token => address curve) public curveFor;
 
@@ -143,7 +160,7 @@ contract CurveFactory is Ownable {
         uint256 virtualEthReserve_,
         uint256 graduationTargetEth_,
         uint16 tradeFeeBps_
-    ) internal pure {
+    ) internal view {
         if (tradeFeeBps_ > MAX_TRADE_FEE_BPS) {
             revert CurveFactory__InvalidTradeFee(tradeFeeBps_, MAX_TRADE_FEE_BPS);
         }
@@ -155,8 +172,14 @@ contract CurveFactory is Ownable {
         // fully drains is `curveSupply * virtualEth / virtualToken`. All values
         // are ~1e26 max in practice; the intermediate product stays well under
         // 2^256 (worst realistic case: 1e27 * 1e19 = 1e46, uint256 fits 1.16e77).
+        //
+        // URU-A03: apply a safety margin so the buy that CROSSES the target has
+        // headroom against `tokenReserve - 1` (the new no-clamp floor in
+        // BondingCurve.buy). Otherwise a target sitting at exactly the maximum
+        // would revert BondingCurve__ExceedsSupply on the graduation buy itself.
         uint256 maxReachable = (curveSupply_ * virtualEthReserve_) / virtualTokenReserve_;
-        if (graduationTargetEth_ >= maxReachable) {
+        uint256 safeReachable = (maxReachable * (10_000 - uint256(graduationSafetyMarginBps))) / 10_000;
+        if (graduationTargetEth_ >= safeReachable) {
             revert CurveFactory__UnreachableGraduationTarget(graduationTargetEth_, maxReachable);
         }
     }
@@ -172,8 +195,32 @@ contract CurveFactory is Ownable {
     function setGraduator(
         address graduator_
     ) external onlyOwner {
-        graduator = graduator_; // zero is allowed — disables v4 graduation
+        // URU-A05: zero-graduator is NEVER a valid production state. A curve
+        // deployed with graduator=0 marks itself graduated on target crossing
+        // but skips the ETH → v4 pool transfer, stranding reserves. Rejected
+        // here + at every curve-creation entrypoint via `_requireGraduator`.
+        if (graduator_ == address(0)) revert CurveFactory__GraduatorUnset();
+        if (graduator_.code.length == 0) revert CurveFactory__GraduatorNotContract(graduator_);
+        graduator = graduator_;
         emit GraduatorSet(graduator_);
+    }
+
+    /// URU-A03: tune the reachability safety margin. Bounded (0, 5000) bps
+    /// so admin cannot disable it (0) or make targets unreachable (>= 5000).
+    /// Revalidates the current defaults so a tighter margin never leaves a
+    /// live-invalid tuple in storage.
+    function setGraduationSafetyMarginBps(
+        uint16 bps
+    ) external onlyOwner {
+        if (bps == 0 || bps >= 5000) revert CurveFactory__BadSafetyMargin(bps);
+        graduationSafetyMarginBps = bps;
+        _validateCurveDefaults(
+            defaultCurveSupply,
+            defaultVirtualTokenReserve,
+            defaultVirtualEthReserve,
+            defaultGraduationTargetEth,
+            defaultTradeFeeBps
+        );
     }
 
     /// @notice Add or remove a router from the tx.origin-fallback whitelist.
@@ -262,9 +309,20 @@ contract CurveFactory is Ownable {
 
     /// @notice Owner may reserve-carve future launches by adjusting `defaultCurveSupply`.
     ///         Existing curves are unaffected (each stores its own curveSupply on-chain).
+    ///         URU-A03: previously this setter skipped `_validateCurveDefaults`,
+    ///         allowing an admin to lower supply below the reachability threshold and
+    ///         silently make every future launch unable to graduate. Now every mutation
+    ///         validates the FULL tuple against the current defaults.
     function setDefaultCurveSupply(
         uint256 curveSupply_
     ) external onlyOwner {
+        _validateCurveDefaults(
+            curveSupply_,
+            defaultVirtualTokenReserve,
+            defaultVirtualEthReserve,
+            defaultGraduationTargetEth,
+            defaultTradeFeeBps
+        );
         defaultCurveSupply = curveSupply_;
     }
 
@@ -290,12 +348,16 @@ contract CurveFactory is Ownable {
         // Cap: combined reserve-backed-module allocations may not consume more
         // than half of the intended curve supply. Prevents a launcher from
         // airdropping/vesting/staking themselves 90%+ of supply and starving
-        // the curve. Enforced HERE (not inside individual module fragments)
-        // so it covers ANY combination of reserve-backed modules
-        // (Airdrop+Vesting, Airdrop+Staking, all three, future modules)
-        // without requiring per-fragment cap plumbing.
+        // the curve.
         uint256 minSupply = defaultCurveSupply / 2;
         if (supply < minSupply) revert CurveFactory__ModulesOverAllocated(supply, minSupply);
+        // URU-A05: refuse to bind a curve to a Graduator that isn't a live contract.
+        _requireGraduator();
+        // URU-A03: previously reachability was validated against the CONFIGURED
+        // `defaultCurveSupply`. Reserve-backed modules (Vesting, Staking) can
+        // reduce the ACTUAL curve supply to as little as 50% of that. Validate
+        // reachability using the ACTUAL balance received from the caller.
+        _validateActualSupply(supply);
 
         // Deterministic clone address per (token, chainid) — same predictability as
         // Phase 1's ImplRegistry.
@@ -343,6 +405,10 @@ contract CurveFactory is Ownable {
         // Same cap as _createCurve — see comment there for rationale.
         uint256 minSupply = defaultCurveSupply / 2;
         if (supply < minSupply) revert CurveFactory__ModulesOverAllocated(supply, minSupply);
+        // URU-A05 + URU-A03: same live-graduator + actual-supply reachability
+        // checks as the non-WL path.
+        _requireGraduator();
+        _validateActualSupply(supply);
 
         bytes32 salt = keccak256(abi.encode(token, block.chainid));
         curve = LibClone.cloneDeterministic(implementation, salt);
@@ -374,5 +440,29 @@ contract CurveFactory is Ownable {
     ) external view returns (address) {
         bytes32 salt = keccak256(abi.encode(token, block.chainid));
         return LibClone.predictDeterministicAddress(implementation, salt, address(this));
+    }
+
+    /// URU-A05: internal guard used at every curve-creation entrypoint. Every
+    /// production curve MUST bind to a live Graduator contract at deploy time.
+    function _requireGraduator() internal view {
+        address g = graduator;
+        if (g == address(0)) revert CurveFactory__GraduatorUnset();
+        if (g.code.length == 0) revert CurveFactory__GraduatorNotContract(g);
+    }
+
+    /// URU-A03: validate reachability using the ACTUAL token balance received
+    /// from the caller (post-reserve-carve), not the nominal `defaultCurveSupply`.
+    /// Reserve-backed modules can reduce the curve's true starting balance to
+    /// half of nominal; without this check a config that satisfied
+    /// `_validateCurveDefaults` at admin-set time could still land a curve
+    /// whose max reachable ETH is below `defaultGraduationTargetEth`.
+    function _validateActualSupply(
+        uint256 actualSupply
+    ) internal view {
+        uint256 maxReachable = (actualSupply * defaultVirtualEthReserve) / defaultVirtualTokenReserve;
+        uint256 safeReachable = (maxReachable * (10_000 - uint256(graduationSafetyMarginBps))) / 10_000;
+        if (defaultGraduationTargetEth >= safeReachable) {
+            revert CurveFactory__UnreachableGraduationTarget(defaultGraduationTargetEth, maxReachable);
+        }
     }
 }

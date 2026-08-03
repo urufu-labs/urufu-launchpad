@@ -15,7 +15,7 @@ contract NftRevenueVaultTest is Test {
     uint256 internal bobPk = 0xB0B;
 
     function setUp() public {
-        vault = new NftRevenueVault(owner);
+        vault = new NftRevenueVault(owner, 0);
         alice = vm.addr(alicePk);
         bob = vm.addr(bobPk);
         vm.deal(address(this), 100 ether);
@@ -38,8 +38,12 @@ contract NftRevenueVaultTest is Test {
     function test_AddEpoch_HappyPath() public {
         (bool ok,) = address(vault).call{value: 5 ether}("");
         assertTrue(ok);
+        // URU-A11: addEpoch is `onlyOwner`. Hoist vault.nextEpochId() out of
+        // the argument list so it doesn't consume the vm.prank (which only
+        // affects the immediate next external call).
+        uint256 nextId = vault.nextEpochId();
         vm.prank(owner);
-        vault.addEpoch(bytes32(uint256(0xdeadbeef)), 3 ether);
+        vault.addEpoch(nextId, bytes32(uint256(0xdeadbeef)), 3 ether);
         (bytes32 root, uint256 total, uint256 unclaimed) = vault.epochs(0);
         assertEq(root, bytes32(uint256(0xdeadbeef)));
         assertEq(total, 3 ether);
@@ -49,9 +53,10 @@ contract NftRevenueVaultTest is Test {
     function test_AddEpoch_RevertsWithoutBalance() public {
         // Was InsufficientBalance; V4 uses OverCommit which tracks the running
         // sum of live-epoch claims vs current vault balance (see H-2 audit fix).
-        vm.expectRevert(abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__OverCommit.selector, 1 ether, 0));
+        uint256 nextId = vault.nextEpochId();
         vm.prank(owner);
-        vault.addEpoch(bytes32(uint256(1)), 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(NftRevenueVault.NftRevenueVault__OverCommit.selector, 1 ether, 0));
+        vault.addEpoch(nextId, bytes32(uint256(1)), 1 ether);
     }
 
     function test_Claim_HappyPath() public {
@@ -63,8 +68,9 @@ contract NftRevenueVaultTest is Test {
         bytes32 root =
             leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
+        uint256 nextId = vault.nextEpochId();
         vm.prank(owner);
-        vault.addEpoch(root, 3 ether);
+        vault.addEpoch(nextId, root, 3 ether);
 
         bytes32[] memory proofA = new bytes32[](1);
         proofA[0] = leafB;
@@ -81,8 +87,9 @@ contract NftRevenueVaultTest is Test {
         bytes32 root =
             leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
 
+        uint256 nextId = vault.nextEpochId();
         vm.prank(owner);
-        vault.addEpoch(root, 3 ether);
+        vault.addEpoch(nextId, root, 3 ether);
 
         bytes32[] memory proofA = new bytes32[](1);
         proofA[0] = leafB;
@@ -98,8 +105,9 @@ contract NftRevenueVaultTest is Test {
     function test_Claim_RevertsOnBadProof() public {
         (bool ok,) = address(vault).call{value: 3 ether}("");
         assertTrue(ok);
+        uint256 nextId = vault.nextEpochId();
         vm.prank(owner);
-        vault.addEpoch(bytes32(uint256(0xabc)), 3 ether);
+        vault.addEpoch(nextId, bytes32(uint256(0xabc)), 3 ether);
 
         bytes32[] memory badProof = new bytes32[](1);
         badProof[0] = bytes32(uint256(1));

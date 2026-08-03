@@ -153,7 +153,7 @@ contract ERC20WithPausableGen is ERC20, Ownable {
         // ============================================================
         // VM_INJECT_BEFORE_TRANSFER
         // --- from Pausable.frag.sol ---
-        if (_pausablePaused && from != address(0) && to != address(0) && from != owner()) {
+        if (_pausablePaused && from != address(0) && to != address(0)) {
             revert Pausable__Paused();
         }
         // ============================================================

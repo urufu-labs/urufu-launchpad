@@ -30,9 +30,24 @@ contract WlMockToken is ERC20 {
 ///
 ///         Pricing math is unchanged from base BondingCurve so we intentionally don't
 ///         re-verify curve arithmetic here — see BondingCurve.t.sol for that.
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. Stub is
+/// a no-op — the WL tests reach graduation via `test_Graduation_*` but do so
+/// through the curve's own `graduate` path which calls this stub's `execute`.
+contract WlMockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+}
+
 contract BondingCurveWhitelistTest is Test {
     BondingCurve internal curve;
     WlMockToken internal token;
+    WlMockGraduator internal mockGrad;
 
     address internal launcher = makeAddr("launcher");
     address internal feeReceiver = makeAddr("feeReceiver");
@@ -101,6 +116,9 @@ contract BondingCurveWhitelistTest is Test {
         wl.sourceChainId = 8453;
         wl.declaredHolderCount = 3;
 
+        // URU-A05: graduator must be a live contract on init.
+        mockGrad = new WlMockGraduator();
+
         curve.initializeWithWhitelist(
             address(token),
             feeReceiver,
@@ -109,7 +127,7 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            address(mockGrad),
             0,
             0,
             launcher,
@@ -163,7 +181,12 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            // URU-A05: BondingCurve._init requires a live-contract graduator.
+            // The graduator check runs BEFORE any WL-input validation, so the
+            // "revert on bad WL param" tests below need a valid graduator
+            // wired to reach their intended revert. The main setUp mockGrad
+            // is reused since it's just a no-op stub.
+            address(mockGrad),
             0,
             0,
             launcher,
@@ -192,7 +215,12 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            // URU-A05: BondingCurve._init requires a live-contract graduator.
+            // The graduator check runs BEFORE any WL-input validation, so the
+            // "revert on bad WL param" tests below need a valid graduator
+            // wired to reach their intended revert. The main setUp mockGrad
+            // is reused since it's just a no-op stub.
+            address(mockGrad),
             0,
             0,
             launcher,
@@ -219,7 +247,12 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            // URU-A05: BondingCurve._init requires a live-contract graduator.
+            // The graduator check runs BEFORE any WL-input validation, so the
+            // "revert on bad WL param" tests below need a valid graduator
+            // wired to reach their intended revert. The main setUp mockGrad
+            // is reused since it's just a no-op stub.
+            address(mockGrad),
             0,
             0,
             launcher,
@@ -267,7 +300,7 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            address(mockGrad), // URU-A05: live-contract graduator required.
             0,
             0,
             launcher
@@ -321,7 +354,12 @@ contract BondingCurveWhitelistTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             100,
-            address(0),
+            // URU-A05: BondingCurve._init requires a live-contract graduator.
+            // The graduator check runs BEFORE any WL-input validation, so the
+            // "revert on bad WL param" tests below need a valid graduator
+            // wired to reach their intended revert. The main setUp mockGrad
+            // is reused since it's just a no-op stub.
+            address(mockGrad),
             0,
             0,
             launcher,

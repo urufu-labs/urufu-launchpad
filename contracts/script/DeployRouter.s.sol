@@ -299,15 +299,16 @@ contract DeployRouter is Script {
     }
 
     /// Seed every canonical configHash's module count + flags on the fresh
-    /// Router via batch setters. Manifest is the single source of truth.
+    /// Router in ONE atomic call (URU-A10). `registerConfigMetadataBatch` is
+    /// one-shot per hash + emits `ConfigMetadataRegistered` per entry, so an
+    /// operator cannot ship a Router in the count-set-but-flags-missing state.
     function _seedManifestSentinels(
         Router router
     ) internal {
         (bytes32[] memory hashes, uint256[] memory counts) = RhConfigManifest.hashesAndCounts();
         (, uint256[] memory flags) = RhConfigManifest.hashesAndFlags();
-        router.setModuleCountForConfigBatch(hashes, counts);
-        router.setFlagsForConfigBatch(hashes, flags);
-        console2.log("  [ok] seeded manifest sentinels for hashes:", hashes.length);
+        router.registerConfigMetadataBatch(hashes, counts, flags);
+        console2.log("  [ok] atomically registered config metadata for hashes:", hashes.length);
     }
 
     /// Ban every retired Airdrop configHash. Auditor blocker #1: the source-

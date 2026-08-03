@@ -105,6 +105,39 @@ export async function migrate(): Promise<void> {
   `;
   await sql`CREATE INDEX IF NOT EXISTS rewards_leaves_holder_idx ON app.rewards_leaves (chain_id, holder, epoch_id DESC)`;
 
+  // URU-A06: durable publication journal. Tree + leaves are committed here
+  // BEFORE the on-chain transaction is broadcast so startup reconciliation can
+  // recover a tx that confirmed after the process crashed (or a race that
+  // pushed us onto a different epoch id than the tree was built for).
+  //
+  // status enum:
+  //   pending    — leaves persisted, tx not yet sent
+  //   broadcast  — tx sent, receipt not yet observed
+  //   confirmed  — receipt observed, rewards_epochs row inserted
+  //   conflict   — on-chain state at this epoch id disagrees with our tree
+  //                (a stale publisher landed a different root); requires
+  //                manual intervention
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.rewards_publications (
+      chain_id      integer     NOT NULL,
+      epoch_id      integer     NOT NULL,
+      vault_addr    text        NOT NULL,
+      merkle_root   text        NOT NULL,
+      total_amount  text        NOT NULL,
+      holder_count  integer     NOT NULL,
+      status        text        NOT NULL CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict')),
+      tx_hash       text,
+      block_number  bigint,
+      created_at    timestamptz NOT NULL DEFAULT now(),
+      updated_at    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (chain_id, epoch_id)
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS rewards_publications_status_idx
+    ON app.rewards_publications (chain_id, status, epoch_id)
+  `;
+
   // Auto-backfill: any epoch-N JSON that shipped in contracts/tmp/epoch/ gets
   // seeded on startup if the corresponding (chain_id, epoch_id) row doesn't
   // exist yet. Idempotent — the ON CONFLICT clauses in the insert make re-runs

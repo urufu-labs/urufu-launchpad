@@ -66,6 +66,10 @@ contract CurveGraduatorWireTest is Test {
     BondingCurve internal curveImpl;
     CurveFactory internal cf;
     MockGraduator internal graduator;
+    /// URU-A05 requires a live-contract graduator wired before any curve is
+    /// created. This stub sits in as the "initial" graduator for tests that
+    /// want to exercise re-wiring (setGraduator swaps stub → real graduator).
+    MockGraduator internal stubGraduator;
 
     address internal admin = makeAddr("admin");
     address internal treasury = makeAddr("treasury");
@@ -98,6 +102,14 @@ contract CurveGraduatorWireTest is Test {
 
         curveImpl = new BondingCurve();
         cf = new CurveFactory(admin, address(feeReceiver), address(curveImpl));
+        // URU-A05: every curve creation requires a live-contract graduator
+        // wired on the factory. Deploy both the tracking MockGraduator (used
+        // by the "graduation actually calls the graduator" tests) and a
+        // second stub (used as the initial wire so we can swap to the tracking
+        // one mid-test to prove `setGraduator` takes effect for NEW curves
+        // only).
+        graduator = new MockGraduator();
+        stubGraduator = new MockGraduator();
 
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC20, address(f20));
@@ -107,6 +119,9 @@ contract CurveGraduatorWireTest is Test {
         cf.setDefaults(cf.defaultCurveSupply(), 800_000_000e18, 5 ether, 2 ether, 100);
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        // URU-A05: stub graduator wired from setUp; individual tests can
+        // rewire to `graduator` (the tracker) to observe graduation.
+        cf.setGraduator(address(stubGraduator));
         // Audit remediation #3 (fail-closed sentinels).
         router.setModuleCountForConfig(BARE_ERC20, 1);
         router.setFlagsForConfig(BARE_ERC20, 0);
@@ -115,7 +130,6 @@ contract CurveGraduatorWireTest is Test {
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(impl20));
 
-        graduator = new MockGraduator();
         vm.deal(launcher, 5 ether);
         vm.deal(buyer, 100 ether);
     }
@@ -131,7 +145,9 @@ contract CurveGraduatorWireTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02 / Router__CurveMustRenounce: curve launches are forced to
+            // Renounce so the launcher can't pause/mint/blocklist post-graduation.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0
@@ -157,15 +173,16 @@ contract CurveGraduatorWireTest is Test {
     }
 
     function test_SetGraduator_ExistingCurveKeepsOldWire() public {
-        // Launch WITHOUT a graduator first...
+        // Launch WITH the stub graduator (setUp default)...
         (, address curveA) = _launchWithCurve();
-        assertEq(BondingCurve(payable(curveA)).graduator(), address(0));
+        assertEq(BondingCurve(payable(curveA)).graduator(), address(stubGraduator));
 
-        // Then wire one — the pre-existing curve keeps its zero graduator (immutable wire
-        // per curve), and only NEW curves see the updated address.
+        // Then swap to the tracking graduator — the pre-existing curveA
+        // keeps its OLD graduator (per-curve wire is immutable at init).
+        // Only NEW curves see the updated factory-wide graduator.
         vm.prank(admin);
         cf.setGraduator(address(graduator));
-        assertEq(BondingCurve(payable(curveA)).graduator(), address(0));
+        assertEq(BondingCurve(payable(curveA)).graduator(), address(stubGraduator));
     }
 
     function test_Graduation_CallsGraduatorWithReservesAndZeroesCurveState() public {
@@ -221,20 +238,37 @@ contract CurveGraduatorWireTest is Test {
         assertEq(graduator.lastLauncher(), launcher, "graduator did not receive launcher");
     }
 
-    function test_Graduation_NoGraduatorLeavesReservesOnCurve() public {
-        // No setGraduator call — the pre-graduator stub behavior stays in place.
-        (address token, address curveAddr) = _launchWithCurve();
-        BondingCurve curve = BondingCurve(payable(curveAddr));
+    /// URU-A05: this used to assert that a curve with NO graduator wired
+    /// would still "graduate" (flip the flag) but leave the reserves stuck
+    /// on the curve. That behavior was the vulnerability — funds could be
+    /// permanently stranded on a live-but-graduated curve with no owner or
+    /// sweep. The fix bans zero-graduator curves at both admin-set time
+    /// (`CurveFactory.setGraduator(0)` reverts) and at curve-init time
+    /// (`BondingCurve._init` rejects a zero or non-contract graduator). The
+    /// rewrite verifies BOTH gates instead of exercising the closed hole.
+    function test_ZeroGraduator_RejectedAtBothAdminAndInitTime() public {
+        // (1) Admin cannot wire a zero graduator on the factory.
+        vm.prank(admin);
+        vm.expectRevert(CurveFactory.CurveFactory__GraduatorUnset.selector);
+        cf.setGraduator(address(0));
 
-        vm.prank(buyer);
-        curve.buy{value: 3 ether}(0);
-
-        assertTrue(curve.graduated());
-        assertEq(graduator.calls(), 0, "graduator called despite being unset");
-        // Reserves remain on the curve (funds don't leave without a graduator).
-        assertGt(curve.ethReserve(), 0);
-        assertGt(curve.tokenReserve(), 0);
-        assertEq(address(graduator).balance, 0);
-        assertEq(IERC20(token).balanceOf(address(graduator)), 0);
+        // (2) Even if a raw BondingCurve clone tried to init with graduator = 0
+        //     (impossible from the factory path since setGraduator(0) is banned,
+        //     but defense-in-depth), the curve rejects it at init.
+        BondingCurve rawImpl = new BondingCurve();
+        vm.expectRevert(BondingCurve.BondingCurve__GraduatorUnset.selector);
+        rawImpl.initialize(
+            address(0xdead), // token
+            address(feeReceiver),
+            1e18, // curve supply
+            1e18, // virtual token
+            1 ether, // virtual eth
+            1 ether, // grad target
+            100,
+            address(0), // <-- the banned zero graduator
+            0,
+            0,
+            address(0)
+        );
     }
 }

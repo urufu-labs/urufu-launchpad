@@ -59,7 +59,9 @@ contract DeployFlywheel is Script {
 
         FeeSplitter splitter = new FeeSplitter(admin, treasury, configDelay);
         LoyaltyOracle oracle_ = new LoyaltyOracle(admin, uruToken, gemuNft, uruThreshold);
-        NftRevenueVault nftVault_ = new NftRevenueVault(admin);
+        // URU-A11: 2-day publish timelock. `configDelay` mirrors the value
+        // FeeSplitter + URU vaults use so admin governance is unified.
+        NftRevenueVault nftVault_ = new NftRevenueVault(admin, configDelay);
         UruBuybackVault buybackVault_ = new UruBuybackVault(admin, uruToken, address(nftVault_), 2 days);
 
         // NFT secondary-royalty split scaffolding. Wired to FeeSplitter so 2981 flows land

@@ -276,7 +276,9 @@ contract DeployFreshLocal is Script {
         // ---------------- Phase 1: flywheel infra (deploy order matters, chicken/egg) --
         _startBroadcastOrPrank();
 
-        NftRevenueVault nftVault = new NftRevenueVault(admin);
+        // URU-A11: 2-day publish timelock. Matches FeeSplitter + URU-vault
+        // config delay so admin economic changes have a unified cadence.
+        NftRevenueVault nftVault = new NftRevenueVault(admin, 2 days);
         s.nftRevenueVault = address(nftVault);
 
         UruBuybackVault buybackVault = new UruBuybackVault(admin, uruToken, address(nftVault), splitterDelay);

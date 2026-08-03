@@ -142,17 +142,19 @@ contract RhWhitelistLaunchE2eForkTest is Test {
     }
 
     function _deployPipeline() internal {
+        // URU-A11: production configDelay = 2 days, but this fork test uses 0
+        // so it can call setKeeper/setSwapTarget/setConfig inline. The delay
+        // is exercised by unit + invariant tests, not here.
         vm.startPrank(admin);
-        splitter = new FeeSplitter(admin, treasury, 2 days);
-        NftRevenueVault nftVault = new NftRevenueVault(admin);
-        UruBuybackVault buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
+        splitter = new FeeSplitter(admin, treasury, 0);
+        NftRevenueVault nftVault = new NftRevenueVault(admin, 0);
+        UruBuybackVault buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 0);
         buybackVault.setKeeper(keeper, true);
         buybackVault.setSwapTarget(UNI_UR, true);
-        vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
 
         LoyaltyOracle oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, 100_000e18);
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 0);
 
         Router old = Router(payable(OLD_ROUTER));
         routerV2 = new Router(

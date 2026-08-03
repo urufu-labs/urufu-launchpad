@@ -4,6 +4,17 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
+/// URU-A13: GraduatorV2 does NOT inherit Solady's Ownable — it exposes a
+/// custom `setOwner(address)` (plus `owner()` view). Casting it as Ownable
+/// and calling `transferOwnership(address)` reverts. This dedicated interface
+/// lets `_handoffGraduator` call the right selector.
+interface IGraduatorOwner {
+    function owner() external view returns (address);
+    function setOwner(
+        address newOwner
+    ) external;
+}
+
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {ERC20Factory} from "src/factories/ERC20Factory.sol";
@@ -79,7 +90,10 @@ contract HandoffOwnership is Script {
             (bool ok, bytes memory ret) = cf.staticcall(abi.encodeWithSignature("graduator()"));
             if (ok && ret.length >= 32) graduator = abi.decode(ret, (address));
         }
-        _handoff("Graduator", graduator, multisig);
+        // URU-A13: Graduator uses `setOwner` not `transferOwnership`. Route
+        // through the dedicated helper — if we call `_handoff` here the tx
+        // reverts and the whole multisig handoff halts partway through.
+        _handoffGraduator(graduator, multisig);
 
         // Flywheel Ownables: pull from deployment-flywheel.<chainid>.json which
         // DeployFreshLocal now writes as part of its 4-file address-book fan-out.
@@ -144,5 +158,26 @@ contract HandoffOwnership is Script {
         }
         console2.log("  transfer", name);
         Ownable(target).transferOwnership(newOwner);
+    }
+
+    /// URU-A13: Graduator-specific handoff. `GraduatorV2.setOwner` is the
+    /// actual selector; casting to Ownable and calling `transferOwnership`
+    /// reverts because the selectors differ. Kept idempotent (skip if already
+    /// handed off) so re-running the script post-partial-migration works.
+    function _handoffGraduator(
+        address target,
+        address newOwner
+    ) internal {
+        if (target == address(0)) {
+            console2.log("  skip Graduator");
+            return;
+        }
+        address current = IGraduatorOwner(target).owner();
+        if (current == newOwner) {
+            console2.log("  already handed off: Graduator");
+            return;
+        }
+        console2.log("  setOwner Graduator");
+        IGraduatorOwner(target).setOwner(newOwner);
     }
 }
