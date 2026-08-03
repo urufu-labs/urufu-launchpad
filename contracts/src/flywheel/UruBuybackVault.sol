@@ -44,6 +44,11 @@ contract UruBuybackVault is Ownable {
     error UruBuybackVault__BelowMinRate(uint256 minUruOut, uint256 rateFloor);
     error UruBuybackVault__ConfigDelayNotPassed(uint256 readyAt);
     error UruBuybackVault__NoPendingSink();
+    /// URU-A11: same propose/activate pattern as UruDepositSink for keeper /
+    /// swapTarget / rate changes. Prevents a compromised owner from routing
+    /// ETH through a malicious `swapTarget` in the same tx as authorizing it.
+    error UruBuybackVault__AdminChangeNotProposed(bytes32 changeId);
+    error UruBuybackVault__AdminChangeNotReady(bytes32 changeId, uint256 readyAt);
 
     event Received(address indexed from, uint256 amount);
     event KeeperSet(address indexed keeper, bool allowed);
@@ -54,6 +59,9 @@ contract UruBuybackVault is Ownable {
     event BuybackExecuted(uint256 ethIn, uint256 uruOut);
     event UruSwept(address indexed to, uint256 amount);
     event EthSwept(address indexed to, uint256 amount);
+    /// URU-A11: telemetry for propose/activate/cancel of admin changes.
+    event AdminChangeProposed(bytes32 indexed changeId, uint256 readyAt);
+    event AdminChangeCancelled(bytes32 indexed changeId);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
@@ -75,6 +83,9 @@ contract UruBuybackVault is Ownable {
 
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isSwapTarget;
+    /// URU-A11: mirrors UruDepositSink.adminChangeReadyAt. See that file for
+    /// full docstring; identical semantics here.
+    mapping(bytes32 => uint256) public adminChangeReadyAt;
 
     constructor(
         address initialOwner,
@@ -135,6 +146,8 @@ contract UruBuybackVault is Ownable {
         address keeper,
         bool allowed
     ) external onlyOwner {
+        // URU-A11: gated on a matured propose call. No-op when minConfigDelay == 0.
+        _consumeAdminChange(keeperChangeId(keeper, allowed));
         isKeeper[keeper] = allowed;
         emit KeeperSet(keeper, allowed);
     }
@@ -143,6 +156,7 @@ contract UruBuybackVault is Ownable {
         address target,
         bool allowed
     ) external onlyOwner {
+        _consumeAdminChange(swapTargetChangeId(target, allowed));
         isSwapTarget[target] = allowed;
         emit SwapTargetSet(target, allowed);
     }
@@ -174,8 +188,61 @@ contract UruBuybackVault is Ownable {
     function setMinUruPerEth(
         uint256 rate
     ) external onlyOwner {
+        // URU-A11: same propose/activate gate as keeper/target changes.
+        _consumeAdminChange(rateChangeId(rate));
         minUruPerEth = rate;
         emit MinUruPerEthSet(rate);
+    }
+
+    // ============================================================
+    // URU-A11 propose/activate — changeId helpers
+    // ============================================================
+
+    function keeperChangeId(
+        address keeper,
+        bool allowed
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("KEEPER", keeper, allowed));
+    }
+
+    function swapTargetChangeId(
+        address target,
+        bool allowed
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("SWAP_TARGET", target, allowed));
+    }
+
+    function rateChangeId(
+        uint256 rate
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("MIN_URU_PER_ETH", rate));
+    }
+
+    function proposeAdminChange(
+        bytes32 changeId
+    ) external onlyOwner {
+        uint256 readyAt = block.timestamp + minConfigDelay;
+        adminChangeReadyAt[changeId] = readyAt;
+        emit AdminChangeProposed(changeId, readyAt);
+    }
+
+    function cancelAdminChange(
+        bytes32 changeId
+    ) external onlyOwner {
+        delete adminChangeReadyAt[changeId];
+        emit AdminChangeCancelled(changeId);
+    }
+
+    function _consumeAdminChange(
+        bytes32 changeId
+    ) internal {
+        if (minConfigDelay == 0) return;
+        uint256 readyAt = adminChangeReadyAt[changeId];
+        if (readyAt == 0) revert UruBuybackVault__AdminChangeNotProposed(changeId);
+        if (block.timestamp < readyAt) {
+            revert UruBuybackVault__AdminChangeNotReady(changeId, readyAt);
+        }
+        delete adminChangeReadyAt[changeId];
     }
 
     /// Escape hatch: sweep stranded ETH that arrived outside a keeper cycle

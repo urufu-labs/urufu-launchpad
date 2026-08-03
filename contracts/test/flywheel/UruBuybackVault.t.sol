@@ -53,7 +53,11 @@ contract UruBuybackVaultTest is Test {
 
     function setUp() public {
         uru = new MockUru();
-        vault = new UruBuybackVault(owner, address(uru), distribution, 2 days);
+        // URU-A11: production vaults REQUIRE minConfigDelay > 0. Tests use 0
+        // to avoid the propose-then-warp dance for every keeper/target/rate
+        // toggle; the propose path is verified by the "Two-step" / "BeforeDelay"
+        // tests below, which spin up their own delayed vault.
+        vault = new UruBuybackVault(owner, address(uru), distribution, 0);
         swapRouter = new MockSwapRouter(uru);
         vm.deal(address(this), 100 ether);
     }
@@ -146,10 +150,13 @@ contract UruBuybackVaultTest is Test {
     }
 
     function test_SetDistributionSink_RevertsBeforeDelay() public {
+        // Spin up a fresh vault with a non-zero delay so the timelock is meaningful
+        // (the shared setUp uses delay = 0 for direct-setter convenience).
+        UruBuybackVault delayedVault = new UruBuybackVault(owner, address(uru), distribution, 2 days);
         vm.prank(owner);
-        vault.proposeDistributionSink(address(1));
+        delayedVault.proposeDistributionSink(address(1));
         vm.prank(owner);
         vm.expectRevert();
-        vault.activateDistributionSink();
+        delayedVault.activateDistributionSink();
     }
 }

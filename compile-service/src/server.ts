@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { keccak_256 } from '@noble/hashes/sha3';
+import { encodeAbiParameters, keccak256, type Hex } from 'viem';
+import { canonicalModuleString } from '../../shared/config-id.ts';
 
 import { CompileRequestSchema } from './types.ts';
 import { loadMatrix } from './matrix.ts';
@@ -14,6 +15,7 @@ import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
 import { registerRewardsRoutes } from './routes/rewards.ts';
+import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
 
@@ -53,6 +55,17 @@ app.options('/*', async (_req, reply) => reply.code(204).send());
 // Skipped silently when DATABASE_URL isn't set (local dev without a Postgres running).
 if (hasDb()) {
   await migrate();
+  // URU-A06: on boot, walk the rewards_publications journal and reconcile
+  // anything left in `pending` / `broadcast` state (typically a tx that
+  // confirmed while the process was down). Runs before route registration so
+  // a fresh HTTP publish doesn't race the sweep.
+  try {
+    await reconcilePendingPublications();
+    app.log.info('rewards reconciliation complete');
+  } catch (err) {
+    app.log.error({ err }, 'rewards reconciliation failed — halting boot');
+    throw err;
+  }
   await registerSocialRoutes(app);
   app.log.info('social routes registered');
 } else {
@@ -166,7 +179,11 @@ app.post('/compile', async (request, reply) => {
     return reply.code(400).send({ code: taxonomize(err), message: (err as Error).message });
   }
 
-  const configHash = computeConfigHash(cfg);
+  // URU-A08: canonical ConfigId hash matches the on-chain formula exactly.
+  // Old wider hash (base + modules + params + chain, JSON-serialized) is
+  // replaced with `keccak256(abi.encode(base, canonicalModuleString(...)))`.
+  const matrixForId = loadMatrix(MATRIX_PATH);
+  const configHash = computeConfigHash(cfg, matrixForId);
 
   // Write spliced .sol to a tmp workspace under contracts/tmp/<hash>/ so it can be compiled
   // with forge alongside the existing src/ tree.
@@ -201,8 +218,11 @@ app.post('/compile', async (request, reply) => {
       .send({ code: 'ARTIFACT_MISSING', configHash, message: (err as Error).message });
   }
 
+  // URU-A08: artifact identity separate from config identity.
+  const artifactHash = keccak256(artifact.bytecode.object as Hex);
   return reply.send({
     configHash,
+    artifactHash,
     contractName: composed.contractName,
     moduleIds: composed.moduleIds,
     bytecode: artifact.bytecode.object,
@@ -266,19 +286,21 @@ function composedName(base: string, modules: string[]): string {
 function computeConfigHash(cfg: {
   base: string;
   modules: string[];
-  params: unknown;
-  chain?: string;
-}): string {
-  const canonical = JSON.stringify({
-    base: cfg.base,
-    modules: [...cfg.modules].sort(),
-    params: cfg.params,
-    chain: cfg.chain ?? null,
-  });
-  const bytes = keccak_256(new TextEncoder().encode(canonical));
-  return '0x' + Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+}, matrix: ReturnType<typeof loadMatrix>): Hex {
+  // URU-A08: matches on-chain formula exactly. Instance params + chain are
+  // NOT part of identity — those are init data / deployment scope. Uses the
+  // shared `canonicalModuleString` so a formula divergence between web +
+  // compile-service is a compile-time import error, not a live-hash mismatch.
+  const modules = canonicalModuleString(
+    cfg.modules,
+    (id) => matrix.modules[id]?.version,
+  );
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: 'string' }, { type: 'string' }],
+      [cfg.base, modules],
+    ),
+  );
 }
 
 function taxonomize(err: unknown): string {

@@ -132,6 +132,9 @@ contract MultiHookHostTest is Test {
         PoolId id = _key().toId();
         assertEq(hook.creators(id), address(0));
 
+        // URU-A12: setCreator is onlyInitializer — must prank as the wired
+        // graduator address (the initializer, see setUp) to call it.
+        vm.prank(graduator);
         hook.setCreator(id, launcher);
         assertEq(hook.creators(id), launcher);
 
@@ -139,13 +142,26 @@ contract MultiHookHostTest is Test {
         vm.prank(mockPM);
         hook.beforeInitialize(graduator, _key(), 0);
 
+        vm.prank(graduator);
         vm.expectRevert(MultiHookHost.MultiHookHost__ConfigFrozen.selector);
         hook.setCreator(id, makeAddr("other"));
     }
 
+    /// URU-A12: setCreator is `onlyInitializer`. When called by the initializer
+    /// with address(0), it still reverts ZeroAddress (input validation preserved).
     function test_SetCreator_RevertsOnZeroAddress() public {
+        vm.prank(graduator);
         vm.expectRevert(MultiHookHost.MultiHookHost__ZeroAddress.selector);
         hook.setCreator(_key().toId(), address(0));
+    }
+
+    /// URU-A12: setCreator called by anyone other than the wired initializer
+    /// reverts NotInitializer, closing the pre-audit hole where any address
+    /// could plant a creator recipient on an unclaimed pool.
+    function test_SetCreator_RevertsFromUnauthorizedCaller() public {
+        vm.prank(swapper);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__NotInitializer.selector, swapper));
+        hook.setCreator(_key().toId(), launcher);
     }
 
     /// After setCreator(launcher), afterSwap must accrue the creator share to
@@ -153,6 +169,8 @@ contract MultiHookHostTest is Test {
     /// core V2 behavior — per-launch creator revenue.
     function test_AfterSwap_AccruesToPerPoolCreator() public {
         PoolId id = _key().toId();
+        // URU-A12: setCreator is onlyInitializer.
+        vm.prank(graduator);
         hook.setCreator(id, launcher);
 
         BalanceDelta delta = toBalanceDelta(-1000, 1000);

@@ -614,14 +614,18 @@ contract PhaseCombosTest is Test {
 
     function test_Combo_FeeMatchesQuote_TwoModules() public {
         // Audit fix #3: Router derives moduleCount from moduleCountForConfig,
-        // not from params. Register the count for AB_AW's hash first.
+        // not from params. Use a fresh configHash for the assertion so we can
+        // register it exactly once — setModuleCountForConfig is now one-shot
+        // (ConfigMetadataAlreadySet if the same hash is set twice), so we
+        // cannot re-set AB_AW after the batch registration in setUp.
+        bytes32 freshHash = keccak256(abi.encode("QUOTE_3M_FRESH"));
         vm.prank(admin);
-        router.setModuleCountForConfig(AB_AW, 3);
+        router.setModuleCountForConfig(freshHash, 3);
         LaunchParams memory p = LaunchParams({
             base: BaseType.ERC20,
             name: "Fee 2M",
             ticker: "F2M",
-            configHash: AB_AW,
+            configHash: freshHash,
             initData: _erc20InitData(1 ether, new bytes[](2)),
             moduleCount: 3,
             installHook: false,

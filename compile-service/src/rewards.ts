@@ -69,8 +69,23 @@ const INDEXER_URL = process.env.INDEXER_URL ?? process.env.NEXT_PUBLIC_INDEXER_U
 
 const vaultAbi = parseAbi([
   'function nextEpochId() view returns (uint256)',
-  'function addEpoch(bytes32 merkleRoot, uint256 totalAmount)',
+  'function totalCommitted() view returns (uint256)',
+  'function minConfigDelay() view returns (uint256)',
+  'function epochs(uint256) view returns (bytes32 merkleRoot, uint256 totalAmount, uint256 unclaimed)',
+  // URU-A06: expectedEpochId is now required. A stale publisher reverts.
+  'function addEpoch(uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount)',
+  // URU-A11: propose/activate path used when the vault's minConfigDelay > 0.
+  'function proposeEpoch(uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount)',
+  'function activateEpoch()',
+  'function cancelPendingEpoch()',
+  'function pendingEpoch() view returns (uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount, uint64 readyAt)',
 ]);
+
+/// URU-A06: postgres advisory lock key. keccak256("URUFU_REWARDS_PUBLICATION")
+/// truncated to a stable 64-bit signed integer so pg accepts it. Every
+/// publish path (manual HTTP + keeper) must hold this lock; two concurrent
+/// publishers cannot race the same nextEpochId.
+const REWARDS_PUBLICATION_LOCK = 366_151_460_437n;
 
 // ---------------------------------------------------------------- viem clients
 
@@ -289,13 +304,73 @@ export interface PublishResult {
   blockNumber: string;
 }
 
-/// End-to-end publish. Reads holders, computes split, builds tree, broadcasts
-/// addEpoch, waits for receipt, persists both the epoch row and all leaves.
-/// Throws if any step fails — the caller should surface the error message.
+/// URU-A06: pg advisory-lock wrapper. All publish paths (HTTP + keeper) must
+/// hold this before reading `nextEpochId` so two concurrent publishers cannot
+/// both build a tree for the same epoch and land at N + N+1 with a stale root.
+type ReservedDb = any;
+async function withPublicationLock<T>(fn: (db: ReservedDb) => Promise<T>): Promise<T> {
+  if (!sql) throw new Error('DATABASE_URL not set — cannot persist tree');
+  const db = await sql.reserve();
+  try {
+    await db`SELECT pg_advisory_lock(${REWARDS_PUBLICATION_LOCK.toString()})`;
+    return await fn(db);
+  } finally {
+    try {
+      await db`SELECT pg_advisory_unlock(${REWARDS_PUBLICATION_LOCK.toString()})`;
+    } finally {
+      db.release();
+    }
+  }
+}
+
+/// URU-A06: promote a pending / broadcast publication row to `confirmed`
+/// AND write the corresponding `rewards_epochs` entry. Called both from the
+/// happy path (`publishEpoch`) and reconciliation (`reconcilePendingForConfig`)
+/// so recovery of a mid-crash tx uses the same journal → epoch table path.
+async function finalizePublication(
+  db: ReservedDb,
+  cfg: ChainConfig,
+  row: {
+    epoch_id: number;
+    merkle_root: string;
+    total_amount: string;
+    holder_count: number;
+    tx_hash: string | null;
+    block_number: string | null;
+  },
+): Promise<void> {
+  await db.begin(async (tx: any) => {
+    await tx`
+      INSERT INTO app.rewards_epochs (
+        chain_id, epoch_id, vault_addr, merkle_root, total_amount,
+        tx_hash, block_number, holder_count
+      ) VALUES (
+        ${cfg.chainId}, ${row.epoch_id}, ${cfg.vaultAddress.toLowerCase()},
+        ${row.merkle_root}, ${row.total_amount},
+        ${row.tx_hash ?? '0x_reconciled'}, ${row.block_number ?? '0'}, ${row.holder_count}
+      )
+      ON CONFLICT (chain_id, epoch_id) DO UPDATE SET
+        merkle_root = EXCLUDED.merkle_root,
+        total_amount = EXCLUDED.total_amount,
+        tx_hash = EXCLUDED.tx_hash,
+        block_number = EXCLUDED.block_number,
+        holder_count = EXCLUDED.holder_count
+    `;
+    await tx`
+      UPDATE app.rewards_publications
+      SET status = 'confirmed', updated_at = now()
+      WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}
+    `;
+  });
+}
+
+/// End-to-end publish. Reads holders, computes split, builds tree, PERSISTS
+/// tree BEFORE broadcast (URU-A06 journal), then broadcasts `addEpoch` (or
+/// `proposeEpoch` if the vault has a real timelock — URU-A11), waits for
+/// receipt, promotes the journal row to `confirmed`.
 ///
-/// `totalAmountOverride` is optional. When omitted, the whole current vault
-/// balance is drained into this epoch. Provide a smaller amount to reserve some
-/// balance for a future epoch.
+/// `totalAmountOverride` is optional. When omitted, uses UNCOMMITTED balance
+/// only (URU-A07: `balance - totalCommitted`), not the whole vault balance.
 export async function publishEpoch(opts: {
   chainSlug: string;
   totalAmountOverride?: bigint;
@@ -304,81 +379,263 @@ export async function publishEpoch(opts: {
   if (!cfg) throw new Error(`chain "${opts.chainSlug}" not configured for flywheel`);
   if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
 
-  const pub = publicClientFor(cfg);
+  return withPublicationLock(async (db) => {
+    const pub = publicClientFor(cfg);
+    // URU-A06: on every publish, first sweep any prior pending / broadcast
+    // rows. Recovers a tx that confirmed while the process was down.
+    await reconcilePendingForConfig(cfg, pub, db);
 
-  // 1. Snapshot holders. Indexer preferred (fast); on-chain fallback covers
-  //    the case where Ponder isn't indexing the gemu NFT yet.
-  const holders = await fetchGemuHolders(cfg, pub);
-  if (holders.length === 0) throw new Error('no gemu holders found in indexer OR on-chain — check NFT deployment');
-
-  // 2. Determine totalAmount. Default: current vault balance.
-  const vaultBalance = await pub.getBalance({ address: cfg.vaultAddress });
-  const totalAmount = opts.totalAmountOverride ?? vaultBalance;
-  if (totalAmount === 0n) throw new Error('vault balance is zero — nothing to distribute');
-  if (totalAmount > vaultBalance) {
-    throw new Error(`totalAmount (${formatEther(totalAmount)}) exceeds vault balance (${formatEther(vaultBalance)})`);
-  }
-
-  // 3. Fetch the next epoch id on-chain so leaf hashes match what the vault
-  //    increments to. If we build the tree with the wrong epochId, verify fails.
-  const nextEpochId = await pub.readContract({
-    address: cfg.vaultAddress,
-    abi: vaultAbi,
-    functionName: 'nextEpochId',
-  });
-
-  // 4. Split + build tree.
-  const allocations = splitAllocations(holders, totalAmount);
-  const { root, leaves } = buildTree(allocations, nextEpochId);
-
-  // 5. Broadcast addEpoch.
-  const { wallet, account } = walletClientFor(cfg);
-  const data = encodeFunctionData({ abi: vaultAbi, functionName: 'addEpoch', args: [root, totalAmount] });
-  const txHash = await wallet.sendTransaction({
-    account,
-    to: cfg.vaultAddress,
-    data,
-    chain: wallet.chain,
-  });
-  const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
-  if (receipt.status !== 'success') throw new Error(`addEpoch tx reverted: ${txHash}`);
-
-  // 6. Persist epoch + leaves. Transactional so a mid-write failure doesn't leave
-  //    a half-published epoch that the frontend queries against.
-  await sql.begin(async (tx) => {
-    await tx`
-      INSERT INTO app.rewards_epochs (
-        chain_id, epoch_id, vault_addr, merkle_root, total_amount, tx_hash, block_number, holder_count
-      ) VALUES (
-        ${cfg.chainId}, ${Number(nextEpochId)}, ${cfg.vaultAddress.toLowerCase()},
-        ${root}, ${totalAmount.toString()}, ${txHash}, ${receipt.blockNumber.toString()},
-        ${leaves.length}
-      )
-      ON CONFLICT (chain_id, epoch_id) DO NOTHING
-    `;
-    // Batch insert leaves. postgres.js unnest() would be faster for huge trees;
-    // gemu NFT is capped small so per-row inserts are fine.
-    for (const l of leaves) {
-      await tx`
-        INSERT INTO app.rewards_leaves (chain_id, epoch_id, holder, amount, proof_json)
-        VALUES (
-          ${cfg.chainId}, ${Number(nextEpochId)}, ${l.holder.toLowerCase()},
-          ${l.amount.toString()}, ${JSON.stringify(l.proof)}::jsonb
-        )
-        ON CONFLICT (chain_id, epoch_id, holder) DO NOTHING
-      `;
+    // 1. Snapshot holders. Indexer preferred (fast); on-chain fallback covers
+    //    the case where Ponder isn't indexing the gemu NFT yet.
+    const holders = await fetchGemuHolders(cfg, pub);
+    if (holders.length === 0) {
+      throw new Error('no gemu holders found in indexer OR on-chain — check NFT deployment');
     }
-  });
 
-  return {
-    chainId: cfg.chainId,
-    epochId: Number(nextEpochId),
-    merkleRoot: root,
-    totalAmount: totalAmount.toString(),
-    holderCount: leaves.length,
-    txHash,
-    blockNumber: receipt.blockNumber.toString(),
-  };
+    // 2. Determine totalAmount from UNCOMMITTED funds only (URU-A07). The old
+    //    default used the whole vault balance which reverted OverCommit as
+    //    soon as any prior epoch still had unclaimed funds.
+    const [vaultBalance, totalCommitted] = await Promise.all([
+      pub.getBalance({ address: cfg.vaultAddress }),
+      pub.readContract({ address: cfg.vaultAddress, abi: vaultAbi, functionName: 'totalCommitted' }),
+    ]);
+    const available = vaultBalance > totalCommitted ? vaultBalance - totalCommitted : 0n;
+    const totalAmount = opts.totalAmountOverride ?? available;
+    if (totalAmount === 0n) throw new Error('vault available balance is zero — nothing to distribute');
+    if (totalAmount > available) {
+      throw new Error(
+        `totalAmount (${formatEther(totalAmount)}) exceeds uncommitted balance (${formatEther(available)})`,
+      );
+    }
+
+    // 3. Fetch nextEpochId + timelock delay. If delay > 0 (production), use
+    //    propose path; the caller / keeper runs `activateVaultEpoch` after
+    //    maturation. If 0 (test / bootstrap), addEpoch directly.
+    const [nextEpochId, minConfigDelay] = await Promise.all([
+      pub.readContract({ address: cfg.vaultAddress, abi: vaultAbi, functionName: 'nextEpochId' }),
+      pub.readContract({ address: cfg.vaultAddress, abi: vaultAbi, functionName: 'minConfigDelay' }),
+    ]);
+
+    // 4. Split + build tree keyed to `nextEpochId`. Leaf format is
+    //    `keccak256(abi.encodePacked(holder, epochId, amount))`.
+    const allocations = splitAllocations(holders, totalAmount);
+    const { root, leaves } = buildTree(allocations, nextEpochId);
+
+    // 5. URU-A06: persist journal + leaves BEFORE broadcasting. If the process
+    //    dies after the tx confirms but before the rewards_epochs write,
+    //    reconciliation picks up the pending row and promotes it.
+    await db.begin(async (tx: any) => {
+      await tx`
+        INSERT INTO app.rewards_publications (
+          chain_id, epoch_id, vault_addr, merkle_root, total_amount, holder_count, status
+        ) VALUES (
+          ${cfg.chainId}, ${Number(nextEpochId)}, ${cfg.vaultAddress.toLowerCase()},
+          ${root}, ${totalAmount.toString()}, ${leaves.length}, 'pending'
+        )
+      `;
+      for (const l of leaves) {
+        await tx`
+          INSERT INTO app.rewards_leaves (chain_id, epoch_id, holder, amount, proof_json)
+          VALUES (
+            ${cfg.chainId}, ${Number(nextEpochId)}, ${l.holder.toLowerCase()},
+            ${l.amount.toString()}, ${JSON.stringify(l.proof)}::jsonb
+          )
+          ON CONFLICT (chain_id, epoch_id, holder) DO UPDATE SET
+            amount = EXCLUDED.amount,
+            proof_json = EXCLUDED.proof_json
+        `;
+      }
+    });
+
+    // 6. Broadcast. Route depends on the vault's real timelock config.
+    const { wallet, account } = walletClientFor(cfg);
+    const isProposal = minConfigDelay > 0n;
+    const data = isProposal
+      ? encodeFunctionData({
+        abi: vaultAbi,
+        functionName: 'proposeEpoch',
+        args: [nextEpochId, root, totalAmount],
+      })
+      : encodeFunctionData({
+        abi: vaultAbi,
+        functionName: 'addEpoch',
+        args: [nextEpochId, root, totalAmount],
+      });
+    const txHash = await wallet.sendTransaction({
+      account,
+      to: cfg.vaultAddress,
+      data,
+      chain: wallet.chain,
+    });
+    await db`
+      UPDATE app.rewards_publications
+      SET status = 'broadcast', tx_hash = ${txHash}, updated_at = now()
+      WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(nextEpochId)}
+    `;
+    const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== 'success') {
+      throw new Error(`${isProposal ? 'proposeEpoch' : 'addEpoch'} tx reverted: ${txHash}`);
+    }
+    await db`
+      UPDATE app.rewards_publications
+      SET block_number = ${receipt.blockNumber.toString()}, updated_at = now()
+      WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(nextEpochId)}
+    `;
+
+    // For the proposal path, the epoch isn't LIVE yet — activation happens
+    // later via `activateVaultEpoch`. But the journal + leaves are already
+    // persisted so `reconcilePending` can promote it once activated on-chain.
+    // We DO NOT write rewards_epochs here for proposals; that happens on
+    // activation reconciliation. The publication row stays 'broadcast' until
+    // then.
+    if (!isProposal) {
+      await finalizePublication(db, cfg, {
+        epoch_id: Number(nextEpochId),
+        merkle_root: root,
+        total_amount: totalAmount.toString(),
+        holder_count: leaves.length,
+        tx_hash: txHash,
+        block_number: receipt.blockNumber.toString(),
+      });
+    }
+
+    return {
+      chainId: cfg.chainId,
+      epochId: Number(nextEpochId),
+      merkleRoot: root,
+      totalAmount: totalAmount.toString(),
+      holderCount: leaves.length,
+      txHash,
+      blockNumber: receipt.blockNumber.toString(),
+    };
+  });
+}
+
+/// URU-A11 tangent: activate a matured pending epoch. Called by the keeper /
+/// operator after the vault's `minConfigDelay` elapses. Idempotent — if the
+/// pending epoch's expected ID matches the vault's `nextEpochId - 1` (i.e.
+/// already activated), returns without writing.
+export async function activateVaultEpoch(chainSlug: string): Promise<{
+  epochId: number;
+  txHash: Hex | null;
+}> {
+  const cfg = chainConfigFor(chainSlug);
+  if (!cfg) throw new Error(`chain "${chainSlug}" not configured for flywheel`);
+  if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
+
+  return withPublicationLock(async (db) => {
+    const pub = publicClientFor(cfg);
+    const pending = await pub.readContract({
+      address: cfg.vaultAddress,
+      abi: vaultAbi,
+      functionName: 'pendingEpoch',
+    });
+    const [expectedEpochId, , , readyAt] = pending;
+    if (readyAt === 0n) throw new Error('no pending epoch to activate');
+    if (BigInt(Math.floor(Date.now() / 1000)) < readyAt) {
+      throw new Error(`pending epoch not yet ready — matures at ${readyAt}`);
+    }
+    const { wallet, account } = walletClientFor(cfg);
+    const data = encodeFunctionData({ abi: vaultAbi, functionName: 'activateEpoch', args: [] });
+    const txHash = await wallet.sendTransaction({
+      account,
+      to: cfg.vaultAddress,
+      data,
+      chain: wallet.chain,
+    });
+    const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== 'success') throw new Error(`activateEpoch tx reverted: ${txHash}`);
+
+    // Promote the journal row (its status was 'broadcast' after proposeEpoch).
+    const row = (await db`
+      SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash, block_number::text
+      FROM app.rewards_publications
+      WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(expectedEpochId)}
+    `) as Array<{
+      epoch_id: number;
+      merkle_root: string;
+      total_amount: string;
+      holder_count: number;
+      tx_hash: string | null;
+      block_number: string | null;
+    }>;
+    if (row[0]) await finalizePublication(db, cfg, row[0]);
+
+    return { epochId: Number(expectedEpochId), txHash };
+  });
+}
+
+/// URU-A06 reconciliation. Runs on startup + at the top of every `publishEpoch`
+/// call so a tx that confirmed while the process was down (or after a race)
+/// gets its journal row promoted rather than staying stuck as 'pending'.
+async function reconcilePendingForConfig(
+  cfg: ChainConfig,
+  pub: PublicClient,
+  db: ReservedDb,
+): Promise<void> {
+  const pending = (await db`
+    SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash,
+           block_number::text, created_at
+    FROM app.rewards_publications
+    WHERE chain_id = ${cfg.chainId} AND status IN ('pending', 'broadcast')
+    ORDER BY epoch_id
+  `) as Array<{
+    epoch_id: number;
+    merkle_root: string;
+    total_amount: string;
+    holder_count: number;
+    tx_hash: string | null;
+    block_number: string | null;
+    created_at: Date;
+  }>;
+  for (const row of pending) {
+    const onchain = await pub.readContract({
+      address: cfg.vaultAddress,
+      abi: vaultAbi,
+      functionName: 'epochs',
+      args: [BigInt(row.epoch_id)],
+    });
+    const [root, total] = onchain;
+    if (
+      root.toLowerCase() === row.merkle_root.toLowerCase()
+      && total.toString() === row.total_amount
+    ) {
+      await finalizePublication(db, cfg, row);
+      continue;
+    }
+    if (root !== ('0x' + '00'.repeat(32))) {
+      // On-chain landed a DIFFERENT root at this epoch id. Someone else
+      // published first — our journal is stale. Mark conflict; requires
+      // manual resolution.
+      await db`
+        UPDATE app.rewards_publications
+        SET status = 'conflict', updated_at = now()
+        WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}
+      `;
+      throw new Error(`reward publication conflict at epoch ${row.epoch_id}`);
+    }
+    // Stale pending with no on-chain landing after 30 min → assume the tx was
+    // dropped / never sent (crash between insert and broadcast). Delete the
+    // row so a fresh publish can retry.
+    if (Date.now() - new Date(row.created_at).getTime() > 30 * 60 * 1000 && !row.tx_hash) {
+      await db.begin(async (tx: any) => {
+        await tx`DELETE FROM app.rewards_leaves WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
+        await tx`DELETE FROM app.rewards_publications WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
+      });
+    } else {
+      throw new Error(`reward publication ${row.epoch_id} is already pending`);
+    }
+  }
+}
+
+/// Exported for `server.ts` startup — walks any pending / broadcast rows and
+/// either promotes them (if the on-chain state matches) or flags conflict.
+export async function reconcilePendingPublications(): Promise<void> {
+  const cfg = chainConfigFor('robinhood');
+  if (!cfg || !sql) return;
+  await withPublicationLock(async (db) => {
+    await reconcilePendingForConfig(cfg, publicClientFor(cfg), db);
+  });
 }
 
 // ---------------------------------------------------------------- read helpers (routes)

@@ -14,6 +14,19 @@ import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. This is a
+/// no-op stub; none of the tests here trip graduation.
+contract CrciMockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+}
+
 /// @notice The critical invariant test for reserve-backed modules on bonding curves.
 ///         Proves total supply stays fixed at exactly the initial mint amount across
 ///         the whole launch → trade → reserve-payout lifecycle. If this test ever
@@ -84,12 +97,16 @@ contract CurveReserveIntegrationTest is Test {
         // runs dry — matches the mainnet config shape.
         curveImpl = new BondingCurve();
         cf = new CurveFactory(admin, address(feeReceiver), address(curveImpl));
+        // URU-A05: every curve creation requires a live-contract graduator.
+        // These tests don't cross the graduation target; no-op stub suffices.
+        CrciMockGraduator mockGrad = new CrciMockGraduator();
         vm.startPrank(admin);
         router.setCurveFactory(address(cf));
         registry.setRouter(address(router));
         cf.setDefaults(CURVE_SUPPLY, 800_000_000e18, 5 ether, 2 ether, 100);
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        cf.setGraduator(address(mockGrad));
         // Audit remediation #3 (fail-closed sentinels).
         router.setModuleCountForConfig(BARE_ERC20, 1);
         router.setFlagsForConfig(BARE_ERC20, 0);
@@ -116,7 +133,9 @@ contract CurveReserveIntegrationTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02: curve launches must renounce so a KeepEOA path can't
+            // retain pause/mint/blocklist rights over the graduated token.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0
@@ -249,7 +268,9 @@ contract CurveReserveIntegrationTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02: curve launches must renounce so a KeepEOA path can't
+            // retain pause/mint/blocklist rights over the graduated token.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0

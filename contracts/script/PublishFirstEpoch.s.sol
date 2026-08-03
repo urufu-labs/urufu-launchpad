@@ -6,7 +6,16 @@ import {Script, console2} from "forge-std/Script.sol";
 interface IVault {
     function owner() external view returns (address);
     function nextEpochId() external view returns (uint256);
+    function minConfigDelay() external view returns (uint256);
+    // URU-A06: expectedEpochId now required (stale-publisher revert).
+    // URU-A11: minConfigDelay > 0 means production timelock — use proposeEpoch instead.
     function addEpoch(
+        uint256 expectedEpochId,
+        bytes32 merkleRoot,
+        uint256 totalAmount
+    ) external;
+    function proposeEpoch(
+        uint256 expectedEpochId,
         bytes32 merkleRoot,
         uint256 totalAmount
     ) external;
@@ -42,7 +51,14 @@ contract PublishFirstEpoch is Script {
         require(next == 0, "nextEpochId != 0 - tree was computed for epoch 0");
 
         vm.startBroadcast();
-        IVault(VAULT).addEpoch(MERKLE_ROOT, TOTAL_AMOUNT);
+        // URU-A11: if the vault has a real production timelock, use proposeEpoch.
+        // Post-timelock, follow up with ActivateEpoch.s.sol.
+        if (IVault(VAULT).minConfigDelay() == 0) {
+            IVault(VAULT).addEpoch(next, MERKLE_ROOT, TOTAL_AMOUNT);
+        } else {
+            IVault(VAULT).proposeEpoch(next, MERKLE_ROOT, TOTAL_AMOUNT);
+            console2.log("[note] vault has propose/activate timelock; call activateEpoch after maturity");
+        }
         vm.stopBroadcast();
 
         console2.log("");

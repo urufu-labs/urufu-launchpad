@@ -24,10 +24,25 @@ contract MockToken is ERC20 {
     }
 }
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`, so tests
+/// need a real deployed contract (not an EOA) as the wired graduator. This is
+/// a no-op stub; the curve tests never exercise graduation.
+contract MockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+}
+
 contract CurveFactoryTest is Test {
     BondingCurve internal impl;
     CurveFactory internal factory;
     MockToken internal token;
+    MockGraduator internal mockGrad;
 
     address internal owner = makeAddr("owner");
     address internal feeReceiver = makeAddr("feeReceiver");
@@ -36,6 +51,12 @@ contract CurveFactoryTest is Test {
     function setUp() public {
         impl = new BondingCurve();
         factory = new CurveFactory(owner, feeReceiver, address(impl));
+        // URU-A05: every curve creation now requires a live-contract graduator
+        // wired on the factory. Tests use a no-op stub; production wires the
+        // real GraduatorV2.
+        mockGrad = new MockGraduator();
+        vm.prank(owner);
+        factory.setGraduator(address(mockGrad));
         token = new MockToken();
         token.mint(launcher, factory.defaultCurveSupply());
     }

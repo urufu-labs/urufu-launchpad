@@ -248,7 +248,7 @@
       "version": 1,
       "base": ["ERC20"],
       "requires": [],
-      "incompatibleWith": ["FeeOnTransfer"],
+      "incompatibleWith": ["FeeOnTransfer", "Vesting"],
       "flagged": null,
       "fragmentPath": "contracts/modules/allocation/Staking.frag.sol",
       "params": {

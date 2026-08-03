@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 
 import {Router} from "src/router/Router.sol";
@@ -226,10 +227,11 @@ contract RouterV2Test is Test {
     }
 
     function test_LaunchWithURU_RevertsOnFactoryUnset() public {
-        // Wipe the ERC20 factory (setFactory to non-zero only — use a fresh factory
-        // then reset via a workaround: the guard is `factory == address(0)`, and
-        // setFactory rejects zero. Simulate by launching a base with no factory set.)
-        // Simpler: unset ERC1155 factory via a fresh Router that doesn't wire it.
+        // A fresh Router with no factory wired should surface FactoryUnset when
+        // launchWithURU is called. This test isolates that guard, so we seed the
+        // configHash sentinels first (URU-A08 fail-closed policy: without them,
+        // launch reverts Router__ConfigMetadataIncomplete BEFORE reaching the
+        // FactoryUnset guard).
         Router bare = new Router(
             owner,
             registry,
@@ -241,8 +243,12 @@ contract RouterV2Test is Test {
             HOOK_ADD_ON,
             GOV_ADD_ON
         );
-        vm.prank(owner);
+        vm.startPrank(owner);
         bare.setUruConfig(address(uru), address(uruSink));
+        // Fail-closed sentinels — else Router__ConfigMetadataIncomplete fires first.
+        bare.setModuleCountForConfig(bytes32(uint256(1)), 1);
+        bare.setFlagsForConfig(bytes32(uint256(1)), 0);
+        vm.stopPrank();
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
         vm.startPrank(launcher);
         uru.approve(address(bare), URU_FEE_AMOUNT);
@@ -295,17 +301,42 @@ contract RouterV2Test is Test {
         router.setConfigHashBanned(h, true);
     }
 
+    /// URU-A10: banning a configHash is MONOTONIC. Previously the toggle was
+    /// two-way, meaning an owner-key compromise could un-ban a retired shape
+    /// and relaunch it (or censor a hash then quietly restore it). Post-fix:
+    /// `banned=true` retires the hash and emits both events; a second `true`
+    /// for the same hash is a no-op (idempotent); `banned=false` reverts
+    /// `Router__ConfigRetirementIrreversible`. The only path to un-retire is
+    /// a fresh Router deploy at a new address.
     function test_SetConfigHashBanned_TogglesAndEmits() public {
         bytes32 h = bytes32(uint256(0xdead));
+
+        // (1) First ban emits BOTH ConfigHashBanned(h, true) and ConfigHashRetired(h)
+        // and flips the state.
         vm.expectEmit(true, false, false, true, address(router));
         emit Router.ConfigHashBanned(h, true);
+        vm.expectEmit(true, false, false, false, address(router));
+        emit Router.ConfigHashRetired(h);
         vm.prank(owner);
         router.setConfigHashBanned(h, true);
         assertTrue(router.bannedConfigHash(h));
 
+        // (2) Second ban with `true` is a no-op — no emit, no revert (idempotent).
+        //     Recording logs empty and asserting no records lets vm.recordLogs
+        //     prove the no-op contract.
+        vm.recordLogs();
         vm.prank(owner);
+        router.setConfigHashBanned(h, true);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        assertEq(entries.length, 0, "second ban with true must be a silent no-op");
+        assertTrue(router.bannedConfigHash(h));
+
+        // (3) Attempting to un-ban reverts monotonically — the retirement cannot
+        //     be reversed by the owner.
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__ConfigRetirementIrreversible.selector, h));
         router.setConfigHashBanned(h, false);
-        assertFalse(router.bannedConfigHash(h));
+        assertTrue(router.bannedConfigHash(h), "un-ban attempt must not flip state");
     }
 
     function test_BannedHash_LaunchReverts() public {

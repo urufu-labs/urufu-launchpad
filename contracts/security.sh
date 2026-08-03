@@ -14,11 +14,16 @@ cd "$(dirname "$0")"
 
 FULL="${1:-}"
 
-echo ">>> Running Slither on src/ (this can take a couple minutes on cold caches)"
+# URU-A14: scan src/ + script/. Previously excluded script/ via
+# filter_paths, so deploy + handoff scripts (where several audit blockers
+# live) evaded the security gate entirely.
+echo ">>> Running Slither on . (src + script) (this can take a couple minutes on cold caches)"
 if [[ "$FULL" == "--full" ]]; then
-  python -m slither src --config-file slither.config.json
+  python -m slither . --config-file slither.config.json
 else
-  python -m slither src --config-file slither.config.json --json slither-report.json 2>/dev/null || true
+  # URU-A14: removed `|| true` — a Slither failure must fail this script,
+  # not print a fake "0 findings" summary and let CI pass.
+  python -m slither . --config-file slither.config.json --json slither-report.json
 fi
 
 # Emit a summary markdown alongside the JSON so it's easy to diff between runs.

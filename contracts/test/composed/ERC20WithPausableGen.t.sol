@@ -49,25 +49,32 @@ contract ERC20WithPausableGenTest is Test {
         token.transfer(bob, 1 ether);
     }
 
-    function test_Paused_OwnerCanStillTransfer() public {
+    /// URU-A02 (Pausable honeypot): the old Pausable exempted `from == owner()`
+    /// transfers while paused, so an owner who "paused for maintenance" could
+    /// still dump their bag into a stuck market. That exemption was removed:
+    /// paused means paused for EVERY holder, owner included. This test used
+    /// to assert the honeypot ("Owner can still transfer") and passed because
+    /// the vulnerable exemption was in place. Post-fix, an owner-originated
+    /// transfer while paused reverts Pausable__Paused just like anyone else's.
+    function test_Paused_OwnerAlsoBlocked() public {
+        // Give the owner a real balance BEFORE pausing so we can prove the
+        // pause blocks their transfer for balance reasons unrelated to the
+        // check.
+        vm.prank(alice);
+        token.transfer(owner, 100 ether);
+        assertEq(token.balanceOf(owner), 100 ether);
+
         vm.prank(owner);
         token.pause();
-        // alice sends to owner first (from alice, blocked). Instead: give owner tokens directly.
-        vm.prank(alice);
+        assertTrue(token.pausablePaused());
+
+        // Owner cannot dump while paused — URU-A02 fix.
+        vm.prank(owner);
         vm.expectRevert(ERC20WithPausableGen.Pausable__Paused.selector);
-        token.transfer(owner, 100 ether);
-
-        // owner has 0 — but if they had some, they could transfer. Test by unpausing, moving, repause.
-        vm.prank(owner);
-        token.unpause();
-        vm.prank(alice);
-        token.transfer(owner, 100 ether);
-        vm.prank(owner);
-        token.pause();
-
-        vm.prank(owner);
         token.transfer(bob, 30 ether);
-        assertEq(token.balanceOf(bob), 30 ether);
+
+        // And bob still hasn't received anything.
+        assertEq(token.balanceOf(bob), 0);
     }
 
     function test_Unpause_RestoresTransfers() public {

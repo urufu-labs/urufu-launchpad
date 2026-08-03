@@ -22,6 +22,20 @@ contract FakeFeeReceiver is IFeeReceiver {
     receive() external payable {}
 }
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. This
+/// stub satisfies the "live contract" gate without exercising any real
+/// graduation logic — the audit tests never cross the graduation target.
+contract MockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+}
+
 /// Minimal Solady-backed ERC20 with a mint helper — used by tests that
 /// need a real transferring token (CurveFactory positive-path, launch
 /// paths that would otherwise fail on balanceOf(0xdead) etc.).
@@ -87,6 +101,9 @@ contract AuditFixV6Test is Test {
 
         BondingCurve curveImpl = new BondingCurve();
         curveFactory = new CurveFactory(OWNER, address(feeReceiver), address(curveImpl));
+        // URU-A05: every curve creation requires a live-contract graduator.
+        MockGraduator mockGrad = new MockGraduator();
+        curveFactory.setGraduator(address(mockGrad));
 
         vm.stopPrank();
 

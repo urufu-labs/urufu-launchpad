@@ -61,11 +61,14 @@ contract FeeSplitterHandler is Test {
         treasurySink = new ToggleSink();
         gasHog = new GasHogSink();
 
-        // minConfigDelay 2 days, matching the production default.
-        splitter = new FeeSplitter(owner, address(treasurySink), 2 days);
+        // URU-A11: production uses minConfigDelay > 0 (propose+activate),
+        // but the invariant harness fuzzes configuration rotations directly
+        // and needs the sync `setConfig` path. Use 0 in this test harness so
+        // the direct setter is enabled — the timelock invariant is verified
+        // separately in FeeSplitter.t.sol::test_SetConfig_TimelockGate.
+        splitter = new FeeSplitter(owner, address(treasurySink), 0);
 
-        // Move past the cold-start timelock and install the real 40/35/25 split.
-        vm.warp(block.timestamp + 2 days + 1);
+        // Install the real 40/35/25 split.
         vm.prank(owner);
         splitter.setConfig(address(buybackSink), address(nftSink), address(treasurySink), 4000, 3500, 2500);
 
@@ -106,12 +109,12 @@ contract FeeSplitterHandler is Test {
         treasurySink.setAccepting((seed >> 2) % 5 != 0);
     }
 
-    /// Rotate config after the timelock, including zero-sink configurations
-    /// whose slices must roll into the treasury.
+    /// Rotate config on the fly, including zero-sink configurations whose
+    /// slices must roll into the treasury. Uses direct setConfig — the
+    /// handler splitter is deployed with minConfigDelay = 0.
     function rotateConfig(
         uint256 seed
     ) public {
-        vm.warp(block.timestamp + 2 days + 1);
         uint16 a = uint16(bound(seed, 0, 10_000));
         uint16 b = uint16(bound(seed >> 8, 0, 10_000 - a));
         uint16 c = uint16(10_000 - a - b);

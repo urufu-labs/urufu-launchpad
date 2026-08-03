@@ -102,19 +102,20 @@ contract RhUruPayE2eForkTest is Test {
                 || CURVE_FACTORY.code.length == 0
         ) vm.skip(true);
 
-        // Deploy flywheel.
+        // Deploy flywheel. URU-A11: production configDelay = 2 days, but the
+        // fork test uses 0 to skip the propose+wait dance for every setter —
+        // the delay itself is exercised by unit + invariant tests.
         vm.startPrank(admin);
-        splitter = new FeeSplitter(admin, treasury, 2 days);
+        splitter = new FeeSplitter(admin, treasury, 0);
         oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, 100_000e18);
-        nftVault = new NftRevenueVault(admin);
-        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
+        nftVault = new NftRevenueVault(admin, 0);
+        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 0);
         buybackVault.setKeeper(keeper, true);
         buybackVault.setSwapTarget(UNI_UR, true);
-        vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
 
         // Deploy Router stack.
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 0);
         Router old = Router(payable(OLD_ROUTER));
         routerV2 = new Router(
             admin,
@@ -133,6 +134,12 @@ contract RhUruPayE2eForkTest is Test {
         routerV2.setFactory(BaseType.ERC1155, ERC1155_FACTORY);
         routerV2.setCurveFactory(CURVE_FACTORY);
         routerV2.setLoyaltyOracle(address(oracle));
+
+        // URU-A01 / URU-A10: Router now fails-closed on any launch whose
+        // configHash isn't registered. Seed the bare-ERC20 metadata so the
+        // launchWithURU tests can reach the URU-transfer path we're actually
+        // testing. flags=0 (no BALANCE_MUTATING, no REQUIRES_OWNER).
+        routerV2.registerConfigMetadata(BARE_ERC20_CONFIG, 0, 0);
         vm.stopPrank();
 
         // Authorize Router on each factory + NameRegistry by pranking as current owner.

@@ -188,6 +188,34 @@ contract Router is Ownable, ReentrancyGuard {
     /// All four launch entrypoints check this bit before any other work, so
     /// banning a hash reverts ETH, URU, WL, and URU+WL launches uniformly.
     error Router__ConfigHashBanned(bytes32 configHash);
+    /// URU-A01: bonding-curve launches must give up ownership at Router-side
+    /// dispatch. A launcher who chose KeepEOA/TransferToMultisig cannot combine
+    /// that with `installBondingCurve = true`; policy enforced on-chain, not
+    /// merely in the frontend.
+    error Router__CurveMustRenounce();
+    /// URU-A10: metadata (moduleCount OR flags) already set for this hash.
+    /// Registration is one-shot; a second attempt reverts. Belt against an
+    /// owner-key holder silently re-interpreting existing impls.
+    error Router__ConfigMetadataAlreadySet(bytes32 configHash);
+    /// URU-A01: launch attempted against a hash whose Router-side metadata
+    /// has not been registered. Fail-closed rather than assume defaults.
+    error Router__ConfigMetadataIncomplete(bytes32 configHash);
+    /// URU-A10: retirement is monotonic — a banned hash cannot be un-banned;
+    /// a curve-incompatible flag cannot be revoked. Any attempt reverts.
+    error Router__ConfigRetirementIrreversible(bytes32 configHash);
+    /// URU-A01: configHash carries FLAG_REQUIRES_OWNER (owner-only powers
+    /// exposed post-launch — Pausable, AntiBot, AntiWhale). Cannot pair with
+    /// the bonding-curve mechanic; owner would keep a censorship lever.
+    error Router__CurveRequiresOwner(bytes32 configHash);
+    /// URU-A01 / URU-A12: launcher-supplied antiSniperBlocks exceeds Router's
+    /// protocol maximum. Prevents unbounded lock windows via direct calls.
+    error Router__AntiSniperBlocksTooHigh(uint32 provided, uint32 maximum);
+    /// URU-A01 / URU-A12: launcher-supplied buybackBurnBps exceeds Router's
+    /// protocol maximum (mirrors MultiHookHost.MAX_BUYBACK_BPS).
+    error Router__BuybackBurnTooHigh(uint16 provided, uint16 maximum);
+    /// URU-A14: an owner-only setter received an EOA / unset address where a
+    /// live contract was required (setFactory, setCurveFactory, setLoyaltyOracle).
+    error Router__NotContract(address target);
 
     // ============================================================
     // Events
@@ -222,6 +250,13 @@ contract Router is Ownable, ReentrancyGuard {
     event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid);
     event UruConfigSet(address indexed uru, address indexed uruSink);
     event MinUruFeeSet(uint256 amount);
+    /// URU-A10: emitted by the atomic one-shot `registerConfigMetadata`. Pairs
+    /// with `ModuleCountForConfigSet` + `FlagsForConfigSet` so indexers see one
+    /// canonical event per registered hash.
+    event ConfigMetadataRegistered(bytes32 indexed configHash, uint256 moduleCount, uint256 flags);
+    /// URU-A10: emitted on the transition from un-banned → banned. Retirement
+    /// is monotonic so this fires at most once per hash.
+    event ConfigHashRetired(bytes32 indexed configHash);
     event ConfigHashBanned(bytes32 indexed configHash, bool banned);
 
     /// Emitted alongside `Launched` when a whitelist-enabled curve is
@@ -296,7 +331,22 @@ contract Router is Ownable, ReentrancyGuard {
     /// for every hash — even to explicitly declare "flags = 0" — before
     /// that hash becomes launchable.
     mapping(bytes32 => bool) public flagsConfigured;
-    uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
+    /// FLAG_BALANCE_MUTATING promoted to `public` so external tooling
+    /// (RhConfigManifest, snapshot tests, indexers) can reference it without
+    /// duplicating the literal.
+    uint256 public constant FLAG_BALANCE_MUTATING = 1 << 0;
+    /// URU-A01: set for any impl whose module set exposes post-launch owner
+    /// powers (Pausable, AntiBot, AntiWhale). Router rejects such hashes when
+    /// paired with `installBondingCurve = true` because a curve launch is
+    /// meant to be ownerless.
+    uint256 public constant FLAG_REQUIRES_OWNER = 1 << 1;
+    /// URU-A01 / URU-A12: protocol max on `params.antiSniperBlocks`. Roughly
+    /// one day of Robinhood blocks. Prevents a direct caller passing near-
+    /// `uint32.max` to lock swaps for years.
+    uint32 public constant MAX_ANTI_SNIPER_BLOCKS = 7200;
+    /// URU-A01: mirrors `MultiHookHost.MAX_BUYBACK_BPS`. Extra defense at the
+    /// Router layer so the cap is enforced BEFORE any downstream call.
+    uint16 public constant MAX_BUYBACK_BURN_BPS = 2000;
 
     /// Owner-controlled block-list of configHashes that are permanently
     /// forbidden from launching through this Router — regardless of ETH,
@@ -378,7 +428,7 @@ contract Router is Ownable, ReentrancyGuard {
         LaunchParams calldata params
     ) external payable nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
-        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        _validateLaunchPolicy(params);
 
         uint256 fee = _quoteFor(params, msg.sender);
         if (msg.value < fee) revert Router__InsufficientFee(fee, msg.value);
@@ -477,7 +527,7 @@ contract Router is Ownable, ReentrancyGuard {
         uint256 uruAmount
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
-        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        _validateLaunchPolicy(params);
         if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
         if (uruAmount == 0) revert Router__ZeroURU();
         // On-chain URU floor with loyalty discount applied — same discount rate
@@ -541,7 +591,7 @@ contract Router is Ownable, ReentrancyGuard {
         BondingCurve.WhitelistInit calldata wl
     ) external payable nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
-        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        _validateLaunchPolicy(params);
         if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
 
         uint256 fee = _quoteFor(params, msg.sender);
@@ -591,7 +641,7 @@ contract Router is Ownable, ReentrancyGuard {
         BondingCurve.WhitelistInit calldata wl
     ) external nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
-        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        _validateLaunchPolicy(params);
         if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
         if (uruAmount == 0) revert Router__ZeroURU();
         uint256 required = _minUruFeeFor(msg.sender);
@@ -641,6 +691,9 @@ contract Router is Ownable, ReentrancyGuard {
         address factory
     ) external onlyOwner {
         if (factory == address(0)) revert Router__ZeroAddress();
+        // URU-A14: reject EOAs / to-be-deployed addresses that would silently
+        // ship a Router with a broken factory pointer.
+        if (factory.code.length == 0) revert Router__NotContract(factory);
         factories[base] = factory;
         emit FactorySet(base, factory);
     }
@@ -649,6 +702,7 @@ contract Router is Ownable, ReentrancyGuard {
         address factory
     ) external onlyOwner {
         if (factory == address(0)) revert Router__ZeroAddress();
+        if (factory.code.length == 0) revert Router__NotContract(factory);
         curveFactory = factory;
         emit CurveFactorySet(factory);
     }
@@ -658,43 +712,60 @@ contract Router is Ownable, ReentrancyGuard {
     function setLoyaltyOracle(
         address oracle
     ) external onlyOwner {
+        // URU-A14: address(0) is a legitimate value (disables loyalty). Any
+        // non-zero value must have code — an EOA slot would silently bypass
+        // the try/catch guard by not implementing discountBpsFor at all.
+        if (oracle != address(0) && oracle.code.length == 0) {
+            revert Router__NotContract(oracle);
+        }
         loyaltyOracle = oracle;
         emit LoyaltyOracleSet(oracle);
     }
 
-    /// @notice Mark a configHash as incompatible with the bonding-curve install
-    ///         path. Owner maintains this blacklist for every FoT / rebasing /
-    ///         balance-mutating module combination. `installBondingCurve = true`
-    ///         reverts with `Router__CurveIncompatibleModule` when the launcher's
-    ///         chosen configHash is blocked.
+    /// @notice Mark a configHash as PERMANENTLY curve-incompatible.
+    ///         URU-A10: retirement is monotonic — any attempt to unblock a
+    ///         previously-blocked hash reverts. Combined with the primary
+    ///         FLAG_BALANCE_MUTATING structural flag, this is the belt-and-
+    ///         braces denylist for anything the flag misses.
     function setCurveIncompatibleConfigHash(
         bytes32 configHash,
         bool blocked
     ) external onlyOwner {
-        curveIncompatibleConfigHash[configHash] = blocked;
-        emit CurveIncompatibleConfigHashSet(configHash, blocked);
+        if (!blocked) revert Router__ConfigRetirementIrreversible(configHash);
+        curveIncompatibleConfigHash[configHash] = true;
+        emit CurveIncompatibleConfigHashSet(configHash, true);
     }
 
-    /// Register the authoritative module count for a configHash. Called by
-    /// the owner once per launched configHash — usually right after the
-    /// corresponding factory.registerImpl() call. Once set, the Router uses
-    /// this value for fee calculation instead of trusting the caller.
+    /// Register the authoritative module count for a configHash. URU-A10:
+    /// one-shot per hash. Any second registration reverts, even with an
+    /// identical value. New impl revisions require a fresh configHash.
     function setModuleCountForConfig(
         bytes32 configHash,
         uint256 count
     ) external onlyOwner {
+        if (moduleCountConfigured[configHash]) {
+            revert Router__ConfigMetadataAlreadySet(configHash);
+        }
         moduleCountForConfig[configHash] = count;
         moduleCountConfigured[configHash] = true;
         emit ModuleCountForConfigSet(configHash, count);
     }
 
     /// Batch variant for the initial post-deploy population when N configs
-    /// need to be registered in a single tx.
+    /// need to be registered in a single tx. Every entry is one-shot per
+    /// URU-A10; a duplicate anywhere in the batch reverts the whole call.
     function setModuleCountForConfigBatch(
         bytes32[] calldata configHashes,
         uint256[] calldata counts
     ) external onlyOwner {
         if (configHashes.length != counts.length) revert Router__ZeroAddress();
+        // Two-pass: verify EVERY hash is un-registered before mutating any of
+        // them so a duplicate at index N doesn't leave 0..N-1 half-written.
+        for (uint256 i = 0; i < configHashes.length; ++i) {
+            if (moduleCountConfigured[configHashes[i]]) {
+                revert Router__ConfigMetadataAlreadySet(configHashes[i]);
+            }
+        }
         for (uint256 i = 0; i < configHashes.length; ++i) {
             moduleCountForConfig[configHashes[i]] = counts[i];
             moduleCountConfigured[configHashes[i]] = true;
@@ -702,13 +773,12 @@ contract Router is Ownable, ReentrancyGuard {
         }
     }
 
-    /// Set the flag bitset for a configHash. Owner sets FLAG_BALANCE_MUTATING
-    /// for any impl that mutates transferred amounts (FoT / rebasing) so the
-    /// install path automatically rejects a curve pairing.
+    /// Set the flag bitset for a configHash. URU-A10: one-shot per hash.
     function setFlagsForConfig(
         bytes32 configHash,
         uint256 flags
     ) external onlyOwner {
+        if (flagsConfigured[configHash]) revert Router__ConfigMetadataAlreadySet(configHash);
         flagsForConfig[configHash] = flags;
         flagsConfigured[configHash] = true;
         emit FlagsForConfigSet(configHash, flags);
@@ -720,9 +790,65 @@ contract Router is Ownable, ReentrancyGuard {
     ) external onlyOwner {
         if (configHashes.length != flags.length) revert Router__ZeroAddress();
         for (uint256 i = 0; i < configHashes.length; ++i) {
+            if (flagsConfigured[configHashes[i]]) {
+                revert Router__ConfigMetadataAlreadySet(configHashes[i]);
+            }
+        }
+        for (uint256 i = 0; i < configHashes.length; ++i) {
             flagsForConfig[configHashes[i]] = flags[i];
             flagsConfigured[configHashes[i]] = true;
             emit FlagsForConfigSet(configHashes[i], flags[i]);
+        }
+    }
+
+    /// @notice **Preferred** one-shot atomic registration. Sets both metadata
+    /// (`moduleCount` and `flags`) for a configHash in one tx, so an operator
+    /// cannot ship a Router in the "count-registered but flags-missing" state
+    /// where a launch would revert `Router__FlagsMissing` mid-flow. Closes the
+    /// URU-A10 finding that mutable Router metadata defeats immutable factory
+    /// registration — this call is one-shot and its emit event is what
+    /// downstream tooling / indexers watch.
+    function registerConfigMetadata(
+        bytes32 configHash,
+        uint256 count,
+        uint256 flags
+    ) external onlyOwner {
+        if (moduleCountConfigured[configHash] || flagsConfigured[configHash]) {
+            revert Router__ConfigMetadataAlreadySet(configHash);
+        }
+        moduleCountForConfig[configHash] = count;
+        moduleCountConfigured[configHash] = true;
+        flagsForConfig[configHash] = flags;
+        flagsConfigured[configHash] = true;
+        emit ModuleCountForConfigSet(configHash, count);
+        emit FlagsForConfigSet(configHash, flags);
+        emit ConfigMetadataRegistered(configHash, count, flags);
+    }
+
+    /// Batch variant of `registerConfigMetadata`, used by DeployRouter to seed
+    /// every canonical hash from `RhConfigManifest.all()` in one tx.
+    function registerConfigMetadataBatch(
+        bytes32[] calldata configHashes,
+        uint256[] calldata counts,
+        uint256[] calldata flags
+    ) external onlyOwner {
+        uint256 length = configHashes.length;
+        if (length != counts.length || length != flags.length) revert Router__ZeroAddress();
+        for (uint256 i = 0; i < length; ++i) {
+            bytes32 h = configHashes[i];
+            if (moduleCountConfigured[h] || flagsConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
+            }
+        }
+        for (uint256 i = 0; i < length; ++i) {
+            bytes32 h = configHashes[i];
+            moduleCountForConfig[h] = counts[i];
+            moduleCountConfigured[h] = true;
+            flagsForConfig[h] = flags[i];
+            flagsConfigured[h] = true;
+            emit ModuleCountForConfigSet(h, counts[i]);
+            emit FlagsForConfigSet(h, flags[i]);
+            emit ConfigMetadataRegistered(h, counts[i], flags[i]);
         }
     }
 
@@ -800,8 +926,17 @@ contract Router is Ownable, ReentrancyGuard {
         bytes32 configHash,
         bool banned
     ) external onlyOwner {
-        bannedConfigHash[configHash] = banned;
-        emit ConfigHashBanned(configHash, banned);
+        // URU-A10: retirement is monotonic. A ban that could be reversed by
+        // the owner is not a retirement — it's a censorship lever. If a
+        // hash needs to be un-banned, the correct path is a fresh Router
+        // deploy at the same audited source with `bannedConfigHash[h] = false`
+        // by construction.
+        if (!banned) revert Router__ConfigRetirementIrreversible(configHash);
+        if (!bannedConfigHash[configHash]) {
+            bannedConfigHash[configHash] = true;
+            emit ConfigHashBanned(configHash, true);
+            emit ConfigHashRetired(configHash);
+        }
     }
 
     /// @notice Owner sets the URU-side minimum fee (18 decimals). Applies to
@@ -817,6 +952,52 @@ contract Router is Ownable, ReentrancyGuard {
     // ============================================================
     // Internal
     // ============================================================
+
+    /// @dev URU-A01: canonical policy boundary for all four launch entrypoints.
+    /// Frontend restrictions are usability controls only — the Router is the
+    /// authority. Any check that must apply to every launch path lives HERE so
+    /// a future entrypoint cannot accidentally skip it.
+    ///
+    /// Checks (in order — cheapest first, most-severe first within tier):
+    ///   1. `bannedConfigHash` (URU-A10 retirement gate)
+    ///   2. `moduleCountConfigured` + `flagsConfigured` (URU-A10 fail-closed on
+    ///      any hash whose Router metadata hasn't been registered)
+    ///   3. If `installBondingCurve`:
+    ///      3a. base MUST be ERC20 (curve mechanic is ERC-20 only)
+    ///      3b. ownership MUST be Renounce (URU-A01 — curve is meant to be
+    ///          ownerless; renouncing at Router dispatch is what protects
+    ///          post-launch holders from launcher control)
+    ///      3c. flags MUST NOT include FLAG_REQUIRES_OWNER (URU-A01 — modules
+    ///          exposing post-launch owner power are structurally incompatible
+    ///          with the renounce requirement)
+    ///      3d. flags MUST NOT include FLAG_BALANCE_MUTATING and hash MUST NOT
+    ///          be on the manual curve-incompatible denylist
+    ///      3e. antiSniperBlocks ≤ MAX_ANTI_SNIPER_BLOCKS
+    ///      3f. buybackBurnBps ≤ MAX_BUYBACK_BURN_BPS
+    function _validateLaunchPolicy(
+        LaunchParams calldata params
+    ) internal view {
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        if (!moduleCountConfigured[params.configHash] || !flagsConfigured[params.configHash]) {
+            revert Router__ConfigMetadataIncomplete(params.configHash);
+        }
+        if (!params.installBondingCurve) return;
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (params.ownership != OwnershipMode.Renounce) revert Router__CurveMustRenounce();
+        uint256 flags = flagsForConfig[params.configHash];
+        if ((flags & FLAG_REQUIRES_OWNER) != 0) {
+            revert Router__CurveRequiresOwner(params.configHash);
+        }
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        if (params.antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS) {
+            revert Router__AntiSniperBlocksTooHigh(params.antiSniperBlocks, MAX_ANTI_SNIPER_BLOCKS);
+        }
+        if (params.buybackBurnBps > MAX_BUYBACK_BURN_BPS) {
+            revert Router__BuybackBurnTooHigh(params.buybackBurnBps, MAX_BUYBACK_BURN_BPS);
+        }
+    }
 
     /// Consolidates the curve-incompatibility check. A config is incompatible
     /// with a bonding curve if EITHER:
@@ -876,12 +1057,21 @@ contract Router is Ownable, ReentrancyGuard {
 
     /// Reads the loyalty oracle and clamps the returned bps to Router's local
     /// max. Returns 0 (no discount) when the oracle isn't wired.
+    ///
+    /// URU-A14: previously a reverting oracle (e.g. one that internally reads
+    /// a broken URU / GEMU token contract) would halt every launch platform-
+    /// wide. Fail-open on discount reads — a broken oracle costs the LAUNCHER
+    /// their discount (they pay gross) but never gives them a free launch.
     function _discountBpsFor(
         address launcher
     ) internal view returns (uint16 discountBps) {
         address oracle = loyaltyOracle;
         if (oracle == address(0) || launcher == address(0)) return 0;
-        discountBps = ILoyaltyOracleLike(oracle).discountBpsFor(launcher);
+        try ILoyaltyOracleLike(oracle).discountBpsFor(launcher) returns (uint16 bps) {
+            discountBps = bps;
+        } catch {
+            return 0;
+        }
         if (discountBps > MAX_LOYALTY_DISCOUNT_BPS) discountBps = MAX_LOYALTY_DISCOUNT_BPS;
     }
 

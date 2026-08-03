@@ -1,4 +1,5 @@
 import { encodeAbiParameters, keccak256, isAddress, parseEther } from 'viem';
+import { canonicalModuleString } from '../../../shared/config-id';
 
 export type BaseType = 'ERC20' | 'ERC721A' | 'ERC1155';
 
@@ -243,7 +244,12 @@ export const MODULES: ModuleSpec[] = [
     label: '✿ emergency pause',
     category: 'token',
     status: 'shipped',
-    version: 1,
+    // URU-A02: V1 fragment exempted `from == owner()` transfers while paused,
+    // enabling an owner-only sell freeze / honeypot. V2 removes the exemption
+    // AND produces a fresh configHash so V1 clones on the live factory stay
+    // pinned to their (retired) bytecode. V1 hash is permanently banned via
+    // Router.bannedConfigHash.
+    version: 2,
     bases: ['ERC20'],
     requires: [],
     incompatibleWith: [],
@@ -558,11 +564,13 @@ export function moduleById(id: string): ModuleSpec | undefined {
 ///      existing v1 impls on the same factory (`registerImpl` reverts on
 ///      duplicate). Backward-compatible by construction.
 export function configHashFor(base: BaseType, moduleIds: readonly string[]): `0x${string}` {
-  const specs = moduleIds.map((id) => moduleById(id)).filter((s): s is ModuleSpec => !!s);
-  const hasV2 = specs.some((s) => s.version >= 2);
-  const modulesStr = hasV2
-    ? specs.map((s) => `${s.id}@${s.version}`).sort((a, b) => a.localeCompare(b)).join(',')
-    : [...moduleIds].sort((a, b) => a.localeCompare(b)).join(',');
+  // URU-A08: identity is shared. Both this call site and the compile-service
+  // pull from `shared/config-id.ts::canonicalModuleString` so a divergence in
+  // one file cannot ship without breaking both simultaneously.
+  const modulesStr = canonicalModuleString(
+    moduleIds,
+    (id) => moduleById(id)?.version,
+  );
   return keccak256(
     encodeAbiParameters(
       [{ type: 'string' }, { type: 'string' }],
