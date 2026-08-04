@@ -22,6 +22,9 @@ import { registerWhitelistRoutes } from './routes/whitelist.ts';
 import {
   Semaphore,
   defaultCompileConcurrency,
+  defaultCompileQueueLimit,
+  defaultCompileQueueWaitMs,
+  defaultCompileTimeoutMs,
   runIsolatedForgeBuild,
 } from './isolated-build.ts';
 
@@ -44,7 +47,24 @@ const CONTRACTS_LIB_DIR = resolve(CONTRACTS_DIR, 'lib');
 // Forge is single-threaded per invocation and CPU-bound; unbounded fan-out
 // from a public endpoint is a trivial resource-exhaustion vector. Default
 // concurrency is min(2, cpus-1); operators can bump via COMPILE_MAX_CONCURRENCY.
-const compileSemaphore = new Semaphore(defaultCompileConcurrency());
+//
+// URU-P1-M05 (round 4): additionally bound the queue depth + per-caller
+// wait so a distributed client cannot accumulate parked continuations +
+// request bodies in memory while waiting for a slot, and bound Forge's
+// wall-clock lifetime so a hung child can't pin its slot indefinitely.
+const compileSemaphore = new Semaphore(
+  defaultCompileConcurrency(),
+  defaultCompileQueueLimit(),
+  defaultCompileQueueWaitMs(),
+);
+const COMPILE_TIMEOUT_MS = defaultCompileTimeoutMs();
+// URU-P1-M05: a well-formed /compile body is a few KB (base + module ids +
+// small params map). Cap request bodies before JSON parsing so a hostile
+// caller cannot make the process buffer megabytes on a rate-limited route.
+const COMPILE_BODY_LIMIT_BYTES = Math.max(
+  1,
+  Number.parseInt(process.env.COMPILE_BODY_LIMIT_BYTES ?? '', 10) || 256 * 1024,
+);
 
 // URU-A14 page 10 additional-defect: run each request in an isolated tempdir
 // (created + cleaned up per-request) instead of a shared contracts/tmp path.
@@ -129,6 +149,10 @@ if (keeperStatus.started.length > 0) {
 app.post(
   '/compile',
   {
+    // URU-P1-M05: bound the request body BEFORE JSON parsing so distributed
+    // callers cannot consume memory while they sit in the compile queue.
+    // 256 KB is enormous headroom for a config request.
+    bodyLimit: COMPILE_BODY_LIMIT_BYTES,
     config: {
       // URU-A14 page 10 additional-defect: tighter per-IP rate limit than the
       // app-wide 30/min because /compile actually spawns Forge. Per-IP cap of
@@ -227,7 +251,18 @@ app.post(
   // URU-A14 page 10 additional-defect: bound concurrent Forge invocations to
   // avoid public-endpoint CPU exhaustion. Isolated builds also run inside a
   // fresh tempdir each so shared-output-path collisions cannot happen.
-  let artifact: { abi: unknown; bytecode: { object: string } };
+  //
+  // URU-P1-M05: propagate an AbortSignal to the forge child so a client that
+  // drops the connection mid-compile releases its semaphore slot immediately
+  // rather than waiting for the wall-clock timeout to fire.
+  let artifact: {
+    abi: unknown;
+    bytecode: { object: string };
+    deployedBytecode: { object: string };
+  };
+  const abortController = new AbortController();
+  const onAborted = () => abortController.abort();
+  request.raw.once('aborted', onAborted);
   try {
     artifact = await compileSemaphore.run(async () => {
       if (USE_ISOLATED_BUILD) {
@@ -235,6 +270,8 @@ app.post(
           source: composed.source,
           contractName: composed.contractName,
           libsDir: CONTRACTS_LIB_DIR,
+          timeoutMs: COMPILE_TIMEOUT_MS,
+          signal: abortController.signal,
         });
       }
       // Legacy path: workspace-wide build against contracts/. Kept for local
@@ -245,6 +282,32 @@ app.post(
     });
   } catch (err) {
     const e = err as { code?: string; message: string; stderr?: string };
+    // URU-P1-M05: back-pressure. Queue full -> 503 + Retry-After; queue
+    // wait blew past its ceiling -> also 503 so the client can retry once
+    // load abates.
+    if (e.code === 'COMPILE_BUSY' || e.code === 'COMPILE_QUEUE_TIMEOUT') {
+      return reply
+        .header('retry-after', '30')
+        .code(503)
+        .send({ code: e.code, configHash, message: e.message });
+    }
+    // URU-P1-M05: forge child exceeded its wall-clock ceiling. 504 signals
+    // "gateway upstream timed out" so the client can distinguish this from
+    // "compile itself failed cleanly".
+    if (e.code === 'COMPILE_TIMEOUT') {
+      return reply.code(504).send({
+        code: e.code,
+        configHash,
+        message: e.message,
+        stderr: e.stderr ?? '',
+      });
+    }
+    // URU-P1-M05: client disconnected mid-compile. Reply is likely
+    // unreachable but Fastify still requires a value; 503 keeps parity
+    // with the busy/queue-timeout paths.
+    if (e.code === 'COMPILE_ABORTED') {
+      return reply.code(503).send({ code: e.code, configHash, message: e.message });
+    }
     if (e.code === 'COMPILE_FAILED') {
       return reply.code(500).send({
         code: 'COMPILE_FAILED',
@@ -259,16 +322,30 @@ app.post(
     }
     request.log.error({ err }, 'compile handler unexpected failure');
     return reply.code(500).send({ code: 'INTERNAL', configHash, message: e.message });
+  } finally {
+    request.raw.off('aborted', onAborted);
   }
 
-  // URU-A08: artifact identity separate from config identity.
-  const artifactHash = keccak256(artifact.bytecode.object as Hex);
+  // URU-P1-B01: factory pins `keccak256(impl.code)`, which is the deployed
+  // RUNTIME bytecode — not the creation-bytecode buffer the launcher hands
+  // to the deployer. The prior response hashed creation code and therefore
+  // could never satisfy `ERC20Factory.registerImpl` (the pin/actual would
+  // never match). We now compute both and expose `artifactHash` as a
+  // backwards-compat alias for the runtime hash so existing manifest
+  // consumers continue to work while the launcher migrates to the more
+  // explicit `runtimeCodeHash` field.
+  const creationCodeHash = keccak256(artifact.bytecode.object as Hex);
+  const runtimeCodeHash = keccak256(artifact.deployedBytecode.object as Hex);
   return reply.send({
     configHash,
-    artifactHash,
+    // Backward-compatible alias: `artifactHash` now means runtime identity.
+    artifactHash: runtimeCodeHash,
+    creationCodeHash,
+    runtimeCodeHash,
     contractName: composed.contractName,
     moduleIds: composed.moduleIds,
     bytecode: artifact.bytecode.object,
+    runtimeBytecode: artifact.deployedBytecode.object,
     abi: artifact.abi,
     warnings: [],
   });
@@ -386,7 +463,11 @@ async function runLegacyWorkspaceBuild(
   contractName: string,
   source: string,
   configHash: string,
-): Promise<{ abi: unknown; bytecode: { object: string } }> {
+): Promise<{
+  abi: unknown;
+  bytecode: { object: string };
+  deployedBytecode: { object: string };
+}> {
   const outDir = resolve(CONTRACTS_DIR, 'tmp', configHash);
   try {
     mkdirSync(outDir, { recursive: true });

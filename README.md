@@ -29,6 +29,8 @@
 
 **Chain scope:** Robinhood mainnet only. Base + Ethereum code paths are nulled in `web/src/lib/config.ts` — see `CHAINS_ENABLED`.
 
+**Launch scope:** ERC-20 only for this release. ERC-721A + ERC-1155 bases are intentionally disabled — `NFT_BASES_ENABLED = false` in `web/src/app/create/page.tsx` blocks NFT base selection in the UI, and `contracts/script/manifest/RhConfigManifest.sol` deliberately does not register NFT impls. Any hand-crafted direct-Router call selecting an NFT base reverts `UnknownConfig` in the factory (honest failure, not a silent broken launch). NFT activation checklist lives at `docs/NFT-ACTIVATION.md` — apply auditor's patch 0003 alongside that checklist when the time comes. Audit finding URU-P1-M03 addressed by this explicit disable rather than by NFT enablement.
+
 ---
 
 ## The flywheel

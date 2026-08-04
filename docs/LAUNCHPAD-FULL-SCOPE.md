@@ -575,6 +575,16 @@ This is the same lifecycle that retired the Airdrop V1 impls: rug bug found → 
 
 Additional composed 1155 impls (Supply, Payable, SupplyPayable, SplitPayable, Royalty) exist in source under `contracts/src/templates/composed/` but are NOT registered on live — pending NFT-base activation.
 
+**[V8 change vs live — URU-P1-M03 disposition]** Auditor round 4 flagged that a fresh V8 deploy wires the ERC721A + ERC1155 factories to Router without registering any NFT impls, leaving NFT launches to fail on `UnknownConfig`. Per project scope decision (NFT bases not activating this cycle), we do NOT register NFT impls on fresh V8 either. The NFT lanes are deliberately dormant:
+
+- `web/src/app/create/page.tsx::NFT_BASES_ENABLED = false` blocks NFT base selection in the UI.
+- `RhConfigManifest.all()` returns ERC20 impls only (10 entries).
+- `DeployFreshLocal.s.sol` still deploys the NFT factories (for future activation) but registers no NFT impls.
+- Any direct-Router call selecting an NFT base reverts `ERC721AFactory__UnknownConfig` / `ERC1155Factory__UnknownConfig` (honest failure, not silent brick).
+- When NFT lanes turn on, auditor's patch 0003 must be applied alongside `docs/NFT-ACTIVATION.md`.
+
+The Router itself never gets NFT metadata (`registerConfigMetadataBatch` only iterates ERC20 entries), so `_validateLaunchPolicy` reverts `ConfigMetadataIncomplete` on any NFT hash before any factory is even reached.
+
 ### 6.5 Two-step impl binding — owner-pinned codehash (URU-A08, round-3 follow-up)
 
 **[V8 change vs live]** — all three factories now require an owner-pinned expected runtime codehash BEFORE the registrar can bind an impl to a configHash. The pipeline is:

@@ -77,11 +77,19 @@ contract NftRevenueVault is Ownable {
     /// epoch → holder → claimed?
     mapping(uint256 => mapping(address => bool)) private _claimed;
 
-    /// Running sum of unclaimed balances across ALL live epochs. New `addEpoch`
-    /// calls check that adding `totalAmount` keeps this <= vault balance. Prevents
-    /// the double-commit bug where two 100-ETH epochs pass individually against
-    /// a 100-ETH deposit but drain balance below the second batch of claimers.
+    /// Running sum of unclaimed balances across ALL live (activated) epochs.
+    /// New `addEpoch` / `_applyEpoch` calls check that adding `totalAmount`
+    /// keeps `totalCommitted + pendingCommitted` <= vault balance. Prevents the
+    /// double-commit bug where two 100-ETH epochs pass individually against a
+    /// 100-ETH deposit but drain balance below the second batch of claimers.
     uint256 public totalCommitted;
+
+    /// URU-P1-M06: ETH reserved by the one pending timelocked epoch. A proposal
+    /// is a real financial commitment even before activation: `availableBalance`
+    /// and `sweepDust` must not expose these funds as surplus during the delay,
+    /// otherwise an owner-key attacker could propose + sweep in parallel and
+    /// leave the eventual activation under-funded for claimers.
+    uint256 public pendingCommitted;
 
     /// URU-A11: publication timelock in seconds. Production sets this to a
     /// real value (e.g. 2 days) so `addEpoch` is disabled and every new root
@@ -145,11 +153,18 @@ contract NftRevenueVault is Ownable {
         }
         if (totalAmount == 0) revert NftRevenueVault__ZeroAmount();
         if (merkleRoot == bytes32(0)) revert NftRevenueVault__ZeroRoot();
-        uint256 newCommitted = totalCommitted + totalAmount;
+        // URU-P1-M06: overcommit check now includes ETH already reserved by any
+        // currently-pending propose. `pendingCommitted` is guaranteed to be 0
+        // when we reach here because `PendingEpochExists` blocks stacking, but
+        // sum it in for defensive symmetry with `_applyEpoch`.
+        uint256 newCommitted = totalCommitted + pendingCommitted + totalAmount;
         if (address(this).balance < newCommitted) {
             revert NftRevenueVault__OverCommit(newCommitted, address(this).balance);
         }
         uint64 readyAt = uint64(block.timestamp + minConfigDelay);
+        // Reserve immediately so a same-block sweepDust cannot skim the funds
+        // this proposal is depending on before the timelock elapses.
+        pendingCommitted += totalAmount;
         pendingEpoch = PendingEpoch({
             expectedEpochId: expectedEpochId, merkleRoot: merkleRoot, totalAmount: totalAmount, readyAt: readyAt
         });
@@ -165,10 +180,13 @@ contract NftRevenueVault is Ownable {
         PendingEpoch memory p = pendingEpoch;
         if (p.readyAt == 0) revert NftRevenueVault__NoPendingEpoch();
         if (block.timestamp < p.readyAt) revert NftRevenueVault__PendingEpochNotReady(p.readyAt);
-        // Zero pending BEFORE the internal call so a revert inside
-        // `_applyEpoch` (unlikely but possible on overcommit if balance moved)
-        // doesn't leave a dangling pending we can't clear.
+        // Move the reservation from pending to active in the same transaction.
+        // If `_applyEpoch` reverts, EVM rollback restores both fields — no
+        // dangling pending, no lost reservation. `_applyEpoch` bumps
+        // `totalCommitted`, so we release `pendingCommitted` here to keep the
+        // combined committed sum flat across the transition.
         delete pendingEpoch;
+        pendingCommitted -= p.totalAmount;
         _applyEpoch(p.expectedEpochId, p.merkleRoot, p.totalAmount);
     }
 
@@ -178,6 +196,9 @@ contract NftRevenueVault is Ownable {
         PendingEpoch memory p = pendingEpoch;
         if (p.readyAt == 0) revert NftRevenueVault__NoPendingEpoch();
         delete pendingEpoch;
+        // URU-P1-M06: release the reserved slice so sweepDust and
+        // availableBalance reflect the full untethered balance again.
+        pendingCommitted -= p.totalAmount;
         emit EpochProposalCancelled(p.expectedEpochId);
     }
 
@@ -187,7 +208,9 @@ contract NftRevenueVault is Ownable {
     ///         overlapping epochs revert `OverCommit`.
     function availableBalance() external view returns (uint256) {
         uint256 balance = address(this).balance;
-        return balance > totalCommitted ? balance - totalCommitted : 0;
+        // URU-P1-M06: pending proposals reserve funds too.
+        uint256 committed = totalCommitted + pendingCommitted;
+        return balance > committed ? balance - committed : 0;
     }
 
     /// Internal core — used by both `addEpoch` (test-mode) and `activateEpoch`
@@ -227,8 +250,12 @@ contract NftRevenueVault is Ownable {
     ) external onlyOwner {
         if (to == address(0)) revert NftRevenueVault__ZeroAddress();
         uint256 bal = address(this).balance;
-        if (bal <= totalCommitted) revert NftRevenueVault__NothingToSweep();
-        uint256 amount = bal - totalCommitted;
+        // URU-P1-M06: cap sweep by activated + pending reservations so an
+        // owner can't skim funds that a matured proposal will need at
+        // activation time.
+        uint256 committed = totalCommitted + pendingCommitted;
+        if (bal <= committed) revert NftRevenueVault__NothingToSweep();
+        uint256 amount = bal - committed;
         SafeTransferLib.safeTransferETH(to, amount);
         emit Swept(to, amount);
     }

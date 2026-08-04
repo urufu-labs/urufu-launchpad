@@ -76,6 +76,12 @@ contract MultiHookHost is BaseHook {
     /// URU-A12: launcher-supplied antiSniperBlocks exceeds the hook's cap. A
     /// direct MHH call could otherwise lock a pool's swaps for years.
     error MultiHookHost__AntiSniperTooLong(uint32 provided, uint32 maximum);
+    /// URU-P1-M04: buyback-burn is token-denominated. On an exact-output BUY
+    /// the unspecified side is ETH input, so applying `buybackBurnBps` there
+    /// would silently destroy ETH while claiming token supply was burned.
+    /// Reject the mode rather than misreport it — callers can either issue an
+    /// exact-input buy (spirit-preserving) or disable buybackBurnBps for the pool.
+    error MultiHookHost__ExactOutputBuyUnsupportedWithBurn();
 
     event PoolConfigSet(PoolId indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps);
     event CreatorSet(PoolId indexed poolId, address indexed creator);
@@ -260,10 +266,17 @@ contract MultiHookHost is BaseHook {
     function beforeSwap(
         address,
         PoolKey calldata key,
-        SwapParams calldata,
+        SwapParams calldata params,
         bytes calldata
     ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         PoolConfig storage cfg = poolConfig[key.toId()];
+        // URU-P1-M04: reject exact-output BUYs (zeroForOne = true, ETH -> token,
+        // `amountSpecified > 0` means "I want exactly N tokens out") whenever
+        // buyback-burn is enabled. See error doc for the misreporting rationale.
+        // Exact-input BUYs (amountSpecified < 0) and every SELL still fall through.
+        if (cfg.buybackBurnBps > 0 && params.zeroForOne && params.amountSpecified > 0) {
+            revert MultiHookHost__ExactOutputBuyUnsupportedWithBurn();
+        }
         if (cfg.antiSniperBlocks > 0) {
             // launchBlock is stamped in beforeInitialize; if for some reason a swap
             // fires before initialize (impossible via v4), launchBlock == 0 and the
@@ -322,23 +335,16 @@ contract MultiHookHost is BaseHook {
         uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
         uint256 fee = (absDelta * totalBps) / 10_000;
 
-        // URU (audit-round-3 additional): buyback-burn now fires on ALL BUYs
-        // (zeroForOne == true), not just exact-input BUYs. Previously the check
-        // was `unspecDelta > 0 && unspec == currency1` which is only true for
-        // exact-input BUYs. Exact-output BUYs, which have `unspec = currency0`
-        // (ETH input) and `unspecDelta < 0`, silently avoided the advertised
-        // burn — a real fee-bypass path.
-        //
-        // On exact-input BUYs the burn slice comes from OUTPUT TOKENS (unspec =
-        // token), matching the original "destroy tokens on acquisition" spirit.
-        // On exact-output BUYs the burn slice comes from ADDITIONAL ETH INPUT
-        // (unspec = ETH) the swapper is charged — the ETH goes to 0xdEaD.
-        // Not a token buyback per se, but keeps the fee economically active on
-        // both BUY paths so exact-output isn't cheaper.
+        // URU-P1-M04: buyback-burn is token-denominated and therefore only valid
+        // when the unspecified currency is the launched token — i.e. an
+        // exact-input BUY (amountSpecified < 0). Exact-output BUYs are rejected
+        // in `beforeSwap` above, so the `< 0` check here is defence-in-depth:
+        // any exact-output BUY that somehow reaches afterSwap gets zero burn
+        // (as opposed to silently destroying ETH input while emitting a token-burn event).
         uint256 burn = 0;
         PoolId id = key.toId();
         PoolConfig storage cfg = poolConfig[id];
-        if (cfg.buybackBurnBps > 0 && params.zeroForOne) {
+        if (cfg.buybackBurnBps > 0 && params.zeroForOne && params.amountSpecified < 0) {
             burn = (absDelta * uint256(cfg.buybackBurnBps)) / 10_000;
         }
 

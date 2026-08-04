@@ -58,7 +58,7 @@ Every row in the table above was re-verified during round-3 v1..v5 (commits
 | URU-A10 | Closed. One-shot registration + monotonic retirement + same-batch dedup on the 3 batch setters. Tests: `test/audit/LaunchPolicyRevertPaths.t.sol` (6 URU-A10 tests). |
 | URU-A11 | Closed (was PARTIAL). NftRevenueVault propose/activate/cancel implemented; `addEpoch` reverts `DirectAddEpochDisabled` under production `minConfigDelay`. `AdminChangeApplied` event pairs with `Proposed`/`Cancelled` on URU vaults so monitors can enumerate the pending set on-chain. Tests: `test/audit/GovernanceTimelocks.t.sol` (14). |
 | URU-A12 | Closed. `MultiHookHost.setPoolConfig`/`setCreator` `onlyInitializer`; `AntiSniperTooLong` cap enforced. Graduator has read-back verification (`HookConfigMismatch`, `HookCreatorMismatch`). Tests: `test/hooks/MultiHookHost.t.sol` (3 new). |
-| URU-A13 | Closed. `HandoffOwnership._handoffGraduator` uses `setOwner`; `HandoffOwnershipIntegration.t.sol` covers full stack. `RhRotationRehearsalFork.t.sol` invokes real `DeployRouter.runForTest` + `ActivateRouter.runForTest` end-to-end against live RH fork (5 tests). |
+| URU-A13 | Closed. `HandoffOwnership._handoffGraduator` uses `setOwner`; `HandoffOwnershipIntegration.t.sol` covers full stack. `RhRotationRehearsalFork.t.sol` invokes real `DeployRouter.runForTest` end-to-end + Phase 2 now goes through `BuildRouterCutoverSafeBatch.runForTest` executed via a MockSafe delegatecall to MockMultiSendCallOnly against a live RH fork (8 tests, including `test_ForcedFinalRevert_RollsBackEntireBatch` which proves atomicity by poisoning the final subcall and asserting every prior mutation is unwound). See URU-P1-B02. |
 | URU-A14 | Closed. `_grantCurveModuleAllowances` rewritten to probe → grant → verify; `Router__CurveModuleGrantFailed`. `_discountBpsFor` fail-open on oracle revert. `security.sh` fails on any High Slither finding. `slither.config.json` no longer excludes `script/`. Tests: `test/audit/CurveModuleGrantStrict.t.sol` (2). |
 
 ### "Required before merge" items — all closed
@@ -74,4 +74,30 @@ Every row in the table above was re-verified during round-3 v1..v5 (commits
 The scope doc's §26.6 listed cross-module test gaps that the auditor did NOT flag but that would reduce risk on multi-module compositions. Round-3 v5 addressed the Permit+Staking gap and every unregistered composed impl that is NOT NFT-base (NFT-base coverage deferred per project scope: NFT bases are not activated in the current release). See §26.6 for the current gap list.
 
 **Release decision:** the code is ready for external audit re-review. **DO NOT DEPLOY** before sign-off.
+
+---
+
+## Round 4 (2026-08-04) — targeted re-review response
+
+Auditor's second re-review (`Report.pdf` at `C:/Users/brand/OneDrive/Desktop/`) requested changes on 2 BLOCKERS + 4 MEDIUMS. Applied by intent (auditor's textual patches drifted against our head).
+
+| ID | Sev | Status | Remediation summary |
+|---|---|---|---|
+| URU-P1-B01 | BLOCKER | **Closed.** | `compile-service/src/server.ts` now returns both `runtimeCodeHash = keccak256(deployedBytecode)` AND `creationCodeHash = keccak256(bytecode)`. `artifactHash` aliased to `runtimeCodeHash` so factory `keccak256(impl.code)` compare matches. Smoke test proves a deployed impl using the returned `runtimeCodeHash` can be pinned + registered end-to-end. |
+| URU-P1-B02 | BLOCKER | **Closed.** | `ActivateRouter.s.sol::run()` now reverts `UnsafeDirectBroadcastDisabled`. New `BuildRouterCutoverSafeBatch.s.sol` emits Safe MultiSendCallOnly payload; every mutated contract must be owned by the Safe as preflight. `RhRotationRehearsalFork.t.sol` includes forced-final-subcall-revert test that proves complete rollback. `deploy.sh` reroutes the ActivateRouter command. |
+| URU-P1-M03 | MEDIUM | **Gated off (not fixed).** | Per project scope: NFT bases are not launching this cycle. Fresh deploy no longer claims completeness for NFT lanes. `web/src/app/create/page.tsx::NFT_BASES_ENABLED = false` continues to block NFT selection in the UI. `README.md` + `docs/LAUNCHPAD-FULL-SCOPE.md` explicitly document the disable. `RhConfigManifest.sol` retains NFT-factory deployment for future activation but does NOT register NFT impls; any direct-call bypass reverts `UnknownConfig`. When NFT lanes are activated, patch 0003 from this auditor's series should be applied. |
+| URU-P1-M04 | MEDIUM | **Closed.** | `MultiHookHost.afterSwap` now reverts `MultiHookHost__ExactOutputBurnUnsupported()` on exact-output buys when `buybackBurnBps > 0`. Exact-input buys continue to burn the launched token as advertised. `test/hooks/MultiHookHost.t.sol` adds coverage for both branches. |
+| URU-P1-M05 | MEDIUM | **Closed.** | `Semaphore(max, maxQueue=16, waitTimeoutMs=30_000)`. Queue overflow rejects `COMPILE_BUSY` → 503. Queued waiter timeout rejects `COMPILE_QUEUE_TIMEOUT` → 504. `runIsolatedForgeBuild(..., signal, timeoutMs=60_000)` kills the forge child on timeout or client abort. HTTP body cap on `/compile`. Env overrides: `COMPILE_MAX_QUEUE`, `COMPILE_QUEUE_TIMEOUT_MS`, `COMPILE_FORGE_TIMEOUT_MS`. `isolated-build.test.ts` + `server.smoke.test.ts` cover queue-overflow, timeout, cancellation. |
+| URU-P1-M06 | MEDIUM | **Closed.** | `NftRevenueVault.pendingCommitted` tracks the reserved amount during propose-timelock. `proposeEpoch` reserves; `activateEpoch` clears; `cancelPendingEpoch` releases. `availableBalance` + `sweepDust` subtract BOTH `totalCommitted` AND `pendingCommitted`. `test/flywheel/NftRevenueVault.t.sol` covers the auditor's exact acceptance scenario (5 ETH balance, 4 ETH proposed → 1 ETH sweepable, activation still funded, cancel restores 5). |
+
+### Round 4 merge-gate acceptance criteria (auditor's §6)
+
+- [x] Every patch applied to head 7fb5191 (drift reconciled by intent, since auditor's hunks were positional against a different snapshot than my tip).
+- [x] `forge fmt --check`: exit 0. `forge build`: clean. `FOUNDRY_PROFILE=ci forge test` (10k fuzz runs): 729 pass, 0 fail. Audit fork: 53 pass, 1 skip (pre-existing URUFU-orphan). Integration fork: 9 pass, 0 fail. Compile-service typecheck + `node --test`: 53 pass, 0 fail. Web typecheck + lint + `next build`: clean. Slither via `security.sh` after `forge clean`: 0 High, 56 Medium, 46 Low, 130 Informational.
+- [x] Fresh stack deploys ERC20 lifecycle end-to-end via `DeployPathRhFork.t.sol` (12 pass). NFT lifecycle intentionally not exercised — M03 dispositioned as "gated off in UI + docs, NFT impls not registered on fresh deploy either" per project scope; see URU-P1-M03 row above.
+- [x] Implementation bytecode returned by `/compile` can be pinned + registered against a real deployed impl — proven end-to-end by `server.smoke.test.ts::Suite D on-anvil B01 acceptance`.
+- [x] Safe cutover payload with forced late-subcall revert rolls back completely — proven by `RhRotationRehearsalFork.t.sol::test_ForcedFinalRevert_RollsBackEntireBatch` (executes real production `(to, data)` from `BuildRouterCutoverSafeBatch.runForTest` through `MockSafe.execTransactionDelegate` → delegatecall into `MockMultiSendCallOnly.multiSend`; poisoning the final subcall reverts every prior mutation).
+- [x] Retired-hash bans (Airdrop V1 + Pausable V1) present at fresh deploy — `RhConfigManifest.retiredAirdropHashes()` iterated + `Router.setConfigHashBanned` called for each at every DeployFreshLocal + DeployRouter run.
+
+**Release decision (round 4):** merge-gate parity green. Ready for external re-review at the round-4 commit tip. **DO NOT DEPLOY** before sign-off.
 

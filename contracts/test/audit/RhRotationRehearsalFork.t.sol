@@ -5,6 +5,7 @@ import {Test, Vm, console2} from "forge-std/Test.sol";
 
 import {DeployRouter} from "script/DeployRouter.s.sol";
 import {ActivateRouter} from "script/ActivateRouter.s.sol";
+import {BuildRouterCutoverSafeBatch} from "script/BuildRouterCutoverSafeBatch.s.sol";
 
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
@@ -20,6 +21,13 @@ interface IFactoryLike {
     function setRouter(
         address r
     ) external;
+}
+
+interface IOwnableLike {
+    function owner() external view returns (address);
+    function transferOwnership(
+        address newOwner
+    ) external payable;
 }
 
 /// @title  RhRotationRehearsalForkTest
@@ -82,7 +90,17 @@ contract RhRotationRehearsalForkTest is Test {
 
     DeployRouter internal deployRouter;
     ActivateRouter internal activateRouter;
+    BuildRouterCutoverSafeBatch internal safeBatchBuilder;
     NameRegistry internal freshRegistry;
+
+    // URU-P1-B02: Phase 2 no longer runs ActivateRouter.runForTest directly.
+    // The Safe multisig owns every cutover target, and the cutover is one
+    // atomic Safe.execTransaction that delegatecalls MultiSendCallOnly. The
+    // mocks below deploy inside the fork and stand in for a real Safe + Safe
+    // MultiSendCallOnly on Robinhood; they implement the exact wire-format
+    // MultiSendCallOnly expects, so atomicity here proves atomicity in prod.
+    MockSafe internal mockSafe;
+    MockMultiSendCallOnly internal mockMultiSend;
 
     function setUp() public {
         // Fork bring-up mirrors RhProductionRotationForkTest / DeployPathRhForkTest.
@@ -116,6 +134,9 @@ contract RhRotationRehearsalForkTest is Test {
 
         deployRouter = new DeployRouter();
         activateRouter = new ActivateRouter();
+        safeBatchBuilder = new BuildRouterCutoverSafeBatch();
+        mockSafe = new MockSafe();
+        mockMultiSend = new MockMultiSendCallOnly();
     }
 
     // -------------------------------------------------------------
@@ -204,33 +225,136 @@ contract RhRotationRehearsalForkTest is Test {
     }
 
     // -------------------------------------------------------------
-    // Phase 2: run the real ActivateRouter script + full launch
+    // Phase 2: build Safe MultiSendCallOnly payload + execute atomically
     // -------------------------------------------------------------
+    //
+    // URU-P1-B02: `ActivateRouter.run()` no longer broadcasts — it reverts
+    // `UnsafeDirectBroadcastDisabled`. The cutover is now one Safe
+    // delegatecall to MultiSendCallOnly. Phase 2 here:
+    //   1. transfers ownership of every mutated target to MockSafe (mirrors
+    //      the production handoff that must precede a real Safe cutover);
+    //   2. calls `BuildRouterCutoverSafeBatch.runForTest(...)` to get the
+    //      real production payload (`(to, data)` for the multisend);
+    //   3. executes it via `MockSafe.execTransactionDelegate(to, data)`,
+    //      which delegatecalls into MockMultiSendCallOnly — the exact wire
+    //      format MultiSendCallOnly expects. A mid-batch revert reverts the
+    //      delegatecall, which reverts execTransactionDelegate, which
+    //      unwinds every earlier subcall. That IS the atomicity guarantee.
 
-    function _runPhase2(
-        address newRouterAddr
+    function _transferOwnershipsToSafe(
+        address newRouterAddr,
+        bool includeOldRouter
     ) internal {
-        ActivateRouter.TestArgs memory a = ActivateRouter.TestArgs({
-            nameRegistry: address(freshRegistry),
+        vm.startPrank(DEPLOYER);
+        IOwnableLike(address(freshRegistry)).transferOwnership(address(mockSafe));
+        IOwnableLike(newRouterAddr).transferOwnership(address(mockSafe));
+        IOwnableLike(ERC20_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(ERC721A_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(ERC1155_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(CURVE_FACTORY).transferOwnership(address(mockSafe));
+        if (includeOldRouter) {
+            IOwnableLike(OLD_ROUTER).transferOwnership(address(mockSafe));
+        }
+        vm.stopPrank();
+    }
+
+    function _buildBatchTestArgs(
+        address newRouterAddr,
+        bool skipPauseOld
+    ) internal view returns (BuildRouterCutoverSafeBatch.TestArgs memory a) {
+        a = BuildRouterCutoverSafeBatch.TestArgs({
+            safe: address(mockSafe),
+            multiSendCallOnly: address(mockMultiSend),
+            registry: address(freshRegistry),
             newRouter: newRouterAddr,
             oldRouter: OLD_ROUTER,
             erc20Factory: ERC20_FACTORY,
             erc721Factory: ERC721A_FACTORY,
             erc1155Factory: ERC1155_FACTORY,
             curveFactory: CURVE_FACTORY,
-            admin: DEPLOYER,
-            skipPauseOld: false
+            skipPauseOld: skipPauseOld
         });
-        activateRouter.runForTest(a);
+    }
+
+    function _runPhase2(
+        address newRouterAddr
+    ) internal {
+        _transferOwnershipsToSafe(
+            newRouterAddr,
+            /*includeOldRouter=*/
+            true
+        );
+        (address to,, bytes memory data,,) =
+            safeBatchBuilder.runForTest(
+                _buildBatchTestArgs(
+                    newRouterAddr,
+                    /*skipPauseOld=*/
+                    false
+                )
+            );
+        mockSafe.execTransactionDelegate(to, data);
+    }
+
+    /// URU-P1-B02 acceptance criterion: the direct-broadcast production
+    /// entrypoint MUST refuse to run. Operators are forced through the Safe
+    /// payload builder — no half-cutover from a mid-batch broadcast revert.
+    function test_DirectRun_RevertsUnsafeDirectBroadcastDisabled() public {
+        vm.expectRevert(ActivateRouter.ActivateRouter__UnsafeDirectBroadcastDisabled.selector);
+        activateRouter.run();
     }
 
     function test_Phase2_ActivateEnforcesTimelock() public {
         DeployRouter.Deployed memory out = _runPhase1();
 
-        // No warp — activation must revert with TimelockNotPassed.
+        // No warp — batch build must revert with Cutover__TimelockNotPassed.
+        // Preflight sequences timelock BEFORE ownership, so we don't need to
+        // hand ownership to MockSafe for this to fire.
         uint256 readyAt = freshRegistry.pendingRouterTs();
-        vm.expectRevert(abi.encodeWithSelector(ActivateRouter.ActivateRouter__TimelockNotPassed.selector, readyAt));
-        _runPhase2(out.routerV2);
+        vm.expectRevert(
+            abi.encodeWithSelector(BuildRouterCutoverSafeBatch.Cutover__TimelockNotPassed.selector, readyAt)
+        );
+        safeBatchBuilder.runForTest(
+            _buildBatchTestArgs(
+                out.routerV2,
+                /*skipPauseOld=*/
+                false
+            )
+        );
+    }
+
+    /// URU-P1-B02 acceptance criterion: preflight refuses to emit a payload
+    /// unless every mutated target is Safe-owned. Otherwise a non-Safe-owned
+    /// target would silently drop its subcall (revert inside multiSend),
+    /// forcing the whole batch to revert — the exact split-brain outcome
+    /// this migration exists to prevent (and here we want the payload to
+    /// simply not exist, not "revert on execution").
+    function test_Phase2_PreflightRejectsWhenTargetNotSafeOwned() public {
+        DeployRouter.Deployed memory out = _runPhase1();
+        vm.warp(freshRegistry.pendingRouterTs() + 1);
+
+        // Transfer everything EXCEPT the ERC20 factory to Safe. Preflight
+        // should trip Cutover__NotSafeOwned on the ERC20 factory.
+        vm.startPrank(DEPLOYER);
+        IOwnableLike(address(freshRegistry)).transferOwnership(address(mockSafe));
+        IOwnableLike(out.routerV2).transferOwnership(address(mockSafe));
+        IOwnableLike(ERC721A_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(ERC1155_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(CURVE_FACTORY).transferOwnership(address(mockSafe));
+        IOwnableLike(OLD_ROUTER).transferOwnership(address(mockSafe));
+        vm.stopPrank();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BuildRouterCutoverSafeBatch.Cutover__NotSafeOwned.selector, ERC20_FACTORY, address(mockSafe), DEPLOYER
+            )
+        );
+        safeBatchBuilder.runForTest(
+            _buildBatchTestArgs(
+                out.routerV2,
+                /*skipPauseOld=*/
+                false
+            )
+        );
     }
 
     function test_Phase2_ActivateCutsOverAtomically() public {
@@ -262,6 +386,87 @@ contract RhRotationRehearsalForkTest is Test {
         vm.prank(OLD_ROUTER);
         vm.expectRevert(NameRegistry.NameRegistry__NotRouter.selector);
         freshRegistry.reserve("PostCutoverBlocked", "PCB", address(0xdead), address(0xbeef));
+    }
+
+    /// URU-P1-B02 acceptance criterion #3: "forcing the final subcall to
+    /// revert causes the entire Safe transaction to revert with no earlier
+    /// state changes."
+    ///
+    /// Build a Safe payload that IS the production batch (setRouter x3,
+    /// setTrustedRouter, activateRouter) but with the final subcall
+    /// (setPaused(oldRouter, true)) redirected at a reverter. If the
+    /// multisend is atomic, none of the prior 5 subcalls persist.
+    function test_ForcedFinalRevert_RollsBackEntireBatch() public {
+        DeployRouter.Deployed memory out = _runPhase1();
+        vm.warp(freshRegistry.pendingRouterTs() + 1);
+
+        _transferOwnershipsToSafe(
+            out.routerV2,
+            /*includeOldRouter=*/
+            true
+        );
+
+        // Capture PRE-cutover state on every mutated wire. If atomicity
+        // holds, every one of these must be identical post-revert.
+        address preRouterErc20 = IFactoryLike(ERC20_FACTORY).router();
+        address preRouterErc721 = IFactoryLike(ERC721A_FACTORY).router();
+        address preRouterErc1155 = IFactoryLike(ERC1155_FACTORY).router();
+        address preRegRouter = freshRegistry.router();
+        address prePendingRouter = freshRegistry.pendingRouter();
+        uint256 prePendingRouterTs = freshRegistry.pendingRouterTs();
+        bool preOldTrusted = CurveFactory(CURVE_FACTORY).trustedRouters(OLD_ROUTER);
+        bool preNewTrusted = CurveFactory(CURVE_FACTORY).trustedRouters(out.routerV2);
+        bool preOldPaused = Router(payable(OLD_ROUTER)).paused();
+
+        MockReverter reverter = new MockReverter();
+
+        // Rebuild the SAME 5 production subcalls, then append a 6th subcall
+        // targeting the reverter instead of oldRouter.setPaused(true). Uses
+        // the script's `encodeSubCall` so the wire format is byte-identical
+        // to a real production payload.
+        bytes memory subCalls = bytes.concat(
+            safeBatchBuilder.encodeSubCall(ERC20_FACTORY, abi.encodeWithSignature("setRouter(address)", out.routerV2)),
+            safeBatchBuilder.encodeSubCall(
+                ERC721A_FACTORY, abi.encodeWithSignature("setRouter(address)", out.routerV2)
+            ),
+            safeBatchBuilder.encodeSubCall(
+                    ERC1155_FACTORY, abi.encodeWithSignature("setRouter(address)", out.routerV2)
+                ),
+            safeBatchBuilder.encodeSubCall(
+                    CURVE_FACTORY, abi.encodeWithSignature("setTrustedRouter(address,bool)", OLD_ROUTER, false)
+                ),
+            safeBatchBuilder.encodeSubCall(address(freshRegistry), abi.encodeWithSignature("activateRouter()")),
+            // POISONED SUBCALL — replaces oldRouter.setPaused(true).
+            safeBatchBuilder.encodeSubCall(address(reverter), abi.encodeWithSignature("setPaused(bool)", true))
+        );
+        bytes memory multiSendData = abi.encodeWithSelector(MockMultiSendCallOnly.multiSend.selector, subCalls);
+
+        // Whole batch MUST revert. The exact returndata is whatever the
+        // reverter emits (MockMultiSendCallOnly bubbles it up), so we don't
+        // pin the selector — just that some revert reached the caller.
+        vm.expectRevert();
+        mockSafe.execTransactionDelegate(address(mockMultiSend), multiSendData);
+
+        // Post-revert: EVERY pre-cutover value must be untouched. If any of
+        // these drifted, the multisend is NOT atomic and the audit finding
+        // is unfixed.
+        assertEq(IFactoryLike(ERC20_FACTORY).router(), preRouterErc20, "ERC20 factory rewired but batch reverted");
+        assertEq(IFactoryLike(ERC721A_FACTORY).router(), preRouterErc721, "ERC721A factory rewired but batch reverted");
+        assertEq(IFactoryLike(ERC1155_FACTORY).router(), preRouterErc1155, "ERC1155 factory rewired but batch reverted");
+        assertEq(freshRegistry.router(), preRegRouter, "registry.router mutated but batch reverted");
+        assertEq(freshRegistry.pendingRouter(), prePendingRouter, "pendingRouter cleared but batch reverted");
+        assertEq(freshRegistry.pendingRouterTs(), prePendingRouterTs, "pendingRouterTs cleared but batch reverted");
+        assertEq(
+            CurveFactory(CURVE_FACTORY).trustedRouters(OLD_ROUTER),
+            preOldTrusted,
+            "curve trust for OLD flipped but batch reverted"
+        );
+        assertEq(
+            CurveFactory(CURVE_FACTORY).trustedRouters(out.routerV2),
+            preNewTrusted,
+            "curve trust for NEW mutated but batch reverted"
+        );
+        assertEq(Router(payable(OLD_ROUTER)).paused(), preOldPaused, "old router paused but batch reverted");
     }
 
     /// The full auditor deliverable for AC #4: after both scripts have run
@@ -340,5 +545,82 @@ contract RhRotationRehearsalForkTest is Test {
         p.ownerTargetIfMultisig = address(0);
         p.antiSniperBlocks = 0;
         p.buybackBurnBps = 0;
+    }
+}
+
+// =================================================================
+// Safe MultiSendCallOnly + Safe mocks
+// =================================================================
+//
+// These stand in for the real Safe multisig and the canonical Safe
+// MultiSendCallOnly singleton, which are not deployed on Robinhood at
+// the addresses the production script assumes. The wire format of
+// `MockMultiSendCallOnly.multiSend` matches Safe's canonical implementation
+// byte-for-byte (operation(1) | to(20) | value(32) | dataLen(32) | data(N),
+// only operation==0 accepted). MockSafe delegatecalls into it, so each
+// subcall's `msg.sender` is the MockSafe address — mirroring how a
+// real Safe would execute the same payload.
+
+/// Minimal Safe stand-in. Owns every cutover target during the rehearsal;
+/// `execTransactionDelegate` reverts if the delegatecall failed, propagating
+/// returndata so an atomicity assertion sees the real revert bytes.
+contract MockSafe {
+    function execTransactionDelegate(
+        address to,
+        bytes calldata data
+    ) external payable {
+        (bool ok, bytes memory ret) = to.delegatecall(data);
+        if (!ok) {
+            assembly {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
+    }
+}
+
+/// Matches Safe's canonical MultiSendCallOnly.multiSend semantics: iterate
+/// packed subcalls, CALL each one, revert the whole thing on any failure.
+/// Bubbles up the failing subcall's returndata so tests can pin selectors.
+contract MockMultiSendCallOnly {
+    function multiSend(
+        bytes memory transactions
+    ) external payable {
+        assembly {
+            let length := mload(transactions)
+            let ptr := add(transactions, 0x20)
+            let end := add(ptr, length)
+            for {} lt(ptr, end) {} {
+                let operation := shr(0xf8, mload(ptr))
+                let to := shr(0x60, mload(add(ptr, 0x01)))
+                let value := mload(add(ptr, 0x15))
+                let dataLen := mload(add(ptr, 0x35))
+                let data := add(ptr, 0x55)
+                let success := 0
+                switch operation
+                case 0 { success := call(gas(), to, value, data, dataLen, 0, 0) }
+                default { invalid() }
+                if iszero(success) {
+                    let rdSize := returndatasize()
+                    let rdPtr := mload(0x40)
+                    returndatacopy(rdPtr, 0, rdSize)
+                    revert(rdPtr, rdSize)
+                }
+                ptr := add(ptr, add(0x55, dataLen))
+            }
+        }
+    }
+}
+
+/// Fallback-reverting stub used to poison the final subcall in the
+/// forced-revert-rollback atomicity rehearsal.
+contract MockReverter {
+    error MockReverter__Rejected();
+
+    fallback() external payable {
+        revert MockReverter__Rejected();
+    }
+
+    receive() external payable {
+        revert MockReverter__Rejected();
     }
 }

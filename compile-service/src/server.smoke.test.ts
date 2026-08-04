@@ -48,7 +48,15 @@ import { after, before, describe, it } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
-import { keccak256, type Hex } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  keccak256,
+  type Hex,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { foundry as foundryChain } from 'viem/chains';
 
 // -----------------------------------------------------------------------------
 // Repo layout + helpers
@@ -74,6 +82,21 @@ async function isForgeOnPath(): Promise<boolean> {
   });
 }
 const HAVE_FORGE = await isForgeOnPath();
+
+/// Anvil ships alongside forge under foundryup, so HAVE_ANVIL usually
+/// tracks HAVE_FORGE — but a hand-installed forge may lack it, so we
+/// check both independently. Anvil drives the on-chain URU-P1-B01
+/// acceptance check (deploy the impl, verify `keccak256(getCode(addr))`
+/// equals the compile-service's `runtimeCodeHash`).
+async function isAnvilOnPath(): Promise<boolean> {
+  const which = process.platform === 'win32' ? 'where' : 'which';
+  return new Promise((resolvePromise) => {
+    const child = spawn(which, ['anvil'], { stdio: 'ignore' });
+    child.on('exit', (code) => resolvePromise(code === 0));
+    child.on('error', () => resolvePromise(false));
+  });
+}
+const HAVE_ANVIL = await isAnvilOnPath();
 
 /// Count `urufu-compile-*` entries currently under os.tmpdir(). The isolated
 /// build path is the ONLY thing in the repo that uses this prefix, so a
@@ -270,8 +293,15 @@ describe('smoke: real HTTP + semaphore + isolated forge build + cleanup', () => 
     // consumed a single time; a subsequent .clone().text() would throw
     // "Body has already been consumed").
     const bodies: Array<{
-      artifactHash?: string; bytecode?: string; configHash?: string;
-      contractName?: string; abi?: unknown; moduleIds?: string[];
+      artifactHash?: string;
+      creationCodeHash?: string;
+      runtimeCodeHash?: string;
+      bytecode?: string;
+      runtimeBytecode?: string;
+      configHash?: string;
+      contractName?: string;
+      abi?: unknown;
+      moduleIds?: string[];
     }> = [];
     for (const [i, r] of responses.entries()) {
       const bodyText = await r.text();
@@ -287,13 +317,47 @@ describe('smoke: real HTTP + semaphore + isolated forge build + cleanup', () => 
       assert.equal(j.contractName, 'ERC20WithPermitGen', `request ${i} contractName drift`);
       assert.ok(Array.isArray(j.abi), `request ${i} abi not an array`);
 
-      // The load-bearing wire invariant: launcher trusts artifactHash to
-      // point at the exact bytecode it's about to deploy. If the server
-      // hashes a different buffer than it returns, this fails.
-      const computed = keccak256(j.bytecode as Hex);
+      // URU-P1-B01 (round 4): the response MUST carry both hashes and the
+      // deployed runtime buffer so a launcher can pin the factory correctly.
+      assert.ok(
+        j.runtimeBytecode?.startsWith('0x'),
+        `request ${i} missing runtimeBytecode (URU-P1-B01: factory pin requires runtime code)`,
+      );
+      assert.ok(
+        j.creationCodeHash?.startsWith('0x'),
+        `request ${i} missing creationCodeHash`,
+      );
+      assert.ok(
+        j.runtimeCodeHash?.startsWith('0x'),
+        `request ${i} missing runtimeCodeHash`,
+      );
+
+      // Load-bearing wire invariants:
+      //   * keccak256(bytecode)         == creationCodeHash
+      //   * keccak256(runtimeBytecode)  == runtimeCodeHash
+      //   * artifactHash                == runtimeCodeHash  (legacy alias)
+      // If any of these drift the launcher's pin-and-register will fail
+      // silently on-chain instead of loudly here.
+      const computedCreation = keccak256(j.bytecode as Hex);
+      const computedRuntime = keccak256(j.runtimeBytecode as Hex);
       assert.equal(
-        computed, j.artifactHash,
-        `request ${i}: keccak256(bytecode) != artifactHash`,
+        computedCreation, j.creationCodeHash,
+        `request ${i}: keccak256(bytecode) != creationCodeHash`,
+      );
+      assert.equal(
+        computedRuntime, j.runtimeCodeHash,
+        `request ${i}: keccak256(runtimeBytecode) != runtimeCodeHash`,
+      );
+      assert.equal(
+        j.artifactHash, j.runtimeCodeHash,
+        `request ${i}: artifactHash must alias runtimeCodeHash (URU-P1-B01)`,
+      );
+      // Belt-and-suspenders: creation vs runtime MUST differ. If they
+      // matched, either the compiler emitted an odd artifact or the
+      // server accidentally pointed both fields at the same buffer.
+      assert.notEqual(
+        j.creationCodeHash, j.runtimeCodeHash,
+        `request ${i}: creationCodeHash and runtimeCodeHash must differ`,
       );
     }
 
@@ -423,4 +487,225 @@ describe('smoke: per-route rate limit on POST /compile', () => {
       `expected at most 5 requests past the rate limit (max=5), got ${status400s} 400s — rate limit did not fire`,
     );
   });
+});
+
+// -----------------------------------------------------------------------------
+// Suite C: URU-P1-M05 back-pressure body-size cap on POST /compile
+// -----------------------------------------------------------------------------
+//
+// A well-formed compile body is a few KB. An abuser can otherwise POST a
+// megabyte-scale body and pin the process's memory while the request
+// waits in the semaphore queue. server.ts now sets `bodyLimit` on the
+// /compile route via COMPILE_BODY_LIMIT_BYTES; this suite proves the
+// cap actually fires by POSTing a body larger than the configured
+// ceiling and asserting a 4xx (Fastify returns 413 for oversize
+// bodies).
+
+describe('smoke: /compile HTTP body-size cap', () => {
+  let server: Server;
+
+  before(async () => {
+    // Tighten the cap so we can prove the guard without shipping a
+    // gigabyte payload. 1_024 bytes is well below any legitimate config
+    // request.
+    server = await startServer({
+      COMPILE_MAX_CONCURRENCY: '2',
+      COMPILE_BODY_LIMIT_BYTES: '1024',
+    });
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('POST with body larger than COMPILE_BODY_LIMIT_BYTES returns 4xx', async () => {
+    // 4 KB body >> 1 KB cap. Padding lives inside a JSON field so the
+    // parser has to buffer the entire body before it can even reject
+    // (which is exactly the memory-pressure vector we're bounding).
+    const oversized = {
+      base: 'ERC20',
+      mechanic: 'no-sale',
+      chain: 'mainnet',
+      modules: ['Permit'],
+      params: { Permit: { pad: 'a'.repeat(4_096) } },
+    };
+    const resp = await postCompile(server.url, oversized);
+    // Fastify returns 413 for oversize bodies. Some middleware may map
+    // it to 400; accept anything in 4xx as proof the cap fired before
+    // the handler ran.
+    assert.ok(
+      resp.status >= 400 && resp.status < 500,
+      `expected 4xx for oversize body, got ${resp.status}`,
+    );
+    await resp.text().catch(() => '');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Suite D: URU-P1-B01 acceptance — on-chain runtime code equals runtimeCodeHash
+// -----------------------------------------------------------------------------
+//
+// The URU-P1-B01 blocker was that the compile service returned
+// `keccak256(creation bytecode)` while `ERC20Factory.registerImpl` (and
+// friends) verify `keccak256(impl.code)` — which is the DEPLOYED
+// runtime bytecode. Any launcher trusting `artifactHash` for the
+// factory pin therefore could never pin-and-register successfully.
+//
+// The Foundry test suite (`test/audit/FactoryCodeHashPin.t.sol`) already
+// proves the factory's pin-and-register works when given the runtime
+// codehash. What that suite CANNOT prove is that the value the compile
+// service returns IS the runtime codehash of a real deployed impl. This
+// suite closes that gap:
+//
+//   1. Spawn anvil.
+//   2. Compile via the real /compile HTTP flow, extract the creation
+//      bytecode + returned `runtimeCodeHash`.
+//   3. Deploy the creation bytecode on anvil (constructor takes no args —
+//      the template initializes lazily via `initialize(bytes)`).
+//   4. Fetch `getCode(deployedAddr)` from anvil.
+//   5. Assert `keccak256(getCode) == runtimeCodeHash`.
+//
+// If (5) holds, then the launcher's chain of trust —
+//   compile-service.runtimeCodeHash
+//   -> factory.setExpectedCodeHash(configHash, that)
+//   -> factory.registerImpl(configHash, deployedImpl)
+// — is guaranteed to succeed on-chain, because the factory computes
+// exactly `keccak256(deployedImpl.code)` and it will match the pin.
+//
+// Skipped cleanly when forge OR anvil is missing — the mechanics are
+// still covered by the Foundry unit tests + the JS hash-equivalence
+// assertions in Suite A.
+
+async function startAnvil(): Promise<{ url: string; close: () => Promise<void> }> {
+  // Do NOT pass --silent / --quiet: those suppress ALL stdout including
+  // the "Listening on 127.0.0.1:PORT" line our helper waits for, which
+  // would hang the test until the parent times it out. The verbose
+  // banner is fine — we're piping stdout, so it doesn't reach the test
+  // runner's output.
+  const child = spawn('anvil', ['--port', '0'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  let buf = '';
+  const url = await new Promise<string>((resolveP, rejectP) => {
+    const timer = setTimeout(() => rejectP(new Error(
+      `anvil startup timeout after 15s.\nstdout:\n${stdoutChunks.join('')}\nstderr:\n${stderrChunks.join('')}`,
+    )), 15_000);
+    child.stdout!.on('data', (b: Buffer) => {
+      const s = b.toString('utf8');
+      stdoutChunks.push(s);
+      buf += s;
+      // Anvil logs "Listening on 127.0.0.1:PORT" on ready.
+      const m = buf.match(/Listening on\s+([0-9.]+):(\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        resolveP(`http://${m[1]}:${m[2]}`);
+      }
+    });
+    child.stderr!.on('data', (b: Buffer) => stderrChunks.push(b.toString('utf8')));
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      rejectP(new Error(`anvil exited before ready (code=${code})`));
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      rejectP(e);
+    });
+  });
+  return {
+    url,
+    async close() {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      child.kill('SIGKILL');
+      await new Promise<void>((r) => child.once('exit', () => r()));
+    },
+  };
+}
+
+describe('smoke: URU-P1-B01 on-chain runtime code matches runtimeCodeHash', () => {
+  let server: Server;
+  let anvil: { url: string; close: () => Promise<void> };
+
+  before(async () => {
+    if (!HAVE_FORGE || !HAVE_ANVIL) return;
+    server = await startServer({ COMPILE_MAX_CONCURRENCY: '2' });
+    anvil = await startAnvil();
+  });
+
+  after(async () => {
+    if (anvil) await anvil.close();
+    if (server) await server.close();
+  });
+
+  it(
+    'deploy(bytecode) -> keccak256(getCode(deployedAddr)) equals runtimeCodeHash',
+    {
+      skip: !HAVE_FORGE
+        ? 'forge not on PATH (needed to compile the impl)'
+        : !HAVE_ANVIL
+          ? 'anvil not on PATH (needed to deploy and read on-chain code)'
+          : false,
+    },
+    async (t) => {
+      // 1. Real compile.
+      const resp = await postCompile(server.url, validCompileBody());
+      const bodyText = await resp.text();
+      assert.equal(resp.status, 200, `compile failed: ${bodyText}`);
+      const j = JSON.parse(bodyText) as {
+        bytecode: string;
+        runtimeBytecode: string;
+        runtimeCodeHash: string;
+        artifactHash: string;
+      };
+
+      // 2. Wire viem to anvil. anvil's first prefunded account has a
+      // well-known private key.
+      const account = privateKeyToAccount(
+        '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      );
+      const publicClient = createPublicClient({
+        chain: foundryChain,
+        transport: http(anvil.url),
+      });
+      const walletClient = createWalletClient({
+        account,
+        chain: foundryChain,
+        transport: http(anvil.url),
+      });
+
+      // 3. Deploy the creation bytecode. ERC20Template has no constructor
+      // args — it uses `initialize(bytes)` on the clone, not the impl.
+      const txHash = await walletClient.sendTransaction({
+        data: j.bytecode as Hex,
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      assert.equal(receipt.status, 'success', 'impl deploy tx must succeed');
+      assert.ok(receipt.contractAddress, 'deploy tx must produce a contract address');
+      const deployedAddr = receipt.contractAddress;
+
+      // 4. Read the on-chain runtime code.
+      const onchainCode = await publicClient.getCode({ address: deployedAddr });
+      assert.ok(onchainCode, 'anvil returned no code at deployed address');
+      const onchainHash = keccak256(onchainCode);
+
+      t.diagnostic(`deployedAddr = ${deployedAddr}`);
+      t.diagnostic(`onchain codehash = ${onchainHash}`);
+      t.diagnostic(`compile runtimeCodeHash = ${j.runtimeCodeHash}`);
+
+      // 5. The load-bearing acceptance check. If this passes, a launcher
+      // calling `factory.setExpectedCodeHash(configHash, j.runtimeCodeHash)`
+      // then `factory.registerImpl(configHash, deployedAddr)` MUST succeed —
+      // the factory's own check is exactly `keccak256(impl.code) == pin`.
+      assert.equal(
+        onchainHash, j.runtimeCodeHash,
+        'URU-P1-B01: keccak256(getCode(deployedAddr)) must equal runtimeCodeHash — otherwise factory pin/register cannot succeed',
+      );
+      assert.equal(
+        onchainHash, j.artifactHash,
+        'URU-P1-B01: artifactHash alias must equal on-chain codehash',
+      );
+    },
+  );
 });

@@ -189,10 +189,14 @@ contract ERC20Factory is IVMFactory, Ownable {
     ///         codehash for a configHash BEFORE the registrar can register an
     ///         impl. One-shot per config — rotating a pin would defeat the
     ///         audit binding, so an already-pinned entry reverts.
-    /// @dev    The pin value should come from the audited artifact:
-    ///         `keccak256(runtime bytecode)` returned by the compile service,
-    ///         or `RhConfigManifest.artifactHashFor(configHash)` for the
-    ///         canonical manifest entries. Pin, then register, in that order.
+    /// @dev    The pin value MUST be the DEPLOYED runtime codehash — i.e.
+    ///         `keccak256(address(impl).code)` after the impl has been
+    ///         deployed, which equals the compile service's
+    ///         `runtimeCodeHash` response field (the legacy `artifactHash`
+    ///         field is preserved as a backwards-compatible alias for the
+    ///         same runtime hash). For canonical manifest entries, use
+    ///         `RhConfigManifest.artifactHashFor(configHash)`. Pin, then
+    ///         register, in that order.
     function setExpectedCodeHash(
         bytes32 configHash,
         bytes32 codeHash
