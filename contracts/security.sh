@@ -21,9 +21,21 @@ echo ">>> Running Slither on . (src + script) (this can take a couple minutes on
 if [[ "$FULL" == "--full" ]]; then
   python -m slither . --config-file slither.config.json
 else
-  # URU-A14: removed `|| true` — a Slither failure must fail this script,
-  # not print a fake "0 findings" summary and let CI pass.
+  # URU-A14: removed the earlier `|| true` swallow — but Slither's exit
+  # code is unreliable as a pass/fail signal. It exits 255 whenever any
+  # finding is emitted (even Informational), and on Windows some builds
+  # exit 127 after successful analysis (JSON still written correctly).
+  # So the AUTHORITATIVE gate is the python summary block below: if
+  # slither-report.json was written AND High count is 0, we pass. If the
+  # report is missing (real analyzer crash), the python block's open() will
+  # itself fail and take down the script.
+  set +e
   python -m slither . --config-file slither.config.json --json slither-report.json
+  set -e
+  if [[ ! -f slither-report.json ]]; then
+    echo "Slither hard error: slither-report.json was not produced. Analyzer itself crashed." >&2
+    exit 1
+  fi
 fi
 
 # Emit a summary markdown alongside the JSON so it's easy to diff between runs.
