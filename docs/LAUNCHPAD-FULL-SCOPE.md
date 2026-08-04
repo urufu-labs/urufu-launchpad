@@ -1435,13 +1435,7 @@ Regression coverage: `contracts/test/audit/DeployPathRhFork.t.sol::test_FreshDep
 3. `absDelta = |unspecDelta|` (clamped for pathological `int128.min`).
 4. `totalBps = platformBps + creatorBps` (200 on live = 2 % of unspecified side).
 5. `fee = absDelta * totalBps / 10_000`.
-6. **[V8 change vs live]** Buyback-burn slice on ALL BUYs (`zeroForOne == true`) — not just exact-input BUYs. Previously the condition was `unspecDelta > 0 && unspec == currency1` which only fired on exact-input BUYs — exact-output BUYs silently bypassed the advertised burn (auditor "additional high-impact defect"). Now:
-   ```solidity
-   if (cfg.buybackBurnBps > 0 && params.zeroForOne) {
-       burn = absDelta * cfg.buybackBurnBps / 10_000;
-   }
-   ```
-   On exact-input BUYs, unspec is the token output — burn destroys tokens. On exact-output BUYs, unspec is the ETH input — the extra ETH the swapper is charged goes to `0xdEaD`. Not a token buyback per se, but keeps the fee economically active on both BUY paths.
+6. **[V8 change vs live — URU-P1-M04 round-4 correction]** Buyback-burn slice is now GATED to exact-input BUYs only. The prior V8 attempt applied burn on ALL BUYs (`zeroForOne == true`), but the auditor's round-4 report showed that on exact-output BUYs the unspecified currency IS the ETH input, so `currency.transfer(BURN_ADDRESS, burn)` was destroying ETH instead of the launched token — the advertised token-supply reduction did not occur. Round-4 fix: `MultiHookHost.beforeSwap` reverts `ExactOutputBuyUnsupportedWithBurn()` whenever an exact-output BUY is attempted against a pool with `buybackBurnBps > 0`. `afterSwap` continues to apply burn only on exact-input BUYs where unspec is the token (correct token supply reduction). If a launcher wants exact-output support, they must disable the burn at launch (set `buybackBurnBps = 0`). Tests: `test/hooks/MultiHookHost.t.sol::test_BeforeSwap_ExactOutputBuyRevertsWhenBuybackBurnEnabled` + `test_BeforeSwap_ExactOutputBuyAllowedWhenBuybackBurnDisabled` + `test_AfterSwap_ExactInputBuyStillBurnsOutputTokens` (regression).
 7. `totalTake = fee + burn`; if zero, exit.
 8. `poolManager.take(unspecCurrency, address(this), totalTake)` — pulls fee INTO hook's own balance. **Critical:** v4 credits the hook's currency delta with the returned int128; not taking the corresponding amount would revert `CurrencyNotSettled` on unlock.
 9. If `burn > 0`: `currency.transfer(BURN_ADDRESS, burn)`; emit `BuybackBurned(currency, burn)`.
@@ -1683,9 +1677,16 @@ Also `cancelPendingEpoch()` — safety valve for wrong root / wrong amount.
 
 **URU-A06 stale-publisher gate**: `addEpoch` and `proposeEpoch` both require `expectedEpochId == nextEpochId`. Two concurrent publishers cannot both read `nextEpochId = N`, land as N and N+1, with N+1's tree encoding N — the second call reverts `UnexpectedEpochId`. Combined with the compile-service's PG advisory lock (§10.3), race-to-publish is closed both on-chain and off-chain.
 
-**URU-A07 available-balance view**: new `availableBalance() → balance - totalCommitted`. Publisher (compile-service `rewards.ts`) uses it as the default `totalAmount` when no override — previously the publisher used the full vault balance which reverted `OverCommit` as soon as any prior epoch had unclaimed funds. The advertised "daily overlapping epoch" model now actually works.
+**URU-A07 available-balance view**: `availableBalance() → balance - totalCommitted - pendingCommitted`. Publisher (compile-service `rewards.ts`) uses it as the default `totalAmount` when no override.
 
-**`sweepDust`** (`:105-114`) — owner-only. Only sends `balance - totalCommitted` (residual from over-published totals + dead-wallet leaves that never claim). Cannot starve live claims.
+**[V8 change vs live — URU-P1-M06 round-4 correction]** New `pendingCommitted` storage variable reserves the proposed epoch's amount during the timelock window. Previously `availableBalance` + `sweepDust` only subtracted ACTIVATED commitments, so a compromised or careless owner could sweep the exact ETH intended for a pending epoch during its 2-day timelock — activation would then revert `OverCommit` after monitoring windows had already elapsed. Round-4 fix:
+- `proposeEpoch` increments `pendingCommitted += totalAmount` (overcommit check now against `totalCommitted + pendingCommitted + totalAmount`)
+- `cancelPendingEpoch` releases: `pendingCommitted -= p.totalAmount`
+- `activateEpoch` releases pending BEFORE handing off (`_applyEpoch` bumps `totalCommitted`): `pendingCommitted -= p.totalAmount`
+- `availableBalance()` and `sweepDust()` both subtract `totalCommitted + pendingCommitted` from the balance
+- Test proves auditor's exact scenario: 5 ETH balance, 4 ETH proposed → `availableBalance == 1 ether` → `sweepDust` caps at 1 → activation still fully funded → cancel restores all 5 ETH to available.
+
+**`sweepDust`** — owner-only, now caps at `balance - totalCommitted - pendingCommitted`. Cannot starve live claims OR pending proposals.
 
 **Live state:**
 ```
