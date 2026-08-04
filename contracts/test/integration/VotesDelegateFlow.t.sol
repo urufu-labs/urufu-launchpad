@@ -61,8 +61,11 @@ contract VotesDelegateFlowTest is LocalV4Stack {
     function test_Votes_DelegateAndCheckpointFlow() public {
         // -------- launch a Votes-composed ERC20 through the real pipeline --------
         bytes32 ch = keccak256(abi.encode("ERC20", "Votes"));
+        address votesImpl = address(new ERC20WithVotesGen());
         vm.startPrank(admin);
-        erc20Factory.registerImpl(ch, address(new ERC20WithVotesGen()));
+        // URU-A08 (round 3): pin the audited codehash before registerImpl.
+        erc20Factory.setExpectedCodeHash(ch, keccak256(votesImpl.code));
+        erc20Factory.registerImpl(ch, votesImpl);
         router.setModuleCountForConfig(ch, 2);
         router.setFlagsForConfig(ch, 0);
         vm.stopPrank();

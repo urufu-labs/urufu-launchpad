@@ -72,6 +72,8 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         factoryV2 = new ERC20Factory(admin, address(routerV2), admin);
 
         vm.startPrank(admin);
+        // URU-A08 (round 3): pin the audited codehash before registerImpl.
+        factoryV2.setExpectedCodeHash(CH_BARE, keccak256(address(implV2).code));
         factoryV2.registerImpl(CH_BARE, address(implV2));
         routerV2.setFactory(BaseType.ERC20, address(factoryV2));
         routerV2.setModuleCountForConfig(CH_BARE, 1);

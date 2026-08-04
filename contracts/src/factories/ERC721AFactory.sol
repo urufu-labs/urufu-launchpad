@@ -31,6 +31,11 @@ contract ERC721AFactory is IVMFactory, Ownable {
     error ERC721AFactory__ZeroAddress();
     error ERC721AFactory__NotAContract();
     error ERC721AFactory__InitFailed();
+    /// URU-A08 (round 3): see ERC20Factory for pattern rationale.
+    error ERC721AFactory__CodeHashNotPinned(bytes32 configHash);
+    error ERC721AFactory__ArtifactHashMismatch(bytes32 configHash, bytes32 expected, bytes32 actual);
+    error ERC721AFactory__CodeHashAlreadyPinned(bytes32 configHash);
+    error ERC721AFactory__ZeroCodeHash();
 
     // ============================================================
     // Events
@@ -49,6 +54,7 @@ contract ERC721AFactory is IVMFactory, Ownable {
     event ImplUpdated(bytes32 indexed configHash, address indexed oldImpl, address indexed newImpl);
     event RegistrarSet(address indexed oldRegistrar, address indexed newRegistrar);
     event RouterSet(address indexed oldRouter, address indexed newRouter);
+    event ExpectedCodeHashPinned(bytes32 indexed configHash, bytes32 expectedCodeHash);
 
     // ============================================================
     // State
@@ -59,6 +65,7 @@ contract ERC721AFactory is IVMFactory, Ownable {
 
     mapping(bytes32 => address) public impls;
     mapping(bytes32 => uint256) public usageCount;
+    mapping(bytes32 => bytes32) public expectedCodeHash;
 
     // ============================================================
     // Constructor
@@ -135,8 +142,26 @@ contract ERC721AFactory is IVMFactory, Ownable {
         if (impl == address(0)) revert ERC721AFactory__ZeroAddress();
         if (impl.code.length == 0) revert ERC721AFactory__NotAContract();
 
+        bytes32 pinned = expectedCodeHash[configHash];
+        if (pinned == bytes32(0)) revert ERC721AFactory__CodeHashNotPinned(configHash);
+        bytes32 actual = keccak256(impl.code);
+        if (actual != pinned) revert ERC721AFactory__ArtifactHashMismatch(configHash, pinned, actual);
+
         impls[configHash] = impl;
         emit ImplRegistered(configHash, impl, msg.sender);
+    }
+
+    /// URU-A08 (round 3): see ERC20Factory.setExpectedCodeHash for full context.
+    function setExpectedCodeHash(
+        bytes32 configHash,
+        bytes32 codeHash
+    ) external onlyOwner {
+        if (expectedCodeHash[configHash] != bytes32(0)) {
+            revert ERC721AFactory__CodeHashAlreadyPinned(configHash);
+        }
+        if (codeHash == bytes32(0)) revert ERC721AFactory__ZeroCodeHash();
+        expectedCodeHash[configHash] = codeHash;
+        emit ExpectedCodeHashPinned(configHash, codeHash);
     }
 
     // updateImpl removed 2026-07-31 for the same reason as ERC20Factory —

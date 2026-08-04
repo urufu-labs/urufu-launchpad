@@ -29,6 +29,12 @@ contract MockGraduator {
 
     error MockGraduator__EthMismatch();
 
+    /// URU-A14 (round 3): Router now reads `graduator.poolManager()` directly.
+    /// Return address(this) as a benign placeholder.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
+
     function execute(
         address token,
         uint256 ethAmount,
@@ -127,6 +133,10 @@ contract CurveGraduatorWireTest is Test {
         router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(impl20).code));
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(impl20));
 

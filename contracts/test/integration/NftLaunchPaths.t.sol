@@ -82,12 +82,26 @@ contract NftLaunchPathsTest is LocalV4Stack {
         f721 = new ERC721AFactory(admin, address(router), admin);
         f1155 = new ERC1155Factory(admin, address(router), admin);
 
+        address i721Bare = address(new ERC721ATemplate());
+        address i721Royalty = address(new ERC721AWithRoyaltyGen());
+        address i721Soulbound = address(new ERC721AWithSoulboundGen());
+        address i1155Bare = address(new ERC1155Template());
+        address i1155Supply = address(new ERC1155WithSupplyGen());
+
         vm.startPrank(admin);
-        f721.registerImpl(CH_721_BARE, address(new ERC721ATemplate()));
-        f721.registerImpl(CH_721_ROYALTY, address(new ERC721AWithRoyaltyGen()));
-        f721.registerImpl(CH_721_SOULBOUND, address(new ERC721AWithSoulboundGen()));
-        f1155.registerImpl(CH_1155_BARE, address(new ERC1155Template()));
-        f1155.registerImpl(CH_1155_SUPPLY, address(new ERC1155WithSupplyGen()));
+        // URU-A08 (round 3): pin the audited codehash before registerImpl.
+        // Admin is both owner and registrar for these factories.
+        f721.setExpectedCodeHash(CH_721_BARE, keccak256(i721Bare.code));
+        f721.setExpectedCodeHash(CH_721_ROYALTY, keccak256(i721Royalty.code));
+        f721.setExpectedCodeHash(CH_721_SOULBOUND, keccak256(i721Soulbound.code));
+        f1155.setExpectedCodeHash(CH_1155_BARE, keccak256(i1155Bare.code));
+        f1155.setExpectedCodeHash(CH_1155_SUPPLY, keccak256(i1155Supply.code));
+
+        f721.registerImpl(CH_721_BARE, i721Bare);
+        f721.registerImpl(CH_721_ROYALTY, i721Royalty);
+        f721.registerImpl(CH_721_SOULBOUND, i721Soulbound);
+        f1155.registerImpl(CH_1155_BARE, i1155Bare);
+        f1155.registerImpl(CH_1155_SUPPLY, i1155Supply);
 
         router.setFactory(BaseType.ERC721A, address(f721));
         router.setFactory(BaseType.ERC1155, address(f1155));

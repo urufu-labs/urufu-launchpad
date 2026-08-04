@@ -24,6 +24,8 @@ contract ERC20FactoryTest is Test {
         factory = new ERC20Factory(owner, router, registrar);
         impl = new ERC20Template();
 
+        vm.prank(owner);
+        factory.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         factory.registerImpl(BARE_CONFIG, address(impl));
     }
@@ -61,6 +63,8 @@ contract ERC20FactoryTest is Test {
 
     function test_RegisterImpl_HappyPath() public {
         ERC20Factory fresh = new ERC20Factory(owner, router, registrar);
+        vm.prank(owner);
+        fresh.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.expectEmit(true, true, false, true, address(fresh));
         emit ERC20Factory.ImplRegistered(BARE_CONFIG, address(impl), registrar);
         vm.prank(registrar);

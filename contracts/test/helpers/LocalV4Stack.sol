@@ -173,6 +173,10 @@ abstract contract LocalV4Stack is Test {
         erc20Factory = new ERC20Factory(admin, address(router), admin);
 
         vm.startPrank(admin);
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl. Same admin acts as both owner + registrar in
+        // this helper, so no vm.stopPrank/vm.prank shuffle is needed.
+        erc20Factory.setExpectedCodeHash(CH_BARE, keccak256(address(erc20Impl).code));
         erc20Factory.registerImpl(CH_BARE, address(erc20Impl));
         router.setFactory(BaseType.ERC20, address(erc20Factory));
         // Router fails closed without both of these registered for a hash.

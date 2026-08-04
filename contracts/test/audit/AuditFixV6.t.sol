@@ -34,6 +34,12 @@ contract MockGraduator {
         uint16,
         address
     ) external payable {}
+
+    /// URU-A14 (round 3): Router reads `graduator.poolManager()` on curve
+    /// launches. Return address(this) as a benign placeholder.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
 }
 
 /// Minimal Solady-backed ERC20 with a mint helper — used by tests that

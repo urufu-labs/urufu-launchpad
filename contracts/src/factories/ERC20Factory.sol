@@ -34,6 +34,25 @@ contract ERC20Factory is IVMFactory, Ownable {
     error ERC20Factory__ZeroAddress();
     error ERC20Factory__NotAContract();
     error ERC20Factory__InitFailed();
+    /// URU-A08 (round 3 follow-up): `registerImpl` requires the owner to have
+    /// pinned the expected implementation codehash first via
+    /// `setExpectedCodeHash`. Without a pin, `registerImpl` reverts — the
+    /// registrar cannot bind an arbitrary impl to an audited configHash.
+    error ERC20Factory__CodeHashNotPinned(bytes32 configHash);
+    /// URU-A08: `registerImpl` received an impl whose `keccak256(runtime code)`
+    /// does not match the owner-pinned expected value for this configHash.
+    /// Prevents a rogue registrar from binding a compromised impl to a hash
+    /// that was audited with a different bytecode.
+    error ERC20Factory__ArtifactHashMismatch(bytes32 configHash, bytes32 expected, bytes32 actual);
+    /// URU-A08: `setExpectedCodeHash` is one-shot per configHash — a pin cannot
+    /// be rotated. Rotating a pin would defeat the audit binding.
+    error ERC20Factory__CodeHashAlreadyPinned(bytes32 configHash);
+    /// URU-A08: `setExpectedCodeHash` received a zero pin. Zero is reserved as
+    /// the "unpinned" sentinel, so pinning zero is meaningless. Pinning the
+    /// codehash of empty runtime code (which hashes to a nonzero value) is
+    /// also blocked at `registerImpl` time by the `impl.code.length == 0`
+    /// check.
+    error ERC20Factory__ZeroCodeHash();
 
     // ============================================================
     // Events
@@ -54,6 +73,10 @@ contract ERC20Factory is IVMFactory, Ownable {
     event ImplUpdated(bytes32 indexed configHash, address indexed oldImpl, address indexed newImpl);
     event RegistrarSet(address indexed oldRegistrar, address indexed newRegistrar);
     event RouterSet(address indexed oldRouter, address indexed newRouter);
+    /// URU-A08: owner pinned the audited runtime codehash for a configHash.
+    /// One-shot per config. `registerImpl` then MUST supply an impl whose
+    /// `keccak256(runtime code)` matches this pin, or the register reverts.
+    event ExpectedCodeHashPinned(bytes32 indexed configHash, bytes32 expectedCodeHash);
 
     // ============================================================
     // State
@@ -64,6 +87,13 @@ contract ERC20Factory is IVMFactory, Ownable {
 
     mapping(bytes32 => address) public impls;
     mapping(bytes32 => uint256) public usageCount;
+    /// URU-A08 (round 3 follow-up): owner-pinned expected runtime codehash per
+    /// configHash. Zero means "unpinned"; `registerImpl` reverts on unpinned
+    /// entries. Set via `setExpectedCodeHash`, one-shot per config. The pin
+    /// value comes from the compile-service's `artifactHash` (returned in the
+    /// compile response) or from `RhConfigManifest.artifactHashFor` for
+    /// production manifests.
+    mapping(bytes32 => bytes32) public expectedCodeHash;
 
     // ============================================================
     // Constructor
@@ -140,8 +170,39 @@ contract ERC20Factory is IVMFactory, Ownable {
         if (impl == address(0)) revert ERC20Factory__ZeroAddress();
         if (impl.code.length == 0) revert ERC20Factory__NotAContract();
 
+        // URU-A08 (round 3): every configHash MUST have an owner-pinned code
+        // hash BEFORE the registrar can bind an impl to it. This closes the
+        // "rogue-registrar can bind compromised bytecode to an audited hash"
+        // finding: the pin is set by the owner (multisig), the registrar can
+        // only bind bytecode matching the pin, and the pin is one-shot so a
+        // compromised owner can't rotate the binding either.
+        bytes32 pinned = expectedCodeHash[configHash];
+        if (pinned == bytes32(0)) revert ERC20Factory__CodeHashNotPinned(configHash);
+        bytes32 actual = keccak256(impl.code);
+        if (actual != pinned) revert ERC20Factory__ArtifactHashMismatch(configHash, pinned, actual);
+
         impls[configHash] = impl;
         emit ImplRegistered(configHash, impl, msg.sender);
+    }
+
+    /// @notice URU-A08 (round 3 follow-up): owner pins the audited runtime
+    ///         codehash for a configHash BEFORE the registrar can register an
+    ///         impl. One-shot per config — rotating a pin would defeat the
+    ///         audit binding, so an already-pinned entry reverts.
+    /// @dev    The pin value should come from the audited artifact:
+    ///         `keccak256(runtime bytecode)` returned by the compile service,
+    ///         or `RhConfigManifest.artifactHashFor(configHash)` for the
+    ///         canonical manifest entries. Pin, then register, in that order.
+    function setExpectedCodeHash(
+        bytes32 configHash,
+        bytes32 codeHash
+    ) external onlyOwner {
+        if (expectedCodeHash[configHash] != bytes32(0)) {
+            revert ERC20Factory__CodeHashAlreadyPinned(configHash);
+        }
+        if (codeHash == bytes32(0)) revert ERC20Factory__ZeroCodeHash();
+        expectedCodeHash[configHash] = codeHash;
+        emit ExpectedCodeHashPinned(configHash, codeHash);
     }
 
     // updateImpl removed 2026-07-31: a configHash MUST commit to its bytecode
