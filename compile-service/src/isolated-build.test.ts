@@ -20,8 +20,12 @@ import test from 'node:test';
 import {
   Semaphore,
   defaultCompileConcurrency,
+  defaultCompileQueueLimit,
+  defaultCompileQueueWaitMs,
+  defaultCompileTimeoutMs,
   isolatedFoundryToml,
   isolatedRemappings,
+  spawnForge,
   withIsolatedWorkDir,
 } from './isolated-build.ts';
 
@@ -225,10 +229,17 @@ test('semaphore releases slot even when the callback rejects', async () => {
   assert.equal(winner, 42, 'semaphore must release even after a rejected callback');
 });
 
-test('semaphore rejects invalid max', () => {
+test('semaphore rejects invalid bounds', () => {
   assert.throws(() => new Semaphore(0), /max must be >= 1/);
   assert.throws(() => new Semaphore(-1), /max must be >= 1/);
   assert.throws(() => new Semaphore(Number.NaN), /max must be >= 1/);
+  // URU-P1-M05: the extra queue-depth + wait-timeout knobs get the same
+  // guardrails as `max` so a mis-configured deploy fails at boot rather
+  // than silently accepting an unbounded queue or a zero-timeout queue.
+  assert.throws(() => new Semaphore(1, -1), /maxQueue must be >= 0/);
+  assert.throws(() => new Semaphore(1, Number.NaN), /maxQueue must be >= 0/);
+  assert.throws(() => new Semaphore(1, 1, 0), /waitTimeoutMs must be >= 1/);
+  assert.throws(() => new Semaphore(1, 1, Number.NaN), /waitTimeoutMs must be >= 1/);
 });
 
 test('defaultCompileConcurrency respects COMPILE_MAX_CONCURRENCY env override', () => {
@@ -246,4 +257,192 @@ test('defaultCompileConcurrency respects COMPILE_MAX_CONCURRENCY env override', 
     if (before === undefined) delete process.env.COMPILE_MAX_CONCURRENCY;
     else process.env.COMPILE_MAX_CONCURRENCY = before;
   }
+});
+
+// -----------------------------------------------------------------------------
+// URU-P1-M05: bounded queue + queue-wait timeout + forge-lifetime bounds.
+// -----------------------------------------------------------------------------
+// Each concern gets a dedicated test so a regression is caught by name.
+//
+//   * bounded queue        -> "semaphore rejects when the bounded wait queue..."
+//   * bounded queue wait   -> "semaphore times out queued callers..."
+//   * release idempotency  -> "semaphore release callback is idempotent..."
+//   * forge wall-clock     -> "spawnForge kills the child on wall-clock..."
+//   * forge abort signal   -> "spawnForge kills the child when the abort..."
+
+test('semaphore rejects when the bounded wait queue is full', async () => {
+  const sem = new Semaphore(1, 1, 1_000);
+  let releaseFirst!: () => void;
+  const first = sem.run(
+    () => new Promise<void>((resolveP) => {
+      releaseFirst = resolveP;
+    }),
+  );
+  while (sem.inFlight !== 1) await sleep(1);
+
+  // Fills the single queue slot.
+  const second = sem.run(async () => 2);
+  while (sem.waiting !== 1) await sleep(1);
+
+  // Third caller must reject synchronously with COMPILE_BUSY — the queue
+  // is at capacity so we refuse rather than growing memory.
+  await assert.rejects(
+    sem.run(async () => 3),
+    (err: unknown) => (err as { code?: string }).code === 'COMPILE_BUSY',
+  );
+
+  releaseFirst();
+  await first;
+  assert.equal(await second, 2);
+  assert.equal(sem.inFlight, 0);
+  assert.equal(sem.waiting, 0);
+});
+
+test('semaphore times out queued callers exceeding waitTimeoutMs', async () => {
+  const sem = new Semaphore(1, 1, 20);
+  let releaseFirst!: () => void;
+  const first = sem.run(
+    () => new Promise<void>((resolveP) => {
+      releaseFirst = resolveP;
+    }),
+  );
+  while (sem.inFlight !== 1) await sleep(1);
+
+  // Queued caller reaches the wait ceiling and self-evicts with a
+  // COMPILE_QUEUE_TIMEOUT — its request body is dropped instead of
+  // sitting in memory forever.
+  await assert.rejects(
+    sem.run(async () => 2),
+    (err: unknown) => (err as { code?: string }).code === 'COMPILE_QUEUE_TIMEOUT',
+  );
+  // After the timed-out caller self-evicted, the queue is empty and the
+  // first caller still holds the slot.
+  assert.equal(sem.waiting, 0);
+  assert.equal(sem.inFlight, 1);
+
+  releaseFirst();
+  await first;
+  assert.equal(sem.inFlight, 0);
+});
+
+test('semaphore release callback is idempotent (double-release is a no-op)', async () => {
+  const sem = new Semaphore(2);
+  const release1 = await sem.acquire();
+  const release2 = await sem.acquire();
+  assert.equal(sem.inFlight, 2);
+
+  // Two calls to the SAME release must decrement exactly once. If not,
+  // active would go negative and the next acquire could over-admit.
+  release1();
+  release1();
+  release1();
+  assert.equal(sem.inFlight, 1);
+
+  release2();
+  assert.equal(sem.inFlight, 0);
+
+  // Prove the counter is not corrupted: fresh acquires still work.
+  const release3 = await sem.acquire();
+  assert.equal(sem.inFlight, 1);
+  release3();
+  assert.equal(sem.inFlight, 0);
+});
+
+test('defaultCompileQueueLimit respects COMPILE_MAX_QUEUE env override', () => {
+  const before = process.env.COMPILE_MAX_QUEUE;
+  try {
+    process.env.COMPILE_MAX_QUEUE = '4';
+    assert.equal(defaultCompileQueueLimit(), 4);
+    delete process.env.COMPILE_MAX_QUEUE;
+    assert.equal(defaultCompileQueueLimit(), 16);
+    process.env.COMPILE_MAX_QUEUE = 'garbage';
+    assert.equal(defaultCompileQueueLimit(), 16);
+  } finally {
+    if (before === undefined) delete process.env.COMPILE_MAX_QUEUE;
+    else process.env.COMPILE_MAX_QUEUE = before;
+  }
+});
+
+test('defaultCompileQueueWaitMs respects COMPILE_QUEUE_WAIT_MS env override', () => {
+  const before = process.env.COMPILE_QUEUE_WAIT_MS;
+  try {
+    process.env.COMPILE_QUEUE_WAIT_MS = '5000';
+    assert.equal(defaultCompileQueueWaitMs(), 5_000);
+    delete process.env.COMPILE_QUEUE_WAIT_MS;
+    assert.equal(defaultCompileQueueWaitMs(), 30_000);
+  } finally {
+    if (before === undefined) delete process.env.COMPILE_QUEUE_WAIT_MS;
+    else process.env.COMPILE_QUEUE_WAIT_MS = before;
+  }
+});
+
+test('defaultCompileTimeoutMs respects COMPILE_TIMEOUT_MS env override', () => {
+  const before = process.env.COMPILE_TIMEOUT_MS;
+  try {
+    process.env.COMPILE_TIMEOUT_MS = '45000';
+    assert.equal(defaultCompileTimeoutMs(), 45_000);
+    delete process.env.COMPILE_TIMEOUT_MS;
+    assert.equal(defaultCompileTimeoutMs(), 120_000);
+  } finally {
+    if (before === undefined) delete process.env.COMPILE_TIMEOUT_MS;
+    else process.env.COMPILE_TIMEOUT_MS = before;
+  }
+});
+
+// URU-P1-M05: the forge wall-clock + abort tests use `process.execPath`
+// (node) as a stand-in for the forge binary. The one-liner `-e` argument
+// installs a `setTimeout` that never fires, so the child is a
+// deterministic hang. spawnForge must SIGKILL it and surface the correct
+// { timedOut, aborted } flags. Cross-platform: no shell dependency and no
+// need for a real forge on PATH.
+
+const HANG_SCRIPT = 'setTimeout(() => {}, 60_000)';
+
+test('spawnForge kills the child on wall-clock timeout and reports timedOut', async () => {
+  const started = Date.now();
+  const result = await spawnForge(
+    process.execPath,
+    ['-e', HANG_SCRIPT],
+    50,
+  );
+  const elapsed = Date.now() - started;
+  // Killed via wall-clock timeout, not natural exit.
+  assert.equal(result.timedOut, true, 'timedOut flag must be set on wall-clock kill');
+  assert.equal(result.aborted, false, 'aborted flag must be false on timeout kill');
+  assert.notEqual(result.code, 0, 'exit code must not be 0 after SIGKILL');
+  // Sanity: we actually killed early, we did NOT wait 60s.
+  assert.ok(elapsed < 5_000, `timeout kill took too long (${elapsed} ms)`);
+});
+
+test('spawnForge kills the child when the abort signal fires and reports aborted', async () => {
+  const controller = new AbortController();
+  const started = Date.now();
+  // Fire the abort after the child has definitely spawned.
+  setTimeout(() => controller.abort(), 30);
+  const result = await spawnForge(
+    process.execPath,
+    ['-e', HANG_SCRIPT],
+    60_000, // huge wall-clock ceiling; only the abort should trigger.
+    controller.signal,
+  );
+  const elapsed = Date.now() - started;
+  assert.equal(result.aborted, true, 'aborted flag must be set on signal kill');
+  assert.equal(result.timedOut, false, 'timedOut flag must be false on abort kill');
+  assert.notEqual(result.code, 0, 'exit code must not be 0 after SIGKILL');
+  assert.ok(elapsed < 5_000, `abort kill took too long (${elapsed} ms)`);
+});
+
+test('spawnForge honors an already-aborted signal (never spawns a long-lived child)', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const started = Date.now();
+  const result = await spawnForge(
+    process.execPath,
+    ['-e', HANG_SCRIPT],
+    60_000,
+    controller.signal,
+  );
+  const elapsed = Date.now() - started;
+  assert.equal(result.aborted, true);
+  assert.ok(elapsed < 2_000, `pre-aborted spawn took too long (${elapsed} ms)`);
 });

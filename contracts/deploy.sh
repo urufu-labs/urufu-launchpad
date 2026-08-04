@@ -64,16 +64,19 @@ if [[ -z "${RPC:-}" ]]; then
   echo "No RPC URL for $CHAIN. Set the matching *_RPC_URL env var." >&2
   exit 1
 fi
-if [[ -z "${DEV_PRIVATE_KEY:-}" ]]; then
-  echo "DEV_PRIVATE_KEY not set. Cannot broadcast." >&2
-  exit 1
-fi
+# NO_BROADCAST is flipped to 1 for scripts that emit an artifact for offline
+# Safe submission instead of broadcasting on-chain (e.g. ActivateRouter). Those
+# scripts intentionally require no DEV_PRIVATE_KEY and no --broadcast.
+NO_BROADCAST=0
 
 case "$SCRIPT" in
   NameRegistry)       TARGET="script/DeployNameRegistry.s.sol:DeployNameRegistry" ;;
   V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   Router|RouterV2)    TARGET="script/DeployRouter.s.sol:DeployRouter" ;;
-  ActivateRouter)     TARGET="script/ActivateRouter.s.sol:ActivateRouter" ;;
+  # URU-P1-B02: ActivateRouter's direct broadcast is disabled. Reroute the
+  # command to the Safe-payload builder, which produces one MultiSendCallOnly
+  # transaction for the multisig to sign — the only atomic cutover path.
+  ActivateRouter)     TARGET="script/BuildRouterCutoverSafeBatch.s.sol:BuildRouterCutoverSafeBatch"; NO_BROADCAST=1 ;;
   Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;
   ConfigureFlywheel)  TARGET="script/ConfigureFlywheel.s.sol:ConfigureFlywheel" ;;
   HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
@@ -82,15 +85,20 @@ case "$SCRIPT" in
   V9StackFix)         TARGET="script/DeployV9StackFix.s.sol:DeployV9StackFix" ;;
   PublishFirstEpoch)  TARGET="script/PublishFirstEpoch.s.sol:PublishFirstEpoch" ;;
   VerifyWiring)       TARGET="script/VerifyWiring.s.sol:VerifyWiring" ;;
-  *)                  echo "Unknown script: $SCRIPT. Available: NameRegistry, V4SwapRouter, RouterV2, Flywheel, ConfigureFlywheel, HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix, PublishFirstEpoch, VerifyWiring"; exit 1 ;;
+  *)                  echo "Unknown script: $SCRIPT. Available: NameRegistry, V4SwapRouter, RouterV2, ActivateRouter, Flywheel, ConfigureFlywheel, HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix, PublishFirstEpoch, VerifyWiring"; exit 1 ;;
 esac
+
+if [[ "$NO_BROADCAST" != "1" && -z "${DEV_PRIVATE_KEY:-}" ]]; then
+  echo "DEV_PRIVATE_KEY not set. Cannot broadcast." >&2
+  exit 1
+fi
 
 # Assemble inline verification args. Ownership-handoff and configure-only scripts don't
 # deploy new contracts so verification is a no-op; every other script gets --verify.
 VERIFY_ARGS=()
 if [[ "${SKIP_VERIFY:-0}" == "1" ]]; then
   echo ">>> SKIP_VERIFY=1 → skipping inline verification. Run explorer verify manually later."
-elif [[ "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "SetChunkyDefaults" || "$SCRIPT" == "VerifyWiring" ]]; then
+elif [[ "$NO_BROADCAST" == "1" || "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "SetChunkyDefaults" || "$SCRIPT" == "VerifyWiring" ]]; then
   : # no new contracts to verify
 elif [[ "$EXPLORER_KIND" == "etherscan" ]]; then
   if [[ -z "$EXPLORER_KEY" ]]; then
@@ -101,6 +109,17 @@ elif [[ "$EXPLORER_KIND" == "etherscan" ]]; then
   VERIFY_ARGS=(--verify --etherscan-api-key "$EXPLORER_KEY")
 elif [[ "$EXPLORER_KIND" == "blockscout" ]]; then
   VERIFY_ARGS=(--verify --verifier blockscout --verifier-url "$EXPLORER_URL")
+fi
+
+if [[ "$NO_BROADCAST" == "1" ]]; then
+  echo ">>> Building atomic Safe payload for $SCRIPT → $CHAIN (chain id $CHAIN_ID)"
+  echo ">>> RPC: $RPC"
+  forge script "$TARGET" \
+    --rpc-url "$RPC" \
+    --chain-id "$CHAIN_ID" \
+    -vvvv
+  echo ">>> Payload written locally. Submit it as ONE Safe transaction; nothing was broadcast."
+  exit 0
 fi
 
 echo ">>> Broadcasting $SCRIPT → $CHAIN (chain id $CHAIN_ID)"

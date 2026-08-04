@@ -194,6 +194,74 @@ contract MultiHookHostTest is Test {
         assertEq(stored, max);
     }
 
+    // -----------------------------------------------------------------------
+    // URU-P1-M04: exact-output BUY + buybackBurnBps > 0 must revert. The old
+    // implementation applied the "burn" slice to the unspecified side which,
+    // on exact-output BUYs, is ETH input — so ETH was destroyed while the
+    // BuybackBurned event still reported the launched-token currency. That's
+    // a misreporting bug and a real burn-of-wrong-asset. The new behavior:
+    // reject the mode outright in beforeSwap. Non-BUY swaps + BUYs with the
+    // feature disabled still pass; exact-input BUYs still burn tokens as
+    // originally specified (covered by test_AfterSwap_* above).
+    // -----------------------------------------------------------------------
+    function test_BeforeSwap_ExactOutputBuyRevertsWhenBuybackBurnEnabled() public {
+        vm.prank(graduator);
+        hook.setPoolConfig(_key().toId(), 0, 100);
+
+        // amountSpecified > 0 = exact-output. zeroForOne = true = BUY.
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: int256(1000), sqrtPriceLimitX96: 0});
+        vm.prank(mockPM);
+        vm.expectRevert(MultiHookHost.MultiHookHost__ExactOutputBuyUnsupportedWithBurn.selector);
+        hook.beforeSwap(swapper, _key(), params, "");
+    }
+
+    /// URU-P1-M04: with buybackBurn disabled, exact-output BUYs still pass
+    /// through beforeSwap. Feature is opt-in, so pools that don't want the
+    /// restriction stay unaffected.
+    function test_BeforeSwap_ExactOutputBuyAllowedWhenBuybackBurnDisabled() public {
+        // Default poolConfig has buybackBurnBps = 0 — no need to setPoolConfig.
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: int256(1000), sqrtPriceLimitX96: 0});
+        vm.prank(mockPM);
+        // No revert expected. Ignore return values.
+        hook.beforeSwap(swapper, _key(), params, "");
+    }
+
+    /// URU-P1-M04 regression: exact-input BUYs still burn OUTPUT TOKENS
+    /// (unspecified currency = token) exactly as before. This is the
+    /// spirit-preserving path — buyback-burn destroys launched-token supply
+    /// on acquisition, not ETH.
+    function test_AfterSwap_ExactInputBuyStillBurnsOutputTokens() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, 0, 100); // buybackBurnBps = 100 = 1%
+
+        // Exact-input BUY: swapper spends 1000 ETH (amountSpecified < 0),
+        // pool returns +1000 token (delta.amount1 > 0). Unspecified = token.
+        BalanceDelta delta = toBalanceDelta(-1000, 1000);
+        SwapParams memory params = SwapParams({zeroForOne: true, amountSpecified: int256(-1000), sqrtPriceLimitX96: 0});
+
+        // Expect take() of fee (2%) + burn (1%) = 30 tokens on c1.
+        vm.mockCall(mockPM, abi.encodeWithSelector(IPoolManager.take.selector), "");
+        vm.expectCall(mockPM, abi.encodeCall(IPoolManager.take, (c1, address(hook), 30)));
+
+        // For the burn transfer at the end. c1 is currency(0x2) — an ERC-20
+        // stand-in — so Currency.transfer routes through the ERC-20 path.
+        vm.mockCall(
+            Currency.unwrap(c1),
+            abi.encodeWithSelector(
+                bytes4(keccak256("transfer(address,uint256)")),
+                address(0x000000000000000000000000000000000000dEaD),
+                uint256(10)
+            ),
+            abi.encode(true)
+        );
+
+        vm.prank(mockPM);
+        (, int128 hookDelta) = hook.afterSwap(swapper, _key(), params, delta, "");
+        // hookDelta = fee (20) + burn (10) = 30 on unspecified side.
+        assertEq(hookDelta, int128(30), "hookDelta should include both fee and burn");
+    }
+
     /// After setCreator(launcher), afterSwap must accrue the creator share to
     /// `launcher` instead of the constructor-provided fallback `creator`. This is the
     /// core V2 behavior — per-launch creator revenue.

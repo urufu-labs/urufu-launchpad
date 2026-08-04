@@ -115,4 +115,57 @@ contract NftRevenueVaultTest is Test {
         vm.prank(alice);
         vault.claim(0, 1 ether, badProof);
     }
+
+    // -----------------------------------------------------------------------
+    // URU-P1-M06: pending epochs must reserve their totalAmount from
+    // availableBalance + sweepDust for the entire propose -> activate window.
+    // Setup uses a fresh vault with `minConfigDelay = 2 days` so the propose /
+    // activate path is required. Fund 5 ETH, propose 4 ETH, and verify:
+    //   - pendingCommitted == 4
+    //   - availableBalance == 1 (5 - 0 activated - 4 pending)
+    //   - sweepDust caps at 1 (owner can only remove the untethered slice)
+    //   - after warp + activate, pending clears and totalCommitted == 4 (fully funded)
+    // The auditor's acceptance line: "A proposed four-ETH epoch against five ETH
+    // reports one ETH available; sweepDust can remove only one ETH; activation
+    // remains fully funded."
+    // -----------------------------------------------------------------------
+    function test_PendingEpochReservesFundsFromSweep() public {
+        NftRevenueVault delayed = new NftRevenueVault(owner, 2 days);
+        (bool ok,) = address(delayed).call{value: 5 ether}("");
+        assertTrue(ok);
+
+        vm.prank(owner);
+        delayed.proposeEpoch(0, bytes32(uint256(0x1234)), 4 ether);
+
+        assertEq(delayed.pendingCommitted(), 4 ether, "propose did not reserve");
+        assertEq(delayed.availableBalance(), 1 ether, "available did not shrink");
+
+        uint256 before = owner.balance;
+        vm.prank(owner);
+        delayed.sweepDust(owner);
+        assertEq(owner.balance - before, 1 ether, "sweep took more than available");
+        assertEq(address(delayed).balance, 4 ether, "vault under-funded after sweep");
+
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(owner);
+        delayed.activateEpoch();
+        assertEq(delayed.pendingCommitted(), 0, "pending not released on activate");
+        assertEq(delayed.totalCommitted(), 4 ether, "activated commitment wrong");
+    }
+
+    /// URU-P1-M06: cancelling a proposal releases the entire reservation, so
+    /// availableBalance snaps back to the full untethered balance.
+    function test_CancellingPendingEpochReleasesReservation() public {
+        NftRevenueVault delayed = new NftRevenueVault(owner, 2 days);
+        (bool ok,) = address(delayed).call{value: 5 ether}("");
+        assertTrue(ok);
+
+        vm.prank(owner);
+        delayed.proposeEpoch(0, bytes32(uint256(0x1234)), 4 ether);
+        vm.prank(owner);
+        delayed.cancelPendingEpoch();
+
+        assertEq(delayed.pendingCommitted(), 0, "cancel did not release reservation");
+        assertEq(delayed.availableBalance(), 5 ether, "available not restored");
+    }
 }

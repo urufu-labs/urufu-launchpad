@@ -77,6 +77,16 @@ interface ICurveFactoryLike {
 ///         Run:
 ///           source .env && bash contracts/deploy.sh ActivateRouter robinhood
 contract ActivateRouter is Script {
+    /// URU-P1-B02: production `run()` is intentionally disabled. `forge script
+    /// --broadcast` emits one transaction per external call, so a mid-batch
+    /// revert would leave the launchpad in a half-cut-over state (some
+    /// factories rewired, others still pointing at the old Router — a fully
+    /// split brain). Operators must build the atomic Safe MultiSendCallOnly
+    /// payload via `BuildRouterCutoverSafeBatch.s.sol` and submit it as ONE
+    /// Safe delegatecall transaction. `runForTest` remains available for
+    /// in-process fork rehearsals only.
+    error ActivateRouter__UnsafeDirectBroadcastDisabled();
+
     // Preflight errors
     error ActivateRouter__NoPendingRouter(address registry);
     error ActivateRouter__PendingMismatch(address expectedRouter, address actualPending);
@@ -112,8 +122,13 @@ contract ActivateRouter is Script {
     bool internal _isTestContext;
     TestArgs internal _testArgs;
 
-    function run() external {
-        _runInner();
+    /// Production execution is intentionally disabled — see
+    /// `ActivateRouter__UnsafeDirectBroadcastDisabled`. Use
+    /// `BuildRouterCutoverSafeBatch.s.sol` and submit the generated payload as
+    /// one Safe delegatecall to MultiSendCallOnly. `runForTest` remains
+    /// available for in-process semantic rehearsals only.
+    function run() external pure {
+        revert ActivateRouter__UnsafeDirectBroadcastDisabled();
     }
 
     /// Test-mode entrypoint. Bypasses env reads by passing every address
