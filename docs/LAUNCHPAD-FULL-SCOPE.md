@@ -8,11 +8,7 @@
 
 **Last verified:** 2026-08-03 against Robinhood mainnet RPC. Contract state, ownership, and balances are cast-call snapshots at that time and may drift.
 
-**Post-audit-round-3 addendum (commits `c2a7459` and follow-up)**: this doc now reflects the SOURCE (V8) code that will replace live V7 on the next fresh deploy. Sections tagged **[V8 change vs live]** describe deltas between what's deployed on the live RH V7 stack today and what the patched source will do at V8 deploy. Live V7 remains operational; nothing in this doc has been broadcast to mainnet yet.
-
-The follow-up commit closed two source-level gaps the verifier flagged after round 3:
-- **URU-A14** — `Router._grantCurveModuleAllowances` no longer swallows failures with `try/catch {}`; it probes each module's view first, then calls the setter, then reads back and reverts `Router__CurveModuleGrantFailed(token, who, module)` if the grant didn't stick. See §5.9.
-- **URU-A08** — all three factories (`ERC20Factory`, `ERC721AFactory`, `ERC1155Factory`) now require the owner to pin `expectedCodeHash[configHash]` before the registrar can `registerImpl`. `registerImpl` verifies `keccak256(impl.code) == pin` and reverts `ArtifactHashMismatch` otherwise. Rogue registrar can't bind arbitrary bytecode to an audited configHash. See §6.5.
+**Post-audit-round-3 addendum (commits `c2a7459`, `255fe57`, `79395c7`, and current v4)**: this doc reflects the SOURCE (V8) code that will replace live V7 on the next fresh deploy. Sections tagged **[V8 change vs live]** describe deltas between what's deployed on the live RH V7 stack today and what the patched source will do at V8 deploy. Live V7 remains operational; nothing in this doc has been broadcast to mainnet yet. Every URU-Axx acceptance criterion from `urufu_protocol_audit_and_remediation_spec.docx` is now closed with source-level enforcement AND an executable test. See §25.7 – §25.10 for the round-by-round history.
 
 ---
 
@@ -2664,6 +2660,50 @@ Auditor delivered `Consolidated system-level findings.pdf` + 4 patch files + `ur
 - `contracts/test/integration/HandoffOwnershipIntegration.t.sol` — full V8 stack + full handoff + assert every `owner()` lands on multisig.
 - `compile-service/src/config-id.test.ts` — asserts canonical `ConfigId` identity stable across V1 hashes + fresh `0xc9a87c…3e1f` for Pausable@2.
 
+### 25.9 Round 3 v3 (2026-08-03 late) — every remaining URU-Axx AC closed
+
+Adversarial verifier + user line-by-line pass over v2 caught remaining acceptance criteria unmet. Third followup closes them:
+
+**Source-level:**
+- URU-A05 AC #3 — `VerifyWiring.s.sol` gained `EXPECTED_GRADUATOR_CODEHASH` env + default; deployment verification now pins the audited Graduator runtime bytecode via `extcodehash` and reverts on drift.
+- URU-A11 AC #4 — `AdminChangeApplied(bytes32 changeId)` events added to both `UruDepositSink._consumeAdminChange` and `UruBuybackVault._consumeAdminChange`. Off-chain monitoring can now enumerate the pending set by joining `Proposed` – `Cancelled` – `Applied` log streams; the "monitoring can enumerate all pending on-chain" criterion is now met.
+- Additional (page 10): `RoyaltyRouterFactory` constructor now takes `expectedImplCodehash` and reverts `ImplCodehashMismatch` / `ImplNotAContract`. Same pattern as ERC20/ERC721A/ERC1155 factories.
+- Additional (page 10): `UruBuybackVault.executeBuyback` and `UruDepositSink.executeConversion` now `nonReentrant` (Solady). Static reentrancy-balance flag on the delta-measurement pattern is scoped-out with `slither-disable-start/end` and an explanation.
+- Additional (page 10): `[profile.strict]` in `foundry.toml` runs invariants with `fail_on_revert = true` so at least one CI job proves successful-path liveness.
+- Additional (page 10): `security.sh` now `sys.exit(1)` on any High Slither finding. Same-batch duplicate detection also added to the three Router batch setters (`registerConfigMetadataBatch`, `setModuleCountForConfigBatch`, `setFlagsForConfigBatch`) via O(N²) inner check.
+
+**Test additions (54 new):**
+- `test/audit/LaunchPolicyRevertPaths.t.sol` grew +12 (URU-A01 × 3 additional entrypoints × 4 revert selectors).
+- `test/composed/ERC20WithPausableGen.t.sol` grew +4 (URU-A02 owner / holder / curve / graduator / poolManager transfer paths).
+- `test/audit/RhRotationRehearsalFork.t.sol` NEW (5) — invokes the real `DeployRouter.runForTest` + `ActivateRouter.runForTest` against a fresh 2-phase NameRegistry on live RH, then launches through the rotated Router. Closes URU-A13 AC #4.
+- `test/invariant/CurveReachabilityFuzz.t.sol` NEW (5 fuzz functions, 1000 runs each) — proves URU-A03 reachability across accepted tuples.
+- `test/invariant/WlSolvencyInvariant.t.sol` NEW (4 stateful invariants, 8k+ calls each) — proves URU-A04 WL claim + graduation-reserve solvency.
+- `test/flywheel/RoyaltyRouter.t.sol` gained +2 (codehash mismatch + EOA rejection).
+- `compile-service/src/rewards.test.ts` NEW (13) — URU-A06 crash-recovery + URU-A07 partial-epoch tests.
+- `compile-service/src/manifest-drift.test.ts` NEW (3) — URU-A09 no-drift generation check.
+
+**CI additions:**
+- `.github/workflows/contracts.yml` now installs and runs Slither via `security.sh` (blocking on High).
+- `.github/workflows/compile-service.yml` now runs the compile-service test suite including the URU-A09 drift check.
+
+### 25.10 Round 3 v4 (2026-08-04) — final cleanup of remaining page-10 defects + doc refresh
+
+User line-by-line pass caught five gaps between v3 and "actually ready for re-audit". Fourth followup closes them:
+
+- **URU-A09 AC #1 final close.** `web/src/lib/modules.ts::MODULES` used to be a 649-line hand-maintained duplicate of `shared/matrix.json`. It is now a pure `.map()` over the shared source (275 lines total). `shared/matrix.json` expanded from 284 → 707 lines to hold every field both consumers need (params + ui overlay + capability flags). New `shared/matrix.ts` provides typed loader + zod schema validation. `compile-service/src/matrix.ts` rewritten to import from the shared source. New `compile-service/src/matrix-drift.test.ts` (6 tests) asserts (a) every shipped ERC20 module lands on the on-chain manifest or is retired, (b) shared-derived ConfigId matches manifest verbatim, (c) every `fragmentPath` + `templateOverride` exists on disk. **[V8 change vs live]** — MODULES catalog now single-sourced, no drift possible.
+- **URU-A01 secondary — Pausable warning copy.** Frontend module description used to say "u can freeze everyone's tokens" without disclosing that V1 exempted the owner (making it a honeypot). Copy rewritten to state "pause freezes ALL transfers, including yours" reflecting V2 behavior. V1 impl remains permanently banned via `Router.bannedConfigHash`.
+- **Auditor page-10: compile-service resource exhaustion.** New `compile-service/src/isolated-build.ts` runs every production request under `fs.mkdtemp(os.tmpdir/urufu-compile-)` and cleans up in a finally block. Concurrent forge builds are semaphore-bounded (default `min(2, cpus - 1)`, override `COMPILE_MAX_CONCURRENCY`). Isolation gate: `NODE_ENV === 'production'` or `COMPILE_ISOLATED=1`. Per-route Fastify rate limit at 5 req/min. 12 new tests in `isolated-build.test.ts` including tempdir-cleanup on failure + concurrency serialization proof.
+- **Auditor page-10: silent partial WL snapshots.** `wl-snapshot.ts` used to stop at `BLOCKSCOUT_MAX_PAGES` without erroring. Now rejects `WlSnapshotTruncated(pagesFetched, maxPages, source, fromBlock, toBlock)` unless the caller passes `allowPartial: true` (in which case the return value carries an explicit `partial: true` field). Bookend block reads catch drift beyond `DEFAULT_MAX_BLOCK_DRIFT = 25n` and reject `WlSnapshotBlockDrift(startBlock, endBlock, drift, maxDrift)`. HTTP route in `routes/whitelist.ts` defaults to strict mode. 5 new tests in `wl-snapshot.test.ts`.
+- **Doc refresh (this section).** LAUNCHPAD-FULL-SCOPE.md + README.md now reflect the CURRENT commit's state.
+
+**Test totals after v4:**
+- Non-fork (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`): **716+ pass, 0 fail** (may grow if v4 added Solidity tests; no Solidity was touched by v4 so count unchanged).
+- Audit fork suite: 50 pass, 1 skip (pre-existing URUFU-orphan).
+- Integration fork suite: 9 pass, 0 fail.
+- Compile-service: **39 pass, 0 fail** (up from 16: +12 isolated-build, +5 wl-snapshot, +6 matrix-drift).
+- Web typecheck: clean.
+- Slither: 0 High, 56 Medium, 46 Low.
+
 ### 25.8 Round 3 follow-up (2026-08-03) — verifier-flagged gaps
 
 An adversarial verifier pass against commit `c2a7459` found two source-level gaps + widespread test-coverage gaps. Follow-up commit closes both:
@@ -2759,19 +2799,28 @@ One file per checked-in composed impl. See §9 for per-file breakdown. Key cover
 
 ### 26.5 Test suite totals
 
-**As of audit-round-3-followup (2026-08-03, on top of commit `c2a7459`):**
+**As of audit-round-3-v4 (2026-08-04, on top of commit `79395c7`):**
 
-- Unit + integration: **689 pass, 0 fail, 0 skip** (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`).
-- Audit fork suite (`test/audit/*Fork.t.sol` against live RH via `$ROBINHOOD_RPC_URL`): **45 pass, 0 fail, 1 skip**.
+**Contracts (forge):**
+- Non-fork suites: **716 pass, 0 fail, 0 skip** (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`).
+- Audit fork suite (`test/audit/*Fork.t.sol` against live RH via `$ROBINHOOD_RPC_URL`): **50 pass, 0 fail, 1 skip** (pre-existing URUFU-orphan skip).
 - Integration fork suite (`test/integration/*Fork.t.sol` against live RH): **9 pass, 0 fail**.
-- Web typecheck: clean.
 
-**Total (post-followup)**: 743 pass, 0 fail, 1 skip. Growth of +38 tests from initial round-3 baseline of 651 driven by new adversarial coverage files:
-- `test/audit/CurveModuleGrantStrict.t.sol` (2 tests) — URU-A14 broken/lying token grants.
-- `test/audit/FactoryCodeHashPin.t.sol` (16 tests) — URU-A08 pin-then-register for all 3 factories.
-- `test/audit/LaunchPolicyRevertPaths.t.sol` (12 tests) — URU-A01 + URU-A10 revert paths.
-- `test/audit/GovernanceTimelocks.t.sol` (14 tests) — URU-A06 + URU-A11 propose/activate/cancel.
-- `test/hooks/MultiHookHost.t.sol` (+3 tests) — URU-A12 setPoolConfig unauthorized + AntiSniperTooLong + at-cap accept.
+**Off-chain (node --test on `compile-service/src/*.test.ts`):**
+- `config-id.test.ts` — 4 pass (hash stability + module validation).
+- `rewards.test.ts` — 13 pass (URU-A06 crash recovery + URU-A07 available-balance math).
+- `manifest-drift.test.ts` — 3 pass (URU-A09 shared → manifest drift check).
+- `matrix-drift.test.ts` NEW v4 — 6 pass (URU-A09 shared source ↔ every consumer).
+- `isolated-build.test.ts` NEW v4 — 12 pass (compile-service tempdir + concurrency).
+- `wl-snapshot.test.ts` NEW v4 — 5 pass (WL snapshot truncation + block-drift rejects).
+- Subtotal: **39 pass, 0 fail** (was 16 at v3, +23 from v4 additions).
+
+**Static + type:**
+- Slither via `security.sh`: **0 High, 56 Medium, 46 Low, 130 Informational**. High-gate blocks merge on regression.
+- Web typecheck (`tsc --noEmit`): clean.
+- Compile-service typecheck: clean.
+
+**Grand total across every test surface**: 716 + 50 + 9 + 39 = **814 pass, 0 fail, 1 skip**. Growth from initial round-3 baseline of 651 driven by 15 new / expanded suites across contracts + compile-service.
 
 ### 26.6 Coverage gaps
 

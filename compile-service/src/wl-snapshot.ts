@@ -48,7 +48,14 @@ const BLOCKSCOUT_PAGE_SIZE = 100;
 /// Safety-cap the number of holder-page fetches so a broken pagination loop
 /// can't stall the request forever. 100 pages × 100 holders = 10k holders max
 /// per snapshot — well above any realistic launch WL.
-const BLOCKSCOUT_MAX_PAGES = 100;
+export const BLOCKSCOUT_MAX_PAGES = 100;
+/// Default max acceptable block delta between the "read latest at snapshot
+/// START" and "read latest at snapshot END" reads. If the chain tip moves more
+/// than this while we're fetching the holder list, the snapshot may already be
+/// stale relative to Blockscout's current-holder truth, so we reject rather
+/// than silently return a moving-target result. Tuned for RH (~1s blocks); on
+/// slower chains the caller should pass a smaller `maxBlockDrift`.
+export const DEFAULT_MAX_BLOCK_DRIFT = 25n;
 
 /// Common ABI item — Transfer's signature is identical between ERC-20 and ERC-721;
 /// only ERC-721's third arg is indexed. viem's decoder handles both when we pass
@@ -63,13 +70,38 @@ export interface SnapshotRequest {
   /// Minimum balance / NFT count to include in the whitelist. Absolute units
   /// (raw balance for ERC-20 — caller applies decimals off-chain; token count for ERC-721).
   minBalance?: bigint;
+  /// Opt into partial (incomplete) snapshots. When `false` (default), a
+  /// snapshot that couldn't fetch the entire holder set — Blockscout paginated
+  /// past `maxBlockscoutPages`, or the RPC fallback couldn't scan from block 0
+  /// — REJECTS with `WlSnapshotTruncated`. Callers who explicitly want a best-
+  /// effort result must set this to `true`, in which case the returned result
+  /// carries `partial: true` so downstream consumers can see the caveat.
+  allowPartial?: boolean;
+  /// Max acceptable delta between the "latest block at snapshot start" and
+  /// "latest block at snapshot end" reads. Defaults to `DEFAULT_MAX_BLOCK_DRIFT`.
+  /// If the chain tip drifts more than this while we're paginating holders,
+  /// we reject with `WlSnapshotBlockDrift` — Blockscout's per-page holder set
+  /// may already be reflecting a newer tip than our reported `snapshotBlock`.
+  maxBlockDrift?: bigint;
+  /// Overrides `BLOCKSCOUT_MAX_PAGES` for a single call. Primarily an escape
+  /// hatch for tests — production callers should leave this unset and rely on
+  /// the module-level cap.
+  maxBlockscoutPages?: number;
 }
 
 export interface SnapshotResult {
   /// Bytes32 Merkle root ready to hand to `BondingCurve.WhitelistInit.root`.
   root: Hex;
-  /// Block number the snapshot was taken at.
+  /// Block number the snapshot was taken at (same as `snapshotStartBlock`; kept
+  /// for backwards-compatible consumers that only read this field).
   snapshotBlock: bigint;
+  /// Block-tip read at the START of the snapshot. Cache key + returned
+  /// `snapshotBlock` are derived from this.
+  snapshotStartBlock: bigint;
+  /// Block-tip read at the END of the snapshot. Consumers can compare
+  /// `snapshotEndBlock - snapshotStartBlock` to gauge staleness of the
+  /// Blockscout-reported holder set.
+  snapshotEndBlock: bigint;
   /// Number of unique addresses in the tree after min-balance filtering.
   holderCount: number;
   /// Sorted list of holder addresses (lowercased). Frontend can pin this to IPFS
@@ -82,6 +114,82 @@ export interface SnapshotResult {
   listCid?: string;
   /// Public gateway URL for the pinned list.
   listGatewayUrl?: string;
+  /// `true` when the snapshot may be INCOMPLETE (Blockscout had more pages than
+  /// we fetched, OR the RPC fallback couldn't scan from block 0). Only ever set
+  /// when the caller passed `allowPartial: true` — strict mode rejects instead.
+  partial: boolean;
+  /// Number of holder pages fetched from Blockscout, when Blockscout was used.
+  /// Undefined when the RPC fallback path served the snapshot.
+  pagesFetched?: number;
+  /// `true` if the holder set was derived from RPC event replay (Blockscout
+  /// was unavailable / errored). Consumers should treat this path as best-
+  /// effort — see `MAX_SCAN_BLOCKS`.
+  fromRpcFallback: boolean;
+}
+
+/// Return shape from `fetchHoldersViaBlockscout`. Exposes the truncation
+/// signal so the orchestrator can decide whether to reject or flag as partial.
+export interface BlockscoutHoldersResult {
+  holders: Address[];
+  pagesFetched: number;
+  /// `true` when we exited the pagination loop with `next_page_params` still
+  /// set — i.e. we hit `maxPages` before Blockscout ran out of holders. The
+  /// caller must NOT treat `holders` as a complete set when this is `true`.
+  hadMorePages: boolean;
+}
+
+/// Thrown when a snapshot couldn't fetch a complete holder set and the caller
+/// didn't opt into partial results. Carries the actual page count / range so
+/// operators can decide whether to bump `maxBlockscoutPages`, expand the RPC
+/// scan window, or accept partial data via `allowPartial: true`.
+export class WlSnapshotTruncated extends Error {
+  readonly pagesFetched: number;
+  readonly maxPages: number;
+  readonly source: 'blockscout' | 'rpc';
+  readonly fromBlock?: bigint;
+  readonly toBlock?: bigint;
+  constructor(
+    pagesFetched: number,
+    maxPages: number,
+    source: 'blockscout' | 'rpc',
+    extra?: { fromBlock?: bigint; toBlock?: bigint },
+  ) {
+    const detail =
+      source === 'blockscout'
+        ? `blockscout returned more pages than the ${maxPages}-page cap (fetched ${pagesFetched})`
+        : `rpc fallback scanned only blocks ${extra?.fromBlock ?? 0n}..${extra?.toBlock ?? 0n}, may miss older holders`;
+    super(`wl snapshot truncated: ${detail}. Pass allowPartial:true to accept incomplete results.`);
+    this.name = 'WlSnapshotTruncated';
+    this.pagesFetched = pagesFetched;
+    this.maxPages = maxPages;
+    this.source = source;
+    this.fromBlock = extra?.fromBlock;
+    this.toBlock = extra?.toBlock;
+  }
+}
+
+/// Thrown when the chain tip drifted more than `maxBlockDrift` blocks between
+/// the start and end of a snapshot. Signals that the Blockscout holder set we
+/// paginated may already reflect a newer tip than we're reporting, so the
+/// snapshot is stale by definition. Carries both block numbers + the drift
+/// budget so operators can either bump `maxBlockDrift` or retry.
+export class WlSnapshotBlockDrift extends Error {
+  readonly startBlock: bigint;
+  readonly endBlock: bigint;
+  readonly drift: bigint;
+  readonly maxDrift: bigint;
+  constructor(startBlock: bigint, endBlock: bigint, maxDrift: bigint) {
+    const drift = endBlock > startBlock ? endBlock - startBlock : 0n;
+    super(
+      `wl snapshot block-drift ${drift} exceeds max ${maxDrift} ` +
+        `(startBlock=${startBlock}, endBlock=${endBlock}). Holder set may be stale.`,
+    );
+    this.name = 'WlSnapshotBlockDrift';
+    this.startBlock = startBlock;
+    this.endBlock = endBlock;
+    this.drift = drift;
+    this.maxDrift = maxDrift;
+  }
 }
 
 /// Simple in-memory cache — key is `${chainId}:${token.toLowerCase()}:${block}`.
@@ -94,9 +202,21 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
     throw new Error(`unsupported chainId ${req.chainId} — snapshot service only knows: ${Object.keys(RPC_URLS).join(', ')}`);
   }
 
+  const allowPartial = req.allowPartial === true;
+  const maxDrift = req.maxBlockDrift ?? DEFAULT_MAX_BLOCK_DRIFT;
+  const maxBlockscoutPages = req.maxBlockscoutPages ?? BLOCKSCOUT_MAX_PAGES;
+
   const client = createPublicClient({ transport: http(rpc) });
-  const latest = await client.getBlockNumber();
-  const cacheKey = `${req.chainId}:${req.tokenAddress.toLowerCase()}:${latest}`;
+  // Bookend the snapshot with two block-tip reads. The reported `snapshotBlock`
+  // is the START read (that's the tip our holder set is "as of"), and the END
+  // read is compared against it to detect chain-tip drift while we paginated
+  // Blockscout / scanned RPC — see WlSnapshotBlockDrift.
+  //
+  // `cacheTime: 0` disables viem's default 4s block-number cache — a stale
+  // cached tip would make the drift check silently pass and defeat the whole
+  // purpose of the bookend.
+  const startBlock = await client.getBlockNumber({ cacheTime: 0 });
+  const cacheKey = `${req.chainId}:${req.tokenAddress.toLowerCase()}:${startBlock}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -106,13 +226,36 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // returns current balances directly, sidestepping the event-replay cutoff
   // problem entirely (see `EXPLORER_APIS` note above).
   let eligible: Address[] | null = null;
+  let partial = false;
+  let pagesFetched: number | undefined;
+  let fromRpcFallback = false;
   const explorerApi = EXPLORER_APIS[req.chainId];
   if (explorerApi) {
+    let bs: BlockscoutHoldersResult | null = null;
     try {
-      eligible = await _fetchHoldersViaBlockscout(explorerApi, req.tokenAddress, minBal);
+      bs = await fetchHoldersViaBlockscout(
+        explorerApi,
+        req.tokenAddress,
+        minBal,
+        maxBlockscoutPages,
+      );
     } catch (err) {
+      // Blockscout HTTP / decode errors are recoverable — fall through to RPC
+      // replay. Truncation is NOT an error here (fetchHoldersViaBlockscout
+      // returns a result with `hadMorePages: true`); that decision is made
+      // below so operators see a distinct error class from a generic 5xx.
       // eslint-disable-next-line no-console
       console.warn(`wl-snapshot: blockscout fetch failed for ${req.tokenAddress}, falling back to event replay`, err);
+    }
+    if (bs) {
+      pagesFetched = bs.pagesFetched;
+      if (bs.hadMorePages) {
+        if (!allowPartial) {
+          throw new WlSnapshotTruncated(bs.pagesFetched, maxBlockscoutPages, 'blockscout');
+        }
+        partial = true;
+      }
+      eligible = bs.holders;
     }
   }
 
@@ -120,13 +263,32 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // returns an error. Bounded by MAX_SCAN_BLOCKS; may miss holders on very
   // long-lived tokens (see cap note above).
   if (!eligible) {
-    const fromBlock = latest > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : 0n;
+    const fromBlock = startBlock > MAX_SCAN_BLOCKS ? startBlock - MAX_SCAN_BLOCKS : 0n;
+    // If we couldn't scan back to genesis, we may have missed pre-cutoff holders
+    // whose only Transfers happened outside our window. Reject unless the caller
+    // explicitly opted into partial data.
+    if (fromBlock > 0n) {
+      if (!allowPartial) {
+        throw new WlSnapshotTruncated(0, 0, 'rpc', { fromBlock, toBlock: startBlock });
+      }
+      partial = true;
+    }
+    fromRpcFallback = true;
     const isErc721 = await _detectIsErc721(client, req.tokenAddress);
-    const balances = await _replayBalances(client, req.tokenAddress, fromBlock, latest, isErc721);
+    const balances = await _replayBalances(client, req.tokenAddress, fromBlock, startBlock, isErc721);
     eligible = [];
     for (const [addr, bal] of balances) {
       if (bal >= minBal) eligible.push(addr as Address);
     }
+  }
+
+  // Re-read the tip and reject if it drifted too far — Blockscout's per-page
+  // reads may have already been reflecting a newer tip than we're reporting
+  // in `snapshotBlock`, and we don't want silent freshness bugs. Same
+  // `cacheTime: 0` reason as the start read.
+  const endBlock = await client.getBlockNumber({ cacheTime: 0 });
+  if (endBlock > startBlock + maxDrift) {
+    throw new WlSnapshotBlockDrift(startBlock, endBlock, maxDrift);
   }
 
   // Sort in canonical form — lowercased addresses ordered lexically match how
@@ -137,10 +299,15 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
 
   const result: SnapshotResult = {
     root,
-    snapshotBlock: latest,
+    snapshotBlock: startBlock,
+    snapshotStartBlock: startBlock,
+    snapshotEndBlock: endBlock,
     holderCount: eligible.length,
     holders: eligible,
     listId: cacheKey,
+    partial,
+    pagesFetched,
+    fromRpcFallback,
   };
 
   // Best-effort IPFS pin of the sorted holder list. Skipped silently if PINATA_JWT
@@ -148,7 +315,7 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // a shorter durability window (process restart evicts it). When pinning succeeds
   // the CID is durable and buyers can fetch the list directly from IPFS.
   try {
-    const pinned = await _pinListToIpfs(cacheKey, eligible, root, latest);
+    const pinned = await _pinListToIpfs(cacheKey, eligible, root, startBlock);
     if (pinned) {
       result.listCid = pinned.cid;
       result.listGatewayUrl = pinned.gatewayUrl;
@@ -203,9 +370,15 @@ export async function snapshotFromIpfs(
     );
     return null;
   }
+  const pinnedBlock = BigInt(body.snapshotBlock ?? 0);
   const snap: SnapshotResult = {
     root: body.root,
-    snapshotBlock: BigInt(body.snapshotBlock ?? 0),
+    snapshotBlock: pinnedBlock,
+    // Pins predate the start/end distinction, so there's only one block value
+    // to attribute to both bookends. Downstream consumers that care about
+    // drift should snapshot fresh instead of relying on a pin.
+    snapshotStartBlock: pinnedBlock,
+    snapshotEndBlock: pinnedBlock,
     holderCount: holders.length,
     holders,
     // Cache ONLY under the content-addressed CID. The old code also cached
@@ -214,6 +387,10 @@ export async function snapshotFromIpfs(
     listId: listCid,
     listCid,
     listGatewayUrl: url,
+    // The pin format doesn't carry `partial` — pins were always assumed
+    // complete. Preserve that assumption for existing pins.
+    partial: false,
+    fromRpcFallback: false,
   };
   cache.set(listCid, snap);
   return snap;
@@ -275,15 +452,21 @@ async function _replayBalances(
 /// addresses whose reported balance (`value`) meets `minBalance`. Works for both
 /// ERC-20 (value = raw balance) and ERC-721 (value = NFT count) since blockscout's
 /// `holders` endpoint reports the same field for both token types.
-async function _fetchHoldersViaBlockscout(
+///
+/// Exposed (rather than kept internal) so the orchestrator can inspect
+/// `hadMorePages` and decide whether to reject with `WlSnapshotTruncated` or
+/// mark the result as `partial`. Tests can also drive this function directly
+/// by mocking global `fetch`.
+export async function fetchHoldersViaBlockscout(
   apiBase: string,
   token: Address,
   minBalance: bigint,
-): Promise<Address[]> {
+  maxPages: number = BLOCKSCOUT_MAX_PAGES,
+): Promise<BlockscoutHoldersResult> {
   const eligible: Address[] = [];
   let cursor: URLSearchParams | null = new URLSearchParams();
   let pages = 0;
-  while (cursor && pages < BLOCKSCOUT_MAX_PAGES) {
+  while (cursor && pages < maxPages) {
     const url = `${apiBase}/tokens/${token}/holders${cursor.toString() ? '?' + cursor.toString() : ''}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) {
@@ -311,7 +494,10 @@ async function _fetchHoldersViaBlockscout(
     }
     pages += 1;
   }
-  return eligible;
+  // `cursor` is still a URLSearchParams here iff we exited because we hit the
+  // `maxPages` cap while `next_page_params` was set on the last response — i.e.
+  // Blockscout has more holders than we fetched.
+  return { holders: eligible, pagesFetched: pages, hadMorePages: cursor !== null };
 }
 
 /// ERC-20 tokens implement `decimals()`; ERC-721 collections don't. Best-effort
