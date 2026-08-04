@@ -25,6 +25,11 @@ contract CrciMockGraduator {
         uint16,
         address
     ) external payable {}
+
+    /// URU-A14 (round 3): Router reads `graduator.poolManager()` on curve launches.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
 }
 
 /// @notice The critical invariant test for reserve-backed modules on bonding curves.
@@ -87,6 +92,12 @@ contract CurveReserveIntegrationTest is Test {
         router.setFactory(BaseType.ERC20, address(f20));
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind each impl.
+        vm.startPrank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(bareImpl).code));
+        f20.setExpectedCodeHash(VESTING, keccak256(address(vestingImpl).code));
+        vm.stopPrank();
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(bareImpl));
         vm.prank(registrar);

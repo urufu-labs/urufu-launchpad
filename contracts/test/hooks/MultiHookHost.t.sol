@@ -164,6 +164,36 @@ contract MultiHookHostTest is Test {
         hook.setCreator(_key().toId(), launcher);
     }
 
+    /// URU-A12 (round 3 gap coverage): setPoolConfig called by anyone other
+    /// than the wired initializer reverts NotInitializer — symmetric with the
+    /// setCreator gate. Prior to URU-A12 both setters were `external` with
+    /// no auth, so any address could plant a config on an unclaimed pool.
+    function test_SetPoolConfig_RevertsFromUnauthorizedCaller() public {
+        vm.prank(swapper);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__NotInitializer.selector, swapper));
+        hook.setPoolConfig(_key().toId(), 100, 100);
+    }
+
+    /// URU-A12: setPoolConfig with `antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS`
+    /// reverts AntiSniperTooLong. Prevents a direct MHH call from locking pool
+    /// swaps for years — mirrors the same cap on Router.launch's params.
+    function test_SetPoolConfig_AntiSniperTooLong_Reverts() public {
+        uint32 max = hook.MAX_ANTI_SNIPER_BLOCKS();
+        vm.prank(graduator);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__AntiSniperTooLong.selector, max + 1, max));
+        hook.setPoolConfig(_key().toId(), max + 1, 0);
+    }
+
+    /// Boundary: exactly the cap is accepted, one above reverts.
+    function test_SetPoolConfig_AntiSniperAtCap_Accepted() public {
+        uint32 max = hook.MAX_ANTI_SNIPER_BLOCKS();
+        vm.prank(graduator);
+        hook.setPoolConfig(_key().toId(), max, 0);
+        // No revert = accepted; the state is written and readable via poolConfig.
+        (, uint32 stored,) = hook.poolConfig(_key().toId());
+        assertEq(stored, max);
+    }
+
     /// After setCreator(launcher), afterSwap must accrue the creator share to
     /// `launcher` instead of the constructor-provided fallback `creator`. This is the
     /// core V2 behavior — per-launch creator revenue.

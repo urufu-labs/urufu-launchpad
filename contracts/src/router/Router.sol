@@ -92,6 +92,20 @@ interface IModuleAllowanceSetters {
     ) external;
 }
 
+/// URU-A14 (round 3 follow-up): the read-back views paired with the setters
+/// above. Router uses these to (a) probe whether the module is installed on
+/// this token, and (b) confirm the setter actually landed. Both queries are
+/// staticcall-safe: an unknown selector produces `success == false` with
+/// empty return data, distinct from a valid selector that reverted.
+interface IModuleAllowanceViews {
+    function antiBotIsAllowed(
+        address who
+    ) external view returns (bool);
+    function antiWhaleIsExcluded(
+        address who
+    ) external view returns (bool);
+}
+
 /// Whitelist-aware CurveFactory entry. Only reached from the WL launch
 /// entrypoints; separate from ICurveFactoryLike so the WL surface stays
 /// scoped to those code paths.
@@ -216,6 +230,16 @@ contract Router is Ownable, ReentrancyGuard {
     /// URU-A14: an owner-only setter received an EOA / unset address where a
     /// live contract was required (setFactory, setCurveFactory, setLoyaltyOracle).
     error Router__NotContract(address target);
+    /// URU-A14 (round 3 follow-up): the curve-time module-allowance grant failed.
+    /// Semantics: we detected the module IS installed on the token (its view
+    /// selector returned cleanly) but either the setter reverted or the post-
+    /// setter read-back did not confirm the allowlist entry. Prior versions
+    /// swallowed both cases with `try/catch {}` — a token whose module setter
+    /// was renamed / reverted silently produced a launched curve that would
+    /// fail its very first `buy` with a bot-guard revert. Now fails loud at
+    /// launch time so the launcher gets an actionable error, not a bricked
+    /// token. The `module` string is "AntiBot" or "AntiWhale" to disambiguate.
+    error Router__CurveModuleGrantFailed(address token, address who, string module);
 
     // ============================================================
     // Events
@@ -761,9 +785,15 @@ contract Router is Ownable, ReentrancyGuard {
         if (configHashes.length != counts.length) revert Router__ZeroAddress();
         // Two-pass: verify EVERY hash is un-registered before mutating any of
         // them so a duplicate at index N doesn't leave 0..N-1 half-written.
+        // Also reject same-batch duplicates so URU-A10's one-shot guarantee
+        // holds even when both entries land in one call.
         for (uint256 i = 0; i < configHashes.length; ++i) {
-            if (moduleCountConfigured[configHashes[i]]) {
-                revert Router__ConfigMetadataAlreadySet(configHashes[i]);
+            bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
+            if (moduleCountConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
             }
         }
         for (uint256 i = 0; i < configHashes.length; ++i) {
@@ -789,9 +819,14 @@ contract Router is Ownable, ReentrancyGuard {
         uint256[] calldata flags
     ) external onlyOwner {
         if (configHashes.length != flags.length) revert Router__ZeroAddress();
+        // Same same-batch-duplicate check as setModuleCountForConfigBatch.
         for (uint256 i = 0; i < configHashes.length; ++i) {
-            if (flagsConfigured[configHashes[i]]) {
-                revert Router__ConfigMetadataAlreadySet(configHashes[i]);
+            bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
+            if (flagsConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
             }
         }
         for (uint256 i = 0; i < configHashes.length; ++i) {
@@ -834,8 +869,17 @@ contract Router is Ownable, ReentrancyGuard {
     ) external onlyOwner {
         uint256 length = configHashes.length;
         if (length != counts.length || length != flags.length) revert Router__ZeroAddress();
+        // Two-pass: verify EVERY hash is un-registered before mutating any of
+        // them so a duplicate at index N doesn't leave 0..N-1 half-written.
+        // The inner loop also rejects SAME-BATCH duplicates — URU-A10 says a
+        // second registration reverts "even with identical values", and that
+        // guarantee has to hold even when both registrations land in the same
+        // batch call. O(N²) is fine — batches are ~10 canonical hashes.
         for (uint256 i = 0; i < length; ++i) {
             bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
             if (moduleCountConfigured[h] || flagsConfigured[h]) {
                 revert Router__ConfigMetadataAlreadySet(h);
             }
@@ -1110,10 +1154,31 @@ contract Router is Ownable, ReentrancyGuard {
     ///   2. The Graduator — from-side of the transfer INTO the PoolManager during graduation.
     ///   3. The PoolManager — to-side of that transfer + from-side of any post-grad routing.
     ///
-    /// Every call is try/catch'd: tokens without the module revert with an unknown
-    /// selector, which we swallow (bare ERC20 → no-op). Router is still `owner()`
-    /// at this point (ownership dispatch fires after), so the setters succeed for
-    /// tokens that DO have the module. Called only when `installBondingCurve` is on.
+    /// Every grant is executed strictly (URU-A14 round 3 follow-up). For each
+    /// (token, who, module) triple:
+    ///   1. `staticcall` the module's read-back view. If it reverts with empty
+    ///      return data (unknown selector), the module isn't installed on this
+    ///      token — skip cleanly.
+    ///   2. If the view returns cleanly, the module IS installed. Call the
+    ///      setter — any revert bubbles up to the launch, so the launcher sees
+    ///      the failure at launch time (not at first buy).
+    ///   3. Read back the view. If it doesn't reflect `true`, revert
+    ///      `Router__CurveModuleGrantFailed`.
+    /// Prior versions wrapped every call in `try/catch {}` and dropped the
+    /// result on the floor. URU-A14 flagged this as unacceptable: a launched
+    /// curve whose AntiBot setter had been renamed / reverted silently would
+    /// brick on its very first buy with a bot-guard revert, with no signal
+    /// visible at launch. Route contract state remains coherent because the
+    /// entire launch is `nonReentrant` and any grant revert unwinds the whole
+    /// tx (no partial launch state persists).
+    ///
+    /// In production this helper is called ONLY when `installBondingCurve == true`,
+    /// and `_validateLaunchPolicy` blocks the AntiBot / AntiWhale configHashes
+    /// (both carry FLAG_REQUIRES_OWNER) from being paired with curves at all.
+    /// So the probe should ALWAYS return "module not installed" for a legitimate
+    /// curve launch — the strict grant paths are defense-in-depth against a
+    /// future manifest drift, a new module missing its FLAG_REQUIRES_OWNER
+    /// classification, or a hand-crafted config bypassing the frontend.
     ///
     /// Pausable is intentionally NOT auto-toggled: the module has no per-address
     /// exemption and unpausing would defeat the launcher's stated intent. Frontend
@@ -1126,57 +1191,63 @@ contract Router is Ownable, ReentrancyGuard {
         // moves hundreds of millions of tokens through curve buys + the
         // graduation transferFrom. Neither is bot-like OR whale-like — the
         // launcher chose this mechanic, so curve activity is exempt by design.
-        _tryGrantBoth(token, curve);
-        // Both external reads are best-effort. Mock CurveFactory / mock Graduator in
-        // unit tests may not implement the getter — try/catch keeps launch working
-        // for tokens without any module (which is when a mocked-out setup is used).
-        address grad;
-        try ICurveFactoryLike(curveFactory).graduator() returns (address g) {
-            grad = g;
-        } catch {}
-        if (grad != address(0)) {
-            // Graduator: full bypass on both gates. Same rationale — during
-            // graduation the Graduator temporarily holds ~800M tokens on the
-            // path from curve → v4 pool.
-            _tryGrantBoth(token, grad);
-            address pm;
-            try IGraduatorLike(grad).poolManager() returns (address p) {
-                pm = p;
-            } catch {}
-            if (pm != address(0)) {
-                // PoolManager: AntiBot bypass ONLY. Graduation happens once,
-                // during the anti-bot window, and moves large amounts INTO the
-                // pool — needs AntiBot bypass to succeed. But every post-grad
-                // v4 swap ALSO transits tokens through PoolManager for the
-                // lifetime of the token; excluding PoolManager from AntiWhale
-                // would silently defeat maxTx/maxWallet on the v4 lane while
-                // still enforcing them for P2P transfers (v4 whales get a free
-                // dump lane; honest users can't send to a friend). AntiWhale
-                // callers accept that graduation itself must fit under maxTx
-                // (docs already tell launchers to size caps sensibly).
-                _tryGrantAntiBot(token, pm);
-            }
+        _ensureAntiBotAllowed(token, curve);
+        _ensureAntiWhaleExcluded(token, curve);
+        // curveFactory is guaranteed to be a live contract at this point:
+        // _validateLaunchPolicy runs earlier and reverts CurveFactoryUnset on
+        // zero and NotContract on EOA when a curve launch is attempted. Same
+        // for graduator — CurveFactory._requireGraduator enforces it at every
+        // curve creation. Direct calls, no try/catch: any revert now surfaces.
+        address grad = ICurveFactoryLike(curveFactory).graduator();
+        _ensureAntiBotAllowed(token, grad);
+        _ensureAntiWhaleExcluded(token, grad);
+        address pm = IGraduatorLike(grad).poolManager();
+        // PoolManager: AntiBot bypass ONLY. Graduation happens once, during
+        // the anti-bot window, and moves large amounts INTO the pool — needs
+        // AntiBot bypass to succeed. But every post-grad v4 swap ALSO transits
+        // tokens through PoolManager for the lifetime of the token; excluding
+        // PoolManager from AntiWhale would silently defeat maxTx/maxWallet on
+        // the v4 lane while still enforcing them for P2P transfers (v4 whales
+        // get a free dump lane; honest users can't send to a friend). AntiWhale
+        // callers accept that graduation itself must fit under maxTx (docs
+        // already tell launchers to size caps sensibly).
+        _ensureAntiBotAllowed(token, pm);
+    }
+
+    /// URU-A14 (round 3): probe → grant → verify for AntiBot. If the token
+    /// doesn't expose the AntiBot view (module not installed), no-op cleanly.
+    /// If the module IS installed, both the setter and the read-back must
+    /// succeed or we revert loud.
+    function _ensureAntiBotAllowed(
+        address token,
+        address who
+    ) internal {
+        (bool ok, bytes memory ret) =
+            token.staticcall(abi.encodeWithSelector(IModuleAllowanceViews.antiBotIsAllowed.selector, who));
+        // Empty-return revert = unknown selector = module not installed. A
+        // non-empty revert (custom-error data) MEANS the selector IS present
+        // and returned a failure — surface that by attempting the setter,
+        // which will revert with the same error.
+        if (!ok && ret.length == 0) return;
+        IModuleAllowanceSetters(token).setAntiBotAllowed(who, true);
+        if (!IModuleAllowanceViews(token).antiBotIsAllowed(who)) {
+            revert Router__CurveModuleGrantFailed(token, who, "AntiBot");
         }
     }
 
-    /// Both allowlists in one shot — used for curve + Graduator, addresses that
-    /// legitimately move large amounts throughout the token lifecycle.
-    function _tryGrantBoth(
+    /// URU-A14 (round 3): probe → grant → verify for AntiWhale. See
+    /// `_ensureAntiBotAllowed` for pattern rationale.
+    function _ensureAntiWhaleExcluded(
         address token,
         address who
     ) internal {
-        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
-        try IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true) {} catch {}
-    }
-
-    /// AntiBot-only bypass — used for PoolManager so post-grad v4 swaps still
-    /// respect the launcher's whale caps. Graduation transfers must be sized
-    /// under maxTx by construction.
-    function _tryGrantAntiBot(
-        address token,
-        address who
-    ) internal {
-        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
+        (bool ok, bytes memory ret) =
+            token.staticcall(abi.encodeWithSelector(IModuleAllowanceViews.antiWhaleIsExcluded.selector, who));
+        if (!ok && ret.length == 0) return;
+        IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true);
+        if (!IModuleAllowanceViews(token).antiWhaleIsExcluded(who)) {
+            revert Router__CurveModuleGrantFailed(token, who, "AntiWhale");
+        }
     }
 
     /// URU-side min-fee resolver with the launcher's loyalty discount applied.

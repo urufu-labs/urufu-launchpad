@@ -135,37 +135,108 @@ contract PhaseCombosTest is Test {
         impl721 = new ERC721ATemplate();
         impl1155 = new ERC1155Template();
 
+        // URU-A08 (round 3): pin the audited codehash for every configHash
+        // BEFORE the registrar can bind the impl. Capture each impl first so
+        // we can hash it, pin under admin, then bind under registrar. The
+        // large table is broken into three passes (deploy → pin → register)
+        // to keep the prank swap minimal.
+        address a20_bare = address(impl20);
+        address a20_antibot = address(new ERC20WithAntiBotGen());
+        address a20_antiwhale = address(new ERC20WithAntiWhaleGen());
+        address a20_fot = address(new ERC20WithFeeOnTransferGen());
+        address a20_pausable = address(new ERC20WithPausableGen());
+        address a20_permit = address(new ERC20WithPermitGen());
+        address a20_vesting = address(new ERC20WithVestingGen());
+        address a20_staking = address(new ERC20WithStakingGen());
+        address a20_votes = address(new ERC20WithVotesGen());
+        address a20_abaw = address(new ERC20WithAntiBotAntiWhaleGen());
+        address a20_abp = address(new ERC20WithAntiBotPermitGen());
+        address a20_fotp = address(new ERC20WithFoTPermitGen());
+        address a20_abawp = address(new ERC20WithAntiBotAntiWhalePermitGen());
+        address a20_pvest = address(new ERC20WithPermitVestingGen());
+        address a20_pstk = address(new ERC20WithPermitStakingGen());
+        address a20_pausep = address(new ERC20WithPausablePermitGen());
+
+        address a721_bare = address(impl721);
+        address a721_delayed = address(new ERC721AWithDelayedRevealGen());
+        address a721_svg = address(new ERC721AWithOnChainSVGGen());
+        address a721_royalty = address(new ERC721AWithRoyaltyGen());
+        address a721_svgroy = address(new ERC721AWithSvgAndRoyaltyGen());
+        address a721_soul = address(new ERC721AWithSoulboundGen());
+        address a721_ref = address(new ERC721AWithRefundableGen());
+        address a721_royref = address(new ERC721AWithRoyaltyRefundableGen());
+        address a721_drref = address(new ERC721AWithDelayedRevealRefundableGen());
+        address a721_svgsoul = address(new ERC721AWithSvgSoulboundGen());
+        address a721_roysoul = address(new ERC721AWithRoyaltySoulboundGen());
+
+        address a1155_bare = address(impl1155);
+
+        // Pin every configHash to its audited codehash (owner-only).
+        vm.startPrank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(a20_bare.code));
+        f20.setExpectedCodeHash(ANTIBOT, keccak256(a20_antibot.code));
+        f20.setExpectedCodeHash(ANTIWHALE, keccak256(a20_antiwhale.code));
+        f20.setExpectedCodeHash(FOT, keccak256(a20_fot.code));
+        f20.setExpectedCodeHash(PAUSABLE, keccak256(a20_pausable.code));
+        f20.setExpectedCodeHash(PERMIT, keccak256(a20_permit.code));
+        f20.setExpectedCodeHash(VESTING, keccak256(a20_vesting.code));
+        f20.setExpectedCodeHash(STAKING, keccak256(a20_staking.code));
+        f20.setExpectedCodeHash(VOTES, keccak256(a20_votes.code));
+        f20.setExpectedCodeHash(AB_AW, keccak256(a20_abaw.code));
+        f20.setExpectedCodeHash(AB_P, keccak256(a20_abp.code));
+        f20.setExpectedCodeHash(FOT_P, keccak256(a20_fotp.code));
+        f20.setExpectedCodeHash(AB_AW_P, keccak256(a20_abawp.code));
+        f20.setExpectedCodeHash(P_VEST, keccak256(a20_pvest.code));
+        f20.setExpectedCodeHash(P_STK, keccak256(a20_pstk.code));
+        f20.setExpectedCodeHash(PAUSE_P, keccak256(a20_pausep.code));
+
+        f721.setExpectedCodeHash(BARE_721, keccak256(a721_bare.code));
+        f721.setExpectedCodeHash(DELAYED, keccak256(a721_delayed.code));
+        f721.setExpectedCodeHash(SVG, keccak256(a721_svg.code));
+        f721.setExpectedCodeHash(ROYALTY, keccak256(a721_royalty.code));
+        f721.setExpectedCodeHash(SVG_ROYALTY, keccak256(a721_svgroy.code));
+        f721.setExpectedCodeHash(SOULBOUND, keccak256(a721_soul.code));
+        f721.setExpectedCodeHash(REFUNDABLE, keccak256(a721_ref.code));
+        f721.setExpectedCodeHash(ROY_REF, keccak256(a721_royref.code));
+        f721.setExpectedCodeHash(DR_REF, keccak256(a721_drref.code));
+        f721.setExpectedCodeHash(SVG_SOUL, keccak256(a721_svgsoul.code));
+        f721.setExpectedCodeHash(ROY_SOUL, keccak256(a721_roysoul.code));
+
+        f1155.setExpectedCodeHash(BARE_1155, keccak256(a1155_bare.code));
+        vm.stopPrank();
+
+        // Bind every impl under the registrar role.
         vm.startPrank(registrar);
-        f20.registerImpl(BARE_ERC20, address(impl20));
-        f20.registerImpl(ANTIBOT, address(new ERC20WithAntiBotGen()));
-        f20.registerImpl(ANTIWHALE, address(new ERC20WithAntiWhaleGen()));
-        f20.registerImpl(FOT, address(new ERC20WithFeeOnTransferGen()));
-        f20.registerImpl(PAUSABLE, address(new ERC20WithPausableGen()));
-        f20.registerImpl(PERMIT, address(new ERC20WithPermitGen()));
-        f20.registerImpl(VESTING, address(new ERC20WithVestingGen()));
-        f20.registerImpl(STAKING, address(new ERC20WithStakingGen()));
-        f20.registerImpl(VOTES, address(new ERC20WithVotesGen()));
-        f20.registerImpl(AB_AW, address(new ERC20WithAntiBotAntiWhaleGen()));
-        f20.registerImpl(AB_P, address(new ERC20WithAntiBotPermitGen()));
-        f20.registerImpl(FOT_P, address(new ERC20WithFoTPermitGen()));
-        f20.registerImpl(AB_AW_P, address(new ERC20WithAntiBotAntiWhalePermitGen()));
-        f20.registerImpl(P_VEST, address(new ERC20WithPermitVestingGen()));
-        f20.registerImpl(P_STK, address(new ERC20WithPermitStakingGen()));
-        f20.registerImpl(PAUSE_P, address(new ERC20WithPausablePermitGen()));
+        f20.registerImpl(BARE_ERC20, a20_bare);
+        f20.registerImpl(ANTIBOT, a20_antibot);
+        f20.registerImpl(ANTIWHALE, a20_antiwhale);
+        f20.registerImpl(FOT, a20_fot);
+        f20.registerImpl(PAUSABLE, a20_pausable);
+        f20.registerImpl(PERMIT, a20_permit);
+        f20.registerImpl(VESTING, a20_vesting);
+        f20.registerImpl(STAKING, a20_staking);
+        f20.registerImpl(VOTES, a20_votes);
+        f20.registerImpl(AB_AW, a20_abaw);
+        f20.registerImpl(AB_P, a20_abp);
+        f20.registerImpl(FOT_P, a20_fotp);
+        f20.registerImpl(AB_AW_P, a20_abawp);
+        f20.registerImpl(P_VEST, a20_pvest);
+        f20.registerImpl(P_STK, a20_pstk);
+        f20.registerImpl(PAUSE_P, a20_pausep);
 
-        f721.registerImpl(BARE_721, address(impl721));
-        f721.registerImpl(DELAYED, address(new ERC721AWithDelayedRevealGen()));
-        f721.registerImpl(SVG, address(new ERC721AWithOnChainSVGGen()));
-        f721.registerImpl(ROYALTY, address(new ERC721AWithRoyaltyGen()));
-        f721.registerImpl(SVG_ROYALTY, address(new ERC721AWithSvgAndRoyaltyGen()));
-        f721.registerImpl(SOULBOUND, address(new ERC721AWithSoulboundGen()));
-        f721.registerImpl(REFUNDABLE, address(new ERC721AWithRefundableGen()));
-        f721.registerImpl(ROY_REF, address(new ERC721AWithRoyaltyRefundableGen()));
-        f721.registerImpl(DR_REF, address(new ERC721AWithDelayedRevealRefundableGen()));
-        f721.registerImpl(SVG_SOUL, address(new ERC721AWithSvgSoulboundGen()));
-        f721.registerImpl(ROY_SOUL, address(new ERC721AWithRoyaltySoulboundGen()));
+        f721.registerImpl(BARE_721, a721_bare);
+        f721.registerImpl(DELAYED, a721_delayed);
+        f721.registerImpl(SVG, a721_svg);
+        f721.registerImpl(ROYALTY, a721_royalty);
+        f721.registerImpl(SVG_ROYALTY, a721_svgroy);
+        f721.registerImpl(SOULBOUND, a721_soul);
+        f721.registerImpl(REFUNDABLE, a721_ref);
+        f721.registerImpl(ROY_REF, a721_royref);
+        f721.registerImpl(DR_REF, a721_drref);
+        f721.registerImpl(SVG_SOUL, a721_svgsoul);
+        f721.registerImpl(ROY_SOUL, a721_roysoul);
 
-        f1155.registerImpl(BARE_1155, address(impl1155));
+        f1155.registerImpl(BARE_1155, a1155_bare);
         vm.stopPrank();
 
         // Audit remediation #3: fail-closed sentinels on Router. Every hash

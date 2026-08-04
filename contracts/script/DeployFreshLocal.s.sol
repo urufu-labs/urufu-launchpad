@@ -378,7 +378,18 @@ contract DeployFreshLocal is Script {
             s.implPausable,
             s.implPermitStaking
         ];
+        // URU-A08 (round 3): every impl registration now requires the owner
+        // to have pinned the expected runtime codehash first. In the fresh-
+        // deploy path the impl is deployed in this same tx, so we compute the
+        // pin from `keccak256(impl.code)` directly — the audit binding is
+        // still meaningful for production because production DeployRouter
+        // reads pins from `RhConfigManifest.artifactHashFor` (a subsequent
+        // change) rather than computing them fresh. Here in DeployFreshLocal
+        // (used by test forks + local dev) the "pin" is a formality since
+        // the impl was just deployed, but the pin-then-register sequence
+        // exercises the same call graph production will use.
         for (uint256 i = 0; i < entries.length; i++) {
+            erc20Factory.setExpectedCodeHash(entries[i].configHash, keccak256(impls[i].code));
             erc20Factory.registerImpl(entries[i].configHash, impls[i]);
         }
 

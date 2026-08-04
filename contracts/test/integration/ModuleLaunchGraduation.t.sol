@@ -77,6 +77,8 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
     ) internal returns (bytes32 ch) {
         ch = keccak256(abi.encode("ERC20", modules));
         vm.startPrank(admin);
+        // URU-A08 (round 3): pin the audited codehash before registerImpl.
+        erc20Factory.setExpectedCodeHash(ch, keccak256(impl.code));
         erc20Factory.registerImpl(ch, impl);
         router.setModuleCountForConfig(ch, moduleCount);
         router.setFlagsForConfig(ch, 0);

@@ -22,6 +22,8 @@ contract ERC721AFactoryTest is Test {
     function setUp() public {
         factory = new ERC721AFactory(owner, router, registrar);
         impl = new ERC721ATemplate();
+        vm.prank(owner);
+        factory.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         factory.registerImpl(BARE_CONFIG, address(impl));
     }
@@ -59,6 +61,8 @@ contract ERC721AFactoryTest is Test {
 
     function test_RegisterImpl_HappyPath() public {
         ERC721AFactory fresh = new ERC721AFactory(owner, router, registrar);
+        vm.prank(owner);
+        fresh.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         fresh.registerImpl(BARE_CONFIG, address(impl));
         assertEq(fresh.implFor(BARE_CONFIG), address(impl));

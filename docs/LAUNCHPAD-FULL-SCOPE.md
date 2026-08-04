@@ -8,6 +8,12 @@
 
 **Last verified:** 2026-08-03 against Robinhood mainnet RPC. Contract state, ownership, and balances are cast-call snapshots at that time and may drift.
 
+**Post-audit-round-3 addendum (commits `c2a7459` and follow-up)**: this doc now reflects the SOURCE (V8) code that will replace live V7 on the next fresh deploy. Sections tagged **[V8 change vs live]** describe deltas between what's deployed on the live RH V7 stack today and what the patched source will do at V8 deploy. Live V7 remains operational; nothing in this doc has been broadcast to mainnet yet.
+
+The follow-up commit closed two source-level gaps the verifier flagged after round 3:
+- **URU-A14** — `Router._grantCurveModuleAllowances` no longer swallows failures with `try/catch {}`; it probes each module's view first, then calls the setter, then reads back and reverts `Router__CurveModuleGrantFailed(token, who, module)` if the grant didn't stick. See §5.9.
+- **URU-A08** — all three factories (`ERC20Factory`, `ERC721AFactory`, `ERC1155Factory`) now require the owner to pin `expectedCodeHash[configHash]` before the registrar can `registerImpl`. `registerImpl` verifies `keccak256(impl.code) == pin` and reverts `ArtifactHashMismatch` otherwise. Rogue registrar can't bind arbitrary bytecode to an audited configHash. See §6.5.
+
 ---
 
 ## Table of Contents
@@ -336,7 +342,16 @@ Registry and feeReceiver are immutable. All fees are settable post-deploy via `s
 
 Every entrypoint validates the same preconditions in the same order:
 1. `if (paused) revert Router__Paused();`
-2. `if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(configHash);` — the audit round-2 v3 gate that closes retired-Airdrop attack paths.
+2. **`_validateLaunchPolicy(params)`** **[V8 change vs live]** — a canonical policy gate that replaces the bare `bannedConfigHash` check on live V7. Enforces on-chain (not just in the UI):
+   - `bannedConfigHash[hash]` — retired hash revert (URU-A10)
+   - `moduleCountConfigured[hash]` AND `flagsConfigured[hash]` — fail-closed on any hash whose metadata isn't registered (URU-A01)
+   - If `installBondingCurve = true`:
+     - `base == ERC20` (curve-only-ERC20)
+     - **`ownership == Renounce`** — curve launches MUST renounce (URU-A01). Non-Renounce reverts `CurveMustRenounce`.
+     - `!(flags & FLAG_REQUIRES_OWNER)` — Pausable, AntiBot, AntiWhale all carry this bit; blocked from curve pairing.
+     - `!(flags & FLAG_BALANCE_MUTATING)` AND `!curveIncompatibleConfigHash[hash]` — FoT/rebasing blocked.
+     - `antiSniperBlocks <= MAX_ANTI_SNIPER_BLOCKS (7200)` — protocol max cap.
+     - `buybackBurnBps <= MAX_BUYBACK_BURN_BPS (2000)` — protocol max cap.
 3. Fee validation (ETH: `msg.value >= fee`; URU: `uruAmount >= _minUruFeeFor(msg.sender)`; if URU also `uru != 0 && uruSink != 0`).
 4. `factory = factories[base]`, revert if unset.
 5. `name` and `ticker` non-empty.
@@ -410,21 +425,60 @@ function setUruConfig(address uru_, address uruSink_) external onlyOwner {
 
 Two audit-driven checks: the sink must be a live contract (not an EOA that silently accepts transfers), and its immutable `uru()` must match the token being wired (prevents Router pushing deposits into a mismatched sink that would strand every URU launch fee).
 
-### 5.7 `bannedConfigHash` — the audit round 2v3 kill switch
+### 5.7 `bannedConfigHash` — the audit round 2v3 + 3 kill switch
 
-`Router.sol:799-805`:
+**[V8 change vs live]** — retirement is monotonic. Attempts to un-ban revert.
+
 ```solidity
 function setConfigHashBanned(bytes32 configHash, bool banned) external onlyOwner {
-    bannedConfigHash[configHash] = banned;
-    emit ConfigHashBanned(configHash, banned);
+    if (!banned) revert Router__ConfigRetirementIrreversible(configHash);
+    if (!bannedConfigHash[configHash]) {
+        bannedConfigHash[configHash] = true;
+        emit ConfigHashBanned(configHash, true);
+        emit ConfigHashRetired(configHash);
+    }
 }
 ```
 
-Checked at the top of all four launch entrypoints (line 381, 480, 544, 594). This exists because the earlier count-poison mitigation (setting `moduleCountForConfig = uint256.max` to overflow `_quote`) only blocked the ETH launch path; URU + WL paths bypass `_quote` and were still exploitable through the retired Airdrop impls whose bytecode is permanently pinned on the factory. `bannedConfigHash` is the source-level closure that will activate on the V8 Router redeploy.
+Same monotonic rule applies to `setCurveIncompatibleConfigHash(hash, false)` — reverts `ConfigRetirementIrreversible`. Prevents an owner-key holder from silently re-enabling a retired impl.
 
-Meanwhile on live V7: `bannedConfigHash` doesn't exist (V7 predates it). Emergency mitigation: `minUruFee = type(uint256).max` disables all URU launches (canonical AND retired-Airdrop) as a blunt kill switch.
+The gate is now checked inside `_validateLaunchPolicy` (§5.3 step 2). It exists because the earlier count-poison mitigation (setting `moduleCountForConfig = uint256.max` to overflow `_quote`) only blocked the ETH launch path; URU + WL paths bypass `_quote` and were still exploitable through the retired Airdrop impls whose bytecode is permanently pinned on the factory.
 
-### 5.8 Router event schema
+Meanwhile on live V7: `bannedConfigHash` doesn't exist (V7 predates it). Emergency mitigation: `minUruFee = type(uint256).max` disables all URU launches (canonical AND retired-Airdrop) as a blunt kill switch. Will be lifted at V8 deploy.
+
+### 5.8 One-shot metadata + atomic registration (URU-A10, V8)
+
+**[V8 change vs live]** — every metadata setter is now one-shot:
+
+- `setModuleCountForConfig(hash, count)` reverts `ConfigMetadataAlreadySet` on second call.
+- `setFlagsForConfig(hash, flags)` — same.
+- Batch variants — reject if ANY hash in the batch is already set.
+- New atomic `registerConfigMetadata(hash, count, flags)` — single tx sets both count+flags; DeployRouter uses `registerConfigMetadataBatch` to seed every canonical hash from `RhConfigManifest.all()` in one tx. Emits `ConfigMetadataRegistered(hash, count, flags)`.
+
+Rationale (URU-A10): factories removed `updateImpl` (one-shot registerImpl per hash). But Router had mutable metadata — an owner could re-interpret an existing impl by rewriting its module count / flags. The one-shot rule binds Router metadata to the impl bytecode: change requires a new configHash.
+
+### 5.9 Strict curve-module allowance grants (URU-A14, round-3 follow-up)
+
+**[V8 change vs live]** — `Router._grantCurveModuleAllowances` (`Router.sol:1121+`) no longer swallows setter failures with `try/catch {}`. Rewritten as probe → grant → verify per module:
+
+```
+for each (curve, graduator, poolManager) in the curve stack:
+  staticcall token.antiBotIsAllowed(who)
+    → unknown-selector revert → module not installed → skip cleanly
+    → returns bool          → module installed:
+        call token.setAntiBotAllowed(who, true)  (bubbles setter revert)
+        read back token.antiBotIsAllowed(who); revert
+          Router__CurveModuleGrantFailed(token, who, "AntiBot")
+          if read-back doesn't confirm.
+```
+
+Reasoning (URU-A14): the auditor rejected the prior `try/catch {}` pattern because a token whose AntiBot setter was renamed or reverted silently produced a launched curve that bricked on its very first `buy`. Round-3 semantics fail loud at launch time — launcher gets an actionable revert, not a silent brick.
+
+In production this helper only runs on `installBondingCurve == true` and `_validateLaunchPolicy` already blocks the AntiBot/AntiWhale/Pausable configHashes (`FLAG_REQUIRES_OWNER`) from pairing with curves. So the probe should ALWAYS take the "module not installed" branch on a legitimate curve launch. The strict grant paths are defense-in-depth against future manifest drift, a new module missing its `FLAG_REQUIRES_OWNER` classification, or a hand-crafted config bypassing the frontend.
+
+Tests: `contracts/test/audit/CurveModuleGrantStrict.t.sol` exercises both failure paths — `BrokenAntiBotToken` (setter reverts) and `LyingAntiBotToken` (setter no-ops but read-back returns false).
+
+### 5.10 Router event schema
 
 - `Launched(token, launchedBy, base, nameHash, tickerHash, feePaid, installedHook, installedGovernance)` — the primary launch event; every launch (ETH, URU, WL, URU+WL) emits this. `feePaid = 0` on URU paths (indexer joins on `token` to `LaunchedInURU` for the URU amount).
 - `LaunchedInURU(token, launchedBy, uruPaid)` — paired 1:1 with URU launches.
@@ -486,7 +540,7 @@ This is the same lifecycle that retired the Airdrop V1 impls: rug bug found → 
 
 ### 6.4 Live impl registrations
 
-**ERC20Factory** (`0x14c1f066b91760565d5eEc8Cf4696A4648b552F2`) — 10 canonical hashes from `RhConfigManifest.all()`:
+**ERC20Factory** (`0x14c1f066b91760565d5eEc8Cf4696A4648b552F2`) — 10 canonical hashes from `RhConfigManifest.all()` **[V8 update: Pausable entry rebased on new hash + FLAG_REQUIRES_OWNER on 3 modules]**:
 
 | Idx | Hash prefix | Modules | Live impl address | moduleCount | flags |
 |---|---|---|---|---|---|
@@ -495,18 +549,19 @@ This is the same lifecycle that retired the Airdrop V1 impls: rug bug found → 
 | 2 | `0x3c31…2836` | Staking | `0x4601B97e…28e4` | 1 | 0 |
 | 3 | `0x665f…1b10` | Votes | `0xf0a7AA9d…F0E8` | 1 | 0 |
 | 4 | `0xf7b8…0acb` | (bare) | `0x6722AC32…C3719` | 0 | 0 |
-| 5 | `0x1369…973f` | AntiBot | `0x14b81325…e64a` | 1 | 0 |
-| 6 | `0x6385…3821` | AntiWhale | `0xdD7c50BE…babcD` | 1 | 0 |
+| 5 | `0x1369…973f` | AntiBot | `0x14b81325…e64a` | 1 | **2** (FLAG_REQUIRES_OWNER) |
+| 6 | `0x6385…3821` | AntiWhale | `0xdD7c50BE…babcD` | 1 | **2** (FLAG_REQUIRES_OWNER) |
 | 7 | `0xa733…1ac4` | FoT | `0x19E133a5…f93BC` | 1 | **1** (BALANCE_MUTATING) |
-| 8 | `0xa831…803a` | Pausable | `0x1Ccbf53F…E3e8` | 1 | 0 |
+| 8 | `0xc9a8…3e1f` | **Pausable@2** (V8) | pending V8 deploy | 1 | **2** (FLAG_REQUIRES_OWNER) |
 | 9 | `0x1207…575e` | Permit+Staking | `0x8f49A318…Fb05` | 2 | 0 |
 
-**Retired Airdrop hashes** (still pinned to rugged V1 impls on live; source-level mitigation via `bannedConfigHash` pending V8 Router redeploy):
-- `0x344f…7b2b` — Airdrop
+**Retired hashes** (`RhConfigManifest.retiredAirdropHashes()` — name kept for backward compat, actually lists 4 retired hashes) — all in `Router.bannedConfigHash` at every V8 deploy:
+- `0x344f…7b2b` — Airdrop (inflation rug)
 - `0xa4df…2064` — Airdrop+Permit
 - `0x903c…f3d2` — Airdrop+Vesting
+- `0xa831…803a` — **Pausable V1** (owner-exemption honeypot — URU-A02)
 
-Live V7 mitigation for these: `moduleCountForConfig[hash] = type(uint256).max` (poisons `_quote` overflow) + `minUruFee = type(uint256).max` (disables URU-bypass).
+**Live V7 mitigation for the first 3** (Airdrop): `moduleCountForConfig[hash] = type(uint256).max` (poisons `_quote` overflow) + `minUruFee = type(uint256).max` (disables URU-bypass). **Pausable V1** on live V7 is currently NOT banned — the URU-A02 fix (retire V1 + register V2 at fresh hash) activates only on V8 deploy. Until then, a hand-crafted URU launch was disabled by `minUruFee=max` and a hand-crafted ETH launch would produce a Pausable V1 token with the honeypot behavior.
 
 **ERC721AFactory** (`0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc`) — 7 impls registered (from `web/src/lib/config.ts:141-147`):
 - ERC721ATemplateImpl `0xb7b804F8dA…`
@@ -521,6 +576,23 @@ Live V7 mitigation for these: `moduleCountForConfig[hash] = type(uint256).max` (
 - ERC1155TemplateImpl `0x8728FFEB1E017B123408209f2ae7f7207741Be5b`
 
 Additional composed 1155 impls (Supply, Payable, SupplyPayable, SplitPayable, Royalty) exist in source under `contracts/src/templates/composed/` but are NOT registered on live — pending NFT-base activation.
+
+### 6.5 Two-step impl binding — owner-pinned codehash (URU-A08, round-3 follow-up)
+
+**[V8 change vs live]** — all three factories now require an owner-pinned expected runtime codehash BEFORE the registrar can bind an impl to a configHash. The pipeline is:
+
+1. Owner (multisig) calls `factory.setExpectedCodeHash(configHash, expectedHash)` — one-shot per config, rejects `bytes32(0)`.
+2. Registrar (compile service) calls `factory.registerImpl(configHash, impl)`. Factory computes `keccak256(impl.code)` and reverts `ArtifactHashMismatch(configHash, expected, actual)` on any mismatch.
+
+New errors on each factory: `CodeHashNotPinned(configHash)`, `ArtifactHashMismatch(configHash, expected, actual)`, `CodeHashAlreadyPinned(configHash)`, `ZeroCodeHash`.
+
+New event: `ExpectedCodeHashPinned(configHash, expectedCodeHash)`.
+
+Rationale (URU-A08): a rogue registrar (compromised compile-service key) could previously bind ANY bytecode to an audited configHash. With the pin, they'd need to also compromise the multisig to rotate the pin — and pins are one-shot, so a compromised multisig can't silently swap the binding either. The audit invariant "audited configHash ↔ audited bytecode" is now enforced on-chain.
+
+For fresh-local dev + tests: the deploy script computes the pin from `keccak256(impl.code)` at the same tx (`DeployFreshLocal.s.sol:381-384`) — this is a formality since the impl was just deployed, but it exercises the same call graph production will use. For production: `RhConfigManifest.artifactHashFor(configHash)` (pending manifest update) will hold the audited pin, read by `DeployRouter` at seed time.
+
+Tests: `contracts/test/audit/FactoryCodeHashPin.t.sol` — 16 tests covering pin-then-register happy path, wrong-hash mismatch, missing-pin revert, one-shot semantics, zero-hash rejection, and per-factory coverage for ERC20 + ERC721A + ERC1155.
 
 ---
 
@@ -1048,7 +1120,30 @@ if (ethReserve >= graduationTargetEth) _graduate();
 ```
 `sell()` never triggers.
 
-Belt-and-braces: `_graduate()` skips the Graduator call if `ethOut == 0 || tokenOut == 0` (pathological — should never happen with the reachability check). Curve becomes inert holder if this fires; no keeper withdraw path (this is the "graduated with no LP" degenerate state the reachability check prevents).
+**[V8 change vs live]** — `_graduate` is now atomic. Previous behavior set `graduated = true` before the external call AND silently no-op'd on `graduator == 0 || tokenOut == 0`, producing a terminal "graduated but funds stuck" state (URU-A04, URU-A05). V8 version:
+
+```solidity
+function _graduate() internal {
+    uint256 ethOut = ethReserve;
+    uint256 tokenOut = tokenReserve;
+    if (tokenOut == 0) revert BondingCurve__GraduationReserveRequired();
+    address g = graduator;
+    if (g == address(0) || g.code.length == 0) revert BondingCurve__GraduatorUnset();
+
+    graduated = true;
+    ethReserve = 0;
+    tokenReserve = 0;
+    SafeTransferLib.safeApprove(token, g, tokenOut);
+    IGraduator(g).execute{value: ethOut}(token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps, launcher);
+    emit Graduated(ethOut, tokenOut, block.timestamp);
+}
+```
+
+If `Graduator.execute` reverts, the whole tx (buy → graduate) unwinds (`nonReentrant` on entrypoints protects state). No partial state possible.
+
+**[V8 change vs live]** — no-clamp in buy/buyWithProof. Both `buy()` and `buyWithProof()` now use `available = tokenReserve - 1` (leaves 1 wei-token graduation floor). Previously `buyWithProof` CLAMPED `tokensOut` to `tokenReserve`, producing WL terminal-lock. V8 code reverts `ExceedsSupply(tokensOut, available)` on any buy that would drain the reserve completely — the 1-wei floor guarantees `_graduate` can always find inventory.
+
+**[V8 change vs live]** — `_init` rejects zero/non-contract graduator. `if (graduator_ == address(0) || graduator_.code.length == 0) revert BondingCurve__GraduatorUnset();`. Combined with `CurveFactory.setGraduator(0)` reverting, the "curve deployed without a graduator" state is unreachable at V8.
 
 ### 11.11 The V7 → V8 graduation story
 
@@ -1332,8 +1427,13 @@ Regression coverage: `contracts/test/audit/DeployPathRhFork.t.sol::test_FreshDep
 3. `absDelta = |unspecDelta|` (clamped for pathological `int128.min`).
 4. `totalBps = platformBps + creatorBps` (200 on live = 2 % of unspecified side).
 5. `fee = absDelta * totalBps / 10_000`.
-6. Buyback-burn slice (only on exact-input BUYs where output = currency1 = token):
-   `burn = absDelta * cfg.buybackBurnBps / 10_000`.
+6. **[V8 change vs live]** Buyback-burn slice on ALL BUYs (`zeroForOne == true`) — not just exact-input BUYs. Previously the condition was `unspecDelta > 0 && unspec == currency1` which only fired on exact-input BUYs — exact-output BUYs silently bypassed the advertised burn (auditor "additional high-impact defect"). Now:
+   ```solidity
+   if (cfg.buybackBurnBps > 0 && params.zeroForOne) {
+       burn = absDelta * cfg.buybackBurnBps / 10_000;
+   }
+   ```
+   On exact-input BUYs, unspec is the token output — burn destroys tokens. On exact-output BUYs, unspec is the ETH input — the extra ETH the swapper is charged goes to `0xdEaD`. Not a token buyback per se, but keeps the fee economically active on both BUY paths.
 7. `totalTake = fee + burn`; if zero, exit.
 8. `poolManager.take(unspecCurrency, address(this), totalTake)` — pulls fee INTO hook's own balance. **Critical:** v4 credits the hook's currency delta with the returned int128; not taking the corresponding amount would revert `CurrencyNotSettled` on unlock.
 9. If `burn > 0`: `currency.transfer(BURN_ADDRESS, burn)`; emit `BuybackBurned(currency, burn)`.
@@ -1355,13 +1455,23 @@ Regression coverage: `contracts/test/audit/DeployPathRhFork.t.sol::test_FreshDep
 
 **Reentrancy safety:** CEI ordering (zero the `owed` slot BEFORE `currency.transfer`). No `nonReentrant` modifier — safe by construction. `currency.transfer` from v4-core wraps both native ETH and ERC-20 recipients safely.
 
-### 14.8 `setPoolConfig` + `setCreator` — public but freeze-locked
+### 14.8 `setPoolConfig` + `setCreator` — onlyInitializer (URU-A12, V8)
 
-`:187-211`. Both are callable by anyone in principle, but freeze after `beforeInitialize` stamps `launchBlock`. In practice the Graduator calls both atomically in the same tx as `PoolManager.initialize`, so there's no window for a front-runner to plant an evil creator on a real launch.
+**[V8 change vs live]** — both functions are now `onlyInitializer`. Live V6 MHH had them permissionless with only the "config freezes at beforeInitialize" gate as protection; auditor found that gate was pointless because an attacker could pre-plant hostile config that then froze at initialize (URU-A12).
 
-Constraints:
-- `setPoolConfig`: `buybackBurnBps <= MAX_BUYBACK_BPS (2000)`.
-- `setCreator`: creator != 0.
+```solidity
+function setPoolConfig(PoolId id, uint32 antiSniperBlocks, uint16 buybackBurnBps) external {
+    if (msg.sender != initializer) revert MultiHookHost__NotInitializer(msg.sender);
+    if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
+    if (antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS) revert MultiHookHost__AntiSniperTooLong(...);
+    if (buybackBurnBps > MAX_BUYBACK_BPS) revert MultiHookHost__BurnBpsTooHigh(...);
+    ...
+}
+```
+
+Same `onlyInitializer` on `setCreator`. Also adds `MAX_ANTI_SNIPER_BLOCKS = 7200` cap (mirrors Router side).
+
+**Graduator side (URU-A12, V8)**: Graduator no longer try/catches around these calls. If either reverts, graduation reverts. After both calls succeed, Graduator reads back `poolConfig(id)` + `creators(id)` and reverts `HookConfigMismatch` or `HookCreatorMismatch` if any field drifted — closes the last window an attacker could exploit.
 
 ### 14.9 Chain-wide caps
 
@@ -1435,12 +1545,16 @@ Catches raw ETH sends — curve trade fees (`BondingCurve.safeTransferETH(feeRec
 6. Treasury call is also best-effort; on treasury revert the ETH stays in FeeSplitter, emits `TreasuryDistributionFailed(treasury, stuck)`, recoverable via `sweep(to)` (owner-only, NOT timelocked).
 7. Emit `Distributed(amount, toBuyback, toNft, toTreasury)`.
 
-**`setConfig` — 2-day timelock** (`:116-139`):
-- Delay = 172_800 s (2 days).
+**[V8 change vs live]** — `setConfig` reverts `DirectConfigDisabled` when `minConfigDelay > 0` (production). Previously it was a cooldown-since-last-change gate: once matured, owner could instantly redirect the entire future fee stream. URU-A11 finding was that this is a cooldown, not a real timelock. V8 model:
+
+- **`proposeConfig(...)`** — stores `PendingConfig{sinks, bps, readyAt}` in storage. Emits `ConfigProposed(configId, readyAt)` for monitoring.
+- **`activateConfig()`** — reverts before `block.timestamp >= readyAt`; applies pending on success.
+- **`cancelPendingConfig()`** — safety valve.
+- Only one pending at a time.
 - Sum of the three bps MUST equal 10_000 (revert `BadSum`).
 - `treasurySink` cannot be zero.
-- The other two sinks may be zero (roll into treasury).
-- Emergency `sweep(to)` (`:144-152`) — owner-only, NOT timelocked.
+- Other two sinks may be zero (roll into treasury).
+- Emergency `sweep(to)` (`:144-152`) — owner-only, NOT timelocked (safety valve for stranded ETH from a reverting sink).
 
 **Live state (2026-08-03):**
 ```
@@ -1481,6 +1595,16 @@ balance:          0 wei
 7. Emit `BuybackExecuted(ethIn, uruOut)`.
 
 **Sweep escape hatches** (`:184-203`): `sweepETH()` and `sweepURU()` force destination = `distributionSink`. No admin drain to arbitrary destinations — invariant.
+
+**[V8 change vs live]** — `setKeeper`, `setSwapTarget`, `setMinUruPerEth` now require a matured proposal via `_consumeAdminChange(changeId)`. URU-A11 finding: previously immediate — a compromised owner could authorize a malicious `swapTarget` and set `minUruPerEth = 0` in the same tx, draining the vault via a low-rate swap. V8 model:
+
+- `proposeAdminChange(bytes32 changeId)` — stores `adminChangeReadyAt[id] = block.timestamp + minConfigDelay`. Emits event.
+- Setter (`setKeeper` / `setSwapTarget` / `setMinUruPerEth`) internally calls `_consumeAdminChange(id)` — reverts `AdminChangeNotProposed` if no matching proposal, `AdminChangeNotReady` if timelock not elapsed.
+- `cancelAdminChange(id)` — safety valve.
+- `changeId` computed by dedicated helpers: `keeperChangeId(addr, allowed)`, `swapTargetChangeId(addr, allowed)`, `rateChangeId(uint256)` — hash includes the target VALUE so proposing "true" and later applying "false" requires two separate proposals.
+- Test-mode: when constructed with `minConfigDelay == 0`, `_consumeAdminChange` is a no-op, direct setter calls work as before.
+
+Same shape mirrored in `UruDepositSink` (see §15.3).
 
 **Live state:**
 ```
@@ -1538,12 +1662,20 @@ mapping(uint256 => mapping(address => bool)) private _claimed;
 uint256 public totalCommitted;   // sum of unclaimed across all live epochs
 ```
 
-**Flow:**
+**Flow (V8, URU-A06 + URU-A07 + URU-A11):**
 1. ETH accumulates in vault balance from FeeSplitter's 35 % slice.
 2. Off-chain keeper snapshots gemu holders via indexer's `holders` table.
 3. Keeper builds Merkle tree with leaves `keccak256(abi.encodePacked(holder, epochId, amount))`.
-4. Keeper calls `addEpoch(root, totalAmount)` (owner-only). Reverts if `totalAmount == 0`, root is zero, or `balance < totalCommitted + totalAmount` (over-commit guard).
-5. Holders call `claim(epochId, amount, proof)` — checks `_claimed[epoch][holder]`, verifies proof, marks claimed, decrements `unclaimed + totalCommitted`, sends ETH.
+4. **`proposeEpoch(expectedEpochId, root, totalAmount)`** (owner-only). Validates NOW: `expectedEpochId == nextEpochId` (stale-publisher revert), `totalAmount > 0`, `root != 0`, `balance >= totalCommitted + totalAmount`. Stores pending; emits `EpochProposed`. **[V8 change vs live]** URU-A11 remainder: production `minConfigDelay > 0` blocks the direct `addEpoch` path — `addEpoch` reverts `DirectAddEpochDisabled` and only `proposeEpoch → activateEpoch` works.
+5. Wait `minConfigDelay` (2 days in production).
+6. **`activateEpoch()`** — requires `block.timestamp >= readyAt` + revalidates `expectedEpochId == nextEpochId` (guards against a stale proposal). Applies pending: writes `epochs[id]`, bumps `nextEpochId`, increments `totalCommitted`.
+7. Holders call `claim(epochId, amount, proof)` — checks `_claimed[epoch][holder]`, verifies proof, marks claimed, decrements `unclaimed + totalCommitted`, sends ETH.
+
+Also `cancelPendingEpoch()` — safety valve for wrong root / wrong amount.
+
+**URU-A06 stale-publisher gate**: `addEpoch` and `proposeEpoch` both require `expectedEpochId == nextEpochId`. Two concurrent publishers cannot both read `nextEpochId = N`, land as N and N+1, with N+1's tree encoding N — the second call reverts `UnexpectedEpochId`. Combined with the compile-service's PG advisory lock (§10.3), race-to-publish is closed both on-chain and off-chain.
+
+**URU-A07 available-balance view**: new `availableBalance() → balance - totalCommitted`. Publisher (compile-service `rewards.ts`) uses it as the default `totalAmount` when no override — previously the publisher used the full vault balance which reverted `OverCommit` as soon as any prior epoch had unclaimed funds. The advertised "daily overlapping epoch" model now actually works.
 
 **`sweepDust`** (`:105-114`) — owner-only. Only sends `balance - totalCommitted` (residual from over-published totals + dead-wallet leaves that never claim). Cannot starve live claims.
 
@@ -2490,7 +2622,73 @@ Fix: expanded `RhLiveStackSnapshot.t.sol` + `DeployPathRhFork.t.sol` to cover al
 - Bare launch, curve buy/sell, graduation, v4 pool init, post-grad swap, LP-removal rejection, creator/platform fee accrual, URU-paid launch, composed-module launch, FoT+curve rejection.
 - Total 12 fork tests, all passing against live RH fork.
 
-### 25.6 Round 2 v5 — production rotation + retired-hash canonical list
+### 25.7 Round 3 (2026-08-03) — full URU-A01…A14 remediation
+
+Auditor delivered `Consolidated system-level findings.pdf` + 4 patch files + `urufu_protocol_audit_and_remediation_spec.docx`. Every finding closed at source level.
+
+**Critical (3)**
+- **URU-A01** — Router now enforces launch-safety policy on-chain (curve-must-Renounce, FLAG_REQUIRES_OWNER block, module/sniper/burn caps) via `_validateLaunchPolicy` on all 4 entrypoints.
+- **URU-A02** — Pausable V1 honeypot closed. Fragment no longer exempts owner-origin transfers. V1 hash `0xa831…803a` permanently banned; V2 registered at fresh hash `0xc9a87c…3e1f`.
+- **URU-A03** — Curve reachability now validates using ACTUAL supply received (post reserve-carve) via `_validateActualSupply`. 5% safety margin default via `graduationSafetyMarginBps`. `setDefaultCurveSupply` validates full tuple.
+- **URU-A04** — `buy` + `buyWithProof` both use `tokenReserve - 1` floor (no clamp). Combined with graduator-required makes WL terminal-lock unreachable.
+- **URU-A05** — `CurveFactory.setGraduator(0)` reverts. Every curve creation calls `_requireGraduator`. BondingCurve init rejects zero/non-contract.
+
+**High (7)**
+- **URU-A06** — Rewards publisher: `expectedEpochId` on `addEpoch`/`proposeEpoch`; PG advisory lock + journaled publications + startup reconciliation in `compile-service/src/rewards.ts`.
+- **URU-A07** — Publisher uses `availableBalance() = balance - totalCommitted` as default.
+- **URU-A08** — New `shared/config-id.ts::canonicalModuleString` imported by BOTH web + compile-service. Compile-service now uses viem's `keccak256(encodeAbiParameters(['string','string'],[base,modules]))` matching on-chain. Response includes `artifactHash = keccak256(bytecode)`.
+- **URU-A09** — Server-side JSON-schema parameter validation + cross-field invariants in `compile-service/src/matrix.ts::validateModuleParams`. Staking-Vesting incompatibility synced between `shared/matrix.json` and `web/src/lib/modules.ts`.
+- **URU-A10** — Router metadata is one-shot: `setModuleCountForConfig`, `setFlagsForConfig`, and batch variants revert `ConfigMetadataAlreadySet` on second call. New atomic `registerConfigMetadata` / `registerConfigMetadataBatch`. Retirement is monotonic: `setConfigHashBanned(hash, false)` and `setCurveIncompatibleConfigHash(hash, false)` revert `ConfigRetirementIrreversible`.
+- **URU-A11** — Real propose/activate on FeeSplitter, UruDepositSink, UruBuybackVault, NftRevenueVault. Cooldowns replaced with two-step timelocks. `NftRevenueVault.addEpoch` gated on `minConfigDelay == 0`; production uses `proposeEpoch → activateEpoch`.
+- **URU-A12** — `MultiHookHost.setPoolConfig` and `setCreator` now `onlyInitializer`. `MAX_ANTI_SNIPER_BLOCKS = 7200` cap. Graduator removes `try/catch` around hook config + reads back and reverts on mismatch (`HookConfigMismatch`, `HookCreatorMismatch`).
+- **URU-A13** — `HandoffOwnership._handoffGraduator` uses `setOwner` (not `transferOwnership`). New `test/integration/HandoffOwnershipIntegration.t.sol` exercises full end-to-end multisig handoff of the V8 stack including the Graduator-specific selector.
+- **URU-A14** — `Router.setFactory/setCurveFactory/setLoyaltyOracle` reject non-contract addresses. `_discountBpsFor` wraps oracle in `try/catch` (reverting oracle no longer bricks every launch). Slither config scans `script/` (was excluded). `security.sh` no longer `|| true`-swallows analyzer failures.
+
+**Additional (auditor-flagged, not in patches)**
+- **Exact-output burn bypass** — MHH `afterSwap` now applies buyback-burn on ALL BUYs (`zeroForOne == true`), not just exact-input BUYs. Exact-output BUYs previously silently avoided the advertised burn.
+
+**Test state as of `c2a7459`**:
+- `forge test -j 2` (unit + integration): **651 pass, 0 fail, 0 skip**
+- Fork tests against live RH: **54 pass, 0 fail, 1 skip** (`test_Orphan_URUFU_HolderCanSellForETH` — pre-existing skip, unrelated to audit round 3)
+- Web typecheck: clean
+
+**Deleted (pruned per audit direction)**:
+- `contracts/test/audit/V6FullLifecycleFork.t.sol` — obsolete V6 rotation history.
+- `contracts/test/audit/V9FullPipelineFork.t.sol` — obsolete V9 rotation (used deprecated `DeployV9StackFix.s.sol`).
+- `contracts/test/integration/RhDeployPipelineForkTest.t.sol` — older-audit-round pipeline replay superseded by `DeployPathRhFork`.
+
+**Rewritten (audit-driven honesty pass)**:
+- `contracts/test/audit/RhProductionRotationFork.t.sol` — earlier version synthesized a rotation that omitted `proposeRouter` because the live registry lacks it, then claimed 12/12 passed. Rewrite: 2 read-only tests asserting live registry LACKS the 2-phase API (auditor's caveat), 5 fresh-registry tests driving the real source-level rotation flow.
+
+**Added**:
+- `contracts/test/integration/HandoffOwnershipIntegration.t.sol` — full V8 stack + full handoff + assert every `owner()` lands on multisig.
+- `compile-service/src/config-id.test.ts` — asserts canonical `ConfigId` identity stable across V1 hashes + fresh `0xc9a87c…3e1f` for Pausable@2.
+
+### 25.8 Round 3 follow-up (2026-08-03) — verifier-flagged gaps
+
+An adversarial verifier pass against commit `c2a7459` found two source-level gaps + widespread test-coverage gaps. Follow-up commit closes both:
+
+**Source-level fixes:**
+- **URU-A14 (real close)** — `Router._grantCurveModuleAllowances` rewritten from `try/catch {}` swallowers to strict probe → grant → verify. New error `Router__CurveModuleGrantFailed(token, who, module)`. See §5.9.
+- **URU-A08 (real close)** — all three factories now require an owner-pinned `expectedCodeHash[configHash]` before `registerImpl` can bind an impl. `registerImpl` reverts `ArtifactHashMismatch` on any drift. Pin is one-shot per config. See §6.5.
+
+**Adversarial test additions (verifier's "impl present, tests missing" list):**
+- URU-A01 curve-launch policy — 6 revert tests (KeepEOA, TransferToMultisig, FLAG_REQUIRES_OWNER, AntiSniperBlocksTooHigh, BuybackBurnTooHigh, boundary).
+- URU-A06 stale-publisher — UnexpectedEpochId + DirectAddEpochDisabled tests.
+- URU-A10 metadata — second-call reverts on setModuleCountForConfig, setFlagsForConfig, registerConfigMetadata; monotonic setCurveIncompatibleConfigHash(hash, false); same-batch duplicate in registerConfigMetadataBatch (also fixed a same-batch-dupe bug found by the new test).
+- URU-A11 governance — NftRevenueVault propose/activate/cancel/stacked/without-proposal; UruDepositSink + UruBuybackVault keeper/target/rate propose→wait→apply roundtrips.
+- URU-A12 hook safety — MHH setPoolConfig unauthorized-caller, AntiSniperTooLong at cap+1, at-cap-accept boundary.
+
+**Same-batch duplicate fix (found by URU-A10 tests):** the three batch setters (`registerConfigMetadataBatch`, `setModuleCountForConfigBatch`, `setFlagsForConfigBatch`) previously only checked pre-existing state — the same hash could appear twice in one batch and silently keep the last value. Added inner O(N²) check. Batches are ~10 entries so cost is trivial.
+
+**Not-yet-closed** (below verifier's blocker bar but noted for follow-ups):
+- URU-A04 `GraduationReserveRequired` — impl guard at `BondingCurve.sol:612` is defence-in-depth (the `buy` floor at `tokenReserve - 1` makes the state unreachable in normal trading). Directly triggering it would require `vm.store`-forced curve state; deferred.
+- URU-A13 `DeployRouter.s.sol` + `ActivateRouter.s.sol` invoked from a fork test — replay of the exact broadcast sequence. `RhProductionRotationFork.t.sol` and `HandoffOwnershipIntegration.t.sol` cover the pieces; wiring them under `Script.runForTest()` is deferred to a manifest-artifactHash-populate follow-up.
+- URU-A09 CI no-drift check — separate CI-config task.
+
+Test totals after followup: 689 non-fork pass, 45 audit-fork pass, 9 integration-fork pass, 1 skip. Web typecheck clean. See §26.5.
+
+### 25.7 Round 2 v5 — production rotation + retired-hash canonical list
 
 Auditor findings:
 - **BLOCKER #1**: Retired hashes not banned during DeployRouter (existed as concept, not actually seeded automatically).
@@ -2561,9 +2759,19 @@ One file per checked-in composed impl. See §9 for per-file breakdown. Key cover
 
 ### 26.5 Test suite totals
 
-- Unit + integration: **654 pass, 0 fail** (`forge test -j 2 --no-match-path "test/audit/*Fork*.t.sol"`).
-- Audit fork suites (against live RH via `$ROBINHOOD_RPC_URL`): **71 pass, 0 fail, 1 skip**.
+**As of audit-round-3-followup (2026-08-03, on top of commit `c2a7459`):**
+
+- Unit + integration: **689 pass, 0 fail, 0 skip** (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`).
+- Audit fork suite (`test/audit/*Fork.t.sol` against live RH via `$ROBINHOOD_RPC_URL`): **45 pass, 0 fail, 1 skip**.
+- Integration fork suite (`test/integration/*Fork.t.sol` against live RH): **9 pass, 0 fail**.
 - Web typecheck: clean.
+
+**Total (post-followup)**: 743 pass, 0 fail, 1 skip. Growth of +38 tests from initial round-3 baseline of 651 driven by new adversarial coverage files:
+- `test/audit/CurveModuleGrantStrict.t.sol` (2 tests) — URU-A14 broken/lying token grants.
+- `test/audit/FactoryCodeHashPin.t.sol` (16 tests) — URU-A08 pin-then-register for all 3 factories.
+- `test/audit/LaunchPolicyRevertPaths.t.sol` (12 tests) — URU-A01 + URU-A10 revert paths.
+- `test/audit/GovernanceTimelocks.t.sol` (14 tests) — URU-A06 + URU-A11 propose/activate/cancel.
+- `test/hooks/MultiHookHost.t.sol` (+3 tests) — URU-A12 setPoolConfig unauthorized + AntiSniperTooLong + at-cap accept.
 
 ### 26.6 Coverage gaps
 

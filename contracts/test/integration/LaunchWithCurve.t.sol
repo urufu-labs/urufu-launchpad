@@ -24,6 +24,15 @@ contract MockGraduator {
         uint16,
         address
     ) external payable {}
+
+    /// URU-A14 (round 3): Router now calls `graduator.poolManager()` directly
+    /// as part of the curve-time module-allowance grant path. Return address(this)
+    /// as a benign placeholder — the token doesn't have AntiBot installed in
+    /// these tests, so the downstream probe returns "unknown selector" and
+    /// the grant is skipped without needing a real PoolManager.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
 }
 
 interface IERC20View {
@@ -92,6 +101,10 @@ contract LaunchWithCurveTest is Test {
         router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(impl20).code));
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(impl20));
 
@@ -169,6 +182,10 @@ contract LaunchWithCurveTest is Test {
         ERC20Template implB = new ERC20Template();
         vm.prank(admin);
         bareRouter.setFactory(BaseType.ERC20, address(f20b));
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20b.setExpectedCodeHash(BARE_ERC20, keccak256(address(implB).code));
         vm.prank(registrar);
         f20b.registerImpl(BARE_ERC20, address(implB));
 
@@ -197,6 +214,10 @@ contract LaunchWithCurveTest is Test {
         bareRouter2.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
         ERC20Template implC = new ERC20Template();
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20c.setExpectedCodeHash(BARE_ERC20, keccak256(address(implC).code));
         vm.prank(registrar);
         f20c.registerImpl(BARE_ERC20, address(implC));
 
