@@ -114,57 +114,139 @@ contract DeployRouter is Script {
         address feeSplitter;
     }
 
-    function run() external returns (Deployed memory out) {
-        string memory chainId = vm.toString(block.chainid);
-        string memory phase1Path = string.concat("deployment.", chainId, ".json");
-        string memory flywheelPath = string.concat("deployment-flywheel.", chainId, ".json");
-
-        if (!vm.exists(phase1Path)) revert DeployRouter__NoPhase1Book();
-        if (!vm.exists(flywheelPath)) revert DeployRouter__NoFlywheelBook();
-
-        string memory phase1 = vm.readFile(phase1Path);
-        string memory flywheel = vm.readFile(flywheelPath);
-
-        address oldRouter = vm.parseJsonAddress(phase1, ".Router");
-        address registry = vm.parseJsonAddress(phase1, ".NameRegistry");
-        address erc20Factory = vm.parseJsonAddress(phase1, ".ERC20Factory");
-        address erc721Factory = vm.parseJsonAddress(phase1, ".ERC721AFactory");
-        address erc1155Factory = vm.parseJsonAddress(phase1, ".ERC1155Factory");
-        // Prefer the WL-aware CurveFactory when its book exists (see
-        // SetChunkyDefaults). Falls back to the pre-WL CurveFactory from Phase1 for
-        // deployments that haven't yet migrated.
-        string memory curveFactoryV2Path = string.concat("deployment-curvefactoryv2.", chainId, ".json");
+    /// Test-only overrides supplied by `runForTest`. Every JSON- and env-sourced
+    /// address the production `run()` path reads has a slot here so a forge
+    /// test can drive the entire staging script against a live fork without
+    /// touching disk or `vm.setEnv`. Ignored when `_isTestContext == false`.
+    struct TestArgs {
+        address oldRouter;
+        address nameRegistry;
+        address erc20Factory;
+        address erc721Factory;
+        address erc1155Factory;
         address curveFactory;
-        bool usingCurveFactoryV2;
-        if (vm.exists(curveFactoryV2Path)) {
-            curveFactory = vm.parseJsonAddress(vm.readFile(curveFactoryV2Path), ".CurveFactory");
-            usingCurveFactoryV2 = true;
-        } else {
-            curveFactory = vm.parseJsonAddress(phase1, ".CurveFactory");
-        }
-        address feeSplitter = vm.parseJsonAddress(flywheel, ".FeeSplitter");
-        address loyaltyOracle = vm.parseJsonAddress(flywheel, ".LoyaltyOracle");
+        address feeSplitter;
+        address loyaltyOracle;
+        address admin;
+        address uruToken;
+        uint256 minUruFee;
+    }
 
-        address admin = vm.envOr("ADMIN", msg.sender);
-        address uruToken = vm.envAddress("URU_TOKEN_ADDRESS");
-        uint256 minUruFee = vm.envOr("MIN_URU_FEE", uint256(0));
-        if (minUruFee == 0) revert DeployRouter__ZeroMinUruFee();
+    /// Test-context flag flipped by runForTest(). vm.startBroadcast is
+    /// script-only; forge tests use vm.startPrank so the owner-context is
+    /// controllable + no txs get sent. See `test/audit/RhRotationRehearsalFork.t.sol`.
+    bool internal _isTestContext;
+    TestArgs internal _testArgs;
+
+    function run() external returns (Deployed memory out) {
+        return _runInner();
+    }
+
+    /// Test-mode entrypoint. Bypasses JSON reads by passing every address
+    /// through TestArgs; swaps vm.startBroadcast for vm.startPrank(admin) so
+    /// owner-only setters against LIVE contracts resolve against the admin
+    /// the fork already knows. Skips address-book writes so the on-disk
+    /// `deployment-routerv2.<chainid>.json` isn't clobbered by a fork run.
+    function runForTest(
+        TestArgs memory a
+    ) external returns (Deployed memory out) {
+        _isTestContext = true;
+        _testArgs = a;
+        return _runInner();
+    }
+
+    function _startBroadcastOrPrank(
+        address who
+    ) internal {
+        if (_isTestContext) vm.startPrank(who);
+        else vm.startBroadcast();
+    }
+
+    function _stopBroadcastOrPrank() internal {
+        if (_isTestContext) vm.stopPrank();
+        else vm.stopBroadcast();
+    }
+
+    function _runInner() internal returns (Deployed memory out) {
+        address oldRouter;
+        address registry;
+        address erc20Factory;
+        address erc721Factory;
+        address erc1155Factory;
+        address curveFactory;
+        address feeSplitter;
+        address loyaltyOracle;
+        address admin;
+        address uruToken;
+        uint256 minUruFee;
+        bool usingCurveFactoryV2;
+
+        if (_isTestContext) {
+            TestArgs memory a = _testArgs;
+            oldRouter = a.oldRouter;
+            registry = a.nameRegistry;
+            erc20Factory = a.erc20Factory;
+            erc721Factory = a.erc721Factory;
+            erc1155Factory = a.erc1155Factory;
+            curveFactory = a.curveFactory;
+            feeSplitter = a.feeSplitter;
+            loyaltyOracle = a.loyaltyOracle;
+            admin = a.admin;
+            uruToken = a.uruToken;
+            minUruFee = a.minUruFee;
+            if (minUruFee == 0) revert DeployRouter__ZeroMinUruFee();
+        } else {
+            string memory chainId = vm.toString(block.chainid);
+            string memory phase1Path = string.concat("deployment.", chainId, ".json");
+            string memory flywheelPath = string.concat("deployment-flywheel.", chainId, ".json");
+
+            if (!vm.exists(phase1Path)) revert DeployRouter__NoPhase1Book();
+            if (!vm.exists(flywheelPath)) revert DeployRouter__NoFlywheelBook();
+
+            string memory phase1 = vm.readFile(phase1Path);
+            string memory flywheel = vm.readFile(flywheelPath);
+
+            oldRouter = vm.parseJsonAddress(phase1, ".Router");
+            registry = vm.parseJsonAddress(phase1, ".NameRegistry");
+            erc20Factory = vm.parseJsonAddress(phase1, ".ERC20Factory");
+            erc721Factory = vm.parseJsonAddress(phase1, ".ERC721AFactory");
+            erc1155Factory = vm.parseJsonAddress(phase1, ".ERC1155Factory");
+            // Prefer the WL-aware CurveFactory when its book exists (see
+            // SetChunkyDefaults). Falls back to the pre-WL CurveFactory from Phase1 for
+            // deployments that haven't yet migrated.
+            string memory curveFactoryV2Path = string.concat("deployment-curvefactoryv2.", chainId, ".json");
+            if (vm.exists(curveFactoryV2Path)) {
+                curveFactory = vm.parseJsonAddress(vm.readFile(curveFactoryV2Path), ".CurveFactory");
+                usingCurveFactoryV2 = true;
+            } else {
+                curveFactory = vm.parseJsonAddress(phase1, ".CurveFactory");
+            }
+            feeSplitter = vm.parseJsonAddress(flywheel, ".FeeSplitter");
+            loyaltyOracle = vm.parseJsonAddress(flywheel, ".LoyaltyOracle");
+
+            admin = vm.envOr("ADMIN", msg.sender);
+            uruToken = vm.envAddress("URU_TOKEN_ADDRESS");
+            minUruFee = vm.envOr("MIN_URU_FEE", uint256(0));
+            if (minUruFee == 0) revert DeployRouter__ZeroMinUruFee();
+        }
 
         // Mirror fees from the pre-existing Router by default.
         Router old = Router(payable(oldRouter));
-        uint256 erc20Fee = vm.envOr("ERC20_FEE", old.fees(BaseType.ERC20));
-        uint256 nftFee = vm.envOr("NFT_FEE", old.fees(BaseType.ERC721A));
-        uint256 erc1155Fee = vm.envOr("ERC1155_FEE", old.fees(BaseType.ERC1155));
-        uint256 moduleAddOn = vm.envOr("MODULE_ADDON_FEE", old.moduleAddOnFee());
-        uint256 hookAddOn = vm.envOr("HOOK_ADDON_FEE", old.hookAddOnFee());
-        uint256 govAddOn = vm.envOr("GOV_ADDON_FEE", old.governanceAddOnFee());
+        uint256 erc20Fee = _isTestContext ? old.fees(BaseType.ERC20) : vm.envOr("ERC20_FEE", old.fees(BaseType.ERC20));
+        uint256 nftFee = _isTestContext ? old.fees(BaseType.ERC721A) : vm.envOr("NFT_FEE", old.fees(BaseType.ERC721A));
+        uint256 erc1155Fee =
+            _isTestContext ? old.fees(BaseType.ERC1155) : vm.envOr("ERC1155_FEE", old.fees(BaseType.ERC1155));
+        uint256 moduleAddOn = _isTestContext ? old.moduleAddOnFee() : vm.envOr("MODULE_ADDON_FEE", old.moduleAddOnFee());
+        uint256 hookAddOn = _isTestContext ? old.hookAddOnFee() : vm.envOr("HOOK_ADDON_FEE", old.hookAddOnFee());
+        uint256 govAddOn =
+            _isTestContext ? old.governanceAddOnFee() : vm.envOr("GOV_ADDON_FEE", old.governanceAddOnFee());
 
         // Greenfield detection: no old Router wired on NameRegistry means we
         // can synchronously setRouter + rewire factories in this same tx.
         // Rotation path stops after propose (Phase 1); ActivateRouter picks it up.
         bool greenfield = INameRegistryLike(registry).router() == address(0);
 
-        vm.startBroadcast();
+        _startBroadcastOrPrank(admin);
 
         // Step 1: deploy the URU sink pointed at FeeSplitter for its ETH proceeds.
         UruDepositSink sink = new UruDepositSink(admin, uruToken, feeSplitter, 2 days);
@@ -211,27 +293,27 @@ contract DeployRouter is Script {
         // Step 4: CurveFactory trust — additive. `trustedRouters` is a mapping,
         // so pre-trusting the new Router does NOT untrust the old one. The old
         // Router keeps serving until Phase 2 flips.
-        _authorizeOnCurveFactoryStrict(curveFactory, address(routerV2));
+        _authorizeOnCurveFactoryStrict(curveFactory, address(routerV2), admin);
 
         bool nameRegistryActivated;
         if (greenfield) {
             // Greenfield: nothing to preserve — do the full atomic wire here.
             // Setting factory Router pointers is required for launches to work
             // at all; on greenfield there is no old Router that would break.
-            _authorizeOnFactoryStrict(erc20Factory, address(routerV2));
-            _authorizeOnFactoryStrict(erc721Factory, address(routerV2));
-            _authorizeOnFactoryStrict(erc1155Factory, address(routerV2));
-            _setNameRegistryGreenfield(registry, address(routerV2));
+            _authorizeOnFactoryStrict(erc20Factory, address(routerV2), admin);
+            _authorizeOnFactoryStrict(erc721Factory, address(routerV2), admin);
+            _authorizeOnFactoryStrict(erc1155Factory, address(routerV2), admin);
+            _setNameRegistryGreenfield(registry, address(routerV2), admin);
             nameRegistryActivated = true;
         } else {
             // Rotation: propose new Router on NameRegistry, do NOT touch
             // factories yet. ActivateRouter will atomically rewire factories +
             // activate the registry + pause the old Router in one broadcast.
-            _proposeNameRegistryRotation(registry, address(routerV2));
+            _proposeNameRegistryRotation(registry, address(routerV2), admin);
             nameRegistryActivated = false;
         }
 
-        vm.stopBroadcast();
+        _stopBroadcastOrPrank();
 
         // Post-broadcast assertions. Runs before the address book is written
         // so operators cannot ship a Router with a missing ban.
@@ -246,25 +328,38 @@ contract DeployRouter is Script {
             console2.log("  [note] wired to legacy CurveFactory:", curveFactory);
             console2.log("         WL launches will revert until SetChunkyDefaults has been run.");
         }
-        _writeAddressBook(out, nameRegistryActivated);
+        // Skip address-book writes in test mode — the on-disk artifact is
+        // shared across scripts + other tests, and a fork rehearsal shouldn't
+        // clobber it. Production `run()` still writes normally.
+        if (!_isTestContext) _writeAddressBook(out, nameRegistryActivated);
     }
 
+    /// `admin` is the address making the mutation — matches broadcaster in
+    /// production (`msg.sender`) and the pranked owner in test context. Every
+    /// owner-vs-`msg.sender` check the pre-refactor code used implicitly
+    /// assumed msg.sender-in-internal-frame == the entity actually calling the
+    /// external setter. That assumption breaks when a forge test calls
+    /// `runForTest` (msg.sender-in-internal-frame = test contract; pranked
+    /// external-call sender = admin). Threading admin explicitly keeps both
+    /// paths honest.
     function _authorizeOnFactoryStrict(
         address factory,
-        address routerV2
+        address routerV2,
+        address admin
     ) internal {
         IFactoryLike f = IFactoryLike(factory);
-        if (f.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(factory, "factory.setRouter");
+        if (f.owner() != admin) revert DeployRouter__AuthorizeSkipped(factory, "factory.setRouter");
         f.setRouter(routerV2);
         console2.log("  [ok] setRouter on factory:", factory);
     }
 
     function _authorizeOnCurveFactoryStrict(
         address curveFactory,
-        address routerV2
+        address routerV2,
+        address admin
     ) internal {
         ICurveFactoryLike cf = ICurveFactoryLike(curveFactory);
-        if (cf.owner() != msg.sender) {
+        if (cf.owner() != admin) {
             revert DeployRouter__AuthorizeSkipped(curveFactory, "curveFactory.setTrustedRouter");
         }
         cf.setTrustedRouter(routerV2, true);
@@ -277,10 +372,11 @@ contract DeployRouter is Script {
     /// deploy race. Reverts if the broadcaster isn't the owner.
     function _setNameRegistryGreenfield(
         address registry_,
-        address newRouter
+        address newRouter,
+        address admin
     ) internal {
         INameRegistryLike reg = INameRegistryLike(registry_);
-        if (reg.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.setRouter");
+        if (reg.owner() != admin) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.setRouter");
         reg.setRouter(newRouter);
         console2.log("  [ok] setRouter on NameRegistry (greenfield)");
     }
@@ -289,10 +385,11 @@ contract DeployRouter is Script {
     /// before ActivateRouter can flip it.
     function _proposeNameRegistryRotation(
         address registry_,
-        address newRouter
+        address newRouter,
+        address admin
     ) internal {
         INameRegistryLike reg = INameRegistryLike(registry_);
-        if (reg.owner() != msg.sender) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.proposeRouter");
+        if (reg.owner() != admin) revert DeployRouter__AuthorizeSkipped(registry_, "nameRegistry.proposeRouter");
         reg.proposeRouter(newRouter);
         console2.log("  [ok] proposeRouter on NameRegistry (rotation pending)");
         console2.log("  [next] run ActivateRouter after (unix ts):", reg.pendingRouterTs());

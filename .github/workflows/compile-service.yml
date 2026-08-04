@@ -25,3 +25,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @vm/compile-service typecheck
       - run: pnpm --filter @vm/compile-service build
+      # URU-A06 / URU-A07: publisher crash-recovery + partial-epoch tests.
+      # URU-A09 AC #4: no-drift check for the module matrix — fails if any
+      # canonical ConfigId computed by the shared library isn't present in
+      # RhConfigManifest.sol (or if the manifest carries an unlisted hash).
+      # Uses node --test with --experimental-strip-types (Node 22+) to run
+      # TypeScript sources directly, matching the local dev flow.
+      - name: Run compile-service tests (rewards + manifest drift)
+        working-directory: compile-service
+        run: node --experimental-strip-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'

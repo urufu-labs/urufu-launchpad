@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 interface IERC20Minimal {
@@ -33,7 +34,7 @@ interface IERC20Minimal {
 ///         manages the keeper list and the swap-target allowlist. There is NO admin
 ///         function to move URU to arbitrary destinations — only forwards to the fixed
 ///         `distributionSink`.
-contract UruBuybackVault is Ownable {
+contract UruBuybackVault is Ownable, ReentrancyGuard {
     error UruBuybackVault__ZeroAddress();
     error UruBuybackVault__NotKeeper();
     error UruBuybackVault__TargetNotAllowed(address target);
@@ -62,6 +63,10 @@ contract UruBuybackVault is Ownable {
     /// URU-A11: telemetry for propose/activate/cancel of admin changes.
     event AdminChangeProposed(bytes32 indexed changeId, uint256 readyAt);
     event AdminChangeCancelled(bytes32 indexed changeId);
+    /// URU-A11 AC #4: emitted when the setter consumes a matured proposal.
+    /// Off-chain monitoring joins Proposed - Cancelled - Applied to enumerate
+    /// the set of currently-pending admin changes.
+    event AdminChangeApplied(bytes32 indexed changeId);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
@@ -115,7 +120,13 @@ contract UruBuybackVault is Ownable {
         uint256 ethIn,
         bytes calldata swapData,
         uint256 minUruOut
-    ) external {
+    ) external nonReentrant {
+        // URU-A14 additional-defect close: nonReentrant. The pre/post URU
+        // balance-delta pattern is safe against a well-behaved ERC-20 (URU
+        // is standard, no callbacks) but slither correctly flags that a
+        // reentrant token or a rogue swapTarget could mint fake URU during
+        // the callback and inflate `uruOut`. Guard closes the theoretical
+        // path and matches the on-chain-enforcement principle in the spec.
         if (!isKeeper[msg.sender]) revert UruBuybackVault__NotKeeper();
         if (!isSwapTarget[swapTarget]) revert UruBuybackVault__TargetNotAllowed(swapTarget);
         if (ethIn == 0) revert UruBuybackVault__ZeroSwap();
@@ -126,12 +137,19 @@ contract UruBuybackVault is Ownable {
             if (minUruOut < rateFloor) revert UruBuybackVault__BelowMinRate(minUruOut, rateFloor);
         }
 
+        // slither-disable-start reentrancy-eth,reentrancy-benign,reentrancy-no-eth,reentrancy-events,reentrancy-balance
+        // Balance-delta pattern is safe under `nonReentrant` (added above):
+        // a reentrant token or hostile swapTarget cannot re-enter this
+        // function, so uruBefore/uruAfter cannot be manipulated between the
+        // reads. Slither's static detector cannot see the modifier's runtime
+        // guarantee — disable is scoped to just this block.
         uint256 uruBefore = uru.balanceOf(address(this));
         (bool ok,) = swapTarget.call{value: ethIn}(swapData);
         if (!ok) revert UruBuybackVault__SwapFailed();
         uint256 uruAfter = uru.balanceOf(address(this));
         uint256 uruOut = uruAfter - uruBefore;
         if (uruOut < minUruOut) revert UruBuybackVault__SlippageExceeded(uruOut, minUruOut);
+        // slither-disable-end reentrancy-eth,reentrancy-benign,reentrancy-no-eth,reentrancy-events,reentrancy-balance
 
         // Forward the acquired URU to the fixed distribution sink.
         // slither-disable-next-line unchecked-transfer
@@ -243,6 +261,7 @@ contract UruBuybackVault is Ownable {
             revert UruBuybackVault__AdminChangeNotReady(changeId, readyAt);
         }
         delete adminChangeReadyAt[changeId];
+        emit AdminChangeApplied(changeId);
     }
 
     /// Escape hatch: sweep stranded ETH that arrived outside a keeper cycle

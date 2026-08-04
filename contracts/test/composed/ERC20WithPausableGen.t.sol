@@ -95,4 +95,88 @@ contract ERC20WithPausableGenTest is Test {
         assertEq(token.totalSupply(), 1000 ether);
         assertEq(token.balanceOf(alice), 1000 ether);
     }
+
+    // =============================================================
+    // URU-A02 AC #4 — defense-in-depth: pause blocks EVERY sender
+    //
+    // The Router's `_validateLaunchPolicy` already blocks the
+    // Pausable+curve combination in production (curve launches must
+    // renounce, and the Pausable configHash carries
+    // FLAG_REQUIRES_OWNER, so a curve+Pausable launch reverts before
+    // any token is minted). This test block is the belt-and-braces
+    // second layer: if the Router-side gate were ever bypassed —
+    // via config-registration bug, hash-collision attack, or a
+    // future entrypoint that skips `_validateLaunchPolicy` — the
+    // Pausable module itself must not exempt ANY sender. Owner,
+    // arbitrary holder, and the three infrastructural roles a real
+    // curve+pool lifecycle would put on the sender axis (bonding
+    // curve, Graduator, Uniswap v4 PoolManager) all get the same
+    // treatment: paused means paused for everyone.
+    //
+    // Test shape per sender: give the address a balance BEFORE
+    // pausing (so a subsequent revert is unambiguously the pause
+    // and not an insufficient-balance error), pause, then attempt
+    // a transfer — assert `Pausable__Paused` revert.
+    // =============================================================
+
+    function test_URU_A02_Paused_HolderBlocked() public {
+        // Alice is the initialRecipient (1000 ether balance from setUp).
+        vm.prank(owner);
+        token.pause();
+
+        vm.prank(alice);
+        vm.expectRevert(ERC20WithPausableGen.Pausable__Paused.selector);
+        token.transfer(bob, 1 ether);
+    }
+
+    function test_URU_A02_Paused_CurveLikeSenderBlocked() public {
+        // Any 3rd-party address playing the "curve holds inventory" role.
+        address curveLike = makeAddr("curveLike");
+        vm.prank(alice);
+        token.transfer(curveLike, 50 ether);
+        assertEq(token.balanceOf(curveLike), 50 ether);
+
+        vm.prank(owner);
+        token.pause();
+
+        vm.prank(curveLike);
+        vm.expectRevert(ERC20WithPausableGen.Pausable__Paused.selector);
+        token.transfer(bob, 10 ether);
+        assertEq(token.balanceOf(bob), 0);
+    }
+
+    function test_URU_A02_Paused_GraduatorLikeSenderBlocked() public {
+        // Simulates the post-graduation Graduator holding curve inventory
+        // en route to the v4 pool — must ALSO be blocked while paused.
+        address graduatorLike = makeAddr("graduatorLike");
+        vm.prank(alice);
+        token.transfer(graduatorLike, 75 ether);
+        assertEq(token.balanceOf(graduatorLike), 75 ether);
+
+        vm.prank(owner);
+        token.pause();
+
+        vm.prank(graduatorLike);
+        vm.expectRevert(ERC20WithPausableGen.Pausable__Paused.selector);
+        token.transfer(bob, 25 ether);
+        assertEq(token.balanceOf(bob), 0);
+    }
+
+    function test_URU_A02_Paused_PoolManagerLikeSenderBlocked() public {
+        // Simulates Uniswap v4 PoolManager holding the pool's token side —
+        // if paused blocked only user senders and the pool were exempt,
+        // the honeypot would live on inside the v4 pool. Must be blocked.
+        address poolManagerLike = makeAddr("poolManagerLike");
+        vm.prank(alice);
+        token.transfer(poolManagerLike, 200 ether);
+        assertEq(token.balanceOf(poolManagerLike), 200 ether);
+
+        vm.prank(owner);
+        token.pause();
+
+        vm.prank(poolManagerLike);
+        vm.expectRevert(ERC20WithPausableGen.Pausable__Paused.selector);
+        token.transfer(bob, 50 ether);
+        assertEq(token.balanceOf(bob), 0);
+    }
 }

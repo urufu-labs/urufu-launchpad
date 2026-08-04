@@ -2,10 +2,12 @@
 pragma solidity 0.8.26;
 
 import {Test, Vm} from "forge-std/Test.sol";
+import {ERC20} from "solady/tokens/ERC20.sol";
 
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {FeeReceiver, IFeeReceiver} from "src/router/FeeReceiver.sol";
+import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
@@ -33,6 +35,8 @@ contract LaunchPolicyRevertPathsTest is Test {
     NameRegistry internal registry;
     FeeReceiver internal feeReceiver;
     MockFactory internal f20;
+    MockUruForRevertPaths internal uru;
+    UruDepositSink internal uruSink;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -47,6 +51,11 @@ contract LaunchPolicyRevertPathsTest is Test {
     uint16 internal constant MAX_BUYBACK_BURN_BPS = 2000;
     uint256 internal constant FLAG_REQUIRES_OWNER = 1 << 1;
 
+    /// Reasonably-sized URU amount used for the URU-pay entrypoints. The guards
+    /// under test fire in `_validateLaunchPolicy`, which runs BEFORE the URU
+    /// pull, so the number is arbitrary as long as it's non-zero.
+    uint256 internal constant URU_FEE_AMOUNT = 100e18;
+
     function setUp() public {
         registry = new NameRegistry(owner, treasury, new string[](0));
         feeReceiver = new FeeReceiver(owner);
@@ -58,9 +67,15 @@ contract LaunchPolicyRevertPathsTest is Test {
         // Also need a curve-factory contract to reach the curve-branch guards.
         MockCurveFactory curveFactory = new MockCurveFactory();
 
+        // URU + sink for the URU-pay entrypoints. Router's `setUruConfig`
+        // requires sink.uru() == uru, hence a bound-together deploy.
+        uru = new MockUruForRevertPaths();
+        uruSink = new UruDepositSink(owner, address(uru), address(feeReceiver), 2 days);
+
         vm.startPrank(owner);
         router.setFactory(BaseType.ERC20, address(f20));
         router.setCurveFactory(address(curveFactory));
+        router.setUruConfig(address(uru), address(uruSink));
         registry.setRouter(address(router));
         // Register CFG_BARE with flags = 0. This is what the FLAG_REQUIRES_OWNER
         // test uses as the "clean" hash to prove other guards fire independent
@@ -72,6 +87,24 @@ contract LaunchPolicyRevertPathsTest is Test {
         vm.stopPrank();
 
         vm.deal(launcher, 10 ether);
+        uru.mint(launcher, 10_000e18);
+        vm.prank(launcher);
+        uru.approve(address(router), type(uint256).max);
+    }
+
+    /// Convenience: build a stock WhitelistInit. Any non-zero root works — the
+    /// guards under test in the WL entrypoints fire in `_validateLaunchPolicy`
+    /// BEFORE the WL factory call, so root value is immaterial.
+    function _wl() internal pure returns (BondingCurve.WhitelistInit memory) {
+        return BondingCurve.WhitelistInit({
+            root: bytes32(uint256(0x1234)),
+            reservedTokens: 100e18,
+            maxWlPerAddress: 10e18,
+            fallbackTs: 0,
+            sourceTokenAddress: address(0),
+            sourceChainId: 0,
+            declaredHolderCount: 0
+        });
     }
 
     // =============================================================
@@ -253,6 +286,147 @@ contract LaunchPolicyRevertPathsTest is Test {
     }
 
     // =============================================================
+    // URU-A01 AC #1 — coverage across ALL FOUR launch entrypoints
+    //
+    // The auditor's acceptance criterion is that every guard in
+    // `_validateLaunchPolicy` must be tested against `launch`,
+    // `launchWithURU`, `launchWithWhitelist`, AND
+    // `launchWithURUAndWhitelist` — not just the ETH-path `launch`.
+    // If a guard were ever removed from `_validateLaunchPolicy` (or
+    // one of the URU / WL entrypoints skipped the call), a curve
+    // launch with retained ownership or a non-compliant hash could
+    // ship. These tests fail loud if that happens.
+    //
+    // `_validateLaunchPolicy` runs BEFORE URU pulls / WL factory
+    // dispatch, so the URU-pay tests do not need a live URU balance
+    // path and the WL tests do not need a WL-aware CurveFactory —
+    // the revert fires first.
+    // =============================================================
+
+    // --- launchWithURU ---
+
+    function test_URU_A01_LaunchWithURU_CurveMustRenounce_KeepEOA() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "U1", "U1");
+        p.ownership = OwnershipMode.KeepEOA;
+        vm.expectRevert(Router.Router__CurveMustRenounce.selector);
+        vm.prank(launcher);
+        router.launchWithURU(p, URU_FEE_AMOUNT);
+    }
+
+    function test_URU_A01_LaunchWithURU_CurveRequiresOwner_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_REQUIRES_OWNER, "U2", "U2");
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__CurveRequiresOwner.selector, CFG_REQUIRES_OWNER));
+        vm.prank(launcher);
+        router.launchWithURU(p, URU_FEE_AMOUNT);
+    }
+
+    function test_URU_A01_LaunchWithURU_AntiSniperBlocksTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "U3", "U3");
+        p.antiSniperBlocks = MAX_ANTI_SNIPER_BLOCKS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__AntiSniperBlocksTooHigh.selector, MAX_ANTI_SNIPER_BLOCKS + 1, MAX_ANTI_SNIPER_BLOCKS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithURU(p, URU_FEE_AMOUNT);
+    }
+
+    function test_URU_A01_LaunchWithURU_BuybackBurnTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "U4", "U4");
+        p.buybackBurnBps = MAX_BUYBACK_BURN_BPS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__BuybackBurnTooHigh.selector, MAX_BUYBACK_BURN_BPS + 1, MAX_BUYBACK_BURN_BPS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithURU(p, URU_FEE_AMOUNT);
+    }
+
+    // --- launchWithWhitelist ---
+
+    function test_URU_A01_LaunchWithWhitelist_CurveMustRenounce_KeepEOA() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "W1", "W1");
+        p.ownership = OwnershipMode.KeepEOA;
+        vm.expectRevert(Router.Router__CurveMustRenounce.selector);
+        vm.prank(launcher);
+        router.launchWithWhitelist{value: ERC20_FEE}(p, _wl());
+    }
+
+    function test_URU_A01_LaunchWithWhitelist_CurveRequiresOwner_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_REQUIRES_OWNER, "W2", "W2");
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__CurveRequiresOwner.selector, CFG_REQUIRES_OWNER));
+        vm.prank(launcher);
+        router.launchWithWhitelist{value: ERC20_FEE}(p, _wl());
+    }
+
+    function test_URU_A01_LaunchWithWhitelist_AntiSniperBlocksTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "W3", "W3");
+        p.antiSniperBlocks = MAX_ANTI_SNIPER_BLOCKS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__AntiSniperBlocksTooHigh.selector, MAX_ANTI_SNIPER_BLOCKS + 1, MAX_ANTI_SNIPER_BLOCKS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithWhitelist{value: ERC20_FEE}(p, _wl());
+    }
+
+    function test_URU_A01_LaunchWithWhitelist_BuybackBurnTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "W4", "W4");
+        p.buybackBurnBps = MAX_BUYBACK_BURN_BPS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__BuybackBurnTooHigh.selector, MAX_BUYBACK_BURN_BPS + 1, MAX_BUYBACK_BURN_BPS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithWhitelist{value: ERC20_FEE}(p, _wl());
+    }
+
+    // --- launchWithURUAndWhitelist ---
+
+    function test_URU_A01_LaunchWithURUAndWhitelist_CurveMustRenounce_KeepEOA() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "UW1", "UW1");
+        p.ownership = OwnershipMode.KeepEOA;
+        vm.expectRevert(Router.Router__CurveMustRenounce.selector);
+        vm.prank(launcher);
+        router.launchWithURUAndWhitelist(p, URU_FEE_AMOUNT, _wl());
+    }
+
+    function test_URU_A01_LaunchWithURUAndWhitelist_CurveRequiresOwner_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_REQUIRES_OWNER, "UW2", "UW2");
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__CurveRequiresOwner.selector, CFG_REQUIRES_OWNER));
+        vm.prank(launcher);
+        router.launchWithURUAndWhitelist(p, URU_FEE_AMOUNT, _wl());
+    }
+
+    function test_URU_A01_LaunchWithURUAndWhitelist_AntiSniperBlocksTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "UW3", "UW3");
+        p.antiSniperBlocks = MAX_ANTI_SNIPER_BLOCKS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__AntiSniperBlocksTooHigh.selector, MAX_ANTI_SNIPER_BLOCKS + 1, MAX_ANTI_SNIPER_BLOCKS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithURUAndWhitelist(p, URU_FEE_AMOUNT, _wl());
+    }
+
+    function test_URU_A01_LaunchWithURUAndWhitelist_BuybackBurnTooHigh_Reverts() public {
+        LaunchParams memory p = _curveParams(CFG_BARE, "UW4", "UW4");
+        p.buybackBurnBps = MAX_BUYBACK_BURN_BPS + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Router.Router__BuybackBurnTooHigh.selector, MAX_BUYBACK_BURN_BPS + 1, MAX_BUYBACK_BURN_BPS
+            )
+        );
+        vm.prank(launcher);
+        router.launchWithURUAndWhitelist(p, URU_FEE_AMOUNT, _wl());
+    }
+
+    // =============================================================
     // Helpers
     // =============================================================
 
@@ -271,6 +445,28 @@ contract LaunchPolicyRevertPathsTest is Test {
         p.ownership = OwnershipMode.Renounce;
         p.antiSniperBlocks = 0;
         p.buybackBurnBps = 0;
+    }
+}
+
+/// Minimal ERC20 URU stand-in for the URU-pay entrypoint tests. Only needs
+/// balanceOf + approve + transferFrom — the revert paths under test fire in
+/// `_validateLaunchPolicy` BEFORE any actual URU pull, so `mint` here is
+/// purely for constructor sanity (matches the RouterV2.t.sol MockUruRV2
+/// pattern one-to-one).
+contract MockUruForRevertPaths is ERC20 {
+    function name() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "URU";
+    }
+
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
+        _mint(to, amount);
     }
 }
 

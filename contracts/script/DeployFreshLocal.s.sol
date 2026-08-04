@@ -305,8 +305,13 @@ contract DeployFreshLocal is Script {
         // same 40/35/25 flow as launch fees.
         RoyaltyRouterImpl royaltyImpl = new RoyaltyRouterImpl();
         s.royaltyRouterImpl = address(royaltyImpl);
-        RoyaltyRouterFactory royaltyFactory =
-            new RoyaltyRouterFactory(admin, address(royaltyImpl), address(splitter), uint16(royaltyPlatformBps));
+        RoyaltyRouterFactory royaltyFactory = new RoyaltyRouterFactory(
+            admin,
+            address(royaltyImpl),
+            keccak256(address(royaltyImpl).code),
+            address(splitter),
+            uint16(royaltyPlatformBps)
+        );
         s.royaltyRouterFactory = address(royaltyFactory);
 
         // ---------------- Phase 2: core ----------------

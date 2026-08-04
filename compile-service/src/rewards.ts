@@ -36,7 +36,7 @@ import { sql, hasDb } from './db.ts';
 
 // ---------------------------------------------------------------- config
 
-interface ChainConfig {
+export interface ChainConfig {
   slug: 'robinhood';
   chainId: number;
   rpcUrl: string;
@@ -308,9 +308,16 @@ export interface PublishResult {
 /// hold this before reading `nextEpochId` so two concurrent publishers cannot
 /// both build a tree for the same epoch and land at N + N+1 with a stale root.
 type ReservedDb = any;
-async function withPublicationLock<T>(fn: (db: ReservedDb) => Promise<T>): Promise<T> {
-  if (!sql) throw new Error('DATABASE_URL not set — cannot persist tree');
-  const db = await sql.reserve();
+/// Test seam: same lock/unlock ceremony but the `sql` client is injected so
+/// the unit test can pass a fake that simulates advisory-lock contention
+/// without a live Postgres. Production callers use `withPublicationLock`,
+/// which routes to this with the singleton.
+export async function withPublicationLockOn<T>(
+  sqlClient: any,
+  fn: (db: ReservedDb) => Promise<T>,
+): Promise<T> {
+  if (!sqlClient) throw new Error('DATABASE_URL not set — cannot persist tree');
+  const db = await sqlClient.reserve();
   try {
     await db`SELECT pg_advisory_lock(${REWARDS_PUBLICATION_LOCK.toString()})`;
     return await fn(db);
@@ -321,6 +328,36 @@ async function withPublicationLock<T>(fn: (db: ReservedDb) => Promise<T>): Promi
       db.release();
     }
   }
+}
+async function withPublicationLock<T>(fn: (db: ReservedDb) => Promise<T>): Promise<T> {
+  return withPublicationLockOn(sql, fn);
+}
+
+/// URU-A07: pure helper that computes the epoch's total distribution amount
+/// from the vault's reported balance + prior-epoch commitments. Extracted from
+/// `publishEpoch` so the audit tests can cover partial-claim and override
+/// guardrails without spinning up a full RPC + Postgres stack.
+///
+///   available   = max(balance - totalCommitted, 0)
+///   totalAmount = override ?? available
+///
+/// Throws when the resulting amount is zero (nothing to distribute) OR when
+/// the caller explicitly passes an override greater than `available` (would
+/// revert `OverCommit` on-chain once the vault sees it).
+export function resolvePublishAmount(
+  vaultBalance: bigint,
+  totalCommitted: bigint,
+  override?: bigint,
+): bigint {
+  const available = vaultBalance > totalCommitted ? vaultBalance - totalCommitted : 0n;
+  const totalAmount = override ?? available;
+  if (totalAmount === 0n) throw new Error('vault available balance is zero — nothing to distribute');
+  if (totalAmount > available) {
+    throw new Error(
+      `totalAmount (${formatEther(totalAmount)}) exceeds uncommitted balance (${formatEther(available)})`,
+    );
+  }
+  return totalAmount;
 }
 
 /// URU-A06: promote a pending / broadcast publication row to `confirmed`
@@ -399,14 +436,7 @@ export async function publishEpoch(opts: {
       pub.getBalance({ address: cfg.vaultAddress }),
       pub.readContract({ address: cfg.vaultAddress, abi: vaultAbi, functionName: 'totalCommitted' }),
     ]);
-    const available = vaultBalance > totalCommitted ? vaultBalance - totalCommitted : 0n;
-    const totalAmount = opts.totalAmountOverride ?? available;
-    if (totalAmount === 0n) throw new Error('vault available balance is zero — nothing to distribute');
-    if (totalAmount > available) {
-      throw new Error(
-        `totalAmount (${formatEther(totalAmount)}) exceeds uncommitted balance (${formatEther(available)})`,
-      );
-    }
+    const totalAmount = resolvePublishAmount(vaultBalance, totalCommitted, opts.totalAmountOverride);
 
     // 3. Fetch nextEpochId + timelock delay. If delay > 0 (production), use
     //    propose path; the caller / keeper runs `activateVaultEpoch` after
@@ -568,7 +598,11 @@ export async function activateVaultEpoch(chainSlug: string): Promise<{
 /// URU-A06 reconciliation. Runs on startup + at the top of every `publishEpoch`
 /// call so a tx that confirmed while the process was down (or after a race)
 /// gets its journal row promoted rather than staying stuck as 'pending'.
-async function reconcilePendingForConfig(
+///
+/// Exported so the audit tests can drive each crash scenario with a fake db +
+/// fake public client. Production callers reach it via `publishEpoch` /
+/// `reconcilePendingPublications` and never pass their own deps.
+export async function reconcilePendingForConfig(
   cfg: ChainConfig,
   pub: PublicClient,
   db: ReservedDb,

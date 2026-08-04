@@ -37,6 +37,13 @@ contract RoyaltyRouterFactory is Ownable {
     /// attack where anyone raced to `deployFor(X, self)` before the true launcher
     /// and became the permanent recipient of collection X's royalties.
     error RoyaltyRouterFactory__Unauthorized(address caller, address collection);
+    /// Additional-defect closure (audit page 10): the constructor now REQUIRES
+    /// the caller to pass the expected implementation codehash. Prevents
+    /// deploying a factory whose IMPLEMENTATION points at bytecode different
+    /// from what the audit signed off on. Immutable + one-shot: impl cannot
+    /// rotate after deploy, so this check runs exactly once per factory life.
+    error RoyaltyRouterFactory__ImplCodehashMismatch(bytes32 expected, bytes32 actual);
+    error RoyaltyRouterFactory__ImplNotAContract();
 
     event PlatformSinkUpdated(address indexed oldSink, address indexed newSink);
     event TrustedDeployerSet(address indexed deployer, bool trusted);
@@ -61,6 +68,7 @@ contract RoyaltyRouterFactory is Ownable {
     constructor(
         address initialOwner,
         address impl_,
+        bytes32 expectedImplCodehash_,
         address platformSink_,
         uint16 platformBps_
     ) {
@@ -68,6 +76,24 @@ contract RoyaltyRouterFactory is Ownable {
             revert RoyaltyRouterFactory__ZeroAddress();
         }
         if (platformBps_ == 0 || platformBps_ >= 10_000) revert RoyaltyRouterFactory__BadBps(platformBps_);
+        // Additional-defect closure: verify impl is a contract AND its runtime
+        // codehash matches the audited artifact hash. Caller supplies the
+        // expected hash from the RhConfigManifest or the audit report; a rogue
+        // deployer can't silently point IMPLEMENTATION at compromised bytecode
+        // and hand a clean-looking factory to the multisig.
+        bytes32 actual;
+        assembly {
+            actual := extcodehash(impl_)
+        }
+        // extcodehash of an EOA / unset account is either 0 or the empty-code
+        // hash. Both cases are covered by the codehash mismatch since the
+        // caller must supply the audited impl's hash, which is neither.
+        if (actual == bytes32(0) || actual == 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470) {
+            revert RoyaltyRouterFactory__ImplNotAContract();
+        }
+        if (actual != expectedImplCodehash_) {
+            revert RoyaltyRouterFactory__ImplCodehashMismatch(expectedImplCodehash_, actual);
+        }
         _initializeOwner(initialOwner);
         IMPLEMENTATION = impl_;
         platformSink = platformSink_;
