@@ -17,7 +17,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatEther, parseEther } from 'viem';
-import type { Address } from 'viem';
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
@@ -29,6 +28,10 @@ const RH_CHAIN_ID = CHAIN_KEY_TO_ID.robinhood;
 export default function RecoverPage() {
     const [query, setQuery] = useState('');
     const results = useMemo(() => searchOrphans(query), [query]);
+    const { isConnected } = useAccount();
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
+    const showWalletHint = mounted && !isConnected && results.length > 0;
 
     const totalStuck = useMemo(() => {
         return ORPHAN_CURVES.reduce((acc, o) => acc + BigInt(o.balanceWeiAtSnapshot), 0n);
@@ -43,9 +46,8 @@ export default function RecoverPage() {
                 ✿ recover ur eth
             </h1>
             <p style={{ fontSize: 13, color: 'var(--anchor)', marginBottom: 16, lineHeight: 1.5 }}>
-                a handful of tokens got launched on old curve factories before we announced.
-                the ui doesn&apos;t show them anymore, but the eth is still in the curve and the
-                sell button still works on-chain. if u bought one of these, this page lets u pull ur eth back out.
+                old curve launches no longer show in the main ui. if u bought one, sell back here
+                and recover the eth still sitting in the curve.
             </p>
             <div
                 style={{
@@ -83,6 +85,22 @@ export default function RecoverPage() {
                 }}
             />
 
+            {showWalletHint && (
+                <div
+                    style={{
+                        padding: '8px 10px',
+                        background: 'var(--cream-deep)',
+                        border: '1.5px dashed var(--anchor)',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        color: 'var(--anchor-soft)',
+                        marginBottom: 16,
+                    }}
+                >
+                    connect wallet once to check which rows are yours and unlock recovery actions.
+                </div>
+            )}
+
             {results.length === 0 ? (
                 <div
                     style={{
@@ -103,7 +121,7 @@ export default function RecoverPage() {
                 </div>
             )}
 
-            <div
+            <details
                 style={{
                     marginTop: 24,
                     fontSize: 11,
@@ -111,21 +129,29 @@ export default function RecoverPage() {
                     lineHeight: 1.6,
                 }}
             >
-                <b>how this works:</b> connect ur wallet, we read ur token balance from the chain.
-                if u have some, pick how much to sell (max = all of it). u sign 2 txs: approve
-                (lets the curve pull ur tokens), then sell (curve sends u eth). that&apos;s it.
-                these curves use the same math as everything else on the site, just at addresses
-                the main ui doesn&apos;t know about.
-                <br />
-                <br />
-                <b>not seeing ur token?</b> we swept every historical curve factory on
-                robinhood. if urs isn&apos;t listed, either the token graduated (check the trade
-                page) or it never launched via our contracts.{' '}
-                <Link href="/trade" style={{ color: 'var(--link-blue)' }}>
-                    back to trade
-                </Link>
-                .
-            </div>
+                <summary
+                    style={{
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-round), Klee One, cursive',
+                        fontWeight: 700,
+                    }}
+                >
+                    how recovery works + missing token help
+                </summary>
+                <div style={{ marginTop: 8 }}>
+                    connect ur wallet, we read ur token balance from the chain. if u have some,
+                    pick how much to sell. u sign approve, then sell, and the curve sends u eth.
+                    <br />
+                    <br />
+                    not seeing ur token? we swept every historical curve factory on robinhood.
+                    if urs isn&apos;t listed, either the token graduated or it never launched via our
+                    contracts.{' '}
+                    <Link href="/trade" style={{ color: 'var(--link-blue)' }}>
+                        back to trade
+                    </Link>
+                    .
+                </div>
+            </details>
         </div>
     );
 }
@@ -301,9 +327,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
                     ✓ curve is drained. everyone who wanted their eth back got it.
                 </div>
             ) : !effectiveIsConnected ? (
-                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                    connect ur wallet (top right) to see if u hold any of these tokens.
-                </div>
+                null
             ) : !onRhChain ? (
                 <button
                     onClick={() => switchChain({ chainId: RH_CHAIN_ID })}

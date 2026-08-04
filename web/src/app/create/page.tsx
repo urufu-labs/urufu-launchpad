@@ -1094,9 +1094,7 @@ function CreatePageContent() {
               </span>
             </h1>
             <p className="uru-h2" style={{ fontSize: 15, fontWeight: 400, marginTop: 4, maxWidth: 620 }}>
-              drag stuff from the shelf into the basket. every module gets spliced right into ur token's
-              solidity — not a wrapper, real code (◕‿◕✿). alphabetical order bc that's what the splicer
-              wants.
+              compose a token from real on-chain fragments. choose a path, fill the basics, launch.
             </p>
           </div>
         </header>
@@ -1218,6 +1216,8 @@ function CreatePageContent() {
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
                     disabled={base !== 'ERC20'}
+                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 10 ETH graduation target, 5-block sniper gate."
+                    aria-label="quick launch, safe defaults"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'quick' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
@@ -1234,11 +1234,11 @@ function CreatePageContent() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      pump.fun style. just name / ticker / vibes ~ safe defaults baked in (LP locked forever, ownership renounced, sniper gate on)
+                      safe defaults. name, ticker, vibes, launch.
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 10 ETH · anti-sniper 5 blocks
+                        800M supply · 1% fee · 10 ETH target
                       </div>
                     )}
                   </button>
@@ -1246,6 +1246,8 @@ function CreatePageContent() {
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
                     disabled={base !== 'ERC20'}
+                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
+                    aria-label="customizable curve, module shelf and hook knobs"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
@@ -1262,11 +1264,11 @@ function CreatePageContent() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      same curve, more knobs. pick modules from the shelf, tune anti-sniper / buyback-burn / whitelist / etc.
+                      same curve, more knobs. modules + hook params.
                     </div>
                     {mechanic === 'custom' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 10 ETH · ur modules
+                        whitelist · sniper gate · buyback-burn
                       </div>
                     )}
                   </button>
@@ -1317,6 +1319,7 @@ function CreatePageContent() {
                 )}
                 {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
                   <div
+                    title="Paste any NFT or token contract. Holders get 60% of curve reserves during a 1-hour exclusive window; unfilled supply opens to public after that, and whitelist tokens stay locked until graduation."
                     style={{
                       marginTop: 12,
                       padding: 10,
@@ -1354,10 +1357,7 @@ function CreatePageContent() {
                       ✿ community whitelist (optional)
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginBottom: 8 }}>
-                      paste any NFT or token contract → 60% of ur curve reserves for those
-                      holders, exclusive access for the first 1h post-launch. anything
-                      unfilled opens to public at the 1h mark. WL tokens stay locked on
-                      the curve until graduation.
+                      60% holder reserve · 1h exclusive window.
                     </div>
                     {!wlEnabled && (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -1650,7 +1650,7 @@ function CreatePageContent() {
                 {launchedTokenAddress ? (
                   <>yayyy!! ur token is live 好き!! (づ｡◕‿‿◕｡)づ</>
                 ) : isQuick ? (
-                  <>quick launch mode ✿ safe defaults locked in — just name / ticker / vibes ~</>
+                  <>quick launch mode ✿ safe defaults locked in ~</>
                 ) : selectedModules.length === 0 ? (
                   <>hi hi!! pls drag something into the basket ~ i sorted em by category for u (◕‿◕✿)</>
                 ) : selectedModules.length === 1 ? (
@@ -1829,7 +1829,7 @@ function CreatePageContent() {
             </div>
 
             {/* "currently" widget — cheap author-trace signal */}
-            <div className="uru-shell uru-shell-tight">
+            <div className="hidden lg:block uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ currently</div>
               <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
                 <li>listening — Perfume, <i>Polyrhythm</i></li>
@@ -1840,7 +1840,7 @@ function CreatePageContent() {
             </div>
 
             {/* 88x31 webring — reciprocal embedding signal */}
-            <div>
+            <div className="hidden lg:block">
               <div className="uru-eyebrow" style={{ marginBottom: 4, color: 'var(--cream)' }}>friends of urufu ✿</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 <span className="uru-88 uru-88-pink"><strong>urufu</strong>labs</span>
@@ -1851,7 +1851,7 @@ function CreatePageContent() {
             </div>
 
             {/* Composition info — tiny receipt strip */}
-            <div className="uru-shell uru-shell-tight">
+            <div className="hidden lg:block uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 4 }}>tech</div>
               <dl style={{ fontSize: 10, fontFamily: 'var(--font-pixel), monospace', lineHeight: 1.6, color: 'var(--anchor-soft)' }}>
                 <div>base: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
