@@ -8,7 +8,9 @@
 
 **Last verified:** 2026-08-03 against Robinhood mainnet RPC. Contract state, ownership, and balances are cast-call snapshots at that time and may drift.
 
-**Post-audit-round-3 addendum (commits `c2a7459`, `255fe57`, `79395c7`, and current v4)**: this doc reflects the SOURCE (V8) code that will replace live V7 on the next fresh deploy. Sections tagged **[V8 change vs live]** describe deltas between what's deployed on the live RH V7 stack today and what the patched source will do at V8 deploy. Live V7 remains operational; nothing in this doc has been broadcast to mainnet yet. Every URU-Axx acceptance criterion from `urufu_protocol_audit_and_remediation_spec.docx` is now closed with source-level enforcement AND an executable test. See §25.7 – §25.10 for the round-by-round history.
+**Post-audit-round-3 addendum (commits `c2a7459` → `255fe57` → `79395c7` → `5acd5ea` → current v5)**: this doc reflects the SOURCE (V8) code that will replace live V7 on the next fresh deploy. Sections tagged **[V8 change vs live]** describe deltas between what's deployed on the live RH V7 stack today and what the patched source will do at V8 deploy. Live V7 remains operational; nothing in this doc has been broadcast to mainnet yet.
+
+Every URU-Axx acceptance criterion from `urufu_protocol_audit_and_remediation_spec.docx` AND every "Required before merge" item from the auditor's own `PATCH-COVERAGE.md` (at repo root) is closed with source-level enforcement AND an executable test. See §25.7 – §25.11 for the round-by-round history.
 
 ---
 
@@ -2686,6 +2688,21 @@ Adversarial verifier + user line-by-line pass over v2 caught remaining acceptanc
 - `.github/workflows/contracts.yml` now installs and runs Slither via `security.sh` (blocking on High).
 - `.github/workflows/compile-service.yml` now runs the compile-service test suite including the URU-A09 drift check.
 
+### 25.11 Round 3 v5 (2026-08-04) — regenerate composed templates + commit PATCH-COVERAGE.md + close §26.6 gaps
+
+User line-by-line pass caught three items missed in v4:
+
+- **Auditor's PATCH-COVERAGE.md was never committed.** Patch 4 shipped a `PATCH-COVERAGE.md` file at repo root that documents the auditor's own strict per-finding closure status and the "Required before merge" checklist. Now committed with a post-remediation status table showing every URU-Axx row closed at source + test.
+- **PATCH-COVERAGE.md "Required before merge" item #2** ("Regenerate every composed template from the patched fragments") was only half-done. `ERC20WithPausableGen.sol` had the V2 fragment applied, but `ERC20WithPausablePermitGen.sol:167` still shipped the V1 honeypot line `from != owner()`. Test-only registration path (via `PhaseCombos.t.sol`) so not a production exploit, but auditor explicitly demanded it. Now regenerated. AntiBot-containing composed templates keep their `from != owner()` line because that exemption is intentional per AntiBot's fragment (team-distribution during the block-gate window).
+- **§26.6 cross-module coverage gaps** (8 combos) — not auditor-flagged but real risk that composed impls could have subtle module interaction bugs. New `test/composed/ComposedCrossModule.t.sol` with 8 tests covering Permit+Staking, Pausable+Permit, Permit+Vesting, AntiBot+Permit, AntiBot+AntiWhale, AntiBot+AntiWhale+Permit, FoT+Permit, AntiBot+FoT. Each test proves both modules' init runs, both are readable post-launch, and the shared `_beforeTokenTransfer` honors both guards.
+
+**Test totals after v5:**
+- Contracts non-fork: **724 pass** (+8 ComposedCrossModule).
+- Contracts fork suites: 59 pass, 1 skip.
+- Compile-service: 39 pass.
+- Slither: 0 High.
+- **Grand total: 822 pass, 0 fail, 1 skip.**
+
 ### 25.10 Round 3 v4 (2026-08-04) — final cleanup of remaining page-10 defects + doc refresh
 
 User line-by-line pass caught five gaps between v3 and "actually ready for re-audit". Fourth followup closes them:
@@ -2799,10 +2816,10 @@ One file per checked-in composed impl. See §9 for per-file breakdown. Key cover
 
 ### 26.5 Test suite totals
 
-**As of audit-round-3-v4 (2026-08-04, on top of commit `79395c7`):**
+**As of audit-round-3-v5 (2026-08-04):**
 
 **Contracts (forge):**
-- Non-fork suites: **716 pass, 0 fail, 0 skip** (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`).
+- Non-fork suites: **724 pass, 0 fail, 0 skip** (`forge test -j 2 --no-match-path "test/{audit,integration}/*Fork*.t.sol"`). +8 in v5 from `test/composed/ComposedCrossModule.t.sol` (Permit+Staking + 7 unregistered 2-module composed impls; §26.6 closed for non-NFT bases).
 - Audit fork suite (`test/audit/*Fork.t.sol` against live RH via `$ROBINHOOD_RPC_URL`): **50 pass, 0 fail, 1 skip** (pre-existing URUFU-orphan skip).
 - Integration fork suite (`test/integration/*Fork.t.sol` against live RH): **9 pass, 0 fail**.
 
@@ -2820,14 +2837,17 @@ One file per checked-in composed impl. See §9 for per-file breakdown. Key cover
 - Web typecheck (`tsc --noEmit`): clean.
 - Compile-service typecheck: clean.
 
-**Grand total across every test surface**: 716 + 50 + 9 + 39 = **814 pass, 0 fail, 1 skip**. Growth from initial round-3 baseline of 651 driven by 15 new / expanded suites across contracts + compile-service.
+**Grand total across every test surface**: 724 + 50 + 9 + 39 = **822 pass, 0 fail, 1 skip**. Growth from initial round-3 baseline of 651 driven by 16 new / expanded suites across contracts + compile-service.
 
 ### 26.6 Coverage gaps
 
-- **Permit+Staking (0x1207…575e)** has NO dedicated composed unit test even though it IS a live-registered hash. Coverage is only through `PhaseCombos.t.sol` (launch smoke) + `ERC20WithStakingGen.t.sol` (single-module Staking) + `ERC20WithPermitGen.t.sol` (single-module Permit). No cross-module interaction test.
-- **Unregistered 2-module composed impls** (7 of them: AntiBot+FoT, AntiBot+AntiWhale, AntiBot+AntiWhale+Permit, AntiBot+Permit, FoT+Permit, Pausable+Permit, Permit+Vesting) rely solely on `PhaseCombos.t.sol` — no per-combo cross-module tests.
-- **NFT composed impls** — 721A/1155 combos exist in source but no dedicated tests beyond `NftLaunchPaths.t.sol` basics.
-- **NFT bases end-to-end** — no fork test walks a full NFT launch → post-mint → royalty flow through the RoyaltyRouterFactory. Would matter if NFT bases activate.
+**Closed in v5 (2026-08-04):**
+- ~~Permit+Staking cross-module test~~ — closed by `test/composed/ComposedCrossModule.t.sol::test_Combo_PermitStaking_InitializesBothModules`.
+- ~~Unregistered 2-module composed impls~~ — 7 combos closed by `ComposedCrossModule.t.sol` (AntiBot+FoT, AntiBot+AntiWhale, AntiBot+AntiWhale+Permit, AntiBot+Permit, FoT+Permit, Pausable+Permit, Permit+Vesting) — 8 tests total. Each proves both modules' init runs, both modules' features are readable, and the shared `_beforeTokenTransfer` hook honors both guards.
+
+**Still open (NFT bases — not activated in current release, deferred per project scope):**
+- **NFT composed impls** — 721A/1155 combos exist in source but no dedicated tests beyond `NftLaunchPaths.t.sol` basics. Deferred until NFT bases turn on in the UI (`CHAINS_ENABLED` / `NFT_BASES_ENABLED` flags currently gray them out).
+- **NFT bases end-to-end** — no fork test walks a full NFT launch → post-mint → royalty flow through the RoyaltyRouterFactory. Same deferral.
 
 ---
 

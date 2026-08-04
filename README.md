@@ -2,10 +2,10 @@
 
 > **The composable token launchpad.** Users pick a base (ERC-20, ERC-721A, ERC-1155), stack audited feature modules, choose a launch mechanic (bare or bonding curve), and deploy real Solidity in one transaction. Bonding-curve launches graduate to Uniswap v4 with LP locked forever and swap fees routed through the urufu gemu flywheel.
 
-**Status:** Audit round 3 v4 complete (2026-08-04). Every URU-Axx acceptance criterion + every page-10 additional-defect item from the auditor's `Consolidated system-level findings.pdf` is closed at source-level enforcement AND covered by an executable test. External audit re-review pending. **DO NOT DEPLOY** the patched code until sign-off. Live V7 stack on Robinhood chain 4663 is still operational but URU launches are soft-disabled via emergency mitigation.
+**Status:** Audit round 3 v5 complete (2026-08-04). Every URU-Axx acceptance criterion + every page-10 additional-defect item from `Consolidated system-level findings.pdf` + every "Required before merge" item from the auditor's `PATCH-COVERAGE.md` (see repo root) is closed at source-level enforcement AND covered by an executable test. External audit re-review pending. **DO NOT DEPLOY** the patched code until sign-off. Live V7 stack on Robinhood chain 4663 is still operational but URU launches are soft-disabled via emergency mitigation.
 
-**Test state (round-3-v4):**
-- Contracts non-fork (`forge test -j 2`): **716 pass, 0 fail**
+**Test state (round-3-v5):**
+- Contracts non-fork (`forge test -j 2`): **724 pass, 0 fail**
 - Contracts fork suites vs live Robinhood chain 4663: **59 pass, 1 skip** (audit fork 50 + integration fork 9; skip is pre-existing URUFU-orphan)
 - Compile-service (`node --test 'src/*.test.ts'`): **39 pass, 0 fail** (URU-A06 crash recovery, URU-A07 available math, URU-A09 shared→manifest drift, tempdir + concurrency, WL snapshot truncation)
 - Slither: **0 High**, 56 Medium, 46 Low (High-gate blocks CI on regression)
