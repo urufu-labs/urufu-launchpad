@@ -90,17 +90,103 @@ contract ActivateRouter is Script {
     error ActivateRouter__PostRegistryMismatch(address expected);
     error ActivateRouter__PostCurveTrustMismatch(address router_, bool expected);
 
-    function run() external {
-        address registryAddr = vm.envAddress("ROBINHOOD_NAME_REGISTRY_ADDRESS");
-        address expectedRouter = vm.envAddress("ROBINHOOD_ROUTER_ADDRESS");
-        address oldRouter = vm.envAddress("ROBINHOOD_OLD_ROUTER_ADDRESS");
-        address erc20Factory = vm.envAddress("ROBINHOOD_ERC20_FACTORY_ADDRESS");
-        address erc721Factory = vm.envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS");
-        address erc1155Factory = vm.envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS");
-        address curveFactory = vm.envAddress("ROBINHOOD_CURVE_FACTORY_ADDRESS");
-        bool skipPause = vm.envOr("SKIP_PAUSE_OLD_ROUTER", uint256(0)) == 1;
+    /// Test-only overrides supplied by `runForTest`. Every env-sourced address
+    /// the production `run()` reads has a slot here so a forge test can drive
+    /// the full atomic cutover against a live fork without touching env. `admin`
+    /// is the address to prank under (must own registry + factories + old
+    /// router if skipPauseOld == false). Ignored when `_isTestContext == false`.
+    struct TestArgs {
+        address nameRegistry;
+        address newRouter;
+        address oldRouter;
+        address erc20Factory;
+        address erc721Factory;
+        address erc1155Factory;
+        address curveFactory;
+        address admin;
+        bool skipPauseOld;
+    }
 
-        _preflight(registryAddr, expectedRouter, oldRouter, erc20Factory, erc721Factory, erc1155Factory, curveFactory);
+    /// Test-context flag flipped by runForTest(). Swaps vm.startBroadcast for
+    /// vm.startPrank(admin). See `test/audit/RhRotationRehearsalFork.t.sol`.
+    bool internal _isTestContext;
+    TestArgs internal _testArgs;
+
+    function run() external {
+        _runInner();
+    }
+
+    /// Test-mode entrypoint. Bypasses env reads by passing every address
+    /// through TestArgs; swaps vm.startBroadcast for vm.startPrank(admin) so
+    /// owner-only cutover setters against LIVE contracts resolve against the
+    /// admin the fork already knows. Skips `_flipAddressBookToLive` so the
+    /// on-disk `deployment-routerv2.<chainid>.json` isn't clobbered by a fork
+    /// run.
+    function runForTest(
+        TestArgs memory a
+    ) external {
+        _isTestContext = true;
+        _testArgs = a;
+        _runInner();
+    }
+
+    function _startBroadcastOrPrank(
+        address who
+    ) internal {
+        if (_isTestContext) vm.startPrank(who);
+        else vm.startBroadcast();
+    }
+
+    function _stopBroadcastOrPrank() internal {
+        if (_isTestContext) vm.stopPrank();
+        else vm.stopBroadcast();
+    }
+
+    function _runInner() internal {
+        address registryAddr;
+        address expectedRouter;
+        address oldRouter;
+        address erc20Factory;
+        address erc721Factory;
+        address erc1155Factory;
+        address curveFactory;
+        address admin;
+        bool skipPause;
+
+        if (_isTestContext) {
+            TestArgs memory a = _testArgs;
+            registryAddr = a.nameRegistry;
+            expectedRouter = a.newRouter;
+            oldRouter = a.oldRouter;
+            erc20Factory = a.erc20Factory;
+            erc721Factory = a.erc721Factory;
+            erc1155Factory = a.erc1155Factory;
+            curveFactory = a.curveFactory;
+            admin = a.admin;
+            skipPause = a.skipPauseOld;
+        } else {
+            registryAddr = vm.envAddress("ROBINHOOD_NAME_REGISTRY_ADDRESS");
+            expectedRouter = vm.envAddress("ROBINHOOD_ROUTER_ADDRESS");
+            oldRouter = vm.envAddress("ROBINHOOD_OLD_ROUTER_ADDRESS");
+            erc20Factory = vm.envAddress("ROBINHOOD_ERC20_FACTORY_ADDRESS");
+            erc721Factory = vm.envAddress("ROBINHOOD_ERC721A_FACTORY_ADDRESS");
+            erc1155Factory = vm.envAddress("ROBINHOOD_ERC1155_FACTORY_ADDRESS");
+            curveFactory = vm.envAddress("ROBINHOOD_CURVE_FACTORY_ADDRESS");
+            skipPause = vm.envOr("SKIP_PAUSE_OLD_ROUTER", uint256(0)) == 1;
+            admin = msg.sender;
+        }
+
+        _preflightWithSkip(
+            registryAddr,
+            expectedRouter,
+            oldRouter,
+            erc20Factory,
+            erc721Factory,
+            erc1155Factory,
+            curveFactory,
+            skipPause,
+            admin
+        );
 
         console2.log("---- Phase 2: atomic cutover ----");
         console2.log("  registry     :", registryAddr);
@@ -111,7 +197,7 @@ contract ActivateRouter is Script {
         console2.log("  erc1155 fact.:", erc1155Factory);
         console2.log("  curve factory:", curveFactory);
 
-        vm.startBroadcast();
+        _startBroadcastOrPrank(admin);
 
         // 1) Rewire per-base factories. Each setRouter is a single-slot
         // overwrite — no rollback if a later step reverts, but the whole
@@ -145,7 +231,7 @@ contract ActivateRouter is Script {
             console2.log("  [skip] SKIP_PAUSE_OLD_ROUTER=1 - old Router left unpaused");
         }
 
-        vm.stopBroadcast();
+        _stopBroadcastOrPrank();
 
         // 5) Post-cutover verify. Reverts on any wire that didn't land.
         _postCutoverVerify(
@@ -156,21 +242,30 @@ contract ActivateRouter is Script {
         console2.log("======================================================");
         console2.log("Phase 2 complete - new Router is LIVE");
         console2.log("======================================================");
-        _flipAddressBookToLive();
+        // Skip on-disk address-book flip in test mode — the artifact is
+        // shared, a fork rehearsal shouldn't clobber it.
+        if (!_isTestContext) _flipAddressBookToLive();
     }
 
     // -------------------------------------------------------------
     // Preflight — all reverts BEFORE any state change
     // -------------------------------------------------------------
 
-    function _preflight(
+    /// Preflight variant that takes `skipPause` + `admin` explicitly so
+    /// runForTest can share the same check surface as the production `run()`
+    /// path. The production path resolves `admin = msg.sender` and
+    /// `skipPause` from env before calling; test mode passes them through
+    /// TestArgs. Callers MUST reach this before any state mutation.
+    function _preflightWithSkip(
         address registryAddr,
         address expectedRouter,
         address oldRouter,
         address erc20Factory,
         address erc721Factory,
         address erc1155Factory,
-        address curveFactory
+        address curveFactory,
+        bool skipPause,
+        address admin
     ) internal view {
         // NameRegistry: pending must exist, match, and be past timelock
         INameRegistry reg = INameRegistry(registryAddr);
@@ -181,27 +276,26 @@ contract ActivateRouter is Script {
         if (block.timestamp < readyAt) revert ActivateRouter__TimelockNotPassed(readyAt);
 
         // Ownership: broadcaster must own everything Phase 2 mutates
-        if (reg.owner() != msg.sender) revert ActivateRouter__NotOwner(registryAddr, "nameRegistry.activateRouter");
-        if (IFactoryLike(erc20Factory).owner() != msg.sender) {
+        if (reg.owner() != admin) revert ActivateRouter__NotOwner(registryAddr, "nameRegistry.activateRouter");
+        if (IFactoryLike(erc20Factory).owner() != admin) {
             revert ActivateRouter__NotOwner(erc20Factory, "erc20Factory.setRouter");
         }
-        if (IFactoryLike(erc721Factory).owner() != msg.sender) {
+        if (IFactoryLike(erc721Factory).owner() != admin) {
             revert ActivateRouter__NotOwner(erc721Factory, "erc721Factory.setRouter");
         }
-        if (IFactoryLike(erc1155Factory).owner() != msg.sender) {
+        if (IFactoryLike(erc1155Factory).owner() != admin) {
             revert ActivateRouter__NotOwner(erc1155Factory, "erc1155Factory.setRouter");
         }
-        if (ICurveFactoryLike(curveFactory).owner() != msg.sender) {
+        if (ICurveFactoryLike(curveFactory).owner() != admin) {
             revert ActivateRouter__NotOwner(curveFactory, "curveFactory.setTrustedRouter");
         }
         // Old Router pause is best-effort but required by default — if the
         // broadcaster doesn't own it, either set SKIP_PAUSE_OLD_ROUTER=1 or
         // add the ownership handoff before Phase 2.
-        bool skipPause = vm.envOr("SKIP_PAUSE_OLD_ROUTER", uint256(0)) == 1;
         if (!skipPause) {
             (bool ok, bytes memory ret) = oldRouter.staticcall(abi.encodeWithSignature("owner()"));
             if (!ok || ret.length < 32) revert ActivateRouter__OldRouterNotBroadcasterOwned();
-            if (abi.decode(ret, (address)) != msg.sender) revert ActivateRouter__OldRouterNotBroadcasterOwned();
+            if (abi.decode(ret, (address)) != admin) revert ActivateRouter__OldRouterNotBroadcasterOwned();
         }
 
         // New Router: all manifest sentinels seeded + all retired hashes banned

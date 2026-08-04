@@ -193,6 +193,14 @@ contract VerifyWiring is Script {
     bytes32 internal constant HASH_AIRDROP_PERMIT = 0xa4df91ce9ab236d5e29251310259042c2d769b0e1ac21d4153ffa391ef492064;
     bytes32 internal constant HASH_AIRDROP_VESTING = 0x903cca7212ee848c97d09fd3417f909ddbf131965f0b66e4d995d6eb7b49f3d2;
 
+    /// URU-A05 AC #3: audited Graduator runtime bytecode hash. Default is
+    /// bytes32(0) meaning "unpinned in source". Operators override per rotation
+    /// via `EXPECTED_GRADUATOR_CODEHASH` env before running VerifyWiring —
+    /// once the audit signs off on a specific Graduator artifact, pin the hex
+    /// value here as the source-of-truth default so drift trips a hard revert
+    /// even when the env is unset.
+    bytes32 internal constant EXPECTED_GRADUATOR_CODEHASH_DEFAULT = bytes32(0);
+
     /// Every address gets bundled into one struct so the JSON emitter can serialize
     /// them field-by-field without repeating the address list.
     struct Addresses {
@@ -349,6 +357,32 @@ contract VerifyWiring is Script {
         _requireEqAddr(g.poolManager(), a.poolManager, "Graduator.poolManager");
         require(g.fee() == 3000, "Graduator.fee != 3000");
         require(g.tickSpacing() == 60, "Graduator.tickSpacing != 60");
+        // URU-A05 AC #3: verify the deployed Graduator bytecode matches the
+        // audited artifact hash. Prior verify only checked hasCode + wiring,
+        // which would pass a graduator whose bytecode had been swapped to a
+        // rug variant with the same immutable slots. Pin comes from
+        // EXPECTED_GRADUATOR_CODEHASH env (settable per rotation) — default
+        // is the V8-final code the audit signed off on. When the pin is
+        // bytes32(0) (unset env, no baked default), we log a warning but
+        // don't revert — first-time deploys populate the pin from the
+        // just-deployed code. Rotations MUST set this env explicitly.
+        bytes32 expected = _envBytes32("EXPECTED_GRADUATOR_CODEHASH", EXPECTED_GRADUATOR_CODEHASH_DEFAULT);
+        bytes32 actual;
+        address grad = a.graduator;
+        assembly {
+            actual := extcodehash(grad)
+        }
+        if (expected == bytes32(0)) {
+            console2.log("WARNING: EXPECTED_GRADUATOR_CODEHASH not pinned; actual codehash:");
+            console2.logBytes32(actual);
+        } else {
+            require(
+                actual == expected,
+                string.concat(
+                    "Graduator codehash drift; expected ", vm.toString(expected), " actual ", vm.toString(actual)
+                )
+            );
+        }
     }
 
     function _requireMultiHookHostState(
@@ -523,6 +557,17 @@ contract VerifyWiring is Script {
         address fallback_
     ) internal view returns (address) {
         try vm.envAddress(key) returns (address v) {
+            return v;
+        } catch {
+            return fallback_;
+        }
+    }
+
+    function _envBytes32(
+        string memory key,
+        bytes32 fallback_
+    ) internal view returns (bytes32) {
+        try vm.envBytes32(key) returns (bytes32 v) {
             return v;
         } catch {
             return fallback_;

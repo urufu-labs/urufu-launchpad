@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 interface IERC20Minimal {
@@ -30,7 +31,7 @@ interface IERC20Minimal {
 ///         (multisig) manages the keeper list and the swap-target allowlist. There is
 ///         NO admin function to move URU or ETH to arbitrary destinations — proceeds
 ///         only forward to the fixed `distributionSink`.
-contract UruDepositSink is Ownable {
+contract UruDepositSink is Ownable, ReentrancyGuard {
     error UruDepositSink__ZeroAddress();
     error UruDepositSink__NotKeeper();
     error UruDepositSink__TargetNotAllowed(address target);
@@ -62,6 +63,11 @@ contract UruDepositSink is Ownable {
     /// URU-A11: telemetry for propose/activate/cancel of admin changes.
     event AdminChangeProposed(bytes32 indexed changeId, uint256 readyAt);
     event AdminChangeCancelled(bytes32 indexed changeId);
+    /// URU-A11 AC #4: emitted when `_consumeAdminChange` succeeds against a
+    /// matured proposal. Together with `AdminChangeProposed`/`Cancelled`,
+    /// off-chain monitoring can enumerate every pending admin change by
+    /// joining the log stream (`Proposed - Cancelled - Applied`).
+    event AdminChangeApplied(bytes32 indexed changeId);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
@@ -129,7 +135,11 @@ contract UruDepositSink is Ownable {
         uint256 uruIn,
         bytes calldata swapData,
         uint256 minEthOut
-    ) external {
+    ) external nonReentrant {
+        // URU-A14 additional-defect close (matches UruBuybackVault.executeBuyback):
+        // pre/post balance-delta pattern + arbitrary external call needs a
+        // guard so a reentrant token or hostile swapTarget can't inflate
+        // `ethOut` mid-call.
         if (!isKeeper[msg.sender]) revert UruDepositSink__NotKeeper();
         if (!isSwapTarget[swapTarget]) revert UruDepositSink__TargetNotAllowed(swapTarget);
         if (uruIn == 0) revert UruDepositSink__ZeroSwap();
@@ -282,6 +292,7 @@ contract UruDepositSink is Ownable {
             revert UruDepositSink__AdminChangeNotReady(changeId, readyAt);
         }
         delete adminChangeReadyAt[changeId];
+        emit AdminChangeApplied(changeId);
     }
 
     /// Escape hatch for stranded ETH (residual from rounding, or direct sends before a

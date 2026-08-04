@@ -99,7 +99,9 @@ contract HandoffOwnershipIntegrationTest is Test {
         buybackVault = new UruBuybackVault(DEPLOYER, URU, address(nftVault), 2 days);
         depositSink = new UruDepositSink(DEPLOYER, URU, address(splitter), 2 days);
         rrImpl = new RoyaltyRouterImpl();
-        rrf = new RoyaltyRouterFactory(DEPLOYER, address(rrImpl), address(splitter), 500);
+        rrf = new RoyaltyRouterFactory(
+            DEPLOYER, address(rrImpl), keccak256(address(rrImpl).code), address(splitter), 500
+        );
 
         vm.stopPrank();
     }

@@ -52,13 +52,22 @@ for k, v in sorted(by_check.items(), key=lambda x: -x[1])[:15]:
 with open('slither-summary.md', 'w') as f:
     f.write('\n'.join(lines) + '\n')
 
+high = counts.get('High', 0)
 print()
 print('=' * 60)
-print(f"Summary: {counts.get('High', 0)} High, {counts.get('Medium', 0)} Medium, "
+print(f"Summary: {high} High, {counts.get('Medium', 0)} Medium, "
       f"{counts.get('Low', 0)} Low, {counts.get('Informational', 0)} Informational")
 print('=' * 60)
 print()
 print(f"  full JSON:      slither-report.json")
 print(f"  markdown:       slither-summary.md")
 print(f"  triage notes:   .github/SECURITY.md")
+
+# URU-A14 additional-defect close: fail the gate on ANY High finding. Medium
+# and below are reported for triage but non-blocking; High blocks merge.
+import sys
+if high > 0:
+    print()
+    print(f"FAIL: {high} High-severity finding(s) present. Review + fix before merge.")
+    sys.exit(1)
 PY

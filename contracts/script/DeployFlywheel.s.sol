@@ -68,8 +68,9 @@ contract DeployFlywheel is Script {
         // in the same 40/35/25 loop as launch + curve + swap fees. Not registered in any
         // launch flow yet — activated when NFT bases turn on in the UI.
         RoyaltyRouterImpl royaltyImpl = new RoyaltyRouterImpl();
-        RoyaltyRouterFactory royaltyFactory =
-            new RoyaltyRouterFactory(admin, address(royaltyImpl), address(splitter), royaltyPlatformBps);
+        RoyaltyRouterFactory royaltyFactory = new RoyaltyRouterFactory(
+            admin, address(royaltyImpl), keccak256(address(royaltyImpl).code), address(splitter), royaltyPlatformBps
+        );
 
         Router(payable(router)).setLoyaltyOracle(address(oracle_));
 
