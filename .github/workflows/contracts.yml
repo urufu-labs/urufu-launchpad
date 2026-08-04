@@ -55,4 +55,7 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install slither-analyzer
       - name: Slither (src + script)
-        run: ./security.sh
+        # Belt-and-braces: invoke via `bash` so a stripped exec bit (Windows
+        # git checkouts drop +x by default) doesn't 126-error the whole job.
+        # The tracked mode is now 100755 too via `git update-index --chmod=+x`.
+        run: bash security.sh
