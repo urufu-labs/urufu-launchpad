@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { canonicalModuleString } from '../../shared/config-id.ts';
 
@@ -30,7 +31,11 @@ import {
 //   POST /test    — merge test fragments, forge test, return per-test results.
 //   GET  /health  — liveness.
 
-const REPO_ROOT = resolve(dirname(new URL(import.meta.url).pathname), '..', '..');
+// URL.pathname on Windows returns "/C:/..." with a leading slash which then
+// makes path.resolve produce "C:\C:\..." (double-drive) on subsequent calls.
+// `fileURLToPath` strips the leading slash + normalises separators. Matches
+// the pattern already in composeSmoke.ts + db.ts.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MATRIX_PATH = resolve(REPO_ROOT, 'shared/matrix.json');
 const CONTRACTS_DIR = resolve(REPO_ROOT, 'contracts');
 const CONTRACTS_LIB_DIR = resolve(CONTRACTS_DIR, 'lib');

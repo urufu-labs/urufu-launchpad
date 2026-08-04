@@ -242,14 +242,14 @@
       "base": ["ERC20"],
       "requires": [],
       "incompatibleWith": [],
-      "flagged": "u can freeze everyone's tokens at any time. ppl see this as centralization ~",
+      "flagged": "pause freezes ALL transfers, including yours. even you cant move or sell while paused ~ centralization tradeoff, ppl will notice",
       "fragmentPath": "contracts/modules/token/Pausable.frag.sol",
       "capabilities": { "requiresOwner": true },
       "ui": {
         "label": "✿ emergency pause",
         "category": "token",
         "status": "shipped",
-        "description": "u can freeze all trades whenever. safety net for emergencies but ppl see the freeze switch and get spooked ~ think twice before adding"
+        "description": "u can pause every transfer (including your own). safety net for emergencies. holders see the pause switch and get spooked, so think twice ~"
       },
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
