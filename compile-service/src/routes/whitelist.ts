@@ -2,12 +2,25 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isAddress } from 'viem';
 
-import { snapshotHolders, proofFor, snapshotFromIpfs } from '../wl-snapshot.ts';
+import {
+  snapshotHolders,
+  proofFor,
+  snapshotFromIpfs,
+  WlSnapshotTruncated,
+  WlSnapshotBlockDrift,
+} from '../wl-snapshot.ts';
 
 const SnapshotBody = z.object({
   chainId: z.number().int().positive(),
   tokenAddress: z.string().refine((s) => isAddress(s), { message: 'not an EVM address' }),
   minBalance: z.string().optional(), // bigint-as-string; parsed below
+  /// Opt-in switch. Default (unset / false) runs the snapshot in STRICT mode:
+  /// if Blockscout has more holder pages than the module cap OR the RPC
+  /// fallback can't scan from block 0, the route returns 422 with a distinct
+  /// `SNAPSHOT_TRUNCATED` code so the caller sees the incompleteness. Set
+  /// `true` only when a best-effort snapshot is genuinely acceptable — the
+  /// response then carries `partial: true` so downstream code can flag it.
+  allowPartial: z.boolean().optional(),
 });
 
 /// Register WL snapshot endpoints. Called by server.ts alongside the other route
@@ -41,19 +54,63 @@ export async function registerWhitelistRoutes(
     }
 
     try {
-      const snap = await snapshotHolders({ chainId, tokenAddress, minBalance: minBal });
+      const snap = await snapshotHolders({
+        chainId,
+        tokenAddress,
+        minBalance: minBal,
+        // Default is strict mode — caller must explicitly opt into partial
+        // data via `allowPartial: true` in the request body. This prevents
+        // consumers from silently receiving an incomplete holder set.
+        allowPartial: parsed.data.allowPartial === true,
+      });
       return reply.send({
         root: snap.root,
+        // Preserved for backwards compatibility — same value as `snapshotStartBlock`.
         snapshotBlock: snap.snapshotBlock.toString(),
+        // NEW: expose the bookend block reads so callers can verify freshness
+        // for themselves (see WlSnapshotBlockDrift).
+        snapshotStartBlock: snap.snapshotStartBlock.toString(),
+        snapshotEndBlock: snap.snapshotEndBlock.toString(),
         holderCount: snap.holderCount,
         listId: snap.listId,
         listCid: snap.listCid,
         listGatewayUrl: snap.listGatewayUrl,
+        // NEW: `partial: true` only when the caller passed `allowPartial: true`
+        // AND the snapshot was actually incomplete. Downstream code should
+        // gate on-chain WL launches on `partial === false`.
+        partial: snap.partial,
+        pagesFetched: snap.pagesFetched,
+        fromRpcFallback: snap.fromRpcFallback,
         // Bounded — return up to 500 holders inline so tiny lists don't require a
         // separate fetch. Big lists still get a full response via the listId path.
         holdersPreview: snap.holders.slice(0, 500),
       });
     } catch (err) {
+      // Distinct 422 codes for the two "you asked for a snapshot but the data
+      // isn't trustworthy" cases so operators (and the frontend) can react
+      // differently from a generic 5xx. Each error carries the actual page
+      // count / drift so debugging doesn't need log-trawling.
+      if (err instanceof WlSnapshotTruncated) {
+        return reply.code(422).send({
+          code: 'SNAPSHOT_TRUNCATED',
+          message: err.message,
+          source: err.source,
+          pagesFetched: err.pagesFetched,
+          maxPages: err.maxPages,
+          fromBlock: err.fromBlock?.toString(),
+          toBlock: err.toBlock?.toString(),
+        });
+      }
+      if (err instanceof WlSnapshotBlockDrift) {
+        return reply.code(422).send({
+          code: 'SNAPSHOT_BLOCK_DRIFT',
+          message: err.message,
+          startBlock: err.startBlock.toString(),
+          endBlock: err.endBlock.toString(),
+          drift: err.drift.toString(),
+          maxDrift: err.maxDrift.toString(),
+        });
+      }
       const msg = err instanceof Error ? err.message : String(err);
       app.log.warn({ err: msg }, 'wl snapshot failed');
       return reply.code(400).send({ code: 'SNAPSHOT_FAILED', message: msg });

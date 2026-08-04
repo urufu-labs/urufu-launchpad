@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { canonicalModuleString } from '../../shared/config-id.ts';
@@ -18,6 +18,11 @@ import { registerRewardsRoutes } from './routes/rewards.ts';
 import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
+import {
+  Semaphore,
+  defaultCompileConcurrency,
+  runIsolatedForgeBuild,
+} from './isolated-build.ts';
 
 // Compile service entrypoint. See docs/SPEC-compile-service.md.
 // Endpoints:
@@ -28,6 +33,20 @@ import { registerWhitelistRoutes } from './routes/whitelist.ts';
 const REPO_ROOT = resolve(dirname(new URL(import.meta.url).pathname), '..', '..');
 const MATRIX_PATH = resolve(REPO_ROOT, 'shared/matrix.json');
 const CONTRACTS_DIR = resolve(REPO_ROOT, 'contracts');
+const CONTRACTS_LIB_DIR = resolve(CONTRACTS_DIR, 'lib');
+
+// URU-A14 page 10 additional-defect: bound concurrent Forge invocations.
+// Forge is single-threaded per invocation and CPU-bound; unbounded fan-out
+// from a public endpoint is a trivial resource-exhaustion vector. Default
+// concurrency is min(2, cpus-1); operators can bump via COMPILE_MAX_CONCURRENCY.
+const compileSemaphore = new Semaphore(defaultCompileConcurrency());
+
+// URU-A14 page 10 additional-defect: run each request in an isolated tempdir
+// (created + cleaned up per-request) instead of a shared contracts/tmp path.
+// The workspace-wide dev path is preserved for local iteration but the public
+// production surface must always take the isolated route.
+const USE_ISOLATED_BUILD =
+  process.env.NODE_ENV === 'production' || process.env.COMPILE_ISOLATED === '1';
 
 // Default template for the ERC-20 base. Extend as other bases land.
 const TEMPLATES: Record<string, string> = {
@@ -102,7 +121,22 @@ if (keeperStatus.started.length > 0) {
   app.log.info({ skipped: keeperStatus.skipped }, 'keeper not running');
 }
 
-app.post('/compile', async (request, reply) => {
+app.post(
+  '/compile',
+  {
+    config: {
+      // URU-A14 page 10 additional-defect: tighter per-IP rate limit than the
+      // app-wide 30/min because /compile actually spawns Forge. Per-IP cap of
+      // 5/min gives well-behaved launchers plenty of headroom (typical launch
+      // flow does 1-2 compiles) while blocking a single client from
+      // saturating the semaphore.
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 minute',
+      },
+    },
+  },
+  async (request, reply) => {
   const parsed = CompileRequestSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({ code: 'INVALID_BODY', errors: parsed.error.flatten() });
@@ -185,37 +219,41 @@ app.post('/compile', async (request, reply) => {
   const matrixForId = loadMatrix(MATRIX_PATH);
   const configHash = computeConfigHash(cfg, matrixForId);
 
-  // Write spliced .sol to a tmp workspace under contracts/tmp/<hash>/ so it can be compiled
-  // with forge alongside the existing src/ tree.
-  const outDir = resolve(CONTRACTS_DIR, 'tmp', configHash);
-  mkdirSync(outDir, { recursive: true });
-  const outPath = join(outDir, `${composed.contractName}.sol`);
-  writeFileSync(outPath, composed.source);
-
-  // Invoke forge build on the whole workspace.
-  const build = await runForge(['build', '--sizes'], CONTRACTS_DIR);
-  if (build.code !== 0) {
-    return reply.code(500).send({
-      code: 'COMPILE_FAILED',
-      configHash,
-      stderr: build.stderr.slice(-4_000), // last 4KB
-    });
-  }
-
-  // Read the compiled artifact.
-  const artifactPath = resolve(
-    CONTRACTS_DIR,
-    'out',
-    `${composed.contractName}.sol`,
-    `${composed.contractName}.json`,
-  );
+  // URU-A14 page 10 additional-defect: bound concurrent Forge invocations to
+  // avoid public-endpoint CPU exhaustion. Isolated builds also run inside a
+  // fresh tempdir each so shared-output-path collisions cannot happen.
   let artifact: { abi: unknown; bytecode: { object: string } };
   try {
-    artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    artifact = await compileSemaphore.run(async () => {
+      if (USE_ISOLATED_BUILD) {
+        return runIsolatedForgeBuild({
+          source: composed.source,
+          contractName: composed.contractName,
+          libsDir: CONTRACTS_LIB_DIR,
+        });
+      }
+      // Legacy path: workspace-wide build against contracts/. Kept for local
+      // dev only (fast iteration when the whole src/ tree is already cached).
+      // Still writes source through the isolated `tmp/<hash>/` scratch dir
+      // and cleans it up in a finally.
+      return runLegacyWorkspaceBuild(composed.contractName, composed.source, configHash);
+    });
   } catch (err) {
-    return reply
-      .code(500)
-      .send({ code: 'ARTIFACT_MISSING', configHash, message: (err as Error).message });
+    const e = err as { code?: string; message: string; stderr?: string };
+    if (e.code === 'COMPILE_FAILED') {
+      return reply.code(500).send({
+        code: 'COMPILE_FAILED',
+        configHash,
+        stderr: e.stderr ?? '',
+      });
+    }
+    if (e.code === 'ARTIFACT_MISSING') {
+      return reply
+        .code(500)
+        .send({ code: 'ARTIFACT_MISSING', configHash, message: e.message });
+    }
+    request.log.error({ err }, 'compile handler unexpected failure');
+    return reply.code(500).send({ code: 'INTERNAL', configHash, message: e.message });
   }
 
   // URU-A08: artifact identity separate from config identity.
@@ -330,4 +368,52 @@ async function runForge(args: string[], cwd: string): Promise<{ code: number; st
       }),
     );
   });
+}
+
+/// Legacy dev-mode build path: writes into contracts/tmp/<hash>/ and invokes
+/// forge against the whole contracts/ workspace. Retained per the audit
+/// finding as an opt-in dev shortcut (fast iteration when the local cache is
+/// hot), but the scratch dir is now removed in a `finally` block so a
+/// long-lived dev session no longer bleeds disk. Production requests go
+/// through `runIsolatedForgeBuild` instead — the isolated path is enforced
+/// whenever NODE_ENV === 'production' or COMPILE_ISOLATED === '1'.
+async function runLegacyWorkspaceBuild(
+  contractName: string,
+  source: string,
+  configHash: string,
+): Promise<{ abi: unknown; bytecode: { object: string } }> {
+  const outDir = resolve(CONTRACTS_DIR, 'tmp', configHash);
+  try {
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, `${contractName}.sol`), source);
+
+    const build = await runForge(['build', '--sizes'], CONTRACTS_DIR);
+    if (build.code !== 0) {
+      const err = new Error(`forge build exited ${build.code}`) as Error & {
+        code: string;
+        stderr: string;
+      };
+      err.code = 'COMPILE_FAILED';
+      err.stderr = build.stderr.slice(-4_000);
+      throw err;
+    }
+
+    const artifactPath = resolve(
+      CONTRACTS_DIR,
+      'out',
+      `${contractName}.sol`,
+      `${contractName}.json`,
+    );
+    try {
+      return JSON.parse(readFileSync(artifactPath, 'utf8'));
+    } catch (readErr) {
+      const err = new Error((readErr as Error).message) as Error & { code: string };
+      err.code = 'ARTIFACT_MISSING';
+      throw err;
+    }
+  } finally {
+    // URU-A14 page 10 additional-defect: cleanup on BOTH success and failure.
+    // Best-effort — cleanup failures MUST NOT mask an earlier real error.
+    await rm(outDir, { recursive: true, force: true }).catch(() => {});
+  }
 }

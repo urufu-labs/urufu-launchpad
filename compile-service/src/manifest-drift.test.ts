@@ -7,7 +7,7 @@
 // KEEP the canonical + retired lists BELOW in sync with:
 //   contracts/script/manifest/RhConfigManifest.sol
 //   shared/config-id.ts::canonicalModuleString
-//   web/src/lib/modules.ts::configHashFor
+//   shared/matrix.ts (single source of module versions)
 // Any module version bump or new composed impl MUST update this file AND the
 // manifest in the same PR; CI will fail otherwise.
 
@@ -17,9 +17,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { keccak256, encodeAbiParameters, type Hex } from "viem";
 
+// URU-A09 AC #1: import module versions from the shared source of truth
+// instead of hand-maintaining a `versions: { … }` block inline. Adding a
+// module in shared/matrix.json auto-flows into the canonical hash the moment
+// its label appears in CANONICAL below — no second edit required.
+import { moduleVersionFor } from "../../shared/matrix.ts";
+
 // Deliberately-duplicated copy of `canonicalModuleString`. Detecting drift
 // means we can't import from `shared/` — if the shared algorithm changes
 // unilaterally, this local reference still forces the manifest to agree.
+// (Module VERSIONS are safe to import — they're the input the manifest
+// depends on, not the algorithm this test is guarding.)
 function canonicalModuleString(
   moduleIds: readonly string[],
   versions: Record<string, number>,
@@ -49,17 +57,29 @@ function configHashFor(
   );
 }
 
+/// Turn a bare module-id list into the `versions` record the local copy of
+/// `canonicalModuleString` expects — versions come straight from shared/.
+function versionsFor(ids: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of ids) {
+    const v = moduleVersionFor(id);
+    if (v === undefined) throw new Error(`UNKNOWN_MODULE in shared matrix: ${id}`);
+    out[id] = v;
+  }
+  return out;
+}
+
 const CANONICAL = [
-  { label: "Permit",        base: "ERC20", modules: ["Permit"],         versions: { Permit: 1 } },
-  { label: "Vesting",       base: "ERC20", modules: ["Vesting"],        versions: { Vesting: 1 } },
-  { label: "Staking",       base: "ERC20", modules: ["Staking"],        versions: { Staking: 1 } },
-  { label: "Votes",         base: "ERC20", modules: ["Votes"],          versions: { Votes: 1 } },
-  { label: "bare",          base: "ERC20", modules: [],                 versions: {} },
-  { label: "AntiBot",       base: "ERC20", modules: ["AntiBot"],        versions: { AntiBot: 1 } },
-  { label: "AntiWhale",     base: "ERC20", modules: ["AntiWhale"],      versions: { AntiWhale: 1 } },
-  { label: "FoT",           base: "ERC20", modules: ["FeeOnTransfer"],  versions: { FeeOnTransfer: 1 } },
-  { label: "Pausable@2",    base: "ERC20", modules: ["Pausable"],       versions: { Pausable: 2 } },
-  { label: "Permit+Staking", base: "ERC20", modules: ["Permit", "Staking"], versions: { Permit: 1, Staking: 1 } },
+  { label: "Permit",         base: "ERC20", modules: ["Permit"] },
+  { label: "Vesting",        base: "ERC20", modules: ["Vesting"] },
+  { label: "Staking",        base: "ERC20", modules: ["Staking"] },
+  { label: "Votes",          base: "ERC20", modules: ["Votes"] },
+  { label: "bare",           base: "ERC20", modules: [] },
+  { label: "AntiBot",        base: "ERC20", modules: ["AntiBot"] },
+  { label: "AntiWhale",      base: "ERC20", modules: ["AntiWhale"] },
+  { label: "FoT",            base: "ERC20", modules: ["FeeOnTransfer"] },
+  { label: "Pausable@2",     base: "ERC20", modules: ["Pausable"] },
+  { label: "Permit+Staking", base: "ERC20", modules: ["Permit", "Staking"] },
 ];
 
 const RETIRED = [
@@ -78,7 +98,7 @@ const manifestSrc = readFileSync(manifestPath, "utf8").toLowerCase();
 test("URU-A09: every canonical ConfigId appears verbatim in RhConfigManifest.sol", () => {
   const missing: string[] = [];
   for (const c of CANONICAL) {
-    const hex = configHashFor(c.base, c.modules, c.versions).toLowerCase();
+    const hex = configHashFor(c.base, c.modules, versionsFor(c.modules)).toLowerCase();
     if (!manifestSrc.includes(hex)) {
       missing.push(`${c.label}: ${hex}`);
     }
@@ -115,7 +135,7 @@ test("URU-A09: manifest hex hashes have exactly one canonical + retired source",
   const hexPattern = /0x[a-f0-9]{64}/g;
   const allComputed = new Set<string>();
   for (const c of CANONICAL) {
-    allComputed.add(configHashFor(c.base, c.modules, c.versions).toLowerCase());
+    allComputed.add(configHashFor(c.base, c.modules, versionsFor(c.modules)).toLowerCase());
   }
   for (const r of RETIRED) {
     allComputed.add(

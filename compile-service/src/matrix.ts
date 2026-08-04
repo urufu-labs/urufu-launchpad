@@ -1,37 +1,114 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { z } from 'zod';
+
+import {
+  MATRIX,
+  type SharedMatrix,
+  type SharedModuleSpec,
+  type SharedParams,
+  isCompilable,
+} from '../../shared/matrix.ts';
 
 /// A single module's spec inside `shared/matrix.json`.
-export interface ModuleSpec {
-  version: number;
-  base: string[];
-  requires: string[];
-  incompatibleWith: string[];
-  flagged: string | null;
-  fragmentPath: string;
-  /// Optional. If set, the compile-service uses THIS solidity file as the base
-  /// template instead of the default per-base template (ERC20Template.sol etc.).
-  /// Currently used by the Votes module which needs the OpenZeppelin
-  /// checkpoint state baked into the base class rather than spliced in.
-  /// Without this, /compile silently emits a token that reports Votes support
-  /// but lacks delegate() / getVotes() / checkpoint history.
-  templateOverride?: string;
-  params: Record<string, unknown>;
-  abiEncode: string; // canonical Solidity signature for the module's initData slice
-}
+///
+/// URU-A09 AC #1: mirrors the shared shape so callers that were compiling
+/// against the compile-service local type continue to compile unchanged. The
+/// shared type is the authority; extending this here is a bug.
+export interface ModuleSpec extends SharedModuleSpec {}
 
-export interface Matrix {
-  version: string;
-  bases: string[];
-  mechanics: Record<string, string[]>;
-  modules: Record<string, ModuleSpec>;
-}
+/// URU-A09 AC #1: was a compile-service-local Matrix type. Now re-exported
+/// from `shared/matrix.ts` so the frontend and the server cannot drift.
+/// Extra `ui` / `capabilities` fields flow through untouched.
+export interface Matrix extends SharedMatrix {}
 
+// ---------------------------------------------------------------
+// Zod schema — layered on top of the shared JSON to catch drift.
+// ---------------------------------------------------------------
+
+// URU-A09: validate the shared JSON at process boot. The web app carries the
+// same file through its bundler without a runtime dep on zod; here we get
+// belt-and-braces validation because zod is already a compile-service dep.
+const UiParamOverlaySchema = z.object({
+  label: z.string(),
+  type: z.enum(['integer', 'address', 'string', 'boolean', 'percent', 'eth']),
+  default: z.unknown().optional(),
+  hint: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
+});
+
+const ParamSchemaSchema = z.object({
+  type: z.string().optional(),
+  minimum: z.number().optional(),
+  maximum: z.number().optional(),
+  pattern: z.string().optional(),
+  description: z.string().optional(),
+  items: z.object({ type: z.string().optional() }).passthrough().optional(),
+  ui: UiParamOverlaySchema.optional(),
+}).passthrough();
+
+const ParamsBlockSchema = z.object({
+  $schema: z.string().optional(),
+  type: z.string().optional(),
+  required: z.array(z.string()).optional(),
+  properties: z.record(z.string(), ParamSchemaSchema).optional(),
+}).passthrough();
+
+const UiModuleOverlaySchema = z.object({
+  label: z.string(),
+  category: z.enum(['token', 'nft', 'allocation', 'governance', 'hook']),
+  status: z.enum(['shipped', 'planned']),
+  description: z.string(),
+});
+
+const CapabilitiesSchema = z.object({
+  requiresOwner: z.boolean().optional(),
+  taxesTransfers: z.boolean().optional(),
+}).passthrough();
+
+const ModuleSpecSchema = z.object({
+  version: z.number().int(),
+  base: z.array(z.string()).min(1),
+  requires: z.array(z.string()),
+  incompatibleWith: z.array(z.string()),
+  flagged: z.string().nullable(),
+  fragmentPath: z.string().optional(),
+  templateOverride: z.string().optional(),
+  params: ParamsBlockSchema,
+  abiEncode: z.string(),
+  ui: UiModuleOverlaySchema,
+  capabilities: CapabilitiesSchema.optional(),
+}).passthrough();
+
+const MatrixSchema = z.object({
+  version: z.string(),
+  bases: z.array(z.string()).min(1),
+  mechanics: z.record(z.string(), z.array(z.string())),
+  modules: z.record(z.string(), ModuleSpecSchema),
+}).passthrough();
+
+// Validate the shared matrix eagerly at module load. A schema mismatch fails
+// the process boot instead of surfacing as a mid-request validation error.
+const _validated = MatrixSchema.parse(MATRIX) as SharedMatrix;
+void _validated;
+
+/// Load the matrix from disk. Preserved for callers that need the historical
+/// `loadMatrix(path)` shape (server.ts, tests). The path argument is honored
+/// so a caller can point at a different file for smoke tests, but the default
+/// shared JSON is already validated at import time (see MatrixSchema.parse
+/// above) — this pass only checks the on-disk file matches the schema.
 export function loadMatrix(matrixPath: string): Matrix {
   const raw = readFileSync(resolve(matrixPath), 'utf8');
-  const parsed = JSON.parse(raw) as Matrix;
-  return parsed;
+  const parsed = JSON.parse(raw);
+  return MatrixSchema.parse(parsed) as Matrix;
 }
+
+/// URU-A09 AC #1: the shared matrix as a compile-service-typed Matrix.
+/// Prefer this over `loadMatrix(MATRIX_PATH)` in new code — same object, no
+/// filesystem round-trip, no second validation pass.
+export const SHARED_MATRIX: Matrix = MATRIX as Matrix;
 
 export interface CompileConfig {
   base: string;
@@ -46,7 +123,8 @@ export type ValidationError =
   | { code: 'UNKNOWN_MODULE'; module: string }
   | { code: 'MODULE_WRONG_BASE'; module: string; base: string }
   | { code: 'MODULE_MISSING_REQUIRES'; module: string; missing: string[] }
-  | { code: 'MODULE_INCOMPATIBLE'; module: string; withModule: string };
+  | { code: 'MODULE_INCOMPATIBLE'; module: string; withModule: string }
+  | { code: 'MODULE_NOT_COMPILABLE'; module: string };
 
 /// Validate a config against the matrix. Throws on the first problem (single-error contract for now;
 /// upgrade to error-list when the frontend wants inline field-level feedback).
@@ -72,6 +150,12 @@ export function validateConfig(matrix: Matrix, config: CompileConfig): void {
     if (!mod.base.includes(config.base)) {
       throw new Error(`MODULE_WRONG_BASE: ${mid} does not support base ${config.base}`);
     }
+    // URU-A09: reject modules that have no `.frag.sol` fragment (post-graduation
+    // hooks like LPLocked/MultiHookHost, planned modules). Without this check
+    // the composer would blow up mid-splice with a confusing 'ENOENT'.
+    if (!isCompilable(mod)) {
+      throw new Error(`MODULE_NOT_COMPILABLE: ${mid} has no fragmentPath (hook or planned module)`);
+    }
     const missing = mod.requires.filter((r) => !config.modules.includes(r));
     if (missing.length > 0) {
       throw new Error(`MODULE_MISSING_REQUIRES: ${mid} needs ${missing.join(', ')}`);
@@ -84,7 +168,7 @@ export function validateConfig(matrix: Matrix, config: CompileConfig): void {
     // URU-A09: validate each module's params against the JSON Schema in the
     // matrix. Previously the server accepted `params` as arbitrary unknown
     // values and only the on-chain fragment would revert (mid-tx, wasting gas).
-    validateModuleParams(mid, mod.params, config.params[mid] ?? {});
+    validateModuleParams(mid, mod.params as unknown as Record<string, unknown>, config.params[mid] ?? {});
   }
 }
 
@@ -108,7 +192,7 @@ interface JsonSchema {
 /// end>cliff) are checked explicitly at the bottom.
 function validateModuleParams(
   moduleId: string,
-  rawSchema: Record<string, unknown>,
+  rawSchema: Record<string, unknown> | SharedParams,
   rawParams: Record<string, unknown>,
 ): void {
   const schema = rawSchema as JsonSchema;

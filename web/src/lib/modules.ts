@@ -1,5 +1,12 @@
 import { encodeAbiParameters, keccak256, isAddress, parseEther } from 'viem';
 import { canonicalModuleString } from '../../../shared/config-id';
+import {
+  MATRIX,
+  moduleVersionFor,
+  type SharedModuleSpec,
+  type SharedParamSchema,
+  type UiParamOverlay,
+} from '../../../shared/matrix';
 
 export type BaseType = 'ERC20' | 'ERC721A' | 'ERC1155';
 
@@ -13,7 +20,7 @@ export const BASE_TYPE_TO_UINT: Record<BaseType, 0 | 1 | 2> = {
 /// UI-facing param types.
 ///  - 'percent': user types a % (e.g. 5 for 5%), stored as %, encoded as bps (×100) into uint16.
 ///  - 'eth':     user types a decimal ETH string (e.g. "0.01"), stored as string, encoded via parseEther.
-export type ModuleParamType = 'integer' | 'address' | 'string' | 'boolean' | 'percent' | 'eth';
+export type ModuleParamType = UiParamOverlay['type'];
 
 export interface ModuleParamField {
   key: string;
@@ -67,478 +74,97 @@ export interface ModuleSpec {
   params: ModuleParamField[];
 }
 
-export const MODULES: ModuleSpec[] = [
-  {
-    id: 'AntiBot',
-    label: '✿ bot gate',
-    category: 'token',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    requiresOwner: true,
-    description:
-      "keeps snipers out for the first few blocks. only wallets u trust can grab tokens while the gate is up ~ turns off on its own after the window",
-    abiEncode: '(uint16)',
-    params: [
-      {
-        key: 'blockGate',
-        label: 'how many blocks?',
-        type: 'integer',
-        min: 0,
-        max: 100,
-        defaultValue: 5,
-        description: 'each block ≈ 12 sec on eth. 5 is normal ~ higher = safer but ppl wait longer to trade ✿',
-      },
-    ],
-  },
-  {
-    id: 'FeeOnTransfer',
-    label: '✿ tax on trade',
-    category: 'token',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    taxesTransfers: true,
-    description:
-      'every trade pays a small tax. u decide how much gets burned forever (deflation ~) vs sent to a wallet u control',
-    abiEncode: '(uint16,uint16,uint16,address)',
-    params: [
-      {
-        key: 'feeBps',
-        label: 'tax per trade (%)',
-        type: 'percent',
-        min: 0.01,
-        max: 30,
-        defaultValue: 5,
-        description: 'how much every trade pays into the tax pool. capped at 30% ~',
-      },
-      {
-        key: 'burnBps',
-        label: 'burn slice (%)',
-        type: 'percent',
-        min: 0,
-        max: 100,
-        defaultValue: 50,
-        description: 'of the tax above, how much gets destroyed forever',
-      },
-      {
-        key: 'treasuryBps',
-        label: 'wallet slice (%)',
-        type: 'percent',
-        min: 0,
-        max: 100,
-        defaultValue: 50,
-        description: 'the rest. burn + wallet must add up to exactly 100 ~',
-      },
-      {
-        key: 'treasury',
-        label: 'wallet address',
-        type: 'address',
-        defaultValue: '0x000000000000000000000000000000000000dEaD',
-        description: "where the wallet slice lands. paste ur wallet or a multisig ✿",
-      },
-    ],
-  },
-  {
-    id: 'OnChainSVG',
-    label: '✿ art lives on-chain',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC721A'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description:
-      'each nft gets rendered right on the chain — no ipfs, no server, forever. as long as ethereum exists, ur art exists ~',
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'ERC2981Royalty',
-    label: '✿ resale royalties',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC721A'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description:
-      "opensea, blur & the rest check ur royalty setting and forward a cut on every resale. enforcement is up to them tho ~",
-    abiEncode: '(address,uint96)',
-    params: [
-      {
-        key: 'receiver',
-        label: 'royalty wallet',
-        type: 'address',
-        description: 'where royalties land. u can change this after launch ✿',
-      },
-      {
-        key: 'feeBps',
-        label: 'royalty (%)',
-        type: 'percent',
-        min: 0,
-        max: 10,
-        defaultValue: 5,
-        description: 'what marketplaces send u on every resale. capped at 10%',
-      },
-    ],
-  },
-  {
-    id: 'AntiWhale',
-    label: '✿ whale caps',
-    category: 'token',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    requiresOwner: true,
-    description:
-      'caps how much any wallet can hold + how much can move in one trade. runs for N blocks after launch then turns off ~ so whales cant just camp on ur launch',
-    abiEncode: '(uint128,uint128,uint32)',
-    params: [
-      { key: 'maxWallet', label: 'max per wallet', type: 'eth', description: 'biggest wallet balance allowed while caps are on. in ur token units ~' },
-      { key: 'maxTx', label: 'max per trade', type: 'eth', description: 'biggest single transfer allowed while caps are on' },
-      { key: 'expireAfterBlocks', label: 'how many blocks?', type: 'integer', min: 0, max: 500_000, defaultValue: 1000, description: '1000 ≈ 3 hrs on eth. after this, caps turn off entirely' },
-    ],
-  },
-  {
-    id: 'Votes',
-    label: '✿ voteable token',
-    category: 'token',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: "makes ur token voteable. holders can delegate voting power to themselves or someone else. u need this if u want a dao later ~",
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'Permit',
-    label: '✿ gasless approvals',
-    category: 'token',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'lets holders approve trades with a signature instead of a whole tx (saves gas). standard on modern tokens ~',
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'Pausable',
-    label: '✿ emergency pause',
-    category: 'token',
-    status: 'shipped',
-    // URU-A02: V1 fragment exempted `from == owner()` transfers while paused,
-    // enabling an owner-only sell freeze / honeypot. V2 removes the exemption
-    // AND produces a fresh configHash so V1 clones on the live factory stay
-    // pinned to their (retired) bytecode. V1 hash is permanently banned via
-    // Router.bannedConfigHash.
-    version: 2,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: 'u can freeze everyone\'s tokens at any time. ppl see this as centralization ~',
-    requiresOwner: true,
-    description: "u can freeze all trades whenever. safety net for emergencies but ppl see the freeze switch and get spooked ~ think twice before adding",
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'DelayedReveal',
-    label: '✿ delayed reveal',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC721A'],
-    requires: [],
-    incompatibleWith: ['OnChainSVG'],
-    flagged: null,
-    description: "art stays hidden til u pull the reveal trigger. every nft shows a placeholder image until u call reveal() ~",
-    abiEncode: '(string)',
-    params: [
-      { key: 'hiddenBaseURI', label: 'placeholder art link', type: 'string', defaultValue: 'ipfs://hidden/', description: 'the image ppl see before reveal. ipfs:// or https:// both work ✿' },
-    ],
-  },
-  {
-    id: 'Soulbound',
-    label: '✿ soulbound',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC721A'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'nft can never be transferred after mint. good for badges, memberships, poaps ~ only mint + burn work',
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'Refundable',
-    label: '✿ refundable mint',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC721A'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'paid mint with a safety net. buyers can burn their nft within N blocks to get their money back — anti-rug for paid drops ✿',
-    abiEncode: '(uint256,uint32)',
-    params: [
-      { key: 'pricePerToken', label: 'price per nft (ETH)', type: 'eth', description: 'what buyers pay each. type the ETH amount ~' },
-      { key: 'refundWindowBlocks', label: 'refund window (blocks)', type: 'integer', min: 1, max: 1_000_000, defaultValue: 43_200, description: '43,200 ≈ 6 days on eth. how long buyers can burn-to-refund' },
-    ],
-  },
-  {
-    id: 'Vesting',
-    label: '✿ vesting schedule',
-    category: 'allocation',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'one wallet, one unlock schedule. tokens unlock linearly from cliff to end date ~ no reserve needed, minted as they vest',
-    abiEncode: '(address,uint256,uint64,uint64)',
-    params: [
-      { key: 'beneficiary', label: 'who gets the tokens', type: 'address', description: 'wallet that receives the vested amount ~' },
-      { key: 'totalAmount', label: 'total tokens', type: 'eth', description: 'full amount that vests over the schedule' },
-      { key: 'cliffTimestamp', label: 'cliff (unix seconds)', type: 'integer', min: 0, description: 'when unlocks start. use a unix timestamp — date pickers ship soon ~' },
-      { key: 'endTimestamp', label: 'end (unix seconds)', type: 'integer', min: 0, description: 'when everything is fully unlocked' },
-    ],
-  },
-  // Airdrop removed 2026-07-30: deployed composed impl (0x7Eb2F73…) is the
-  // V1 non-reserve-backed shape (claims MINT new tokens, inflation attack).
-  // Restore only after a V2 impl is deployed at a fresh configHash (matrix
-  // version bump). See project memory `graduator-v9-rotation-and-airdrop-removed`.
-  {
-    id: 'Staking',
-    label: '✿ staking pool',
-    category: 'allocation',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    // The compile-service currently ships only the Airdrop@2+Vesting@2 composed
-    // template. Adding Staking to that combo would need Airdrop+Staking,
-    // Vesting+Staking, or all-3 composed impls — none of those are deployed on
-    // any chain, so a launch attempting them reverts with UnknownConfig from
-    // ERC20Factory. Block those combos in the UI until we ship + register the
-    // missing impls. FeeOnTransfer was already incompatible (would tax staking
-    // reward transfers).
-    incompatibleWith: ['FeeOnTransfer', 'Vesting'],
-    flagged: null,
-    description: 'stake this token to earn more of this token. u fund the reward pool up-front, rewards stream out linearly over the window ~ (doesnt stack with tax-on-trade, airdrop, or vesting for now)',
-    abiEncode: '(uint256,uint32)',
-    params: [
-      { key: 'rewardsTotal', label: 'reward pool (tokens)', type: 'eth', description: "how many tokens ur putting up for the whole staking window" },
-      { key: 'durationSeconds', label: 'how long? (seconds)', type: 'integer', min: 1, max: 630_720_000, defaultValue: 2_592_000, description: '2,592,000 = 30 days. how long rewards stream out for' },
-    ],
-  },
-  {
-    id: 'LPLocked',
-    label: '✿ lp locked forever',
-    category: 'hook',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'liquidity gets locked in uniswap forever. no one — not even u — can pull it. classic anti-rug ~ this is why urufu labs exists',
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'FeeRedirect',
-    label: '✿ swap fee → u',
-    category: 'hook',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: ['LPLocked'],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'every uniswap swap sends a slice of the output to ur wallet (creator) and a slice to urufu labs. u claim ur fees whenever — max 30% combined',
-    abiEncode: '(address,uint16,uint16)',
-    params: [
-      { key: 'creatorReceiver', label: 'ur wallet', type: 'address', description: 'where ur cut lands. bake it right — this cant change after launch ~' },
-      { key: 'platformBps', label: 'urufu cut (%)', type: 'percent', min: 0, max: 30, defaultValue: 1, description: 'what urufu labs takes per swap ~ default 1%' },
-      { key: 'creatorBps', label: 'ur cut (%)', type: 'percent', min: 0, max: 30, defaultValue: 1, description: 'what u take per swap. up to 30%' },
-    ],
-  },
-  {
-    id: 'AntiSniper',
-    label: '✿ sniper gate',
-    category: 'hook',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'blocks trades on uniswap for the first N blocks after the pool opens. adds + minting still work — only swapping is gated. auto-expires ~',
-    abiEncode: '(uint256)',
-    params: [
-      { key: 'gateBlocks', label: 'how many blocks?', type: 'integer', min: 1, max: 100_000, defaultValue: 5, description: '5 is normal. higher = more day-0 protection from bots ~' },
-    ],
-  },
-  {
-    id: 'MultiHookHost',
-    label: '✿ lp lock + swap fee (combo)',
-    category: 'hook',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: ['LPLocked', 'FeeRedirect'],
-    flagged: null,
-    description: 'lp lock and swap fee combined into one. u need this if u want both, bc uniswap only lets one hook attach per pool ~',
-    abiEncode: '(address,uint16,uint16)',
-    params: [
-      { key: 'creatorReceiver', label: 'ur wallet', type: 'address', description: 'where ur cut lands. cant change this after launch ~' },
-      { key: 'platformBps', label: 'urufu cut (%)', type: 'percent', min: 0, max: 30, defaultValue: 1, description: 'what urufu labs takes per swap' },
-      { key: 'creatorBps', label: 'ur cut (%)', type: 'percent', min: 0, max: 30, defaultValue: 1, description: 'what u take per swap' },
-    ],
-  },
-  {
-    id: 'BuybackBurn',
-    label: '✿ buy → burn',
-    category: 'hook',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'every time someone buys ur token, a slice of the buy gets destroyed. supply shrinks a lil every trade — pure deflation flywheel ~',
-    abiEncode: '(uint16)',
-    params: [
-      { key: 'burnBps', label: 'burn (%)', type: 'percent', min: 0.01, max: 20, defaultValue: 2, description: '0.01% to 20%. slice of every buy that goes straight to dead ~' },
-    ],
-  },
+// ---------------------------------------------------------------
+// Shared → web ModuleSpec projection (URU-A09 AC #1)
+// ---------------------------------------------------------------
+//
+// The `MODULES` array below used to be a 500-line hand-maintained duplicate
+// of `shared/matrix.json`. The auditor flagged this in the Consolidated
+// system-level findings PDF (#6): two catalogs = drift. Now MODULES is a
+// pure `.map()` over the shared source. The three fields the frontend needs
+// on top of the compile-service view (`ui` overlay, `capabilities`, param
+// `ui`) live in the SAME shared JSON so there is still exactly one place
+// to edit. Drift is caught by `compile-service/src/matrix-drift.test.ts`.
 
-  // ============================================================
-  // ERC-1155 — multi-item drops
-  // ============================================================
-  {
-    id: 'SupplyPerToken1155',
-    label: '✿ per-item supply cap',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC1155'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: "cap how many of each item can exist. items u dont cap stay unlimited ~",
-    abiEncode: '(uint256[],uint256[])',
-    params: [
-      { key: 'ids', label: 'item ids (comma-separated)', type: 'string', description: 'e.g. 1,2,3' },
-      { key: 'caps', label: 'max supply per item (comma-separated)', type: 'string', description: 'same order + count as the ids ~' },
-    ],
-  },
-  {
-    id: 'PayableMint1155',
-    label: '✿ paid mint per item',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC1155'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: 'public mint at a fixed price per item. buyers send eth + get the item, u sweep proceeds later ~',
-    abiEncode: '(uint256[],uint256[])',
-    params: [
-      { key: 'ids', label: 'item ids (comma-separated)', type: 'string' },
-      { key: 'pricesWei', label: 'prices in wei (comma-separated)', type: 'string', description: 'one price per item, same order as ids. in wei bc these can be huge numbers ~' },
-    ],
-  },
-  {
-    id: 'ERC2981Royalty1155',
-    label: '✿ resale royalties (1155)',
-    category: 'nft',
-    status: 'shipped',
-    version: 1,
-    bases: ['ERC1155'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: null,
-    description: "same as the nft royalty module but for multi-item drops. same royalty applies across every item id ~",
-    abiEncode: '(address,uint96)',
-    params: [
-      { key: 'receiver', label: 'royalty wallet', type: 'address', description: 'where royalties land ~' },
-      { key: 'feeBps', label: 'royalty (%)', type: 'percent', min: 0, max: 10, defaultValue: 5, description: 'what marketplaces send u on every resale. capped at 10%' },
-    ],
-  },
+const KNOWN_BASES = new Set<BaseType>(['ERC20', 'ERC721A', 'ERC1155']);
 
-  // ============================================================
-  // Planned — Base-first compliance tier (B20 lineup)
-  // ============================================================
-  {
-    id: 'B20PolicyAware',
-    label: 'B20 — PolicyRegistry aware',
-    category: 'token',
-    status: 'planned',
-    version: 0,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: 'Reduces decentralization — every transfer is gated by an external PolicyRegistry the launcher configures. Same tradeoff as USDC-style compliance layers.',
-    description: "Defers every transfer to a Base PolicyRegistry contract. The registry decides whether msg.sender / from / to are allowed to move the token — used for KYC-gated markets, jurisdictional restrictions, and sanctions checks. Base-first (mainnet + Base Sepolia); other chains would need their own PolicyRegistry equivalent.",
-    abiEncode: '(address)',
-    params: [
-      { key: 'policyRegistry', label: 'PolicyRegistry address', type: 'address', description: 'On-chain compliance registry the token will consult on every transfer. Immutable in the deployed token.' },
-    ],
-  },
-  {
-    id: 'Blocklist',
-    label: 'Blocklist — freeze specific addresses',
-    category: 'token',
-    status: 'planned',
-    version: 0,
-    bases: ['ERC20'],
-    requires: [],
-    incompatibleWith: [],
-    flagged: 'Reduces decentralization — owner can freeze arbitrary addresses at any time. Same mechanism USDC + USDT use for sanctions compliance.',
-    description: "Owner can block any address from sending or receiving the token. Blocked addresses can still hold their balance but every transfer reverts until they're unblocked. Meant for compliance / sanctions use cases — flagged so launchers know it's a censorship vector.",
-    abiEncode: '()',
-    params: [],
-  },
-  {
-    id: 'Jailable',
-    label: 'Jailable — recover seized funds',
-    category: 'token',
-    status: 'planned',
-    version: 0,
-    bases: ['ERC20'],
-    requires: ['Blocklist'],
-    incompatibleWith: [],
-    flagged: 'Reduces decentralization — owner can seize tokens from any address (typically already blocklisted). The strongest censorship primitive we offer.',
-    description: "Owner can move tokens out of a blocklisted address into a designated recovery address. Used to reclaim funds from sanctioned wallets or compromised accounts. Requires the Blocklist module — you can only jail tokens from an already-frozen address. Flagged as the strongest censorship primitive.",
-    abiEncode: '()',
-    params: [],
-  },
-];
+function toBase(name: string): BaseType {
+  if (!KNOWN_BASES.has(name as BaseType)) {
+    throw new Error(`unknown base '${name}' in shared matrix`);
+  }
+  return name as BaseType;
+}
+
+function paramFieldsFor(spec: SharedModuleSpec): ModuleParamField[] {
+  const properties = spec.params?.properties ?? {};
+  const required = spec.params?.required ?? [];
+  // Preserve the required-order for positional abi encoding, then append any
+  // extra (optional) properties in declaration order.
+  const orderedKeys: string[] = [];
+  for (const k of required) {
+    if (k in properties) orderedKeys.push(k);
+  }
+  for (const k of Object.keys(properties)) {
+    if (!orderedKeys.includes(k)) orderedKeys.push(k);
+  }
+  return orderedKeys.map((key) => paramField(key, properties[key]!));
+}
+
+function paramField(key: string, prop: SharedParamSchema): ModuleParamField {
+  const ui = prop.ui;
+  const fallbackType = fallbackParamType(prop.type);
+  return {
+    key,
+    label: ui?.label ?? key,
+    type: ui?.type ?? fallbackType,
+    // UI-side min/max is in user units (percent / ETH), which may differ
+    // from the JSON-schema bps/wei bounds. Prefer the overlay; fall back
+    // to schema numbers so the input still bounds sensibly.
+    min: ui?.min ?? prop.minimum,
+    max: ui?.max ?? prop.maximum,
+    step: ui?.step,
+    defaultValue: ui?.default,
+    description: ui?.hint ?? prop.description,
+  };
+}
+
+function fallbackParamType(t: string | undefined): ModuleParamType {
+  switch (t) {
+    case 'integer': return 'integer';
+    case 'boolean': return 'boolean';
+    // string/array/undefined → free-text; percent/eth must always come
+    // through the ui overlay, never from the JSON schema type.
+    default: return 'string';
+  }
+}
+
+function toModuleSpec(id: string, spec: SharedModuleSpec): ModuleSpec {
+  const caps = spec.capabilities ?? {};
+  return {
+    id,
+    label: spec.ui.label,
+    category: spec.ui.category,
+    status: spec.ui.status,
+    version: spec.version,
+    bases: spec.base.map(toBase),
+    requires: [...spec.requires],
+    incompatibleWith: [...spec.incompatibleWith],
+    flagged: spec.flagged,
+    requiresOwner: caps.requiresOwner || undefined,
+    taxesTransfers: caps.taxesTransfers || undefined,
+    description: spec.ui.description,
+    abiEncode: spec.abiEncode,
+    params: paramFieldsFor(spec),
+  };
+}
+
+/// The full module catalog, derived at import time from `shared/matrix.json`.
+/// Do NOT hand-maintain entries here — edit the shared JSON. Any drift
+/// between this array and the shared file is a bug and fails the
+/// `matrix-drift.test.ts` in compile-service.
+export const MODULES: ModuleSpec[] = Object.keys(MATRIX.modules).map((id) =>
+  toModuleSpec(id, MATRIX.modules[id]!),
+);
 
 export function modulesForBase(base: BaseType): ModuleSpec[] {
   return MODULES.filter((m) => m.bases.includes(base));
@@ -564,13 +190,10 @@ export function moduleById(id: string): ModuleSpec | undefined {
 ///      existing v1 impls on the same factory (`registerImpl` reverts on
 ///      duplicate). Backward-compatible by construction.
 export function configHashFor(base: BaseType, moduleIds: readonly string[]): `0x${string}` {
-  // URU-A08: identity is shared. Both this call site and the compile-service
-  // pull from `shared/config-id.ts::canonicalModuleString` so a divergence in
-  // one file cannot ship without breaking both simultaneously.
-  const modulesStr = canonicalModuleString(
-    moduleIds,
-    (id) => moduleById(id)?.version,
-  );
+  // URU-A08 + A09: identity + version lookup both come from `shared/`. The
+  // web app no longer carries its own version numbers — `moduleVersionFor`
+  // reads straight from `shared/matrix.json`.
+  const modulesStr = canonicalModuleString(moduleIds, moduleVersionFor);
   return keccak256(
     encodeAbiParameters(
       [{ type: 'string' }, { type: 'string' }],

@@ -2,9 +2,28 @@
 
 > **The composable token launchpad.** Users pick a base (ERC-20, ERC-721A, ERC-1155), stack audited feature modules, choose a launch mechanic (bare or bonding curve), and deploy real Solidity in one transaction. Bonding-curve launches graduate to Uniswap v4 with LP locked forever and swap fees routed through the urufu gemu flywheel.
 
-**Status:** Audit round 3 complete (2026-08-03). External audit re-review pending. **DO NOT DEPLOY** the patched code until sign-off. Live V7 stack on Robinhood chain 4663 is still operational but URU launches are soft-disabled via emergency mitigation.
+**Status:** Audit round 3 v4 complete (2026-08-04). Every URU-Axx acceptance criterion + every page-10 additional-defect item from the auditor's `Consolidated system-level findings.pdf` is closed at source-level enforcement AND covered by an executable test. External audit re-review pending. **DO NOT DEPLOY** the patched code until sign-off. Live V7 stack on Robinhood chain 4663 is still operational but URU launches are soft-disabled via emergency mitigation.
 
-**Test state:** `forge test -j 2` → 651 pass, 0 fail. Fork tests against live Robinhood chain 4663 → 54 pass, 1 skip (pre-existing URUFU-orphan skip).
+**Test state (round-3-v4):**
+- Contracts non-fork (`forge test -j 2`): **716 pass, 0 fail**
+- Contracts fork suites vs live Robinhood chain 4663: **59 pass, 1 skip** (audit fork 50 + integration fork 9; skip is pre-existing URUFU-orphan)
+- Compile-service (`node --test 'src/*.test.ts'`): **39 pass, 0 fail** (URU-A06 crash recovery, URU-A07 available math, URU-A09 shared→manifest drift, tempdir + concurrency, WL snapshot truncation)
+- Slither: **0 High**, 56 Medium, 46 Low (High-gate blocks CI on regression)
+- Web + compile-service typecheck: clean
+
+**Anti-rug guarantees enforced ON-CHAIN** (not just in the frontend — the audit's page-1 concern):
+- Router rejects curve launches with any non-Renounce ownership, any `FLAG_REQUIRES_OWNER` config, out-of-range antiSniper / buybackBurn params, missing metadata, or banned hashes — all four launch entrypoints (`launch`, `launchWithURU`, `launchWithWhitelist`, `launchWithURUAndWhitelist`).
+- Pausable V2 no longer exempts owner-origin transfers. V1 hash `0xa831…803a` permanently banned via `Router.bannedConfigHash`.
+- Bonding curves cannot leave whitelist buyers or ETH trapped: reserve floor enforced, actual-supply reachability validated, non-zero Graduator required at creation.
+- Factory registration binds `configHash → keccak256(impl.code)` via one-shot owner-pinned `expectedCodeHash`. Rogue registrar can't bind arbitrary bytecode.
+- Every economic setter (FeeSplitter, UruDepositSink, UruBuybackVault, NftRevenueVault) requires a matured propose → activate cycle. `AdminChangeApplied` events pair with `Proposed`/`Cancelled` so monitors enumerate the pending set.
+- Reentrancy guards on `executeBuyback` + `executeConversion`.
+
+**Full technical reference:** [`docs/LAUNCHPAD-FULL-SCOPE.md`](./docs/LAUNCHPAD-FULL-SCOPE.md) — audit-round-by-audit-round history + every mechanic. Read this before touching anything security-critical.
+
+**Known limitations acknowledged:**
+- **Indexer** (`indexer/`) filters v4 swaps to the platform's own swap router and skips administrative events by design. Do NOT use indexer output as a complete security or volume authority — it is a UX-facing feed, not a source of truth.
+- **Whitelist snapshots** (compile-service `wl-snapshot.ts`) default to fail-loud when Blockscout truncates or the block-drift budget is exceeded. Callers who want partial data must pass `allowPartial: true` explicitly.
 
 **Full technical reference:** [`docs/LAUNCHPAD-FULL-SCOPE.md`](./docs/LAUNCHPAD-FULL-SCOPE.md) — 2700+ lines covering every contract, mechanic, fee flow, and structural gap. Read this before touching anything security-critical.
 
