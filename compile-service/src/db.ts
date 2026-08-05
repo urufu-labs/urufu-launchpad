@@ -152,6 +152,10 @@ export async function migrate(): Promise<void> {
   // rows keep working; new rows carry both.
   await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS snapshot_block bigint`;
   await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS expected_holder_count integer`;
+  // Round-6 audit H3: separate final provenance for the activation tx of a
+  // propose/activate epoch (the existing `tx_hash` column carries the propose
+  // tx). Nullable so pre-activation rows + addEpoch-path rows both stay valid.
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS activation_tx_hash text`;
 
   // Auto-backfill: any epoch-N JSON that shipped in contracts/tmp/epoch/ gets
   // seeded on startup if the corresponding (chain_id, epoch_id) row doesn't

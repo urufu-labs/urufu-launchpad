@@ -13,6 +13,7 @@ interface ISafeMultiSendCallOnly {
 }
 
 interface IRegistryCutover {
+    function router() external view returns (address);
     function pendingRouter() external view returns (address);
     function pendingRouterTs() external view returns (uint256);
     function owner() external view returns (address);
@@ -21,6 +22,7 @@ interface IRegistryCutover {
 
 interface IFactoryCutover {
     function owner() external view returns (address);
+    function router() external view returns (address);
     function setRouter(
         address newRouter
     ) external;
@@ -77,6 +79,15 @@ contract BuildRouterCutoverSafeBatch is Script {
     error Cutover__ManifestNotSeeded(bytes32 configHash, string what);
     error Cutover__RetiredHashNotBanned(bytes32 configHash);
     error Cutover__NewRouterNotTrusted(address router);
+
+    // URU-A-H4: starting-state preflight — proves the cutover is operating
+    // on the CURRENT live wiring, not a stale/mixed configuration. Without
+    // these, an operator with the wrong `ROBINHOOD_OLD_ROUTER_ADDRESS` (or
+    // in the middle of a half-finished manual migration) could still emit a
+    // payload whose subcalls "succeed" but leave the real live wires wrong.
+    error Preflight__RegistryPointsAtWrongRouter(address expected, address actual);
+    error Preflight__FactoryPointsAtWrongRouter(address factory, address expected, address actual);
+    error Preflight__OldRouterNotTrusted(address curveFactory, address oldRouter);
 
     struct Inputs {
         address safe;
@@ -262,6 +273,31 @@ contract BuildRouterCutoverSafeBatch is Script {
 
         if (!ICurveFactoryCutover(i.curveFactory).trustedRouters(i.newRouter)) {
             revert Cutover__NewRouterNotTrusted(i.newRouter);
+        }
+
+        // URU-A-H4: starting-state assertions. Order matches the write order
+        // of the batch subcalls (registry → factories → curveFactory), so
+        // the earliest mismatched wire fails fast with a specific selector.
+        // Every check answers the same question: "is the wire I'm about to
+        // mutate currently in the state the batch assumes it starts from?"
+        address actualRegistryRouter = IRegistryCutover(i.registry).router();
+        if (actualRegistryRouter != i.oldRouter) {
+            revert Preflight__RegistryPointsAtWrongRouter(i.oldRouter, actualRegistryRouter);
+        }
+        address actualErc20Router = IFactoryCutover(i.erc20Factory).router();
+        if (actualErc20Router != i.oldRouter) {
+            revert Preflight__FactoryPointsAtWrongRouter(i.erc20Factory, i.oldRouter, actualErc20Router);
+        }
+        address actualErc721Router = IFactoryCutover(i.erc721Factory).router();
+        if (actualErc721Router != i.oldRouter) {
+            revert Preflight__FactoryPointsAtWrongRouter(i.erc721Factory, i.oldRouter, actualErc721Router);
+        }
+        address actualErc1155Router = IFactoryCutover(i.erc1155Factory).router();
+        if (actualErc1155Router != i.oldRouter) {
+            revert Preflight__FactoryPointsAtWrongRouter(i.erc1155Factory, i.oldRouter, actualErc1155Router);
+        }
+        if (!ICurveFactoryCutover(i.curveFactory).trustedRouters(i.oldRouter)) {
+            revert Preflight__OldRouterNotTrusted(i.curveFactory, i.oldRouter);
         }
     }
 

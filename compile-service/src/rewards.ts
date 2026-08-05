@@ -14,6 +14,8 @@
 /// the vault owner today, so it has permission to call addEpoch. Rotate later by
 /// transferring vault ownership + updating the env var.
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import { MerkleTree } from 'merkletreejs';
 import { keccak_256 } from '@noble/hashes/sha3';
 import {
@@ -119,14 +121,24 @@ function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Add
 /// vs matured branches) and the journal-column INSERT — both live below the
 /// env-driven boundary. Rather than plumb an options bag through every public
 /// signature (which would ripple into `server.ts`, `keeper.ts` and every
-/// existing route handler), we expose a single module-level override slot.
+/// existing route handler), we scope test overrides through an
+/// AsyncLocalStorage so parallel test suites cannot clobber each other.
+///
+/// Round-6 audit H1: the prior implementation used a mutable module-level
+/// override slot (`_setTestOverrides`). Under `node:test`'s concurrent runner
+/// two overlapping tests could stomp each other's fakes — the second setter
+/// would replace the first's sql / wallet / pub, and any resolver call
+/// scheduled from the first test after the swap would silently read the
+/// wrong fake. Switching to AsyncLocalStorage binds overrides to the
+/// callback's async chain, so each `_withTestOverrides` scope sees its own
+/// store even when many run in parallel.
 ///
 /// TEST-ONLY. Never call from production code. Guarded only by documentation
 /// on purpose — NODE_ENV is not a security boundary; operators legitimately
 /// set NODE_ENV=production for CI test runs, so gating on it would either
-/// break tests or make the override active in prod. The slot defaults to
-/// empty, so a production process that never calls `_setTestOverrides` behaves
-/// exactly as before.
+/// break tests or make the override active in prod. Prod never enters an
+/// `_withTestOverrides` scope, so `getStore()` returns undefined and the
+/// resolvers fall through to the real bindings.
 export interface RewardsTestOverrides {
   sql?: unknown;
   publicClientFor?: (cfg: ChainConfig) => PublicClient;
@@ -134,23 +146,34 @@ export interface RewardsTestOverrides {
   fetchHolders?: (cfg: ChainConfig, pub: PublicClient) => Promise<Holder[]>;
 }
 
-let _rewardsOverrides: RewardsTestOverrides = {};
+const _testOverridesAls = new AsyncLocalStorage<RewardsTestOverrides>();
 
-export function _setTestOverrides(overrides: RewardsTestOverrides = {}): void {
-  _rewardsOverrides = overrides;
+/// Run `callback` inside an AsyncLocalStorage scope whose store carries
+/// `overrides`. Every resolver below reads from `getStore()`, so any async
+/// chain descended from `callback` (including deeply-nested awaits inside
+/// `publishEpoch`) sees the same overrides — and code running on a sibling
+/// scope is completely unaffected. Returns whatever `callback` returns.
+export function _withTestOverrides<T>(
+  overrides: RewardsTestOverrides,
+  callback: () => Promise<T>,
+): Promise<T> {
+  return _testOverridesAls.run(overrides, callback);
 }
 
 function _resolveSql(): unknown {
-  return _rewardsOverrides.sql ?? sql;
+  return _testOverridesAls.getStore()?.sql ?? sql;
 }
 function _resolvePublicClientFor(cfg: ChainConfig): PublicClient {
-  return (_rewardsOverrides.publicClientFor ?? publicClientFor)(cfg);
+  const store = _testOverridesAls.getStore();
+  return (store?.publicClientFor ?? publicClientFor)(cfg);
 }
 function _resolveWalletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Address } {
-  return (_rewardsOverrides.walletClientFor ?? walletClientFor)(cfg);
+  const store = _testOverridesAls.getStore();
+  return (store?.walletClientFor ?? walletClientFor)(cfg);
 }
 function _resolveFetchHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
-  return (_rewardsOverrides.fetchHolders ?? fetchGemuHolders)(cfg, pub);
+  const store = _testOverridesAls.getStore();
+  return (store?.fetchHolders ?? fetchGemuHolders)(cfg, pub);
 }
 
 // ---------------------------------------------------------------- snapshot query
@@ -758,12 +781,41 @@ export async function publishEpoch(opts: {
   });
 }
 
+/// Round-6 audit H3: thrown by `_activatePendingProposal` when the local
+/// journal row for the on-chain pending proposal is missing, in the wrong
+/// status, or disagrees with the on-chain root / total. Exported so callers
+/// (keeper loop, tests, ops tooling) can distinguish this fail-closed refusal
+/// from a genuine tx failure without string-matching. Carries `reason` in
+/// `.reason` so log lines can key on the specific mismatch.
+export class EpochActivationJournalMismatch extends Error {
+  readonly reason: string;
+  readonly epochId: number;
+  constructor(epochId: number, reason: string) {
+    super(`refusing to activate epoch ${epochId}: ${reason}`);
+    this.name = 'EpochActivationJournalMismatch';
+    this.reason = reason;
+    this.epochId = epochId;
+  }
+}
+
 /// Round-2 audit FINDING 1: shared activation core. Called by `publishEpoch`
 /// (when its opening reconcile finds a matured proposal) and by the keeper's
 /// activation loop. Assumes the caller has already read `pendingEpoch()` and
-/// confirmed maturity. Idempotent w.r.t. the journal row — falls back to a
-/// synthetic response if the journal is empty (e.g. a proposal that landed
-/// out-of-band from our publisher).
+/// confirmed maturity.
+///
+/// Round-6 audit H3: fail-closed against the local proof journal. Before
+/// signing `activateEpoch()` we REQUIRE a journal row for (chainId, epochId)
+/// whose status is 'broadcast' AND whose merkle_root + total_amount match the
+/// on-chain pending values byte-for-byte. If any check fails we throw
+/// `EpochActivationJournalMismatch` and never send a tx — an operator must
+/// investigate before we activate a proposal we don't have the proofs for.
+/// Prior behaviour tolerated a missing row (proposal was activated first,
+/// journal row filled in after), which meant the keeper would happily
+/// activate an out-of-band root and then find it had no proofs to serve.
+///
+/// After a successful activation we UPDATE the journal row's
+/// `activation_tx_hash` column so the activation tx is final provenance —
+/// prior code only carried the propose tx hash.
 async function _activatePendingProposal(
   cfg: ChainConfig,
   pub: PublicClient,
@@ -771,6 +823,48 @@ async function _activatePendingProposal(
   pending: readonly [bigint, Hex, bigint, bigint],
 ): Promise<PublishResult> {
   const [expectedEpochId, pRoot, pTotal /* readyAt is checked by caller */] = pending;
+  const epochIdNum = Number(expectedEpochId);
+
+  // Round-6 audit H3: load + validate the journal row BEFORE signing.
+  const rowsPre = (await db`
+    SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash, block_number::text, status
+    FROM app.rewards_publications
+    WHERE chain_id = ${cfg.chainId} AND epoch_id = ${epochIdNum}
+  `) as Array<{
+    epoch_id: number;
+    merkle_root: string;
+    total_amount: string;
+    holder_count: number;
+    tx_hash: string | null;
+    block_number: string | null;
+    status: 'pending' | 'broadcast' | 'confirmed' | 'conflict' | 'reverted';
+  }>;
+  const journalRow = rowsPre[0];
+  if (!journalRow) {
+    throw new EpochActivationJournalMismatch(
+      epochIdNum,
+      'no journal row for on-chain pending proposal',
+    );
+  }
+  if (journalRow.status !== 'broadcast') {
+    throw new EpochActivationJournalMismatch(
+      epochIdNum,
+      `journal row status is "${journalRow.status}", expected "broadcast"`,
+    );
+  }
+  if (journalRow.merkle_root.toLowerCase() !== pRoot.toLowerCase()) {
+    throw new EpochActivationJournalMismatch(
+      epochIdNum,
+      `merkle_root mismatch: journal=${journalRow.merkle_root}, onchain=${pRoot}`,
+    );
+  }
+  if (journalRow.total_amount !== pTotal.toString()) {
+    throw new EpochActivationJournalMismatch(
+      epochIdNum,
+      `total_amount mismatch: journal=${journalRow.total_amount}, onchain=${pTotal.toString()}`,
+    );
+  }
+
   const { wallet, account } = _resolveWalletClientFor(cfg);
   const data = encodeFunctionData({ abi: vaultAbi, functionName: 'activateEpoch', args: [] });
   const txHash = await wallet.sendTransaction({
@@ -782,27 +876,21 @@ async function _activatePendingProposal(
   const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== 'success') throw new Error(`activateEpoch tx reverted: ${txHash}`);
 
-  // Promote the journal row (its status was 'broadcast' after proposeEpoch).
-  const row = (await db`
-    SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash, block_number::text
-    FROM app.rewards_publications
-    WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(expectedEpochId)}
-  `) as Array<{
-    epoch_id: number;
-    merkle_root: string;
-    total_amount: string;
-    holder_count: number;
-    tx_hash: string | null;
-    block_number: string | null;
-  }>;
-  if (row[0]) await finalizePublication(db, cfg, row[0]);
+  // Promote the journal row (its status was 'broadcast' after proposeEpoch)
+  // and record the activation tx hash as final provenance (H3 AC #4).
+  await finalizePublication(db, cfg, journalRow);
+  await db`
+    UPDATE app.rewards_publications
+    SET activation_tx_hash = ${txHash}, updated_at = now()
+    WHERE chain_id = ${cfg.chainId} AND epoch_id = ${epochIdNum}
+  `;
 
   return {
     chainId: cfg.chainId,
-    epochId: Number(expectedEpochId),
+    epochId: epochIdNum,
     merkleRoot: pRoot,
     totalAmount: pTotal.toString(),
-    holderCount: row[0]?.holder_count ?? 0,
+    holderCount: journalRow.holder_count,
     txHash,
     blockNumber: receipt.blockNumber.toString(),
   };
@@ -892,14 +980,30 @@ export async function reconcilePendingForConfig(
       await finalizePublication(db, cfg, row);
       continue;
     }
-    // Case B: a different non-zero root landed at this epoch id → conflict.
+    // Case B: something non-zero landed at this epoch id but doesn't match
+    // us — either a different root, OR our root with a different total. Both
+    // are conflicts: we cannot serve proofs against a tree we didn't build.
+    // Leaves are DELIBERATELY preserved (Round-6 audit H3 AC #2) so the row
+    // stands as forensic evidence of what we intended vs. what landed.
     if (root.toLowerCase() !== ZERO_ROOT) {
+      const rootMatches = root.toLowerCase() === row.merkle_root.toLowerCase();
+      const reason = rootMatches
+        ? `total mismatch: journal=${row.total_amount}, onchain=${total.toString()}`
+        : `root mismatch: journal=${row.merkle_root}, onchain=${root}`;
+      console.log(
+        JSON.stringify({
+          rewards: 'reconcile',
+          epochId: row.epoch_id,
+          state: 'conflict',
+          reason,
+        }),
+      );
       await db`
         UPDATE app.rewards_publications
         SET status = 'conflict', updated_at = now()
         WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}
       `;
-      throw new Error(`reward publication conflict at epoch ${row.epoch_id}`);
+      throw new Error(`reward publication conflict at epoch ${row.epoch_id}: ${reason}`);
     }
     // Case C: no on-chain epoch at this id. Interpretation depends on the
     // journal-row status.

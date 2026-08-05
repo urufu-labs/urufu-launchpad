@@ -80,6 +80,24 @@ const CANONICAL = [
   { label: "FoT",            base: "ERC20", modules: ["FeeOnTransfer"] },
   { label: "Pausable@2",     base: "ERC20", modules: ["Pausable"] },
   { label: "Permit+Staking", base: "ERC20", modules: ["Permit", "Staking"] },
+  // Round 6: 10 additional curve-compatible pair templates generated via
+  // the splicer to close the customize-mode coverage gap. Every user-
+  // selectable 2-module ERC20 combo (except Staking+Vesting, which is
+  // marked incompatible in shared/matrix.json) now has a template on
+  // disk + a graduation test. Note: AntiBot+Permit and Permit+Vesting
+  // templates also exist on disk but are NOT manifest-registered on
+  // fresh deploys yet — pre-existing gap tracked separately, do NOT add
+  // them here until they land in the manifest.
+  { label: "AntiBot+Staking",      base: "ERC20", modules: ["AntiBot", "Staking"] },
+  { label: "AntiBot+Vesting",      base: "ERC20", modules: ["AntiBot", "Vesting"] },
+  { label: "AntiBot+Votes",        base: "ERC20", modules: ["AntiBot", "Votes"] },
+  { label: "AntiWhale+Permit",     base: "ERC20", modules: ["AntiWhale", "Permit"] },
+  { label: "AntiWhale+Staking",    base: "ERC20", modules: ["AntiWhale", "Staking"] },
+  { label: "AntiWhale+Vesting",    base: "ERC20", modules: ["AntiWhale", "Vesting"] },
+  { label: "AntiWhale+Votes",      base: "ERC20", modules: ["AntiWhale", "Votes"] },
+  { label: "Permit+Votes",         base: "ERC20", modules: ["Permit", "Votes"] },
+  { label: "Staking+Votes",        base: "ERC20", modules: ["Staking", "Votes"] },
+  { label: "Vesting+Votes",        base: "ERC20", modules: ["Vesting", "Votes"] },
 ];
 
 const RETIRED = [

@@ -357,6 +357,115 @@ contract RhRotationRehearsalForkTest is Test {
         );
     }
 
+    /// URU-A-H4 regression #1 — "stale env" failure mode. Operator sets
+    /// `ROBINHOOD_OLD_ROUTER_ADDRESS` to the WRONG address (not the router
+    /// the live registry currently points at). Every existing subcall would
+    /// still "succeed" on-chain — `setRouter(new)` doesn't verify what the
+    /// factory used to hold; `setTrustedRouter(wrongOld, false)` no-ops the
+    /// wrong slot — but the real old Router would remain trusted and the
+    /// launchpad would be in split-brain. Starting-state preflight has to
+    /// fail fast with `Preflight__RegistryPointsAtWrongRouter` BEFORE any
+    /// payload is emitted.
+    function test_Phase2_PreflightRejectsStaleOldRouterEnv() public {
+        DeployRouter.Deployed memory out = _runPhase1();
+        vm.warp(freshRegistry.pendingRouterTs() + 1);
+        _transferOwnershipsToSafe(
+            out.routerV2,
+            /*includeOldRouter=*/
+            true
+        );
+
+        // Pick a wrong `oldRouter` that has code (so the code-existence
+        // check passes) and is Safe-owned (so `_requireOwner` for oldRouter
+        // when skipPauseOld==false also passes). ERC20_FACTORY fits both:
+        // it was just handed to mockSafe in `_transferOwnershipsToSafe`.
+        // The registry still points at the REAL OLD_ROUTER, so the new
+        // starting-state check must fire.
+        BuildRouterCutoverSafeBatch.TestArgs memory a = _buildBatchTestArgs(
+            out.routerV2,
+            /*skipPauseOld=*/
+            false
+        );
+        a.oldRouter = ERC20_FACTORY;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BuildRouterCutoverSafeBatch.Preflight__RegistryPointsAtWrongRouter.selector, ERC20_FACTORY, OLD_ROUTER
+            )
+        );
+        safeBatchBuilder.runForTest(a);
+    }
+
+    /// URU-A-H4 regression #2 — "partial migration" failure mode. Someone
+    /// (or something) rewired a per-base factory outside the Safe batch
+    /// before the batch runs. Preflight must catch it: without this check,
+    /// the batch's `setRouter(new)` would silently re-write the already-new
+    /// value while the OTHER wires still assume the factories start at OLD.
+    function test_Phase2_PreflightRejectsPartialFactoryMigration() public {
+        DeployRouter.Deployed memory out = _runPhase1();
+        vm.warp(freshRegistry.pendingRouterTs() + 1);
+        _transferOwnershipsToSafe(
+            out.routerV2,
+            /*includeOldRouter=*/
+            true
+        );
+
+        // Half-finished migration: ERC20 factory already flipped to the new
+        // Router. The other two per-base factories are untouched.
+        vm.prank(address(mockSafe));
+        IFactoryLike(ERC20_FACTORY).setRouter(out.routerV2);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BuildRouterCutoverSafeBatch.Preflight__FactoryPointsAtWrongRouter.selector,
+                ERC20_FACTORY,
+                OLD_ROUTER,
+                out.routerV2
+            )
+        );
+        safeBatchBuilder.runForTest(
+            _buildBatchTestArgs(
+                out.routerV2,
+                /*skipPauseOld=*/
+                false
+            )
+        );
+    }
+
+    /// URU-A-H4 regression #3 — "old already untrusted" failure mode. An
+    /// operator flipped `setTrustedRouter(old, false)` outside the Safe
+    /// batch. The batch's untrust subcall would then be a no-op AND the
+    /// batch would proceed as if the untrust was its own effect. Preflight
+    /// must catch it so the batch is not emitted from an inconsistent
+    /// starting state.
+    function test_Phase2_PreflightRejectsOldRouterAlreadyUntrusted() public {
+        DeployRouter.Deployed memory out = _runPhase1();
+        vm.warp(freshRegistry.pendingRouterTs() + 1);
+        _transferOwnershipsToSafe(
+            out.routerV2,
+            /*includeOldRouter=*/
+            true
+        );
+
+        // Simulate partial migration on the CurveFactory dimension: old
+        // Router already untrusted before the atomic Safe cutover runs.
+        vm.prank(address(mockSafe));
+        CurveFactory(CURVE_FACTORY).setTrustedRouter(OLD_ROUTER, false);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BuildRouterCutoverSafeBatch.Preflight__OldRouterNotTrusted.selector, CURVE_FACTORY, OLD_ROUTER
+            )
+        );
+        safeBatchBuilder.runForTest(
+            _buildBatchTestArgs(
+                out.routerV2,
+                /*skipPauseOld=*/
+                false
+            )
+        );
+    }
+
     function test_Phase2_ActivateCutsOverAtomically() public {
         DeployRouter.Deployed memory out = _runPhase1();
 

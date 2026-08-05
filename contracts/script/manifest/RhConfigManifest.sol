@@ -96,7 +96,7 @@ library RhConfigManifest {
     /// When Airdrop V2 ships, register at a NEW configHash (tagged with the
     /// version suffix per `configHashFor` V2 branch); do not reuse the retired
     /// V1 hashes.
-    uint256 internal constant COUNT = 10;
+    uint256 internal constant COUNT = 20;
     uint256 internal constant RETIRED_COUNT = 4;
 
     /// Every configHash that must be BANNED on every Router deploy / rotation.
@@ -205,6 +205,86 @@ library RhConfigManifest {
             moduleCount: 2,
             flags: 0,
             label: "Permit+Staking"
+        });
+
+        // -----------------------------------------------------------------
+        // Round-6 audit coverage: the 10 valid 2-module composed templates
+        // the compile-service can splice on-demand from the token/allocation
+        // modules { AntiBot, AntiWhale, Permit, Votes, Staking, Vesting }.
+        // Alphabetical sort of module ids -> csv -> hash (V1 formula, matches
+        // web/src/lib/modules.ts:configHashFor).
+        //
+        // Staking + Vesting is intentionally omitted: matrix.json declares
+        // Staking.incompatibleWith = ["FeeOnTransfer", "Vesting"] so
+        // validateConfig rejects the compose in the compile-service. Never
+        // reaches users; no manifest entry needed.
+        //
+        // FLAG_REQUIRES_OWNER carries the URU-A01 gate: any config exposing
+        // an owner-only post-launch setter (AntiBot's setAntiBotAllowed,
+        // AntiWhale's setAntiWhaleExcluded) is rejected as a curve pair by
+        // Router._validateLaunchPolicy. Direct launches (installBondingCurve
+        // = false) still work; only the curve-and-graduate flow is blocked
+        // for the launcher's own censorship-lever protection.
+        // -----------------------------------------------------------------
+        entries[10] = Entry({
+            configHash: 0x779e0a134de790a01351aa2994122107925563df8cb3154654c07dd124439fbe,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiBot+Staking"
+        });
+        entries[11] = Entry({
+            configHash: 0x8e63f0828205bf8bd2aecdaa7ee6e3876cd7426be3a80e83c1817a03ac4b5e6c,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiBot+Vesting"
+        });
+        entries[12] = Entry({
+            configHash: 0xca3f275973524fe09fe4f21db01550a38089589b662cd97659cd3ebce2363707,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiBot+Votes"
+        });
+        entries[13] = Entry({
+            configHash: 0xb972cf598b9a40841c562e5db354dffad58376610e9a6ccb22a173573a010c0d,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiWhale+Permit"
+        });
+        entries[14] = Entry({
+            configHash: 0xb2344b3135a2516ab2b2871ee007f3fc34bcff060b98d488ae3a5e8bfe68c7ba,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiWhale+Staking"
+        });
+        entries[15] = Entry({
+            configHash: 0xb09a3a1c183d279dd7ab8316681afd97f6d1df777c168b77e2a829948a055487,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiWhale+Vesting"
+        });
+        entries[16] = Entry({
+            configHash: 0x258c2a36d154023edfdb4394159e5fc7aac98f82970261b9b1572648471982cc,
+            moduleCount: 2,
+            flags: FLAG_REQUIRES_OWNER,
+            label: "AntiWhale+Votes"
+        });
+        entries[17] = Entry({
+            configHash: 0xacb5f4d792116138707209dc606c347b789a07b3d8d7adbadd3a8268dcce8787,
+            moduleCount: 2,
+            flags: 0,
+            label: "Permit+Votes"
+        });
+        entries[18] = Entry({
+            configHash: 0xf08606a43a6697520afe74b387cdeb19d854c09cb6d572a4a835880dc7df4ab0,
+            moduleCount: 2,
+            flags: 0,
+            label: "Staking+Votes"
+        });
+        entries[19] = Entry({
+            configHash: 0x11a2de7b67a38f7790d845ee94eaafd875f1a04a2e2646178fe666649de268ab,
+            moduleCount: 2,
+            flags: 0,
+            label: "Vesting+Votes"
         });
     }
 

@@ -30,6 +30,21 @@ import {ERC20WithVotesGen} from "src/templates/composed/ERC20WithVotesGen.sol";
 import {ERC20WithPausableGen} from "src/templates/composed/ERC20WithPausableGen.sol";
 import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTransferGen.sol";
 import {ERC20WithPermitStakingGen} from "src/templates/composed/ERC20WithPermitStakingGen.sol";
+// Round-6 audit coverage: the 10 pair combos the compile-service can splice
+// on-demand from {AntiBot, AntiWhale, Permit, Votes, Staking, Vesting}.
+// Staking + Vesting is intentionally omitted per matrix.json incompatibility
+// (Staking.incompatibleWith includes "Vesting"). See RhConfigManifest for
+// the corresponding manifest entries — order below MUST match manifest order.
+import {ERC20WithAntiBotStakingGen} from "src/templates/composed/ERC20WithAntiBotStakingGen.sol";
+import {ERC20WithAntiBotVestingGen} from "src/templates/composed/ERC20WithAntiBotVestingGen.sol";
+import {ERC20WithAntiBotVotesGen} from "src/templates/composed/ERC20WithAntiBotVotesGen.sol";
+import {ERC20WithAntiWhalePermitGen} from "src/templates/composed/ERC20WithAntiWhalePermitGen.sol";
+import {ERC20WithAntiWhaleStakingGen} from "src/templates/composed/ERC20WithAntiWhaleStakingGen.sol";
+import {ERC20WithAntiWhaleVestingGen} from "src/templates/composed/ERC20WithAntiWhaleVestingGen.sol";
+import {ERC20WithAntiWhaleVotesGen} from "src/templates/composed/ERC20WithAntiWhaleVotesGen.sol";
+import {ERC20WithPermitVotesGen} from "src/templates/composed/ERC20WithPermitVotesGen.sol";
+import {ERC20WithStakingVotesGen} from "src/templates/composed/ERC20WithStakingVotesGen.sol";
+import {ERC20WithVestingVotesGen} from "src/templates/composed/ERC20WithVestingVotesGen.sol";
 
 // Curve + graduation
 import {BondingCurve} from "src/curve/BondingCurve.sol";
@@ -357,6 +372,19 @@ contract DeployFreshLocal is Script {
         s.implFot = address(new ERC20WithFeeOnTransferGen());
         s.implPausable = address(new ERC20WithPausableGen());
         s.implPermitStaking = address(new ERC20WithPermitStakingGen());
+        // Round-6 pair impls (10). Locals, not stored on Stack — no external
+        // consumer references the individual addresses. Alphabetical order of
+        // module ids matches RhConfigManifest.all() indices 10..19.
+        address implAntiBotStaking = address(new ERC20WithAntiBotStakingGen());
+        address implAntiBotVesting = address(new ERC20WithAntiBotVestingGen());
+        address implAntiBotVotes = address(new ERC20WithAntiBotVotesGen());
+        address implAntiWhalePermit = address(new ERC20WithAntiWhalePermitGen());
+        address implAntiWhaleStaking = address(new ERC20WithAntiWhaleStakingGen());
+        address implAntiWhaleVesting = address(new ERC20WithAntiWhaleVestingGen());
+        address implAntiWhaleVotes = address(new ERC20WithAntiWhaleVotesGen());
+        address implPermitVotes = address(new ERC20WithPermitVotesGen());
+        address implStakingVotes = address(new ERC20WithStakingVotesGen());
+        address implVestingVotes = address(new ERC20WithVestingVotesGen());
 
         // ---------------- Phase 4: factories ----------------
         ERC20Factory erc20Factory = new ERC20Factory(admin, address(router), admin);
@@ -371,7 +399,7 @@ contract DeployFreshLocal is Script {
         // Register each canonical impl at its manifest configHash. Order
         // matches RhConfigManifest.all() index order — do not reshuffle.
         RhConfigManifest.Entry[] memory entries = RhConfigManifest.all();
-        address[10] memory impls = [
+        address[20] memory impls = [
             s.implPermit,
             s.implVesting,
             s.implStaking,
@@ -381,7 +409,18 @@ contract DeployFreshLocal is Script {
             s.implAntiWhale,
             s.implFot,
             s.implPausable,
-            s.implPermitStaking
+            s.implPermitStaking,
+            // Round-6 pair impls — indices 10..19 mirror manifest ordering.
+            implAntiBotStaking,
+            implAntiBotVesting,
+            implAntiBotVotes,
+            implAntiWhalePermit,
+            implAntiWhaleStaking,
+            implAntiWhaleVesting,
+            implAntiWhaleVotes,
+            implPermitVotes,
+            implStakingVotes,
+            implVestingVotes
         ];
         // URU-A08 (round 3): every impl registration now requires the owner
         // to have pinned the expected runtime codehash first. In the fresh-

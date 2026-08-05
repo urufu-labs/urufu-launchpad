@@ -1,0 +1,261 @@
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.26;
+
+/*
+ *  ════════════════════════════════════════════════════════════════
+ *
+ *    ウ  urufu labs  ✯  tap tap launch
+ *
+ *  ════════════════════════════════════════════════════════════════
+ *
+ *    this token was deployed with urufu labs.  once graduation
+ *    hits, liquidity locks forever  ❤  and every trade after
+ *    that rewards urufu gemu nft holders.
+ *
+ *          ～  好き好き大好き  ～  launch ur own with urufu labs
+ *
+ *  ════════════════════════════════════════════════════════════════
+ */
+
+import {ERC20} from "solady/tokens/ERC20.sol";
+import {ERC20Votes} from "solady/tokens/ERC20Votes.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+// Pre-emptively pulled in for common module fragments.
+import {MerkleProofLib} from "solady/utils/MerkleProofLib.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+
+/// @title  ERC20VotesTemplate
+/// @notice ERC-5805-compatible ERC-20 base for the VM launchpad. Identical shape to
+///         `ERC20Template` but inherits Solady `ERC20Votes` so checkpoint tracking is on
+///         every transfer. Chosen as the base for any launch that stacks the `Votes` module
+///         (and, downstream, `GovernorBundle`). Splicer marker convention is unchanged.
+/// @dev    Storage layout is base-frozen. `_afterTokenTransfer` calls `super._afterTokenTransfer`
+///         so vote checkpointing runs BEFORE any spliced after-transfer hooks — modules that
+///         also add after-transfer logic (e.g. FeeOnTransfer) run their bodies afterward.
+contract ERC20WithVestingVotesGen is ERC20Votes, Ownable {
+    // ============================================================
+    // Base errors — frozen
+    // ============================================================
+    error ERC20Template__AlreadyInitialized();
+    error ERC20Template__ZeroOwner();
+
+    // ============================================================
+    // VM_INJECT_ERRORS
+    // --- from Vesting.frag.sol ---
+    error Vesting__ZeroBeneficiary();
+    error Vesting__ZeroTotal();
+    error Vesting__BadSchedule(uint64 cliff, uint64 end);
+    error Vesting__NothingToRelease();
+    // ============================================================
+
+    // ============================================================
+    // Base events — frozen
+    // ============================================================
+    event Initialized(string name, string symbol, address indexed initialOwner, uint256 initialSupply);
+
+    // ============================================================
+    // VM_INJECT_EVENTS
+    // --- from Vesting.frag.sol ---
+    event VestingConfigured(
+        address indexed beneficiary, uint256 totalAmount, uint64 cliffTimestamp, uint64 endTimestamp
+    );
+    event VestingReleased(address indexed beneficiary, uint256 amount);
+
+    // --- from Votes.frag.sol ---
+    event VotesEnabled();
+    // ============================================================
+
+    // ============================================================
+    // Base storage — FROZEN LAYOUT (do not reorder)
+    // ============================================================
+    string private _name;
+    string private _symbol;
+    uint8 private _initialized;
+
+    // ============================================================
+    // VM_INJECT_STATE
+    // --- from Vesting.frag.sol ---
+    address private _vestBeneficiary;
+    uint256 private _vestTotal;
+    uint256 private _vestReleased;
+    uint64 private _vestCliff;
+    uint64 private _vestEnd;
+    // ============================================================
+
+    // ============================================================
+    // VM_INJECT_CONSTANTS
+    // ============================================================
+
+    // ============================================================
+    // ERC-20 metadata
+    // ============================================================
+
+    function name() public view virtual override returns (string memory) {
+        return _name;
+    }
+
+    function symbol() public view virtual override returns (string memory) {
+        return _symbol;
+    }
+
+    // ============================================================
+    // Initialization — called once by the factory on the clone
+    // ============================================================
+
+    function initialize(
+        bytes calldata data
+    ) external {
+        if (_initialized != 0) revert ERC20Template__AlreadyInitialized();
+        _initialized = 1;
+
+        (
+            address initialOwner,
+            string memory name_,
+            string memory symbol_,
+            uint256 initialSupply,
+            address initialRecipient,
+            bytes[] memory moduleData
+        ) = abi.decode(data, (address, string, string, uint256, address, bytes[]));
+
+        if (initialOwner == address(0)) revert ERC20Template__ZeroOwner();
+
+        _name = name_;
+        _symbol = symbol_;
+        _initializeOwner(initialOwner);
+
+        // Compute the mint destination once. Fragments reference `mintTarget` when they
+        // need to reserve a slice of the initial supply for post-launch payouts (see
+        // ERC20Template.sol for the pattern explanation).
+        address mintTarget = initialRecipient == address(0) ? initialOwner : initialRecipient;
+
+        if (initialSupply > 0) {
+            _mint(mintTarget, initialSupply);
+        }
+
+        emit Initialized(name_, symbol_, initialOwner, initialSupply);
+
+        // ============================================================
+        // VM_INJECT_INIT
+        // --- from Vesting.frag.sol ---
+        {
+            (address beneficiary_, uint256 total_, uint64 cliff_, uint64 end_) =
+                abi.decode(moduleData[0], (address, uint256, uint64, uint64));
+            if (beneficiary_ == address(0)) revert Vesting__ZeroBeneficiary();
+            if (total_ == 0) revert Vesting__ZeroTotal();
+            if (end_ <= cliff_) revert Vesting__BadSchedule(cliff_, end_);
+            _vestBeneficiary = beneficiary_;
+            _vestTotal = total_;
+            _vestCliff = cliff_;
+            _vestEnd = end_;
+            // Reserve the vesting pool out of the initial supply. If the launcher over-allocated
+            // (Σ module allocations > initialSupply), this reverts inside solady's _transfer
+            // when mintTarget's balance underflows — safety by construction.
+            _transfer(mintTarget, address(this), total_);
+            emit VestingConfigured(beneficiary_, total_, cliff_, end_);
+        }
+
+        // --- from Votes.frag.sol ---
+        {
+            moduleData[1];
+            emit VotesEnabled();
+        }
+        // ============================================================
+        moduleData;
+        mintTarget;
+    }
+
+    // ============================================================
+    // VM_INJECT_MODIFIERS
+    // ============================================================
+
+    // ============================================================
+    // Transfer hooks — module injection points
+    // ============================================================
+
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual override {
+        (from, to, amount);
+        // ============================================================
+        // VM_INJECT_BEFORE_TRANSFER
+        // ============================================================
+    }
+
+    function _afterTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal virtual override {
+        // ERC20Votes checkpointing must run every transfer — do NOT reorder or drop this.
+        super._afterTokenTransfer(from, to, amount);
+        // ============================================================
+        // VM_INJECT_AFTER_TRANSFER
+        // ============================================================
+    }
+
+    // ============================================================
+    // OZ IVotes shim — OZ Governor calls `getPastTotalSupply(t)`; Solady names it
+    // `getPastVotesTotalSupply(t)`. Forward one to the other so the token is a drop-in
+    // votes source for `VMGovernor`.
+    // ============================================================
+    function getPastTotalSupply(
+        uint256 timepoint
+    ) external view returns (uint256) {
+        return getPastVotesTotalSupply(timepoint);
+    }
+
+    // ============================================================
+    // VM_INJECT_EXTERNAL
+    // --- from Vesting.frag.sol ---
+    function vestingReleasable() public view returns (uint256) {
+        uint64 nowTs = uint64(block.timestamp);
+        if (nowTs < _vestCliff) return 0;
+        uint256 vested;
+        if (nowTs >= _vestEnd) {
+            vested = _vestTotal;
+        } else {
+            uint256 elapsed = nowTs - _vestCliff;
+            uint256 duration = _vestEnd - _vestCliff;
+            vested = (_vestTotal * elapsed) / duration;
+        }
+        return vested - _vestReleased;
+    }
+
+    function vestingRelease() external {
+        uint256 amount = vestingReleasable();
+        if (amount == 0) revert Vesting__NothingToRelease();
+        _vestReleased += amount;
+        // Reserve-backed: pay from the pre-allocated pool on address(this), NOT via _mint.
+        // Total supply stays at whatever was minted in initialize() — no post-launch inflation.
+        _transfer(address(this), _vestBeneficiary, amount);
+        emit VestingReleased(_vestBeneficiary, amount);
+    }
+
+    function vestingBeneficiary() external view returns (address) {
+        return _vestBeneficiary;
+    }
+
+    function vestingTotal() external view returns (uint256) {
+        return _vestTotal;
+    }
+
+    function vestingReleased() external view returns (uint256) {
+        return _vestReleased;
+    }
+
+    function vestingCliffTimestamp() external view returns (uint64) {
+        return _vestCliff;
+    }
+
+    function vestingEndTimestamp() external view returns (uint64) {
+        return _vestEnd;
+    }
+    // ============================================================
+
+    // ============================================================
+    // VM_INJECT_INTERNAL
+    // ============================================================
+}
