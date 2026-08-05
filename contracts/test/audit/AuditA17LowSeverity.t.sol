@@ -125,7 +125,10 @@ contract AuditA17LowSeverityTest is Test {
     function _initFactory() internal {
         curveImpl = new BondingCurve();
         factoryGrad = new MockGraduatorL();
-        vm.prank(owner);
+        // CurveFactory's constructor takes owner as an arg (not derived from
+        // msg.sender), so no pre-deploy prank is needed. Nightly Foundry
+        // rejects a stacked single-prank + startPrank sequence with
+        // "cannot overwrite a prank until it is applied at least once".
         factory = new CurveFactory(owner, factoryFeeReceiver, address(curveImpl));
         vm.startPrank(owner);
         factory.setGraduator(address(factoryGrad));
