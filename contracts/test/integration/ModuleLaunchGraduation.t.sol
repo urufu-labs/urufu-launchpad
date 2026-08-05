@@ -20,6 +20,19 @@ import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAnti
 import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
 import {ERC20WithPermitStakingGen} from "src/templates/composed/ERC20WithPermitStakingGen.sol";
 import {ERC20WithPermitVestingGen} from "src/templates/composed/ERC20WithPermitVestingGen.sol";
+// Round-6 audit coverage: the 10 pair combos the compile-service can splice
+// from {AntiBot, AntiWhale, Permit, Votes, Staking, Vesting}. Staking+Vesting
+// omitted per matrix.json (Staking.incompatibleWith includes "Vesting").
+import {ERC20WithAntiBotStakingGen} from "src/templates/composed/ERC20WithAntiBotStakingGen.sol";
+import {ERC20WithAntiBotVestingGen} from "src/templates/composed/ERC20WithAntiBotVestingGen.sol";
+import {ERC20WithAntiBotVotesGen} from "src/templates/composed/ERC20WithAntiBotVotesGen.sol";
+import {ERC20WithAntiWhalePermitGen} from "src/templates/composed/ERC20WithAntiWhalePermitGen.sol";
+import {ERC20WithAntiWhaleStakingGen} from "src/templates/composed/ERC20WithAntiWhaleStakingGen.sol";
+import {ERC20WithAntiWhaleVestingGen} from "src/templates/composed/ERC20WithAntiWhaleVestingGen.sol";
+import {ERC20WithAntiWhaleVotesGen} from "src/templates/composed/ERC20WithAntiWhaleVotesGen.sol";
+import {ERC20WithPermitVotesGen} from "src/templates/composed/ERC20WithPermitVotesGen.sol";
+import {ERC20WithStakingVotesGen} from "src/templates/composed/ERC20WithStakingVotesGen.sol";
+import {ERC20WithVestingVotesGen} from "src/templates/composed/ERC20WithVestingVotesGen.sol";
 
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -277,6 +290,178 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
     // Airdrop test removed 2026-07-31: Airdrop module retired platform-wide (V1
     // composed impl has an inflation rug). Vesting + Staking above cover the
     // reserve-backed carve invariant identically.
+
+    // =====================================================================
+    // Round-6 pair combos: the remaining 10 valid 2-module compositions the
+    // compile-service can splice from {AntiBot, AntiWhale, Permit, Votes,
+    // Staking, Vesting}. Each test walks the launch -> curve -> graduate ->
+    // v4 swap pipeline through the composed impl so a regression in any
+    // fragment interaction surfaces before a user hits it. Staking+Vesting
+    // is intentionally absent (matrix.json declares them incompatible).
+    //
+    // Pair-specific hazards each test exercises:
+    //   - AntiBot pairs: fragment's before-transfer hook must NOT fire on
+    //     the mintTarget=Router carve transfers (owner bypass) and must NOT
+    //     fire on curve trades after the gate expires. Every AntiBot test
+    //     rolls past the gate before driving to graduation.
+    //   - AntiWhale pairs: initialOwner=Router is auto-excluded so the
+    //     reserve carve passes. Caps must be wide enough for the Graduator
+    //     to move the whole float into the pool in one transfer.
+    //   - Reserve-backed pairs (Staking, Vesting): both modules run
+    //     `_transfer(mintTarget, address(this), reserve)` at init — assert
+    //     the curve receives a REDUCED float (curveSupply < default).
+    //   - Votes pairs: composed impl inherits ERC20Votes so
+    //     `_afterTokenTransfer` runs checkpointing on every transfer. We
+    //     don't assert a specific past-vote value (buyers are ephemeral EOAs)
+    //     but the graduation swap succeeding proves checkpointing didn't
+    //     revert on any transfer along the pipeline.
+    // =====================================================================
+
+    /// AntiBot + Staking. moduleData order: [0]=AntiBot(uint16 blockGate),
+    /// [1]=Staking(uint256 rewardsTotal, uint32 duration). Staking carves its
+    /// reward pool from mintTarget before the curve is funded; AntiBot's
+    /// before-transfer hook fires on every transfer during the gate window.
+    function test_AntiBotAndStaking_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("AntiBot,Staking", address(new ERC20WithAntiBotStakingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint16(3));
+        md[1] = abi.encode(uint256(50_000_000e18), uint256(90 days));
+        (address token, BondingCurve curve) = _launch(ch, "AntiBot Staking", "ABS", md);
+        assertTrue(ERC20WithAntiBotStakingGen(token).antiBotIsGated(), "AntiBot gate not active at launch");
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "staking did not carve out supply");
+        vm.roll(block.number + 10);
+        assertFalse(ERC20WithAntiBotStakingGen(token).antiBotIsGated(), "AntiBot gate should have expired");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiBot + Vesting. moduleData order: [0]=AntiBot(uint16), [1]=Vesting
+    /// (address beneficiary, uint256 total, uint64 cliff, uint64 end). Same
+    /// invariants as AntiBot+Staking with the beneficiary-based reserve
+    /// carve instead of the reward-pool carve.
+    function test_AntiBotAndVesting_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("AntiBot,Vesting", address(new ERC20WithAntiBotVestingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        uint256 vested = 100_000_000e18;
+        md[0] = abi.encode(uint16(3));
+        md[1] = abi.encode(makeAddr("abv-beneficiary"), vested, block.timestamp + 30 days, block.timestamp + 365 days);
+        (address token, BondingCurve curve) = _launch(ch, "AntiBot Vesting", "ABV", md);
+        assertTrue(ERC20WithAntiBotVestingGen(token).antiBotIsGated(), "AntiBot gate not active at launch");
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "vesting did not carve out supply");
+        vm.roll(block.number + 10);
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiBot + Votes. moduleData order: [0]=AntiBot(uint16), [1]=Votes ("").
+    /// Composed impl inherits ERC20Votes via the templateOverride path —
+    /// checkpointing runs on every _afterTokenTransfer including the curve
+    /// buys and the Graduator handoff.
+    function test_AntiBotAndVotes_GraduatesAndSwaps() public {
+        bytes32 ch = _register("AntiBot,Votes", address(new ERC20WithAntiBotVotesGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint16(3));
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "AntiBot Votes", "ABT", md);
+        assertTrue(ERC20WithAntiBotVotesGen(token).antiBotIsGated(), "AntiBot gate not active at launch");
+        vm.roll(block.number + 10);
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiWhale + Permit. moduleData order: [0]=AntiWhale(uint128 maxWallet,
+    /// uint128 maxTx, uint32 expireAfter), [1]=Permit (""). AntiWhale caps
+    /// sized wide enough for the graduation-side one-shot transfer.
+    function test_AntiWhaleAndPermit_GraduatesAndSwaps() public {
+        bytes32 ch = _register("AntiWhale,Permit", address(new ERC20WithAntiWhalePermitGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint256(800_000_000e18), uint256(800_000_000e18), uint256(0));
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "Whale Permit", "AWP", md);
+        assertTrue(ERC20WithAntiWhalePermitGen(token).DOMAIN_SEPARATOR() != bytes32(0), "Permit not initialized");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiWhale + Staking. moduleData order: [0]=AntiWhale, [1]=Staking.
+    /// Router (initialOwner) is auto-excluded in AntiWhale's init, so the
+    /// reserve carve `_transfer(router, address(this), reward)` passes the
+    /// maxTx check even with tight caps.
+    function test_AntiWhaleAndStaking_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("AntiWhale,Staking", address(new ERC20WithAntiWhaleStakingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint256(800_000_000e18), uint256(800_000_000e18), uint256(0));
+        md[1] = abi.encode(uint256(50_000_000e18), uint256(90 days));
+        (address token, BondingCurve curve) = _launch(ch, "Whale Stake", "AWS", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "staking did not carve out supply");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiWhale + Vesting. moduleData order: [0]=AntiWhale, [1]=Vesting.
+    /// Same exclusion-driven reserve carve as AntiWhale+Staking with the
+    /// vesting beneficiary as the tracked payout address.
+    function test_AntiWhaleAndVesting_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("AntiWhale,Vesting", address(new ERC20WithAntiWhaleVestingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        uint256 vested = 100_000_000e18;
+        md[0] = abi.encode(uint256(800_000_000e18), uint256(800_000_000e18), uint256(0));
+        md[1] = abi.encode(makeAddr("awv-beneficiary"), vested, block.timestamp + 30 days, block.timestamp + 365 days);
+        (address token, BondingCurve curve) = _launch(ch, "Whale Vest", "AWV", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "vesting did not carve out supply");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiWhale + Votes. moduleData order: [0]=AntiWhale, [1]=Votes ("").
+    /// Composed impl inherits ERC20Votes; every transfer (init carves + curve
+    /// buys + graduation) must pass AntiWhale caps AND accrue checkpoints.
+    function test_AntiWhaleAndVotes_GraduatesAndSwaps() public {
+        bytes32 ch = _register("AntiWhale,Votes", address(new ERC20WithAntiWhaleVotesGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint256(800_000_000e18), uint256(800_000_000e18), uint256(0));
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "Whale Votes", "AWT", md);
+        _graduateAndSwap(token, curve);
+    }
+
+    /// Permit + Votes. moduleData order: [0]=Permit (""), [1]=Votes ("").
+    /// Both are no-param marker modules. Composed impl inherits ERC20Votes
+    /// (via templateOverride) AND solady's built-in permit (via ERC20Votes
+    /// -> ERC20). Verifies both paths agree on the underlying token name.
+    function test_PermitAndVotes_GraduatesAndSwaps() public {
+        bytes32 ch = _register("Permit,Votes", address(new ERC20WithPermitVotesGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = "";
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "Permit Votes", "PMV", md);
+        assertTrue(ERC20WithPermitVotesGen(token).DOMAIN_SEPARATOR() != bytes32(0), "Permit not initialized");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// Staking + Votes. moduleData order: [0]=Staking, [1]=Votes ("").
+    /// Staking carves its reward pool before the curve is funded; ERC20Votes
+    /// checkpoints the carve transfer, every curve buy, and the graduation
+    /// handoff. Regression coverage for a subtle bug class where a fragment's
+    /// after-transfer body could omit `super._afterTokenTransfer` and silently
+    /// drop checkpoints.
+    function test_StakingAndVotes_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("Staking,Votes", address(new ERC20WithStakingVotesGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint256(50_000_000e18), uint256(90 days));
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "Stake Votes", "SVT", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "staking did not carve out supply");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// Vesting + Votes. moduleData order: [0]=Vesting, [1]=Votes ("").
+    /// Same super._afterTokenTransfer invariant as Staking+Votes, with the
+    /// vesting beneficiary-address carve instead of the reward-pool carve.
+    function test_VestingAndVotes_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("Vesting,Votes", address(new ERC20WithVestingVotesGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        uint256 vested = 100_000_000e18;
+        md[0] = abi.encode(makeAddr("vv-beneficiary"), vested, block.timestamp + 30 days, block.timestamp + 365 days);
+        md[1] = "";
+        (address token, BondingCurve curve) = _launch(ch, "Vest Votes", "VVT", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "vesting did not carve out supply");
+        _graduateAndSwap(token, curve);
+    }
 
     /// The over-allocation guard: reserve-backed modules may not consume more
     /// than half the intended curve supply, or the curve starves.

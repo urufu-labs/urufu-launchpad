@@ -37,8 +37,10 @@ import test from 'node:test';
 import { decodeFunctionData, encodeFunctionData, parseAbi, type Address, type Hex } from 'viem';
 
 import {
+  EpochActivationJournalMismatch,
   IndexerHolderCountExceedsCap,
-  _setTestOverrides,
+  _withTestOverrides,
+  activateVaultEpoch,
   fetchGemuHoldersFromIndexer,
   publishEpoch,
   reconcilePendingForConfig,
@@ -78,6 +80,10 @@ interface PubRow {
   /// journal INSERT always populates both.
   snapshot_block?: string | null;
   expected_holder_count?: number | null;
+  /// Round-6 audit H3: final provenance for the activation tx of a
+  /// propose/activate epoch. Nullable — set once `_activatePendingProposal`
+  /// successfully signs + confirms activateEpoch().
+  activation_tx_hash?: string | null;
 }
 interface LeafRow {
   chain_id: number;
@@ -177,8 +183,10 @@ async function handleQuery(
       }));
   }
 
-  // Activation row lookup — same projection minus `created_at, status`, and
-  // filters by epoch_id.
+  // Activation row lookup — same projection minus `created_at`, filters by
+  // epoch_id. Round-6 audit H3: `_activatePendingProposal` now also SELECTs
+  // `status` so the fail-closed guard can reject anything not in
+  // 'broadcast'; return it in the row.
   if (
     firstFragment.startsWith('SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash')
     && !joined.includes('created_at')
@@ -193,6 +201,7 @@ async function handleQuery(
         holder_count: p.holder_count,
         tx_hash: p.tx_hash,
         block_number: p.block_number,
+        status: p.status,
       }));
   }
 
@@ -313,6 +322,18 @@ async function handleQuery(
     for (const p of state.publications) {
       if (p.chain_id === chainId && p.epoch_id === epochId) {
         p.block_number = blockNumber;
+      }
+    }
+    return [];
+  }
+
+  // Round-6 audit H3: after successful activation, `_activatePendingProposal`
+  // stamps the activation tx hash onto the journal row as final provenance.
+  if (firstFragment.startsWith('UPDATE app.rewards_publications SET activation_tx_hash')) {
+    const [txHash, chainId, epochId] = values as [string, number, number];
+    for (const p of state.publications) {
+      if (p.chain_id === chainId && p.epoch_id === epochId) {
+        p.activation_tx_hash = txHash;
       }
     }
     return [];
@@ -490,7 +511,8 @@ const publishAbi = parseAbi([
 
 /// Sets ROBINHOOD_* env so `chainConfigFor('robinhood')` inside publishEpoch
 /// returns a real ChainConfig (values are only used to shape the config; every
-/// live RPC / DB / wallet call is intercepted by _setTestOverrides).
+/// live RPC / DB / wallet call is intercepted inside a `_withTestOverrides`
+/// scope).
 function ensureRobinhoodEnv(): void {
   process.env.ROBINHOOD_RPC_URL = process.env.ROBINHOOD_RPC_URL ?? 'http://ignored';
   process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS = CFG.vaultAddress;
@@ -855,15 +877,18 @@ test('FINDING 1 AC #2 reconcile flips broadcast → reverted when a DIFFERENT pr
 // ================================================================
 //
 // These tests drive `publishEpoch` end-to-end through the injected
-// `_setTestOverrides` slot rather than a live pg / RPC / signer. They
+// `_withTestOverrides` scope rather than a live pg / RPC / signer. They
 // cover the two gaps the reconcile-layer tests above do NOT touch:
 //
 //   * whether the OPENING pendingEpoch() read gates the propose vs
 //     activate branches at the top of publishEpoch (FINDING 1)
 //   * whether the journal INSERT actually persists the new provenance
 //     columns end-to-end (FINDING 4)
+//
+// Round-6 audit H1: overrides are AsyncLocalStorage-scoped, so tests are
+// isolated even when node:test's runner schedules them concurrently.
 
-test('FINDING 1 AC #5 publishEpoch skips fresh proposal when on-chain pendingEpoch is still immature', async (t) => {
+test('FINDING 1 AC #5 publishEpoch skips fresh proposal when on-chain pendingEpoch is still immature', async () => {
   ensureRobinhoodEnv();
   const state = makeFakeState();
   const fakeSql = makeFakeSql(state);
@@ -873,19 +898,19 @@ test('FINDING 1 AC #5 publishEpoch skips fresh proposal when on-chain pendingEpo
   });
   const walletRec = makeFakeWallet();
 
-  _setTestOverrides({
-    sql: fakeSql,
-    publicClientFor: () => fakePub,
-    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
-    fetchHolders: async () => {
-      throw new Error('fetchHolders MUST NOT be called on the immature-skip branch');
-    },
-  });
-  t.after(() => _setTestOverrides());
-
   const publicationsBefore = state.publications.length;
 
-  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+  const outcome = await _withTestOverrides(
+    {
+      sql: fakeSql,
+      publicClientFor: () => fakePub,
+      walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+      fetchHolders: async () => {
+        throw new Error('fetchHolders MUST NOT be called on the immature-skip branch');
+      },
+    },
+    () => publishEpoch({ chainSlug: 'robinhood' }),
+  );
 
   assert.equal(outcome.action, 'skipped-immature-proposal');
   // Discriminated-union narrowing so we can assert on the schema-specific
@@ -900,7 +925,7 @@ test('FINDING 1 AC #5 publishEpoch skips fresh proposal when on-chain pendingEpo
   assert.equal(walletRec.calls.length, 0);
 });
 
-test('FINDING 1 AC #5 + AC #6 publishEpoch activates matured pendingEpoch instead of proposing a fresh one', async (t) => {
+test('FINDING 1 AC #5 + AC #6 publishEpoch activates matured pendingEpoch instead of proposing a fresh one', async () => {
   ensureRobinhoodEnv();
   const state = makeFakeState();
   const fakeSql = makeFakeSql(state);
@@ -908,22 +933,45 @@ test('FINDING 1 AC #5 + AC #6 publishEpoch activates matured pendingEpoch instea
   const pendingExpectedId = 5n;
   const pendingRoot = ROOT_A;
   const pendingTotal = 1_000_000_000_000_000_000n;
+  // Round-6 audit H3: `_activatePendingProposal` now fail-closes on a missing
+  // journal row. Seed a matching broadcast row so the activation is legal.
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(pendingExpectedId),
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: pendingRoot,
+    total_amount: pendingTotal.toString(),
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xproposedtx',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+  state.leaves.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(pendingExpectedId),
+    holder: '0xa',
+    amount: pendingTotal.toString(),
+    proof: [],
+  });
   const fakePub = makeFakePubForPublish({
     pendingEpoch: [pendingExpectedId, pendingRoot, pendingTotal, pastReadyAt],
+    // The reconcile pass at the top of publishEpoch sees `pendingEpoch()`
+    // matches our row (`isOurs` branch) and continues without touching state.
   });
   const walletRec = makeFakeWallet();
 
-  _setTestOverrides({
-    sql: fakeSql,
-    publicClientFor: () => fakePub,
-    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
-    fetchHolders: async () => {
-      throw new Error('fetchHolders MUST NOT be called on the activate branch');
+  const outcome = await _withTestOverrides(
+    {
+      sql: fakeSql,
+      publicClientFor: () => fakePub,
+      walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+      fetchHolders: async () => {
+        throw new Error('fetchHolders MUST NOT be called on the activate branch');
+      },
     },
-  });
-  t.after(() => _setTestOverrides());
-
-  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+    () => publishEpoch({ chainSlug: 'robinhood' }),
+  );
 
   assert.equal(outcome.action, 'activated');
   // Exactly one signed tx (the activate) — no propose, no addEpoch.
@@ -946,7 +994,7 @@ test('FINDING 1 AC #5 + AC #6 publishEpoch activates matured pendingEpoch instea
   assert.equal(sent.data, expectedData);
 });
 
-test('FINDING 4 AC #2 publishEpoch journal INSERT records snapshot_block and expected_holder_count', async (t) => {
+test('FINDING 4 AC #2 publishEpoch journal INSERT records snapshot_block and expected_holder_count', async () => {
   ensureRobinhoodEnv();
   const state = makeFakeState();
   const fakeSql = makeFakeSql(state);
@@ -971,15 +1019,15 @@ test('FINDING 4 AC #2 publishEpoch journal INSERT records snapshot_block and exp
     { address: ('0x' + 'b'.padEnd(40, '0')) as Address, balance: 3n },
   ];
 
-  _setTestOverrides({
-    sql: fakeSql,
-    publicClientFor: () => fakePub,
-    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
-    fetchHolders: async () => holders,
-  });
-  t.after(() => _setTestOverrides());
-
-  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+  const outcome = await _withTestOverrides(
+    {
+      sql: fakeSql,
+      publicClientFor: () => fakePub,
+      walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+      fetchHolders: async () => holders,
+    },
+    () => publishEpoch({ chainSlug: 'robinhood' }),
+  );
   assert.equal(outcome.action, 'published');
 
   // Exactly one journal row landed and it carries both provenance columns.
@@ -1109,4 +1157,406 @@ test('FINDING 4 AC #4 paginator does NOT throw when total holders equal the cap 
   const { fetchImpl } = makeFakeIndexerFetch(pages);
   const holders = await fetchGemuHoldersFromIndexer(CFG, fetchImpl, 1_000);
   assert.equal(holders.length, 1_000);
+});
+
+// ================================================================
+// Round-6 audit H1: AsyncLocalStorage-scoped test override isolation
+// ================================================================
+//
+// Prior code stored overrides in a module-level `let`. Two concurrent
+// `node:test` suites that both called `_setTestOverrides` would race — the
+// second call would replace the first's fakes, and any resolver invocation
+// scheduled from the first suite AFTER the swap would silently read the
+// wrong sql / wallet / pub. `_withTestOverrides` binds each scope's store
+// to its callback's async chain via AsyncLocalStorage, so parallel scopes
+// see independent overrides no matter how the runner interleaves them.
+//
+// The test drives two concurrent publishEpoch calls under different
+// override scopes and asserts each scope observed its OWN state. If the
+// AsyncLocalStorage guarantee ever regresses (e.g. someone reintroduces
+// a module-level `let`), this test trips.
+
+test('H1 AC #4 concurrent _withTestOverrides scopes see independent overrides', async () => {
+  ensureRobinhoodEnv();
+
+  // Two fully-independent fake worlds. If overrides leak between scopes,
+  // publishEpoch inside scope A would touch state B (or vice-versa).
+  const stateA = makeFakeState();
+  const stateB = makeFakeState();
+  const fakeSqlA = makeFakeSql(stateA);
+  const fakeSqlB = makeFakeSql(stateB);
+  const fakePubA = makeFakePubForPublish({
+    pendingEpoch: [0n, ZERO_ROOT, 0n, 0n],
+    blockNumber: 1_000_000n,
+    vaultBalance: 10_000_000_000_000_000_000n,
+    totalCommitted: 0n,
+    nextEpochId: 100n,
+    minConfigDelay: 0n,
+  });
+  const fakePubB = makeFakePubForPublish({
+    pendingEpoch: [0n, ZERO_ROOT, 0n, 0n],
+    blockNumber: 2_000_000n,
+    vaultBalance: 20_000_000_000_000_000_000n,
+    totalCommitted: 0n,
+    nextEpochId: 200n,
+    minConfigDelay: 0n,
+  });
+  const walletA = makeFakeWallet();
+  const walletB = makeFakeWallet();
+
+  // Distinct holder sets keyed to each scope. If a resolver in scope A ever
+  // read scope B's fetchHolders override, its journal row would carry the
+  // wrong holder count.
+  const holdersA: Holder[] = [
+    { address: ('0x' + 'a'.padEnd(40, '1')) as Address, balance: 1n },
+    { address: ('0x' + 'a'.padEnd(40, '2')) as Address, balance: 1n },
+  ];
+  const holdersB: Holder[] = [
+    { address: ('0x' + 'b'.padEnd(40, '3')) as Address, balance: 1n },
+    { address: ('0x' + 'b'.padEnd(40, '4')) as Address, balance: 1n },
+    { address: ('0x' + 'b'.padEnd(40, '5')) as Address, balance: 1n },
+  ];
+
+  // Cross-await: each scope's fetchHolders yields to the event loop BEFORE
+  // returning so the two publishEpoch pipelines actually interleave. Without
+  // ALS isolation, one pipeline's post-await resolver read would see the
+  // other scope's fakes.
+  const scopeA = _withTestOverrides(
+    {
+      sql: fakeSqlA,
+      publicClientFor: () => fakePubA,
+      walletClientFor: () => ({ wallet: walletA.wallet, account: walletA.account }),
+      fetchHolders: async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+        return holdersA;
+      },
+    },
+    () => publishEpoch({ chainSlug: 'robinhood' }),
+  );
+  const scopeB = _withTestOverrides(
+    {
+      sql: fakeSqlB,
+      publicClientFor: () => fakePubB,
+      walletClientFor: () => ({ wallet: walletB.wallet, account: walletB.account }),
+      fetchHolders: async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        return holdersB;
+      },
+    },
+    () => publishEpoch({ chainSlug: 'robinhood' }),
+  );
+
+  const [outcomeA, outcomeB] = await Promise.all([scopeA, scopeB]);
+
+  assert.equal(outcomeA.action, 'published');
+  assert.equal(outcomeB.action, 'published');
+  if (outcomeA.action !== 'published' || outcomeB.action !== 'published') return;
+
+  // Each scope's outcome must match its OWN pub client's nextEpochId +
+  // holders. A leak would land B's epoch id on A's outcome (or swap holders).
+  assert.equal(outcomeA.epochId, 100, 'scope A must see pubA.nextEpochId (100)');
+  assert.equal(outcomeB.epochId, 200, 'scope B must see pubB.nextEpochId (200)');
+  assert.equal(outcomeA.holderCount, holdersA.length);
+  assert.equal(outcomeB.holderCount, holdersB.length);
+
+  // Each fake sql / wallet must only have observed its own scope's writes.
+  assert.equal(stateA.publications.length, 1);
+  assert.equal(stateA.publications[0]!.epoch_id, 100);
+  assert.equal(stateA.publications[0]!.holder_count, holdersA.length);
+  assert.equal(stateB.publications.length, 1);
+  assert.equal(stateB.publications[0]!.epoch_id, 200);
+  assert.equal(stateB.publications[0]!.holder_count, holdersB.length);
+
+  // Wallet call streams must not have crossed either. One tx per scope.
+  assert.equal(walletA.calls.length, 1);
+  assert.equal(walletB.calls.length, 1);
+});
+
+test('H1 AC #4 nested _withTestOverrides scopes do not leak into sibling scopes', async () => {
+  // Complementary micro-test: run a resolver read inside scope A, then
+  // enter scope B and confirm B sees B, exit B and confirm A still sees A.
+  // This checks that ALS.run() correctly restores the previous store on
+  // callback exit (guard against a manual `set` bug).
+  const stateA = makeFakeState();
+  const stateB = makeFakeState();
+  const fakeSqlA = makeFakeSql(stateA);
+  const fakeSqlB = makeFakeSql(stateB);
+
+  await _withTestOverrides({ sql: fakeSqlA }, async () => {
+    await _withTestOverrides({ sql: fakeSqlB }, async () => {
+      // Inside scope B: withPublicationLockOn against the resolved sql
+      // (which should be fakeSqlB) must lock stateB, not stateA.
+      await withPublicationLockOn(fakeSqlB, async () => {
+        assert.equal(stateB.lock.held, true, 'scope B lock must be held');
+        assert.equal(stateA.lock.held, false, 'scope A lock must NOT be held');
+      });
+    });
+    // Back in scope A: fakeSqlB's state must be untouched.
+    assert.equal(stateB.lock.held, false);
+    await withPublicationLockOn(fakeSqlA, async () => {
+      assert.equal(stateA.lock.held, true, 'scope A lock re-held after inner scope exit');
+      assert.equal(stateB.lock.held, false);
+    });
+  });
+});
+
+// ================================================================
+// Round-6 audit H3: activation fail-closed against local proof journal
+// ================================================================
+//
+// The activation loop MUST refuse to sign `activateEpoch()` if it cannot
+// prove locally that the on-chain pending root + total were built by us
+// (matching journal row in status='broadcast'). Without this, an out-of-band
+// proposal — accidental operator tx, a compromised alt-signer, a stale
+// standby node — would get activated by the keeper and immediately open
+// claims we have no proofs to serve.
+
+/// Build a matching-pending fake pub + wallet + env shared by the H3 tests.
+interface H3Fixture {
+  state: FakeState;
+  fakeSql: any;
+  fakePub: any;
+  walletRec: FakeWalletRecorder;
+  pendingExpectedId: bigint;
+  pendingRoot: `0x${string}`;
+  pendingTotal: bigint;
+}
+
+function makeH3Fixture(): H3Fixture {
+  ensureRobinhoodEnv();
+  const state = makeFakeState();
+  const fakeSql = makeFakeSql(state);
+  const pendingExpectedId = 42n;
+  const pendingRoot = ROOT_A;
+  const pendingTotal = 5_000_000_000_000_000_000n; // 5 ETH
+  const pastReadyAt = BigInt(Math.floor(Date.now() / 1000)) - 3600n;
+  const fakePub = makeFakePubForPublish({
+    pendingEpoch: [pendingExpectedId, pendingRoot, pendingTotal, pastReadyAt],
+  });
+  const walletRec = makeFakeWallet();
+  return { state, fakeSql, fakePub, walletRec, pendingExpectedId, pendingRoot, pendingTotal };
+}
+
+test('H3 AC #1 activateVaultEpoch refuses to sign when no journal row exists', async () => {
+  const fx = makeH3Fixture();
+  // Intentionally NO seed row.
+
+  await assert.rejects(
+    () =>
+      _withTestOverrides(
+        {
+          sql: fx.fakeSql,
+          publicClientFor: () => fx.fakePub,
+          walletClientFor: () => ({ wallet: fx.walletRec.wallet, account: fx.walletRec.account }),
+        },
+        () => activateVaultEpoch('robinhood'),
+      ),
+    (err: unknown) => {
+      assert.ok(
+        err instanceof EpochActivationJournalMismatch,
+        `expected EpochActivationJournalMismatch, got ${(err as Error)?.name}`,
+      );
+      const e = err as EpochActivationJournalMismatch;
+      assert.equal(e.epochId, Number(fx.pendingExpectedId));
+      assert.match(e.reason, /no journal row/);
+      return true;
+    },
+  );
+  // CRITICAL: no tx must have been signed on the fail-closed path.
+  assert.equal(fx.walletRec.calls.length, 0);
+});
+
+test('H3 AC #1 activateVaultEpoch refuses to sign on merkle_root mismatch', async () => {
+  const fx = makeH3Fixture();
+  // Seed a broadcast row whose root disagrees with the on-chain pending.
+  fx.state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(fx.pendingExpectedId),
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_B, // != pendingRoot (ROOT_A) — mismatch
+    total_amount: fx.pendingTotal.toString(),
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xoldpropose',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+
+  await assert.rejects(
+    () =>
+      _withTestOverrides(
+        {
+          sql: fx.fakeSql,
+          publicClientFor: () => fx.fakePub,
+          walletClientFor: () => ({ wallet: fx.walletRec.wallet, account: fx.walletRec.account }),
+        },
+        () => activateVaultEpoch('robinhood'),
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof EpochActivationJournalMismatch);
+      const e = err as EpochActivationJournalMismatch;
+      assert.match(e.reason, /merkle_root mismatch/);
+      return true;
+    },
+  );
+  assert.equal(fx.walletRec.calls.length, 0);
+});
+
+test('H3 AC #1 activateVaultEpoch refuses to sign on total_amount mismatch', async () => {
+  const fx = makeH3Fixture();
+  // Seed a broadcast row whose root matches but whose total disagrees.
+  fx.state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(fx.pendingExpectedId),
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: fx.pendingRoot,
+    total_amount: (fx.pendingTotal + 1n).toString(), // off by one wei
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xoldpropose',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+
+  await assert.rejects(
+    () =>
+      _withTestOverrides(
+        {
+          sql: fx.fakeSql,
+          publicClientFor: () => fx.fakePub,
+          walletClientFor: () => ({ wallet: fx.walletRec.wallet, account: fx.walletRec.account }),
+        },
+        () => activateVaultEpoch('robinhood'),
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof EpochActivationJournalMismatch);
+      const e = err as EpochActivationJournalMismatch;
+      assert.match(e.reason, /total_amount mismatch/);
+      return true;
+    },
+  );
+  assert.equal(fx.walletRec.calls.length, 0);
+});
+
+test('H3 AC #1 activateVaultEpoch refuses to sign when journal row is not in broadcast status', async () => {
+  const fx = makeH3Fixture();
+  // Seed a matching row but in 'reverted' — a prior orphan the caller must
+  // not re-activate without re-broadcast.
+  fx.state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(fx.pendingExpectedId),
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: fx.pendingRoot,
+    total_amount: fx.pendingTotal.toString(),
+    holder_count: 1,
+    status: 'reverted',
+    tx_hash: '0xdroppedpropose',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+
+  await assert.rejects(
+    () =>
+      _withTestOverrides(
+        {
+          sql: fx.fakeSql,
+          publicClientFor: () => fx.fakePub,
+          walletClientFor: () => ({ wallet: fx.walletRec.wallet, account: fx.walletRec.account }),
+        },
+        () => activateVaultEpoch('robinhood'),
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof EpochActivationJournalMismatch);
+      const e = err as EpochActivationJournalMismatch;
+      assert.match(e.reason, /status is "reverted"/);
+      return true;
+    },
+  );
+  assert.equal(fx.walletRec.calls.length, 0);
+});
+
+test('H3 AC #3 + AC #4 successful activation populates activation_tx_hash on the journal row', async () => {
+  const fx = makeH3Fixture();
+  // Seed a matching broadcast row — legal activation path.
+  fx.state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: Number(fx.pendingExpectedId),
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: fx.pendingRoot,
+    total_amount: fx.pendingTotal.toString(),
+    holder_count: 3,
+    status: 'broadcast',
+    tx_hash: '0xproposedtx',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+
+  const result = await _withTestOverrides(
+    {
+      sql: fx.fakeSql,
+      publicClientFor: () => fx.fakePub,
+      walletClientFor: () => ({ wallet: fx.walletRec.wallet, account: fx.walletRec.account }),
+    },
+    () => activateVaultEpoch('robinhood'),
+  );
+
+  assert.ok(result, 'activation must return non-null on successful path');
+  assert.equal(result!.epochId, Number(fx.pendingExpectedId));
+  // Exactly one signed tx: the activateEpoch call.
+  assert.equal(fx.walletRec.calls.length, 1);
+  const decoded = decodeFunctionData({ abi: publishAbi, data: fx.walletRec.calls[0]!.data });
+  assert.equal(decoded.functionName, 'activateEpoch');
+  // The journal row was promoted to 'confirmed' via finalizePublication AND
+  // its activation_tx_hash column carries the freshly-signed tx (distinct
+  // from the propose tx already in `tx_hash`).
+  assert.equal(fx.state.publications.length, 1);
+  const row = fx.state.publications[0]!;
+  assert.equal(row.status, 'confirmed');
+  assert.equal(row.tx_hash, '0xproposedtx', 'propose tx hash preserved');
+  assert.equal(
+    row.activation_tx_hash,
+    '0x' + 'de'.repeat(32),
+    'activation tx hash recorded on the row',
+  );
+  // rewards_epochs mirrored the confirmation.
+  assert.equal(fx.state.epochs.length, 1);
+  assert.equal(fx.state.epochs[0]!.merkle_root, fx.pendingRoot);
+});
+
+test('H3 AC #2 reconcile with mismatched total flags conflict AND preserves leaves', async () => {
+  const state = makeFakeState();
+  // Seed a broadcast row whose root matches on-chain but whose total disagrees.
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: 9,
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_A,
+    total_amount: '1000',
+    holder_count: 2,
+    status: 'broadcast',
+    tx_hash: '0xproposedtx',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 9, holder: '0xa', amount: '500', proof: [] });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 9, holder: '0xb', amount: '500', proof: [] });
+
+  // On-chain landed same root but a DIFFERENT total (e.g. someone re-proposed
+  // with an inflated amount and it activated). Must trip conflict — cannot
+  // serve proofs summing to 1000 against a live 2000 root.
+  const pub = makeFakePub({ 9: [ROOT_A, 2000n, 2000n] });
+  const db = makeFakeDb(state);
+
+  await assert.rejects(
+    () => reconcilePendingForConfig(CFG, pub, db),
+    /conflict at epoch 9: total mismatch/,
+  );
+
+  // Row flipped to conflict; leaves DELIBERATELY preserved as forensic
+  // evidence of what we intended vs. what landed.
+  assert.equal(state.publications.length, 1);
+  assert.equal(state.publications[0]!.status, 'conflict');
+  assert.equal(state.leaves.length, 2, 'leaves must be preserved for post-mortem');
+  assert.equal(state.epochs.length, 0, 'no rewards_epochs mirror for a conflicted row');
 });

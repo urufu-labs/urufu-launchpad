@@ -135,3 +135,30 @@ Auditor's third re-review returned 7 findings (F1..F7) plus a batch of Lower-sev
 
 **Release decision (round 5): DO NOT DEPLOY before sign-off + MHH/Graduator rotation for F5.** F5 landed source-only; the live MHH still enforces LP-lock at the hook layer. Shipping the F5 source behavior requires mining a new MHH at the `0x20C4` mask, deploying a fresh Graduator wired to it, running `MHH.setInitializer(newGraduator)` + `CurveFactory.setGraduator(newGraduator)`. Pools graduated on the old MHH inherit the pre-F5 hook permanently and cannot be migrated.
 
+---
+
+## Round 6 (2026-08-05) — fourth external re-review response
+
+Auditor's fourth pass returned 4 HIGH findings targeting round-5 additions + reraised gaps. Plus proactive close of the 11-combo customize coverage.
+
+| ID | Sev | Status | Remediation summary |
+|---|---|---|---|
+| URU-A18-H1 | HIGH | **Closed.** | `rewards.ts` `_setTestOverrides` (mutable module-global) removed. Replaced with `AsyncLocalStorage`-scoped `_withTestOverrides(overrides, callback)`. Every resolver reads from `als.getStore()` inside the async chain scope. Parallel-isolation test at `rewards.test.ts:1177` proves two concurrent `_withTestOverrides` scopes see independent overrides via racing `publishEpoch` flows. Nested-scope test at `:1257` proves stack restoration on exit. |
+| URU-A18-H2 | HIGH | **Closed.** | WL snapshot cache key now includes ALL policy inputs (chainId, tokenAddress, startBlock, minBalance, allowPartial, maxBlockscoutPages, maxBlockDrift, maxHolderCount, blockscoutPageSize) via `_computeCacheKey` at `wl-snapshot.ts:309`. Pinata pin path now rethrows on `signal.aborted` OR `_isAbortError(err)` via `.name`, `.code === 'ABORT_ERR'`, or recursive `.cause` walk. Aborted requests do NOT populate the cache. Tests at `wl-snapshot.test.ts:504` (minBalance separation), `:558` (page cap), `:601` (holder cap), `:665` (abort rethrow + no-cache-poison). |
+| URU-A18-H3 | HIGH | **Closed.** | `_activatePendingProposal` now fail-closed: refuses to sign `activateEpoch(id)` unless the journal row exists with status='broadcast', matching merkle_root AND total_amount. New error `EpochActivationJournalMismatch(reason)`. Reconcile diagnoses total vs root mismatch and marks status='conflict' without deleting leaves (preserves forensic evidence). New `activation_tx_hash` column via idempotent `ALTER TABLE ... IF NOT EXISTS` migration in `db.ts:154`. Records tx hash as final provenance after receipt success. Tests at `rewards.test.ts:1319` (missing row), `:1349` (root mismatch), `:1381` (total mismatch), `:1413` (wrong status), `:1447` (activation_tx_hash populated), `:1497` (reconcile mismatch → conflict + leaves preserved). |
+| URU-A18-H4 | HIGH | **Closed.** | `BuildRouterCutoverSafeBatch.s.sol` preflight now verifies all 5 starting-state properties: `NameRegistry.router() == oldRouter`, 3× `factory.router() == oldRouter`, `curveFactory.trustedRouters(oldRouter) == true`. 3 new error selectors (`Preflight__RegistryPointsAtWrongRouter`, `Preflight__FactoryPointsAtWrongRouter`, `Preflight__OldRouterNotTrusted`) each carry the offending addresses. Fork regressions at `RhRotationRehearsalFork.t.sol:369` (stale env), `:404` (partial factory migration), `:441` (already-untrusted old Router). NOTE: `ActivateRouter.s.sol::_preflightWithSkip` has the same gap but is already locked behind the `run()`-disabled + `runForTest` chain-id gate from round 4 + round 5. |
+| URU-A18-Coverage | INFO | **Closed 10/11.** | Pre-generated 10 curve-compatible ERC20 pair templates via the splicer (`compile-service/src/genComposedTemplates.ts` reproducible harness). Templates at `contracts/src/templates/composed/ERC20With<A><B>Gen.sol` (alphabetical): AntiBot+Staking/Vesting/Votes, AntiWhale+Permit/Staking/Vesting/Votes, Permit+Votes, Staking+Votes, Vesting+Votes. Manifest extended to 20 entries. 10 new graduation tests in `ModuleLaunchGraduation.t.sol` cover launch→curve→graduate→v4 swap for each pair. Staking+Vesting deliberately excluded per `shared/matrix.json` incompatibility declaration. Known residual: `AntiBot+Permit` and `Permit+Vesting` templates exist on disk but are NOT manifest-registered on fresh deploys — pre-existing coverage gap tracked separately. |
+
+### Round 6 merge-gate acceptance criteria
+
+- [x] Every fix applied to branch tip.
+- [x] `forge fmt --check` clean, `forge build` clean.
+- [x] `FOUNDRY_PROFILE=ci forge test` non-fork: 759 pass, 0 fail (was 749, +10 new pair tests exactly).
+- [x] Audit fork suite: 56 pass, 1 skip (was 53 pre-round-6, +3 new H4 preflight regressions).
+- [x] Compile-service `node --test`: 110 pass, 0 fail (was 95 pre-round-6, +8 H1 tests + +6 H3 tests + +4 H2 tests + +1 manifest-drift row = 110).
+- [x] TypeScript typecheck clean.
+- [x] All 4 HIGH findings closed with named regression tests.
+- [x] 10/11 customize-mode pair combos now proven through full graduation lifecycle.
+
+**Release decision (round 6): DO NOT DEPLOY before sign-off + MHH/Graduator rotation for F5.** All findings closed source-side. Ready for external re-review at the round-6 commit tip.
+

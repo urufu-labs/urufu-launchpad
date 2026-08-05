@@ -527,6 +527,286 @@ test('snapshotFromIpfs throws WlIpfsResponseTooLarge when the gateway body excee
   }
 });
 
+// ================================================================
+// AUDIT H2 (Round 6, HIGH) — policy-inclusive cache key.
+//
+// The pre-fix cache key was `chainId:token:startBlock` only. A permissive
+// request (e.g. `minBalance=0`) that populated cache would silently satisfy
+// a same-block stricter request (`minBalance=1e18`) — handing the wrong
+// Merkle root back to the stricter caller. These tests lock in the fix.
+// ================================================================
+
+test('cache is policy-aware: same block, different minBalance yields distinct entries (stricter request does NOT reuse permissive cache)', async () => {
+  const token = testToken('h2min');
+  // Two runs at the SAME startBlock (1000n each), different minBalance.
+  // Run A: minBalance=1 → both '10'-balance holders pass  → holderCount=2.
+  // Run B: minBalance=15 → both '10'-balance holders fail → holderCount=0.
+  // If the cache key ignored minBalance, B would return A's result and
+  // blockscoutCalls would NOT increase between them.
+  mock.blockscoutPages = [
+    makePage(null, [
+      ['0x0000000000000000000000000000000000000001', '10'],
+      ['0x0000000000000000000000000000000000000002', '10'],
+    ]),
+    makePage(null, [
+      ['0x0000000000000000000000000000000000000001', '10'],
+      ['0x0000000000000000000000000000000000000002', '10'],
+    ]),
+  ];
+  // Four rpc reads: (A.start, A.end, B.start, B.end).
+  mock.rpcBlocks = [1000n, 1000n, 1000n, 1000n];
+
+  const snapA = await snapshotHolders({
+    chainId: 4663,
+    tokenAddress: token,
+    minBalance: 1n,
+  });
+  assert.equal(snapA.holderCount, 2);
+  const bsCallsAfterA = mock.blockscoutCalls;
+  assert.equal(bsCallsAfterA, 1, 'run A should have hit blockscout once');
+
+  const snapB = await snapshotHolders({
+    chainId: 4663,
+    tokenAddress: token,
+    minBalance: 15n,
+  });
+  // Hard evidence: B re-fetched (cache miss) rather than reusing A's slot.
+  assert.equal(
+    mock.blockscoutCalls,
+    2,
+    `expected B to re-fetch blockscout after cache miss; got calls=${mock.blockscoutCalls}`,
+  );
+  // AC #2: B's result must reflect B's stricter policy, not A's.
+  assert.equal(snapB.holderCount, 0, 'stricter B should filter both holders out');
+  assert.notEqual(snapB.root, snapA.root, 'roots must differ between A and B');
+  assert.notEqual(
+    snapB.listId,
+    snapA.listId,
+    'listIds must differ — cache key must include minBalance',
+  );
+  // Same startBlock proves the discriminator is minBalance, not the block.
+  assert.equal(snapA.snapshotStartBlock, snapB.snapshotStartBlock);
+});
+
+test('cache is policy-aware: same block, different maxBlockscoutPages yields distinct entries', async () => {
+  const token = testToken('h2mpg');
+  // Two runs with allowPartial:true so both succeed (both truncate but
+  // return `partial: true`). Distinct maxBlockscoutPages → distinct
+  // pagesFetched counts → distinct outputs; cache must not conflate them.
+  mock.blockscoutPages = [
+    // Run A (maxPages=1): one page fetched, still advertising more.
+    makePage({ page: 2 }, [['0x0000000000000000000000000000000000000001', '10']]),
+    // Run B (maxPages=2): two pages fetched, still advertising more.
+    makePage({ page: 2 }, [['0x0000000000000000000000000000000000000001', '10']]),
+    makePage({ page: 3 }, [['0x0000000000000000000000000000000000000002', '10']]),
+  ];
+  mock.rpcBlocks = [2000n, 2000n, 2000n, 2000n];
+
+  const snapA = await snapshotHolders({
+    chainId: 4663,
+    tokenAddress: token,
+    maxBlockscoutPages: 1,
+    allowPartial: true,
+  });
+  assert.equal(snapA.pagesFetched, 1);
+  assert.equal(snapA.holderCount, 1);
+  const bsCallsAfterA = mock.blockscoutCalls;
+  assert.equal(bsCallsAfterA, 1);
+
+  const snapB = await snapshotHolders({
+    chainId: 4663,
+    tokenAddress: token,
+    maxBlockscoutPages: 2,
+    allowPartial: true,
+  });
+  // If the cache key ignored maxBlockscoutPages, B would return A's slot
+  // and blockscoutCalls would stay at 1.
+  assert.equal(
+    mock.blockscoutCalls,
+    3,
+    `expected B to re-fetch its 2 pages; got calls=${mock.blockscoutCalls}`,
+  );
+  assert.equal(snapB.pagesFetched, 2);
+  assert.equal(snapB.holderCount, 2);
+  assert.notEqual(snapB.root, snapA.root);
+  assert.notEqual(snapB.listId, snapA.listId);
+  assert.equal(snapA.snapshotStartBlock, snapB.snapshotStartBlock);
+});
+
+test('cache is policy-aware: same block, different maxHolderCount (holderCap) yields distinct entries', async () => {
+  const token = testToken('h2cap');
+  // Run A (cap=10): 3 holders pass, snapshot succeeds.
+  // Run B (cap=1): 3 holders exceed the cap → throws WlHolderCountExceedsCap.
+  // If the cache key ignored maxHolderCount, B would happily return A's
+  // permissive result — silently bypassing the cap. Both effects prove:
+  //   - B re-fetches (blockscoutCalls increments).
+  //   - B does not receive A's success; it throws its own dedicated error.
+  mock.blockscoutPages = [
+    makePage(null, [
+      ['0x0000000000000000000000000000000000000001', '10'],
+      ['0x0000000000000000000000000000000000000002', '10'],
+      ['0x0000000000000000000000000000000000000003', '10'],
+    ]),
+    makePage(null, [
+      ['0x0000000000000000000000000000000000000001', '10'],
+      ['0x0000000000000000000000000000000000000002', '10'],
+      ['0x0000000000000000000000000000000000000003', '10'],
+    ]),
+  ];
+  // A reads start+end. B throws inside fetchHoldersViaBlockscout before the
+  // end read fires, so we only need one B block read.
+  mock.rpcBlocks = [3000n, 3000n, 3000n];
+
+  const snapA = await snapshotHolders({
+    chainId: 4663,
+    tokenAddress: token,
+    maxHolderCount: 10,
+  });
+  assert.equal(snapA.holderCount, 3);
+  const bsCallsAfterA = mock.blockscoutCalls;
+  assert.equal(bsCallsAfterA, 1);
+
+  await assert.rejects(
+    () =>
+      snapshotHolders({
+        chainId: 4663,
+        tokenAddress: token,
+        maxHolderCount: 1,
+      }),
+    (err: unknown) => {
+      assert.ok(
+        err instanceof WlHolderCountExceedsCap,
+        `expected WlHolderCountExceedsCap (proving B did NOT return A's cached success); got ${err}`,
+      );
+      return true;
+    },
+  );
+  // Hard evidence: B re-fetched instead of returning A's cached success.
+  assert.equal(
+    mock.blockscoutCalls,
+    2,
+    `expected strict-cap B to re-fetch, not to return A's cache; got calls=${mock.blockscoutCalls}`,
+  );
+});
+
+// ================================================================
+// AUDIT H2 (Round 6, HIGH) — client abort mid-Pinata pin.
+//
+// Pre-fix: an AbortError inside `_pinListToIpfs` was swallowed by the outer
+// `catch`, and control fell through to `cache.set(cacheKey, result)`. The
+// aborted caller never receives the result but the cache is now populated
+// with output the caller cannot verify against a returned root. Fix: if
+// `signal.aborted` OR the error is an AbortError (or wraps one), rethrow —
+// and skip the cache write.
+// ================================================================
+
+test('client abort mid-Pinata pin rethrows AbortError; cache is NOT populated (follow-up re-fetches)', async () => {
+  const token = testToken('h2abrt');
+  const prevJwt = process.env.PINATA_JWT;
+  process.env.PINATA_JWT = 'test-jwt-h2';
+  const origFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let pinataCalls = 0;
+
+  // Intercept pinata specifically. First call: simulate real fetch's
+  // abort-observing behaviour — wait for the composed signal to fire, then
+  // reject with an AbortError shape. Subsequent calls (from the follow-up
+  // request) succeed cleanly so we can prove cache miss vs. cache hit.
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+    if (url.includes('pinata.cloud')) {
+      pinataCalls += 1;
+      if (pinataCalls === 1) {
+        // Fire the outer abort — the composed signal (outer + timeout) that
+        // fetch was called with will observe it and reject with AbortError.
+        // We simulate that rejection directly since the mocked fetch never
+        // actually hits the network.
+        controller.abort(new Error('client bailed mid-pin'));
+        const abortErr = Object.assign(new Error('The operation was aborted'), {
+          name: 'AbortError',
+        });
+        throw abortErr;
+      }
+      // Follow-up runs: return a valid pinata success shape.
+      return new Response(JSON.stringify({ IpfsHash: 'bafyfake-h2' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // Everything else falls through to the shared mock installed by
+    // beforeEach. Delegate to the previous fetch so blockscout + rpc still
+    // work through the shared mock queues.
+    return origFetch(input, init);
+  }) as typeof fetch;
+
+  mock.blockscoutPages = [
+    // Run 1 (aborted mid-pin): fetches 1 blockscout page.
+    makePage(null, [['0x0000000000000000000000000000000000000001', '10']]),
+    // Run 2 (follow-up, no abort): must ALSO fetch — proving cache empty.
+    makePage(null, [['0x0000000000000000000000000000000000000001', '10']]),
+  ];
+  // Run 1: start+end reads. Run 2: start+end reads.
+  mock.rpcBlocks = [4000n, 4000n, 4000n, 4000n];
+
+  try {
+    // AC #5: aborted pin rethrows AbortError-shaped rejection.
+    await assert.rejects(
+      () =>
+        snapshotHolders({
+          chainId: 4663,
+          tokenAddress: token,
+          signal: controller.signal,
+        }),
+      (err: unknown) => {
+        // The signal was aborted with `new Error('client bailed mid-pin')`,
+        // so the code rethrows that reason. Alternatively an environment
+        // could surface the underlying AbortError from fetch — accept either
+        // shape as long as the request rejected mid-pin.
+        assert.ok(err instanceof Error, `expected Error, got ${err}`);
+        const e = err as { name?: string; message?: string; cause?: unknown };
+        const looksLikeAbort =
+          e.name === 'AbortError' ||
+          (typeof e.message === 'string' && /aborted|bailed/i.test(e.message)) ||
+          (e.cause !== undefined &&
+            typeof e.cause === 'object' &&
+            e.cause !== null &&
+            (e.cause as { name?: string }).name === 'AbortError');
+        assert.ok(
+          looksLikeAbort,
+          `expected AbortError or wrapping error, got name=${e.name} msg=${e.message}`,
+        );
+        return true;
+      },
+    );
+
+    // AC #6: aborted run must NOT have populated cache. Prove it: a second
+    // (non-aborted) request with the SAME policy must re-fetch blockscout.
+    const bsCallsBefore = mock.blockscoutCalls;
+    const snap = await snapshotHolders({
+      chainId: 4663,
+      tokenAddress: token,
+    });
+    assert.ok(
+      mock.blockscoutCalls > bsCallsBefore,
+      `follow-up must re-fetch (cache should be empty after aborted pin); ` +
+        `blockscoutCalls before=${bsCallsBefore} after=${mock.blockscoutCalls}`,
+    );
+    assert.equal(snap.holderCount, 1);
+    // Sanity: the second pin actually ran successfully.
+    assert.equal(pinataCalls, 2, `pinata should have been called twice; got ${pinataCalls}`);
+    assert.equal(snap.listCid, 'bafyfake-h2');
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevJwt === undefined) delete process.env.PINATA_JWT;
+    else process.env.PINATA_JWT = prevJwt;
+  }
+});
+
 test('snapshotFromIpfs accepts a body inside the cap and returns a valid snapshot', async () => {
   const origFetch = globalThis.fetch;
   // Build a tiny, integrity-valid payload — the root must match the Merkle

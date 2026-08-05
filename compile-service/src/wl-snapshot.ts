@@ -281,9 +281,75 @@ export class WlSnapshotBlockDrift extends Error {
   }
 }
 
-/// Simple in-memory cache — key is `${chainId}:${token.toLowerCase()}:${block}`.
-/// Stored so the SAME snapshot can serve many proof requests without re-scanning.
+/// Simple in-memory cache. Key is derived from EVERY policy input that
+/// changes the output set — see `_computeCacheKey`. Stored so the SAME
+/// snapshot can serve many proof requests without re-scanning.
+///
+/// AUDIT H2 (Round 6, HIGH): the pre-fix key was `chainId:token:block` only,
+/// which meant a permissive request (e.g. `minBalance=0`) at the same
+/// startBlock as a stricter request (`minBalance=1e18`) would hand the
+/// stricter caller the permissive holder set + Merkle root — the wrong root
+/// for their policy. The key now includes chainId, tokenAddress, startBlock,
+/// minBalance, allowPartial, maxBlockscoutPages, maxBlockDrift, maxHolderCount,
+/// and blockscoutPageSize. Two identical requests share a slot; anything else
+/// misses cache and re-fetches.
 const cache = new Map<string, SnapshotResult>();
+
+/// Bump when the set of policy fields in the cache key changes so stale
+/// clients holding an old-shape listId don't accidentally collide with a
+/// new-shape slot. Purely defensive — the cache is process-local and cleared
+/// on restart, so a redeploy already invalidates old keys.
+const CACHE_KEY_SCHEMA = 'v2';
+
+/// AUDIT H2: build the cache key from every input that affects the output set.
+/// A `:` delimited string is safe here because every field serialises to a
+/// value with no colons (numbers, bigints, lowercased 0x-prefixed hex, and
+/// `0|1` for the boolean). If a future field can contain `:` this must
+/// switch to a hashed JSON serialisation.
+function _computeCacheKey(k: {
+  chainId: number;
+  tokenAddress: Address;
+  startBlock: bigint;
+  minBalance: bigint;
+  allowPartial: boolean;
+  maxBlockscoutPages: number;
+  maxBlockDrift: bigint;
+  maxHolderCount: number;
+  blockscoutPageSize: number;
+}): string {
+  return [
+    'wl',
+    CACHE_KEY_SCHEMA,
+    k.chainId,
+    k.tokenAddress.toLowerCase(),
+    k.startBlock.toString(),
+    k.minBalance.toString(),
+    k.allowPartial ? '1' : '0',
+    k.maxBlockscoutPages,
+    k.maxBlockDrift.toString(),
+    k.maxHolderCount,
+    k.blockscoutPageSize,
+  ].join(':');
+}
+
+/// AUDIT H2: distinguish an AbortError from a general fetch/network error.
+/// Node's `fetch` rejects aborted requests with a `DOMException` whose `.name`
+/// is `'AbortError'`; some wrappers (viem, undici) surface the original in
+/// `.cause`. A raw `controller.abort(new Error('…'))` may propagate whatever
+/// reason the caller attached, so this helper also treats
+/// `.code === 'ABORT_ERR'` as an abort. Walks `.cause` recursively so a
+/// wrapping layer can't hide the abort signal from us.
+function _isAbortError(err: unknown): boolean {
+  if (err === null || err === undefined) return false;
+  if (typeof err !== 'object' && typeof err !== 'function') return false;
+  const e = err as { name?: string; code?: string; cause?: unknown };
+  if (e.name === 'AbortError') return true;
+  if (e.code === 'ABORT_ERR') return true;
+  if (e.cause !== undefined && e.cause !== err) {
+    return _isAbortError(e.cause);
+  }
+  return false;
+}
 
 export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotResult> {
   const rpc = RPC_URLS[req.chainId];
@@ -319,11 +385,26 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // cached tip would make the drift check silently pass and defeat the whole
   // purpose of the bookend.
   const startBlock = await client.getBlockNumber({ cacheTime: 0 });
-  const cacheKey = `${req.chainId}:${req.tokenAddress.toLowerCase()}:${startBlock}`;
+  // Resolve minBalance BEFORE building the cache key — it's a policy input
+  // that changes the eligible holder set and therefore the returned root.
+  const minBal = req.minBalance ?? 1n;
+  // AUDIT H2 (Round 6, HIGH): cache key includes EVERY policy input that
+  // changes the output set. See `_computeCacheKey` for the rationale — the
+  // pre-fix key was `chainId:token:startBlock` only, which let a permissive
+  // request's result be handed to a stricter same-block caller.
+  const cacheKey = _computeCacheKey({
+    chainId: req.chainId,
+    tokenAddress: req.tokenAddress,
+    startBlock,
+    minBalance: minBal,
+    allowPartial,
+    maxBlockscoutPages,
+    maxBlockDrift: maxDrift,
+    maxHolderCount,
+    blockscoutPageSize: BLOCKSCOUT_PAGE_SIZE,
+  });
   const cached = cache.get(cacheKey);
   if (cached) return cached;
-
-  const minBal = req.minBalance ?? 1n;
 
   // Prefer blockscout when available — it has the full holder set indexed and
   // returns current balances directly, sidestepping the event-replay cutoff
@@ -457,6 +538,19 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
       result.listGatewayUrl = pinned.gatewayUrl;
     }
   } catch (err) {
+    // AUDIT H2 (Round 6, HIGH): a client abort DURING the pin used to be
+    // swallowed here — control fell through to `cache.set` and the caller
+    // never saw the result they're now caching. That means:
+    //   1. The client can't verify the pinned root exists off-server (they
+    //      cancelled mid-pin and don't hold the listId).
+    //   2. Any future request with the same policy at this block hits the
+    //      cached slot, returning a listId + gatewayUrl the caller can't
+    //      independently confirm the pin state of.
+    // Fix: if the caller cancelled OR the underlying error is an AbortError
+    // (or wraps one), rethrow — do NOT populate the cache. A retry will
+    // re-snapshot and re-pin cleanly. See `_isAbortError`.
+    if (signal?.aborted) throw signal.reason ?? err;
+    if (_isAbortError(err)) throw err;
     // Non-fatal — snapshot still usable via in-memory cache.
     // eslint-disable-next-line no-console
     console.warn('wl-snapshot: IPFS pin failed, falling back to in-memory cache only', err);
@@ -835,7 +929,13 @@ async function _readBodyWithCap(
 // IPFS pin (Pinata) — durable storage for holder lists so trade-time proof
 // lookups don't depend on process-local memory.
 // -----------------------------------------------------------
-const PINATA_JWT = process.env.PINATA_JWT ?? '';
+/// AUDIT H2: read the pinata JWT at CALL time (not module-load time) so the
+/// abort-during-pin test suite can toggle it per-test. Prod behaviour is
+/// unchanged — the env is set before the process starts and doesn't change
+/// mid-run, so the per-call `process.env` read has no meaningful cost.
+function _pinataJwt(): string {
+  return process.env.PINATA_JWT ?? '';
+}
 const PINATA_GATEWAY =
   process.env.PINATA_GATEWAY ?? process.env.NEXT_PUBLIC_PINATA_GATEWAY ?? 'gateway.pinata.cloud';
 const PINATA_PIN_JSON_URL = 'https://api.pinata.cloud/pinning/pinJSONToIPFS';
@@ -851,7 +951,8 @@ async function _pinListToIpfs(
   snapshotBlock: bigint,
   signal?: AbortSignal,
 ): Promise<{ cid: string; gatewayUrl: string } | null> {
-  if (!PINATA_JWT) return null;
+  const jwt = _pinataJwt();
+  if (!jwt) return null;
   // Pin a compact self-describing JSON — enough to reconstruct the tree client-side
   // and verify against the on-chain root. Keeps addresses lowercased (canonical form
   // used for leaf hashing) so no re-normalization is needed at proof-build time.
@@ -866,7 +967,7 @@ async function _pinListToIpfs(
   const res = await fetch(PINATA_PIN_JSON_URL, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${PINATA_JWT}`,
+      authorization: `Bearer ${jwt}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
