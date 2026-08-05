@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 64 64" role="img" aria-label="urufu wolf mascot">
+  <ellipse cx="34" cy="56" rx="18" ry="3" fill="rgba(0,0,0,0.15)" />
+  <path d="M12 32 C 12 18, 22 10, 32 10 C 42 10, 52 18, 52 32 C 52 44, 44 52, 32 52 C 20 52, 12 44, 12 32 Z" fill="#e6d7c2" stroke="#3a2c3a" stroke-width="2.5" stroke-linejoin="round" />
+  <path d="M14 20 L 10 8 L 22 16 Z" fill="#e6d7c2" stroke="#3a2c3a" stroke-width="2" stroke-linejoin="round" />
+  <path d="M50 21 L 55 10 L 42 17 Z" fill="#e6d7c2" stroke="#3a2c3a" stroke-width="2" stroke-linejoin="round" />
+  <path d="M14 20 L 12 12 L 18 17 Z" fill="#ffd1dc" />
+  <path d="M50 21 L 52 13 L 46 18 Z" fill="#ffd1dc" />
+  <text x="24" y="34" text-anchor="middle" font-size="12" font-family="Georgia, serif" fill="#3a2c3a">●</text>
+  <text x="41" y="34" text-anchor="middle" font-size="12" font-family="Georgia, serif" fill="#3a2c3a">●</text>
+  <ellipse cx="33" cy="40" rx="2.5" ry="1.8" fill="#3a2c3a" />
+  <text x="33" y="47" text-anchor="middle" font-size="9" font-family="Georgia, serif" fill="#3a2c3a">ᴗ</text>
+  <circle cx="18" cy="40" r="3" fill="rgba(255,136,179,0.5)" />
+  <circle cx="47" cy="40" r="3" fill="rgba(255,136,179,0.5)" />
+</svg>

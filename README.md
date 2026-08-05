@@ -1,133 +1,229 @@
-# urufu launchpad
+<div align="center">
 
-The composable token launchpad. Pick a base, stack audited feature modules, choose a launch mechanic, deploy real Solidity in one transaction. Bonding-curve launches graduate to Uniswap v4 with the graduation LP locked structurally and swap fees routed through the urufu gemu flywheel.
+<img src="./docs/assets/urufu-mascot.svg" alt="urufu wolf mascot" width="140" />
 
-> **Status.** External audit re-review in progress on branch `audit-round-2` (tip: round 6). Live V7 stack on Robinhood chain 4663 remains operational. New launches are gated behind auditor sign-off + a fresh V8 stack rotation. **Do not deploy the patched code until sign-off.**
+# ✿ urufu launchpad ✿
 
-## Table of contents
+⌒ the composable token launchpad ⌒  
+_pick a base, stack modules, deploy in one transaction_
 
-- [Overview](#overview)
-- [What ships in v1](#what-ships-in-v1)
-- [Anti-rug guarantees](#anti-rug-guarantees)
-- [Architecture](#architecture)
-- [The flywheel](#the-flywheel)
-- [Getting started](#getting-started)
-- [Testing](#testing)
-- [Deploy topology](#deploy-topology)
-- [Audit history](#audit-history)
-- [Repository layout](#repository-layout)
-- [Known limitations](#known-limitations)
-- [License + contact](#license--contact)
+[![audit](https://img.shields.io/badge/audit-round%206-ff88b3?style=flat-square&labelColor=3a2c3a)](./PATCH-COVERAGE.md)
+[![tests](https://img.shields.io/badge/tests-934%20passing-2fbf6a?style=flat-square&labelColor=3a2c3a)](#-testing-)
+[![slither](https://img.shields.io/badge/slither-0%20high-bde0fe?style=flat-square&labelColor=3a2c3a)](./.github/SECURITY.md)
+[![chain](https://img.shields.io/badge/chain-robinhood%204663-ffefad?style=flat-square&labelColor=3a2c3a)](https://github.com/urufu-labs/urufu-launchpad/issues/6)
+[![license](https://img.shields.io/badge/license-BUSL%201.1-ffd1dc?style=flat-square&labelColor=3a2c3a)](./LICENSE)
 
-## Overview
+</div>
 
-The launchpad turns a base contract plus a set of feature modules into a deployable ERC-20 in one transaction. Bonding-curve launches graduate atomically to a Uniswap v4 pool. Fees from launches, curve trades, and post-graduation swaps route through a three-way splitter (URU buyback / NFT revenue / treasury).
+<div align="center">
 
-Every rug vector the audit surfaced is closed on-chain, not just in the frontend. Ownership must be renounced on any curve launch. The graduation LP position cannot be removed by anyone including the deployer. Every economic setter is propose-then-activate with a real timelock. Multi-round audit history is at [`PATCH-COVERAGE.md`](./PATCH-COVERAGE.md).
+**⋆｡°✩ status ✩°｡⋆**
 
-## What ships in v1
+external audit re-review in progress on `audit-round-2` (tip: round 6)  
+live V7 stack on robinhood chain 4663 stays operational  
+new launches gated behind auditor sign-off + fresh V8 rotation  
+**do not deploy the patched code until sign-off**
 
-Decisions confirmed with the review co-lead (GitHub issues [#5](https://github.com/urufu-labs/urufu-launchpad/issues/5), [#6](https://github.com/urufu-labs/urufu-launchpad/issues/6), [#7](https://github.com/urufu-labs/urufu-launchpad/issues/7), [#11](https://github.com/urufu-labs/urufu-launchpad/issues/11) — all closed decision-accepted):
+</div>
 
-| Area | v1 scope |
-|---|---|
-| Chain | Robinhood mainnet (chain id 4663). Base + Ethereum code paths are nulled in `web/src/lib/config.ts`. |
-| Base | ERC-20 only. ERC-721A + ERC-1155 are intentionally disabled (`NFT_BASES_ENABLED = false`). |
-| Router | Four flat entrypoints: `launch`, `launchWithURU`, `launchWithWhitelist`, `launchWithURUAndWhitelist`. |
-| Modules | AntiBot, AntiWhale, FoT, Pausable V2, Permit, Vesting, Staking, Votes, plus 15 curve-compatible pair combos (splicer-generated). |
-| Sale mechanic | Bonding curve → Uniswap v4 (with locked graduation LP). Direct / fixed / LBP kept out of v1. |
-| Protection knobs | Raw params (`antiSniperBlocks`, `buybackBurnBps`), Router-enforced caps. Presets are post-launch UX work. |
-| URU payment | Floor-based via `minUruFee`. **Not** market-quoted. |
-| Loyalty discount | Gated on a fork test + CI job + UI live-read; degrades cleanly on RPC or wiring failure. |
+---
 
-Post-audit follow-ups tracked as open issues: on-chain [`PoolPolicy`](https://github.com/urufu-labs/urufu-launchpad/issues/9), [three-layer loyalty gate](https://github.com/urufu-labs/urufu-launchpad/issues/10), [`launchAndBuy` for protected first-buy](https://github.com/urufu-labs/urufu-launchpad/issues/8), [aggregator-friendly indexer](https://github.com/urufu-labs/urufu-launchpad/issues/13), [docs status headers](https://github.com/urufu-labs/urufu-launchpad/issues/12).
+## ✿ table of contents ✿
 
-## Anti-rug guarantees
+- [overview 概要](#-overview-)
+- [what ships in v1 出荷済み](#-what-ships-in-v1-)
+- [anti-rug guarantees 安全策](#-anti-rug-guarantees-)
+- [architecture 構造](#-architecture-)
+- [the flywheel フライホイール](#-the-flywheel-)
+- [getting started はじめに](#-getting-started-)
+- [testing テスト](#-testing-)
+- [deploy topology 配置](#-deploy-topology-)
+- [audit history 監査](#-audit-history-)
+- [repository layout レイアウト](#-repository-layout-)
+- [known limitations 制限](#-known-limitations-)
+- [license + contact 版権](#-license--contact-)
 
-Every guarantee is enforced by contract, not the frontend. Contract references are in [`docs/LAUNCHPAD-FULL-SCOPE.md`](./docs/LAUNCHPAD-FULL-SCOPE.md).
+---
 
-- **Graduation LP locked structurally.** The Graduator holds the LP position NFT and has no burn, transfer, or withdraw path, so the graduated position can never be removed. Third-party LPs who add liquidity to the same pool via Uniswap can add + remove theirs freely.
-- **Curved launches must renounce ownership.** Router `_validateLaunchPolicy` reverts `CurveMustRenounce` on any curve launch with `KeepEOA` or `TransferToMultisig`. All four entrypoints.
-- **Owner-controlled modules cannot pair with the curve.** Pausable, AntiBot, AntiWhale carry `FLAG_REQUIRES_OWNER`. Router blocks with `CurveRequiresOwner`.
-- **Pausable no longer exempts the owner.** V1 exempted owner-origin transfers while paused (one-sided sell freeze). V2 removes the exemption; V1 hash `0xa831…803a` is permanently banned.
-- **Retired-Airdrop hashes permanently banned.** All 3 rugged Airdrop V1 hashes stay in `Router.bannedConfigHash` at every deploy.
-- **Every curve creation requires a live Graduator + reachable target.** Both zero-graduator strand and unreachable-target strand are rejected pre-clone.
-- **Every buy leaves ≥ 1 wei-token in reserve.** No configuration can reach graduation with `tokenReserve == 0`.
-- **Graduation is atomic.** If the Graduator reverts, the whole transaction unwinds.
-- **Hook config is mandatory and read back.** `MultiHookHost.setPoolConfig` + `setCreator` results are verified after the write; mismatch reverts.
-- **Every economic admin change is propose → activate.** `FeeSplitter`, `UruDepositSink`, `UruBuybackVault`, `NftRevenueVault` all require a matured proposal for any keeper, target, rate, or config change.
-- **Router rotation is one atomic Safe payload.** `BuildRouterCutoverSafeBatch.s.sol` verifies pending state, old-Router pointers, factory pointers, and old-Router trust before signing. Any drift reverts the whole batch.
-- **Reward publishing is fail-closed on the journal.** `NftRevenueVault.activateEpoch` refuses to sign unless the local journal row matches the on-chain pending root + total.
+## ⌒ overview ⌒
 
-## Architecture
+the launchpad turns a base contract plus a set of feature modules into a deployable ERC-20 in one transaction. bonding-curve launches graduate atomically to a uniswap v4 pool. fees from launches, curve trades, and post-graduation swaps route through a three-way splitter (URU buyback / NFT revenue / treasury).
+
+every rug vector the audit surfaced is closed on-chain, not just in the frontend. ownership must be renounced on any curve launch. the graduation LP position cannot be removed by anyone including the deployer. every economic setter is propose-then-activate with a real timelock. multi-round audit history lives at [`PATCH-COVERAGE.md`](./PATCH-COVERAGE.md).
+
+---
+
+## ♡ what ships in v1 ♡
+
+decisions confirmed with the review co-lead on gh (issues [#5](https://github.com/urufu-labs/urufu-launchpad/issues/5), [#6](https://github.com/urufu-labs/urufu-launchpad/issues/6), [#7](https://github.com/urufu-labs/urufu-launchpad/issues/7), [#11](https://github.com/urufu-labs/urufu-launchpad/issues/11), all closed decision-accepted):
+
+| area | v1 scope |
+|:---|:---|
+| ⌒ chain | robinhood mainnet (chain id 4663). base + ethereum code paths nulled in `web/src/lib/config.ts` |
+| ⌒ base | ERC-20 only. ERC-721A + ERC-1155 intentionally disabled (`NFT_BASES_ENABLED = false`) |
+| ⌒ router | four flat entrypoints: `launch`, `launchWithURU`, `launchWithWhitelist`, `launchWithURUAndWhitelist` |
+| ⌒ modules | AntiBot, AntiWhale, FoT, Pausable V2, Permit, Vesting, Staking, Votes, plus 15 curve-compatible pair combos (splicer-generated) |
+| ⌒ sale mechanic | bonding curve → uniswap v4 (with locked graduation LP). direct / fixed / LBP kept out of v1 |
+| ⌒ protection knobs | raw params (`antiSniperBlocks`, `buybackBurnBps`), router-enforced caps. presets are post-launch UX work |
+| ⌒ URU payment | floor-based via `minUruFee`. **not** market-quoted |
+| ⌒ loyalty discount | gated on fork test + CI job + UI live-read; degrades cleanly on RPC or wiring failure |
+
+post-audit follow-ups tracked as open issues: on-chain [`PoolPolicy`](https://github.com/urufu-labs/urufu-launchpad/issues/9), [three-layer loyalty gate](https://github.com/urufu-labs/urufu-launchpad/issues/10), [`launchAndBuy` for protected first-buy](https://github.com/urufu-labs/urufu-launchpad/issues/8), [aggregator-friendly indexer](https://github.com/urufu-labs/urufu-launchpad/issues/13), [docs status headers](https://github.com/urufu-labs/urufu-launchpad/issues/12).
+
+---
+
+## 🎀 anti-rug guarantees 🎀
+
+every guarantee below is enforced by contract, not the frontend. contract references sit in [`docs/LAUNCHPAD-FULL-SCOPE.md`](./docs/LAUNCHPAD-FULL-SCOPE.md).
+
+<table>
+<tr><td>
+
+**✿ graduation LP locked structurally**  
+the graduator holds the LP position NFT and exposes no burn, transfer, or withdraw path. graduated position can never be removed. third-party LPs on the same pool via uniswap can add + remove theirs freely.
+
+</td></tr>
+<tr><td>
+
+**✿ curved launches MUST renounce ownership**  
+router `_validateLaunchPolicy` reverts `CurveMustRenounce` on any curve launch with `KeepEOA` or `TransferToMultisig`. all four entrypoints.
+
+</td></tr>
+<tr><td>
+
+**✿ owner-controlled modules cannot pair with the curve**  
+pausable, antibot, antiwhale carry `FLAG_REQUIRES_OWNER`. router blocks with `CurveRequiresOwner`.
+
+</td></tr>
+<tr><td>
+
+**✿ pausable no longer exempts the owner**  
+v1 exempted owner-origin transfers while paused (one-sided sell freeze). v2 removes the exemption; v1 hash `0xa831…803a` is permanently banned.
+
+</td></tr>
+<tr><td>
+
+**✿ retired-airdrop hashes permanently banned**  
+all 3 rugged airdrop v1 hashes stay in `Router.bannedConfigHash` at every deploy.
+
+</td></tr>
+<tr><td>
+
+**✿ every buy leaves ≥ 1 wei-token in reserve**  
+no configuration can reach graduation with `tokenReserve == 0`.
+
+</td></tr>
+<tr><td>
+
+**✿ graduation is atomic**  
+if the graduator reverts, the whole transaction unwinds.
+
+</td></tr>
+<tr><td>
+
+**✿ hook config is mandatory and read back**  
+`MultiHookHost.setPoolConfig` + `setCreator` results verified after the write; mismatch reverts.
+
+</td></tr>
+<tr><td>
+
+**✿ every economic admin change is propose → activate**  
+feesplitter, urudepositsink, urubuybackvault, nftrevenuevault all require a matured proposal for any keeper, target, rate, or config change.
+
+</td></tr>
+<tr><td>
+
+**✿ router rotation is one atomic safe payload**  
+`BuildRouterCutoverSafeBatch.s.sol` verifies pending state, old-router pointers, factory pointers, and old-router trust before signing. any drift reverts the whole batch.
+
+</td></tr>
+<tr><td>
+
+**✿ reward publishing is fail-closed on the journal**  
+`NftRevenueVault.activateEpoch` refuses to sign unless the local journal row matches the on-chain pending root + total.
+
+</td></tr>
+</table>
+
+---
+
+## ⌒ architecture ⌒
 
 ```text
-              ┌──────────────────────────────────────────┐
-              │           web/  (Next.js 16)             │
+              ╭──────────────────────────────────────────╮
+              │           web/  (next.js 16)             │
               │  /create /trade /discover /profile       │
               │  wagmi 2 + viem 2 + lightweight-charts   │
-              └───────────────────┬──────────────────────┘
+              ╰───────────────────┬──────────────────────╯
                                   │
-              ┌───────────────────┴──────────────────────┐
-              │        indexer/ (Ponder v0.7)            │
-              │  Launch · Trade · Graduated events       │
-              │  Dynamic BondingCurve + Token subs       │
-              └───────────────────┬──────────────────────┘
+              ╭───────────────────┴──────────────────────╮
+              │        indexer/ (ponder v0.7)            │
+              │  launch · trade · graduated events       │
+              │  dynamic bondingcurve + token subs       │
+              ╰───────────────────┬──────────────────────╯
                                   │
-              ┌───────────────────┴──────────────────────┐
-              │           contracts/ (Foundry)           │
+              ╭───────────────────┴──────────────────────╮
+              │           contracts/ (foundry)           │
               │                                          │
-              │  NameRegistry   ← name + ticker lock     │
-              │  Router         ← 4 launch entrypoints   │
-              │  FeeSplitter    ← 40/35/25 ETH router    │
-              │  LoyaltyOracle  ← discount tiers         │
-              │  <base>Factory  ← per-base deploys       │
-              │  ERC20Template  ← module splice target   │
-              │  BondingCurve   ← virtual x·y=k curve    │
-              │  CurveFactory   ← one curve per token    │
-              │  GraduatorV2    ← curve → v4 pool        │
-              │  MultiHookHost  ← v4 hook (LP-lock, fee) │
-              │  UruBuybackVault + NftRevenueVault       │
-              │  UruDepositSink + RoyaltyRouterFactory   │
-              └──────────────────────────────────────────┘
+              │  nameregistry    ✿ name + ticker lock    │
+              │  router          ✿ 4 launch entrypoints  │
+              │  feesplitter     ✿ 40/35/25 eth router   │
+              │  loyaltyoracle   ✿ discount tiers        │
+              │  <base>factory   ✿ per-base deploys      │
+              │  erc20template   ✿ module splice target  │
+              │  bondingcurve    ✿ virtual x·y=k curve   │
+              │  curvefactory    ✿ one curve per token   │
+              │  graduatorv2     ✿ curve → v4 pool       │
+              │  multihookhost   ✿ v4 hook (fee redirect)│
+              │  urubuybackvault + nftrevenuevault       │
+              │  urudepositsink + royaltyrouterfactory   │
+              ╰──────────────────────────────────────────╯
                                   │
-              ┌───────────────────┴──────────────────────┐
-              │  compile-service/ (Fastify + Foundry)    │
-              │  POST /compile      → splice + build     │
-              │  POST /wl/snapshot  → merkle root        │
-              │  POST /rewards/publish → journaled       │
-              └──────────────────────────────────────────┘
+              ╭───────────────────┴──────────────────────╮
+              │  compile-service/ (fastify + foundry)    │
+              │  POST /compile       ✿ splice + build    │
+              │  POST /wl/snapshot   ✿ merkle root       │
+              │  POST /rewards/*     ✿ journaled epochs  │
+              ╰──────────────────────────────────────────╯
 ```
 
-## The flywheel
+---
 
-Every launch fee, curve trade, and post-graduation swap feeds a `FeeSplitter` contract that splits ETH three ways:
+## ♡ the flywheel ♡
 
-| Slice | Percentage | Destination |
-|---|---|---|
-| URU buyback | 40% | `UruBuybackVault` → keeper swaps ETH → URU → forwards URU to `NftRevenueVault` |
-| NFT revenue | 35% | `NftRevenueVault` → journaled merkle drops direct to urufu gemu NFT holders |
-| Treasury | 25% | Platform, infra, audits |
+every launch fee, curve trade, and post-graduation swap feeds a `FeeSplitter` contract that splits ETH three ways:
 
-### Launch fee discounts (via `LoyaltyOracle`)
+<div align="center">
 
-Displayed at UI-time only when the live-read gate confirms the wiring is intact. Discount claims degrade cleanly on RPC or oracle failure.
+| slice | % | destination |
+|:---:|:---:|:---|
+| **URU buyback** 🎀 | 40% | `UruBuybackVault` → keeper swaps ETH → URU → forwards to `NftRevenueVault` |
+| **NFT revenue** ✿ | 35% | `NftRevenueVault` → journaled merkle drops direct to urufu gemu holders |
+| **treasury** ⌒ | 25% | platform, infra, audits |
 
-- Hold ≥ 1 urufu gemu NFT: **20% off**
-- Hold ≥ 100,000 URU: **40% off**
-- Hold both: **50% off** (hard-capped at 80% via `MAX_LOYALTY_DISCOUNT_BPS`)
+</div>
 
-A reverting oracle no longer bricks all launches. The discount is a fail-open read (URU-A14).
+### ✧ launch fee discounts (via `LoyaltyOracle`)
 
-### Post-graduation earnings
+displayed at UI-time only when the live-read gate confirms the wiring is intact. discount claims degrade cleanly on RPC or oracle failure.
 
-Real creator earnings accrue **post-graduation** via v4 hooks. The `MultiHookHost` hook takes 1% platform + 1% creator on every swap through a graduated pool. Platform slice → FeeSplitter (loops into 40/35/25). Creator slice → launcher wallet.
+- hold ≥ 1 urufu gemu NFT ➜ **20% off**  
+- hold ≥ 100,000 URU ➜ **40% off**  
+- hold both ➜ **50% off** (hard-capped at 80% via `MAX_LOYALTY_DISCOUNT_BPS`)
 
-Pre-graduation launcher earnings are zero. Curve trade fees route to the platform, so wash-trading a curve earns the launcher nothing.
+a reverting oracle no longer bricks all launches. the discount is a fail-open read (URU-A14).
 
-## Getting started
+### ✧ post-graduation earnings
 
-Requires Node 22+, pnpm, and Foundry (nightly recommended for compatibility with CI).
+real creator earnings accrue **post-graduation** via v4 hooks. `MultiHookHost` takes 1% platform + 1% creator on every swap through a graduated pool. platform slice → feesplitter (loops into 40/35/25). creator slice → launcher wallet.
+
+pre-graduation launcher earnings are zero. curve trade fees route to the platform, so wash-trading a curve earns the launcher nothing.
+
+---
+
+## ⌒ getting started ⌒
+
+requires node 22+, pnpm, and foundry (nightly recommended for CI compatibility).
 
 ```bash
 git clone https://github.com/urufu-labs/urufu-launchpad
@@ -137,165 +233,197 @@ pnpm install
 cd contracts && forge install && cd ..
 
 cp .env.example .env
-# Fill ROBINHOOD_RPC_URL, DEV_PRIVATE_KEY, URU_TOKEN_ADDRESS, GEMU_NFT_ADDRESS
+# fill ROBINHOOD_RPC_URL, DEV_PRIVATE_KEY, URU_TOKEN_ADDRESS, GEMU_NFT_ADDRESS
 ```
 
-Local development:
+local development:
 
 ```bash
 pnpm dev:web               # http://localhost:3000
-pnpm dev:indexer           # http://localhost:42069  (Ponder)
-pnpm dev:compile-service   # http://localhost:3001   (Fastify)
+pnpm dev:indexer           # http://localhost:42069  (ponder)
+pnpm dev:compile-service   # http://localhost:3001   (fastify)
 ```
 
-The `/create` page renders a "not live yet" splash while `LAUNCHPAD_LIVE = false`. Other pages (`/discover`, `/trade`, `/profile`, `/recover`) remain usable against live V7 state.
+`/create` renders a "not live yet" splash while `LAUNCHPAD_LIVE = false`. other pages (`/discover`, `/trade`, `/profile`, `/recover`) remain usable against live V7 state.
 
-## Testing
+---
 
-The launchpad ships with 934 tests across contracts, compile-service, and fork suites. Every audit round adds regressions for the specific behaviors under review.
+## 🎀 testing 🎀
+
+the launchpad ships with **934 tests** across contracts, compile-service, and fork suites. every audit round adds regressions for the specific behaviors under review.
 
 ```bash
-# Contracts non-fork (unit + integration + invariants, 10k fuzz runs)
+# contracts non-fork (unit + integration + invariants, 10k fuzz runs)
 cd contracts && FOUNDRY_PROFILE=ci forge test --no-match-path "test/**/*Fork*"
 
-# Live Robinhood fork suites
+# live robinhood fork suites
 source ../.env
 FOUNDRY_PROFILE=ci forge test --match-path "test/audit/**Fork*"
 FOUNDRY_PROFILE=ci forge test --match-path "test/integration/**Fork*"
 
-# Compile-service (Node 22+ required for --experimental-strip-types)
+# compile-service (node 22+ required for --experimental-strip-types)
 cd ../compile-service
 node --experimental-strip-types --disable-warning=ExperimentalWarning --test 'src/**/*.test.ts'
 
-# Slither static analysis
+# slither static analysis
 cd ../contracts && forge clean && bash security.sh
 ```
 
-### Round 6 test totals
+### ✧ round 6 test totals
 
-| Suite | Count | Notes |
-|---|---|---|
-| Contracts non-fork | 759 pass | `FOUNDRY_PROFILE=ci` = 10,000 fuzz runs per property |
-| Contracts audit-fork | 56 pass, 1 skip | 1 skip is the pre-existing URUFU-orphan test |
-| Contracts integration-fork | 9 pass | Live RH RPC required |
-| Compile-service | 110 pass | Node built-in test runner |
-| Slither | 0 High | 56 Medium, 46 Low, 130 Informational — full triage in [`.github/SECURITY.md`](./.github/SECURITY.md) |
+<div align="center">
 
-## Deploy topology
+| suite | count | notes |
+|:---|:---:|:---|
+| ✿ contracts non-fork | **759** pass | `FOUNDRY_PROFILE=ci` = 10,000 fuzz runs per property |
+| ✿ contracts audit-fork | **56** pass, 1 skip | 1 skip is the pre-existing URUFU-orphan test |
+| ✿ contracts integration-fork | **9** pass | live RH RPC required |
+| ✿ compile-service | **110** pass | node built-in test runner |
+| ✿ slither | **0 high** | 56 medium, 46 low, 130 informational |
 
-The auditor's plan replaces V7 with a fresh full-stack V8 deploy. Targeted rotation is not viable because the live `NameRegistry` predates the two-phase timelock (`test_LiveRegistry_LacksRotationApi` proves this on every fork run).
+</div>
+
+full slither triage lives at [`.github/SECURITY.md`](./.github/SECURITY.md).
+
+---
+
+## ⌒ deploy topology ⌒
+
+the auditor's plan replaces V7 with a fresh full-stack V8 deploy. targeted rotation isn't viable because the live `NameRegistry` predates the two-phase timelock (`test_LiveRegistry_LacksRotationApi` proves this on every fork run).
 
 ```bash
-# 1. Rehearse in-fork (no broadcast; validates patched source against live chain state)
+# 1. rehearse in-fork (no broadcast; validates patched source against live chain state)
 forge test --match-path "test/audit/DeployPathRhFork.t.sol" --fork-url "$ROBINHOOD_RPC_URL"
 
-# 2. Broadcast the fresh stack
+# 2. broadcast the fresh stack
 bash contracts/deploy.sh DeployFreshLocal robinhood
 
-# 3. Verify wiring
+# 3. verify wiring
 forge script script/VerifyWiring.s.sol --rpc-url "$ROBINHOOD_RPC_URL"
 
-# 4. Configure the flywheel (URU-A11: propose → wait 2 days → activate)
+# 4. configure the flywheel (URU-A11: propose → wait 2 days → activate)
 export KEEPER=0xYourKeeperAddress
-export SWAP_TARGET=0x8876789976dEcBfCbBbe364623C63652db8C0904   # RH Universal Router
+export SWAP_TARGET=0x8876789976dEcBfCbBbe364623C63652db8C0904   # RH universal router
 bash contracts/deploy.sh ConfigureFlywheel robinhood
 
-# 5. Sync addresses into web + indexer
+# 5. sync addresses into web + indexer
 pnpm sync:addresses
 
-# 6. Hand ownership to the multisig
+# 6. hand ownership to the multisig
 export MULTISIG_ADMIN=0xYourSafeAddress
 pnpm contracts:handoff
 
-# 7. Flip the live flag
-# Edit web/src/lib/launchpadStatus.ts: LAUNCHPAD_LIVE = true
+# 7. flip the live flag
+# edit web/src/lib/launchpadStatus.ts: LAUNCHPAD_LIVE = true
 ```
 
-The Router cutover on subsequent rotations goes through a single Safe MultiSendCallOnly payload built by `BuildRouterCutoverSafeBatch.s.sol`. Preflight checks pending state, ownership, manifest metadata, retired hashes, factory pointers, and old-Router trust before signing.
+router cutover on subsequent rotations goes through a single safe multisendcallonly payload built by `BuildRouterCutoverSafeBatch.s.sol`. preflight checks pending state, ownership, manifest metadata, retired hashes, factory pointers, and old-router trust before signing.
 
-Uniswap v4 PoolManager on Robinhood: `0x8366a39CC670B4001A1121B8F6A443A643e40951`.
+uniswap v4 poolmanager on robinhood: `0x8366a39CC670B4001A1121B8F6A443A643e40951`
 
-## Audit history
+---
 
-Full round-by-round remediation table lives at [`PATCH-COVERAGE.md`](./PATCH-COVERAGE.md).
+## 🎀 audit history 🎀
 
-| Round | Date | Summary |
-|---|---|---|
-| Round 1 | Pre-branch | `updateImpl` removal, per-config module-count gate, initial `bannedConfigHash` design, LP-lock via MHH revert |
-| Round 2 v1–v5 | 2026-07-31 → 08-02 | LoyaltyOracle on-chain repoint, all-entrypoint banned-hash guard, DeployRouter / ActivateRouter split |
-| Round 3 | 2026-08-03 | URU-A01…A14 + exact-output burn bypass |
-| Round 4 | 2026-08-04 | Runtime-vs-creation hash split, atomic Safe cutover, exact-output burn revert, pending-reward reservation |
-| Round 5 | 2026-08-04 | Publisher wedge, `/test` + `/wl/*` admission controls, holder pagination, MHH LP-lock scoping, pull-based Graduator refund |
-| Round 6 | 2026-08-05 | AsyncLocalStorage test isolation, WL cache policy-inclusive key, activation fail-closed on journal, Safe-batch starting-state preflight, 10 splicer-generated pair templates + full customize-mode graduation coverage |
+full round-by-round remediation table lives at [`PATCH-COVERAGE.md`](./PATCH-COVERAGE.md).
 
-Merge is blocked pending external re-review at the round-6 tip.
+<div align="center">
 
-## Repository layout
+| round | date | summary |
+|:---:|:---:|:---|
+| **1** | pre-branch | `updateImpl` removal, per-config module-count gate, initial `bannedConfigHash`, LP-lock via MHH revert |
+| **2 v1–v5** | 2026-07-31 → 08-02 | loyaltyoracle on-chain repoint, all-entrypoint banned-hash guard, deployrouter / activaterouter split |
+| **3** | 2026-08-03 | URU-A01…A14 + exact-output burn bypass |
+| **4** | 2026-08-04 | runtime-vs-creation hash split, atomic safe cutover, exact-output burn revert, pending-reward reservation |
+| **5** | 2026-08-04 | publisher wedge, `/test` + `/wl/*` admission controls, holder pagination, MHH LP-lock scoping, pull-based graduator refund |
+| **6** | 2026-08-05 | asynclocalstorage test isolation, WL cache policy-inclusive key, activation fail-closed on journal, safe-batch starting-state preflight, 10 splicer-generated pair templates + full customize-mode graduation coverage |
+
+</div>
+
+merge is blocked pending external re-review at the round-6 tip.
+
+---
+
+## ♡ repository layout ♡
 
 ```
 launchpad/
-├── contracts/                # Foundry workspace
+├── contracts/                # foundry workspace
 │   ├── src/
-│   │   ├── registry/         # NameRegistry (two-phase router rotation)
-│   │   ├── router/           # Router, FeeSplitter, UruDepositSink
-│   │   ├── templates/        # ERC20Template + composed/ (26+ impls)
-│   │   ├── factories/        # ERC20Factory, ERC721AFactory, ERC1155Factory
-│   │   ├── curve/            # BondingCurve, CurveFactory, GraduatorV2
-│   │   ├── hooks/            # MultiHookHost + BaseHook + HookMiner
-│   │   ├── flywheel/         # LoyaltyOracle, NftRevenueVault, UruBuybackVault, RoyaltyRouterFactory
-│   │   └── types/            # LaunchParams, BaseType, OwnershipMode
+│   │   ├── registry/         # nameregistry (two-phase router rotation)
+│   │   ├── router/           # router, feesplitter, urudepositsink
+│   │   ├── templates/        # erc20template + composed/ (26+ impls)
+│   │   ├── factories/        # erc20factory, erc721afactory, erc1155factory
+│   │   ├── curve/            # bondingcurve, curvefactory, graduatorv2
+│   │   ├── hooks/            # multihookhost + basehook + hookminer
+│   │   ├── flywheel/         # loyaltyoracle, nftrevenuevault, urubuybackvault, royaltyrouterfactory
+│   │   └── types/            # launchparams, basetype, ownershipmode
 │   ├── modules/              # .frag.sol fragments spliced by compile-service
 │   ├── test/                 # unit/, integration/, curve/, hooks/, composed/, audit/*Fork.t.sol
-│   ├── script/               # DeployFreshLocal, DeployRouter, ActivateRouter, HandoffOwnership,
-│   │                         # ConfigureFlywheel, VerifyWiring, BuildRouterCutoverSafeBatch, RhConfigManifest
+│   ├── script/               # deploy scripts + BuildRouterCutoverSafeBatch + RhConfigManifest
 │   └── deploy.sh
 │
-├── compile-service/          # Fastify + Foundry
+├── compile-service/          # fastify + foundry
 │   └── src/
 │       ├── server.ts         # /compile, /test, /health, /pin/*, /wl/*, /rewards/*
 │       ├── compile.ts        # parseFragment + splice + compose
-│       ├── rewards.ts        # Journaled publication, PG advisory lock, fail-closed activation
-│       ├── wl-snapshot.ts    # Policy-inclusive cache, abort-safe pinning
-│       ├── keeper.ts         # Opt-in background loops
-│       └── genComposedTemplates.ts   # Reproducible splicer harness
+│       ├── rewards.ts        # journaled publication, PG advisory lock, fail-closed activation
+│       ├── wl-snapshot.ts    # policy-inclusive cache, abort-safe pinning
+│       ├── keeper.ts         # opt-in background loops
+│       └── genComposedTemplates.ts   # reproducible splicer harness
 │
-├── web/                      # Next.js 16
+├── web/                      # next.js 16
 │   └── src/
 │       ├── app/              # /, /create, /discover, /trade/[address], /profile/[address],
 │       │                     # /recover, /catalog, /feed
 │       └── lib/              # config, modules, abis, wagmi, indexer, launchpadStatus
 │
-├── indexer/                  # Ponder v0.7
-│   ├── ponder.config.ts      # Env-driven multi-chain subscriptions
+├── indexer/                  # ponder v0.7
+│   ├── ponder.config.ts      # env-driven multi-chain subscriptions
 │   ├── ponder.schema.ts      # 13 tables
-│   └── src/index.ts          # Event handlers with in-memory correlation buffers
+│   └── src/index.ts          # event handlers with in-memory correlation buffers
 │
-├── shared/                   # Single source of truth (URU-A08 / A09)
+├── shared/                   # single source of truth (URU-A08 / A09)
 │   ├── config-id.ts          # canonicalModuleString: imported by web AND compile-service
-│   └── matrix.json           # Module compatibility rules
+│   └── matrix.json           # module compatibility rules
 │
 ├── tools/
 │   └── sync-addresses.mjs    # deployment-fresh.<chain>.json → web + indexer
 │
 └── docs/
-    ├── LAUNCHPAD-FULL-SCOPE.md      # Technical reference (2700+ lines)
-    ├── UNISWAP-HOOK-ALLOWLIST.md    # Uniswap Labs submission dossier
-    ├── NFT-ACTIVATION.md            # Checklist to enable ERC-721A / ERC-1155 launches
-    └── decisions/log.md             # Architectural decision records
+    ├── LAUNCHPAD-FULL-SCOPE.md      # technical reference (2700+ lines)
+    ├── UNISWAP-HOOK-ALLOWLIST.md    # uniswap labs submission dossier
+    ├── NFT-ACTIVATION.md            # checklist to enable ERC-721A / ERC-1155 launches
+    └── decisions/log.md             # architectural decision records
 ```
 
-## Known limitations
+---
 
-- **Indexer** filters v4 swaps to the platform's own swap router and skips administrative events by design. Do not treat indexer output as a security or volume authority; it is a UX feed, not a source of truth.
-- **Whitelist snapshots** fail loudly when Blockscout truncates or the block-drift budget is exceeded. Callers wanting partial data must pass `allowPartial: true` explicitly.
-- **Live V7 stack** on Robinhood still enforces LP-lock at the hook layer. Shipping the round-5 F5 hook change requires a full MHH + Graduator rotation to a fresh address mined at mask `0x20C4`. Existing pools on the old MHH stay LP-locked forever.
-- **NFT bases** are disabled in v1 (`NFT_BASES_ENABLED = false`, no NFT impls registered on fresh deploys). Direct-Router bypass to an NFT base reverts loudly at the policy gate.
+## ⌒ known limitations ⌒
 
-## License + contact
+- **indexer** filters v4 swaps to the platform's own swap router and skips administrative events by design. don't treat indexer output as a security or volume authority; it's a UX feed, not a source of truth.
+- **whitelist snapshots** fail loudly when blockscout truncates or the block-drift budget is exceeded. callers wanting partial data must pass `allowPartial: true` explicitly.
+- **live V7 stack** on robinhood still enforces LP-lock at the hook layer. shipping the round-5 F5 hook change requires a full MHH + graduator rotation to a fresh address mined at mask `0x20C4`. existing pools on the old MHH stay LP-locked forever.
+- **NFT bases** are disabled in v1 (`NFT_BASES_ENABLED = false`, no NFT impls registered on fresh deploys). direct-router bypass to an NFT base reverts loudly at the policy gate.
 
-Dual-licensed. The SPDX header at the top of each source file is authoritative.
+---
 
-- [**BUSL 1.1**](./LICENSE) covers most files. Source is available to read, audit, fork, and modify. Production use is limited to personal, educational, research, and security-audit purposes. Running a token launchpad, bonding-curve trading, curve graduation to Uniswap v4, or the URU / gemu revenue flywheel for third parties requires a commercial license. **Change Date 2030-07-13** (four years after the license was applied) auto-converts to MIT.
+## ♡ license + contact ♡
+
+dual-licensed. the SPDX header at the top of each source file is authoritative.
+
+- [**BUSL 1.1**](./LICENSE) covers most files. source is available to read, audit, fork, and modify. production use is limited to personal, educational, research, and security-audit purposes. running a token launchpad, bonding-curve trading, curve graduation to uniswap v4, or the URU / gemu revenue flywheel for third parties requires a commercial license. **change date 2030-07-13** (four years after the license was applied) auto-converts to MIT.
 - [**MIT**](./LICENSE-MIT) covers the v4 hook library in `contracts/src/hooks/` (`BaseHook`, `HookMiner`, `MultiHookHost`) and `contracts/src/types/VMTypes.sol`.
 
-Public contact: [x.com/spoobsV1](https://x.com/spoobsV1). Security reports go through the same channel — see [`.github/SECURITY.md`](./.github/SECURITY.md).
+<div align="center">
+
+**✿ public contact ✿**
+
+[x.com/spoobsV1](https://x.com/spoobsV1)
+
+security reports go through the same channel  
+see [`.github/SECURITY.md`](./.github/SECURITY.md)
+
+<sub>♡ built with kawaiicore aesthetics + zero rug tolerance ♡</sub>
+
+</div>
