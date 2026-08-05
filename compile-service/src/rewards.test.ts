@@ -14,16 +14,29 @@
 ///   3. zero available — publisher must refuse
 ///   4. explicit override above available — publisher must refuse
 ///
+/// Round-2 audit FINDING 1 (proposal-path wedge) additions:
+///   6. broadcast row + on-chain matured pending — reconcile logs, doesn't throw
+///   7. broadcast row + on-chain immature pending — reconcile logs, doesn't throw
+///   8. broadcast row + no matching on-chain pending — reconcile flips to 'reverted'
+///      + clears leaves + doesn't throw
+///
+/// Round-2 audit FINDING 4 (silent 5000-holder cap) additions:
+///   9. paginator exhausts a multi-page indexer response
+///  10. paginator stops on a short (partial) page
+///  11. paginator throws IndexerHolderCountExceedsCap past the sanity ceiling
+///
 /// Runs under Node's built-in `node:test` runner, matching the pattern in
 /// `config-id.test.ts`. Uses a minimal in-memory fake `sql` + fake viem
 /// public client rather than a real Postgres / RPC — the reconcile logic is
-/// pure orchestration around SQL + a single `readContract('epochs', id)`
-/// call, so the fakes cover it without dragging a docker container into CI.
+/// pure orchestration around SQL + a few `readContract(...)` calls, so the
+/// fakes cover it without dragging a docker container into CI.
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  IndexerHolderCountExceedsCap,
+  fetchGemuHoldersFromIndexer,
   reconcilePendingForConfig,
   resolvePublishAmount,
   withPublicationLockOn,
@@ -51,7 +64,7 @@ interface PubRow {
   merkle_root: string;
   total_amount: string;
   holder_count: number;
-  status: 'pending' | 'broadcast' | 'confirmed' | 'conflict';
+  status: 'pending' | 'broadcast' | 'confirmed' | 'conflict' | 'reverted';
   tx_hash: string | null;
   block_number: string | null;
   created_at: Date;
@@ -122,6 +135,7 @@ async function handleQuery(
   values: unknown[],
 ): Promise<unknown[]> {
   const firstFragment = (strings[0] ?? '').replace(/\s+/g, ' ').trim();
+  const joined = strings.join('?').replace(/\s+/g, ' ').trim();
 
   if (firstFragment.startsWith('SELECT pg_advisory_lock(')) {
     await state.lock.acquire();
@@ -132,7 +146,11 @@ async function handleQuery(
     return [];
   }
 
-  if (firstFragment.startsWith('SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash')) {
+  // Reconcile row select — has `created_at, status` in the projection.
+  if (
+    firstFragment.startsWith('SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash')
+    && joined.includes('created_at')
+  ) {
     const chainId = values[0] as number;
     return state.publications
       .filter((p) => p.chain_id === chainId && (p.status === 'pending' || p.status === 'broadcast'))
@@ -145,6 +163,26 @@ async function handleQuery(
         tx_hash: p.tx_hash,
         block_number: p.block_number,
         created_at: p.created_at,
+        status: p.status,
+      }));
+  }
+
+  // Activation row lookup — same projection minus `created_at, status`, and
+  // filters by epoch_id.
+  if (
+    firstFragment.startsWith('SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash')
+    && !joined.includes('created_at')
+  ) {
+    const [chainId, epochId] = values as [number, number];
+    return state.publications
+      .filter((p) => p.chain_id === chainId && p.epoch_id === epochId)
+      .map((p) => ({
+        epoch_id: p.epoch_id,
+        merkle_root: p.merkle_root,
+        total_amount: p.total_amount,
+        holder_count: p.holder_count,
+        tx_hash: p.tx_hash,
+        block_number: p.block_number,
       }));
   }
 
@@ -160,6 +198,14 @@ async function handleQuery(
     const [chainId, epochId] = values as [number, number];
     for (const p of state.publications) {
       if (p.chain_id === chainId && p.epoch_id === epochId) p.status = 'confirmed';
+    }
+    return [];
+  }
+
+  if (firstFragment.startsWith("UPDATE app.rewards_publications SET status = 'reverted'")) {
+    const [chainId, epochId] = values as [number, number];
+    for (const p of state.publications) {
+      if (p.chain_id === chainId && p.epoch_id === epochId) p.status = 'reverted';
     }
     return [];
   }
@@ -240,11 +286,13 @@ function makeFakeSql(state: FakeState): any {
 
 // ---------------------------------------------------------------- fake pub
 
-/// Only `readContract({functionName: 'epochs', args: [id]})` is called by
-/// reconcile. Returns `[merkleRoot, totalAmount, unclaimed]` per the vault
-/// ABI (destructured in rewards.ts as `[root, total]`).
+/// Reconcile calls `readContract({functionName: 'epochs'})` and (for broadcast
+/// rows) `readContract({functionName: 'pendingEpoch'})`. Both are stubbed with
+/// per-test data. `epochs[id]` returns `[merkleRoot, totalAmount, unclaimed]`;
+/// `pendingEpoch()` returns `[expectedEpochId, merkleRoot, totalAmount, readyAt]`.
 function makeFakePub(
   onchainByEpoch: Record<number, readonly [`0x${string}`, bigint, bigint]>,
+  pendingEpoch: readonly [bigint, `0x${string}`, bigint, bigint] = [0n, ZERO_ROOT, 0n, 0n],
 ): any {
   return {
     readContract: async ({
@@ -252,13 +300,16 @@ function makeFakePub(
       args,
     }: {
       functionName: string;
-      args: readonly [bigint];
+      args?: readonly [bigint];
     }) => {
-      if (functionName !== 'epochs') {
-        throw new Error(`unexpected readContract in reconcile: ${functionName}`);
+      if (functionName === 'epochs') {
+        const id = Number((args as readonly [bigint])[0]);
+        return onchainByEpoch[id] ?? ([ZERO_ROOT, 0n, 0n] as const);
       }
-      const id = Number(args[0]);
-      return onchainByEpoch[id] ?? ([ZERO_ROOT, 0n, 0n] as const);
+      if (functionName === 'pendingEpoch') {
+        return pendingEpoch;
+      }
+      throw new Error(`unexpected readContract in reconcile: ${functionName}`);
     },
   };
 }
@@ -486,4 +537,234 @@ test('URU-A07 amount: explicit override above available balance is rejected', ()
     () => resolvePublishAmount(balance, totalCommitted, balance),
     /exceeds uncommitted balance/,
   );
+});
+
+// ================================================================
+// Round-2 audit FINDING 1: proposal-path four-state reconcile
+// ================================================================
+
+test('FINDING 1 AC #1 reconcile does NOT throw on an immature pending proposal', async () => {
+  const state = makeFakeState();
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: 7,
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_A,
+    total_amount: '1000',
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xproposedtx',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 7, holder: '0xa', amount: '1000', proof: [] });
+
+  // Proposal is on-chain (matches our row) but doesn't mature for another
+  // hour. Reconcile must log + continue, NOT throw.
+  const futureReadyAt = BigInt(Math.floor(Date.now() / 1000)) + 3600n;
+  const pub = makeFakePub(
+    {}, // epochs[7] still empty; the proposal isn't activated
+    [7n, ROOT_A, 1000n, futureReadyAt],
+  );
+  const db = makeFakeDb(state);
+
+  await reconcilePendingForConfig(CFG, pub, db); // MUST NOT throw
+
+  // Journal preserved exactly — no state changes.
+  assert.equal(state.publications.length, 1);
+  assert.equal(state.publications[0]!.status, 'broadcast');
+  assert.equal(state.leaves.length, 1);
+  assert.equal(state.epochs.length, 0);
+});
+
+test('FINDING 1 AC #1 reconcile does NOT throw on a matured-but-unactivated pending proposal', async () => {
+  const state = makeFakeState();
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: 7,
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_A,
+    total_amount: '1000',
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xproposedtx',
+    block_number: '9999',
+    created_at: new Date(),
+  });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 7, holder: '0xa', amount: '1000', proof: [] });
+
+  // Proposal is on-chain (matches our row) AND matured — the activation loop
+  // will pick it up on its next tick. Reconcile stays out of the way.
+  const pastReadyAt = BigInt(Math.floor(Date.now() / 1000)) - 3600n;
+  const pub = makeFakePub({}, [7n, ROOT_A, 1000n, pastReadyAt]);
+  const db = makeFakeDb(state);
+
+  await reconcilePendingForConfig(CFG, pub, db); // MUST NOT throw
+
+  assert.equal(state.publications.length, 1);
+  assert.equal(state.publications[0]!.status, 'broadcast');
+  assert.equal(state.leaves.length, 1);
+});
+
+test('FINDING 1 AC #2 reconcile flips broadcast → reverted when on-chain pending is gone', async () => {
+  const state = makeFakeState();
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: 3,
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_A,
+    total_amount: '1000',
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xdroppedtx',
+    block_number: '5555',
+    created_at: new Date(),
+  });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 3, holder: '0xa', amount: '1000', proof: [] });
+
+  // On-chain: epochs[3] empty AND pendingEpoch is empty (proposal was
+  // cancelled, or the tx never actually landed). Our broadcast is orphaned.
+  const pub = makeFakePub({}, [0n, ZERO_ROOT, 0n, 0n]);
+  const db = makeFakeDb(state);
+
+  await reconcilePendingForConfig(CFG, pub, db); // MUST NOT throw
+
+  // Row flipped to reverted, leaves cleared, so next publish tick can retry
+  // at epoch id 3 without a PK collision.
+  assert.equal(state.publications.length, 1);
+  assert.equal(state.publications[0]!.status, 'reverted');
+  assert.equal(state.leaves.length, 0);
+  assert.equal(state.epochs.length, 0);
+});
+
+test('FINDING 1 AC #2 reconcile flips broadcast → reverted when a DIFFERENT proposal is pending', async () => {
+  const state = makeFakeState();
+  state.publications.push({
+    chain_id: CFG.chainId,
+    epoch_id: 3,
+    vault_addr: CFG.vaultAddress.toLowerCase(),
+    merkle_root: ROOT_A,
+    total_amount: '1000',
+    holder_count: 1,
+    status: 'broadcast',
+    tx_hash: '0xoldproposetx',
+    block_number: '5555',
+    created_at: new Date(),
+  });
+  state.leaves.push({ chain_id: CFG.chainId, epoch_id: 3, holder: '0xa', amount: '1000', proof: [] });
+
+  // On-chain pendingEpoch is for a different root (someone cancelled ours and
+  // proposed something else). Our attempt is orphaned.
+  const futureReadyAt = BigInt(Math.floor(Date.now() / 1000)) + 3600n;
+  const pub = makeFakePub({}, [3n, ROOT_B, 2000n, futureReadyAt]);
+  const db = makeFakeDb(state);
+
+  await reconcilePendingForConfig(CFG, pub, db); // MUST NOT throw
+
+  assert.equal(state.publications[0]!.status, 'reverted');
+  assert.equal(state.leaves.length, 0);
+});
+
+// ================================================================
+// Round-2 audit FINDING 4: paginate + sanity ceiling
+// ================================================================
+
+interface FakePage {
+  items: Array<{ holderAddress: string; balance: string }>;
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+function makeFakeIndexerFetch(pages: FakePage[]) {
+  let calls = 0;
+  const fetchImpl = async (_url: string, _init: RequestInit) => {
+    const page = pages[calls] ?? { items: [], hasNextPage: false, endCursor: null };
+    calls += 1;
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { data: { holderss: { items: page.items, pageInfo: { hasNextPage: page.hasNextPage, endCursor: page.endCursor } } } };
+      },
+    };
+  };
+  return { fetchImpl, callCount: () => calls };
+}
+
+/// Helper: build a page of N synthetic holders with distinct addresses.
+function synthPage(n: number, startIdx: number): Array<{ holderAddress: string; balance: string }> {
+  const items: Array<{ holderAddress: string; balance: string }> = [];
+  for (let i = 0; i < n; i++) {
+    const idx = startIdx + i;
+    // Pad to 40 hex chars for a valid-looking address.
+    const addr = '0x' + idx.toString(16).padStart(40, '0');
+    items.push({ holderAddress: addr, balance: '1' });
+  }
+  return items;
+}
+
+test('FINDING 4 AC #1 + AC #3 paginator exhausts multi-page indexer response and stops on a partial page', async () => {
+  // Page size defaults to 500 in production. Simulate 3 pages:
+  //   page 1: 500 items, hasNextPage=true
+  //   page 2: 500 items, hasNextPage=true
+  //   page 3: 137 items, hasNextPage=false  → paginator exits
+  const pages: FakePage[] = [
+    { items: synthPage(500, 0),    hasNextPage: true,  endCursor: 'c1' },
+    { items: synthPage(500, 500),  hasNextPage: true,  endCursor: 'c2' },
+    { items: synthPage(137, 1000), hasNextPage: false, endCursor: null },
+  ];
+  const { fetchImpl, callCount } = makeFakeIndexerFetch(pages);
+  const holders = await fetchGemuHoldersFromIndexer(CFG, fetchImpl, 5_000);
+  assert.equal(holders.length, 1137);
+  // Paginator MUST have stopped after the third page — no extra fetch calls.
+  assert.equal(callCount(), 3);
+});
+
+test('FINDING 4 AC #3 paginator also stops when a page returns FEWER than the requested limit even if hasNextPage=true', async () => {
+  // Some Ponder builds report hasNextPage=true even on the terminal page when
+  // the underlying rows shift mid-query. The partial-page break is the
+  // belt-and-suspenders that keeps us from looping forever.
+  const pages: FakePage[] = [
+    { items: synthPage(500, 0), hasNextPage: true, endCursor: 'c1' },
+    { items: synthPage(42, 500), hasNextPage: true, endCursor: 'c2' }, // partial → break
+    { items: synthPage(500, 542), hasNextPage: true, endCursor: 'c3' }, // never reached
+  ];
+  const { fetchImpl, callCount } = makeFakeIndexerFetch(pages);
+  const holders = await fetchGemuHoldersFromIndexer(CFG, fetchImpl, 5_000);
+  assert.equal(holders.length, 542);
+  assert.equal(callCount(), 2);
+});
+
+test('FINDING 4 AC #4 paginator throws IndexerHolderCountExceedsCap past the sanity ceiling', async () => {
+  // Cap is 1000. Feed pages totalling more than that and assert the paginator
+  // bails hard, does NOT silently truncate.
+  const pages: FakePage[] = [
+    { items: synthPage(500, 0),    hasNextPage: true, endCursor: 'c1' },
+    { items: synthPage(500, 500),  hasNextPage: true, endCursor: 'c2' },
+    { items: synthPage(500, 1000), hasNextPage: true, endCursor: 'c3' }, // overflow lives here
+  ];
+  const { fetchImpl } = makeFakeIndexerFetch(pages);
+  await assert.rejects(
+    () => fetchGemuHoldersFromIndexer(CFG, fetchImpl, 1_000),
+    (err: unknown) => {
+      assert.ok(err instanceof IndexerHolderCountExceedsCap, `expected IndexerHolderCountExceedsCap, got ${(err as Error)?.name}`);
+      const cap = err as IndexerHolderCountExceedsCap;
+      assert.equal(cap.cap, 1_000);
+      assert.ok(cap.seen > 1_000, `expected seen > 1000, got ${cap.seen}`);
+      return true;
+    },
+  );
+});
+
+test('FINDING 4 AC #4 paginator does NOT throw when total holders equal the cap exactly', async () => {
+  // Boundary check: cap is inclusive, `holders.length > cap` is the trigger.
+  // Exactly-at-cap must succeed so a legitimate operator raising the cap to
+  // e.g. 10_000 does not immediately hit a spurious ceiling error.
+  const pages: FakePage[] = [
+    { items: synthPage(500, 0), hasNextPage: true,  endCursor: 'c1' },
+    { items: synthPage(500, 500), hasNextPage: false, endCursor: null },
+  ];
+  const { fetchImpl } = makeFakeIndexerFetch(pages);
+  const holders = await fetchGemuHoldersFromIndexer(CFG, fetchImpl, 1_000);
+  assert.equal(holders.length, 1_000);
 });

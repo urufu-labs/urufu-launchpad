@@ -129,9 +129,15 @@ contract GraduatorV8LpMathForkTest is Test {
         console2.log("  tokens handed to grad :", tokenAtGrad);
         console2.log("  launcher ETH balance  :", launcher.balance);
 
-        // THE CRITICAL ASSERTION.
+        // THE CRITICAL ASSERTION. FINDING 6 round 2: residual dust is now
+        // credited to the launcher's pull-based refund ledger instead of
+        // being pushed. The regression check is that NO ETH sits on the
+        // graduator un-credited (the V7 4-ETH strand had zero credit
+        // path, which is exactly what this assertion still forbids).
         assertEq(
-            address(newGrad).balance, 0, "graduator MUST hold zero ETH post-graduation - the V7 bug stranded 4 ETH here"
+            address(newGrad).balance,
+            newGrad.totalClaimable(),
+            "graduator MUST hold no un-credited ETH post-graduation - the V7 bug stranded 4 ETH here"
         );
 
         // Sanity: the pool must actually have got the ETH we handed to the

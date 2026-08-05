@@ -68,6 +68,13 @@ contract CurveFactory is Ownable {
     uint16 public constant MAX_TRADE_FEE_BPS = 3000;
 
     event CurveCreated(address indexed token, address indexed curve, address indexed launcher);
+    /// URU-A17 Low: emitted IN ADDITION to `CurveCreated` when a curve is
+    /// created via a permissionless entrypoint that did not go through a
+    /// trusted Router. Indexers + UI must NOT treat unverified curves as
+    /// canonical Urufu launches — the Router's fee, naming, config-metadata,
+    /// and retired-hash gates were all bypassed. Existing `CurveCreated`
+    /// consumers keep working; new consumers can filter these out.
+    event UnverifiedCurveCreated(address indexed token, address indexed curve, address indexed launcher);
     event DefaultsSet(
         uint256 curveSupply,
         uint256 virtualTokenReserve,
@@ -244,7 +251,10 @@ contract CurveFactory is Ownable {
     function createCurve(
         address token
     ) external returns (address curve) {
-        return _createCurve(token, 0, 0, msg.sender);
+        curve = _createCurve(token, 0, 0, msg.sender);
+        // URU-A17 Low: this entrypoint is always permissionless — bypasses
+        // Router fee + naming + metadata gates by construction.
+        emit UnverifiedCurveCreated(token, curve, msg.sender);
     }
 
     /// @notice Deploy a curve for `token` with per-launch hook config. `antiSniperBlocks`
@@ -266,8 +276,12 @@ contract CurveFactory is Ownable {
         // stuck. WHITELIST-GATED so an arbitrary intermediate contract cannot
         // spoof tx.origin: a non-whitelisted contract calling us records itself
         // as launcher, harmless. NOT used for auth — only for creator recording.
-        address launcher = trustedRouters[msg.sender] ? tx.origin : msg.sender;
-        return _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
+        bool viaTrustedRouter = trustedRouters[msg.sender];
+        address launcher = viaTrustedRouter ? tx.origin : msg.sender;
+        curve = _createCurve(token, antiSniperBlocks, buybackBurnBps, launcher);
+        // URU-A17 Low: if the caller wasn't a trusted Router, this is a
+        // permissionless direct creation. Mark it so indexers can exclude.
+        if (!viaTrustedRouter) emit UnverifiedCurveCreated(token, curve, launcher);
     }
 
     /// @notice Router-facing variant that records an explicit launcher address rather

@@ -20,8 +20,8 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
-import {CustomRevert} from "v4-core/libraries/CustomRevert.sol";
-import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
 
 interface IERC20Like {
@@ -29,6 +29,13 @@ interface IERC20Like {
         address
     ) external view returns (uint256);
     function approve(
+        address,
+        uint256
+    ) external returns (bool);
+}
+
+interface IERC20LikeTransfer {
+    function transfer(
         address,
         uint256
     ) external returns (bool);
@@ -230,7 +237,15 @@ contract DeployPathRhForkTest is Test {
         // tokens should be stranded in Graduator after a successful
         // graduation. If this ever regresses (V7 had this bug), 4+ ETH per
         // graduation gets locked forever.
-        assertEq(address(s.graduator).balance, 0, "graduator stranded ETH post-graduation");
+        //
+        // FINDING 6 round 2: residual dust is now credited to the launcher's
+        // pull-based refund ledger (`totalClaimable`). The regression check
+        // is that NO un-credited ETH sits on the graduator.
+        assertEq(
+            address(s.graduator).balance,
+            GraduatorV2(payable(s.graduator)).totalClaimable(),
+            "graduator holds un-credited ETH post-graduation"
+        );
         assertEq(IERC20Like(token).balanceOf(s.graduator), 0, "graduator stranded tokens post-graduation");
         assertEq(curve.ethReserve(), 0, "curve.ethReserve not zeroed at graduation");
         assertEq(curve.tokenReserve(), 0, "curve.tokenReserve not zeroed at graduation");
@@ -290,17 +305,22 @@ contract DeployPathRhForkTest is Test {
     // failures in the others.
     // ================================================================
 
-    /// Anti-rug claim: post-graduation LP cannot be removed under any
-    /// context. MultiHookHost.beforeRemoveLiquidity reverts unconditionally.
-    /// v4 wraps the revert as CustomRevert.WrappedError; asserting the full
-    /// wrapper keeps this honest — a future change that made removal fail
-    /// for an unrelated reason would still pass a bare expectRevert.
-    function test_FreshDeploy_LpRemovalPermanentlyRejected() public {
+    /// FINDING 5 (audit round 2): third-party LPs must be able to add AND
+    /// remove liquidity on a graduated pool. Prove:
+    ///   (a) a third-party LP can add liquidity to the graduated pool
+    ///   (b) the same LP can remove all of it
+    ///   (c) the graduation LP position stays put across the whole cycle
+    ///
+    /// The graduation LP is locked structurally by the Graduator's own code
+    /// (no negative-liquidityDelta path in GraduatorV2), not by a hook gate.
+    function test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched() public {
         DeployFreshLocal.Stack memory s = _runDeployment();
         address launcher = makeAddr("lp-launcher");
         address buyer = makeAddr("lp-buyer");
+        address lpTrader = makeAddr("lp-trader");
         vm.deal(launcher, 50 ether);
         vm.deal(buyer, 50 ether);
+        vm.deal(lpTrader, 50 ether);
 
         // Launch + graduate.
         LaunchParams memory p = _bareCurveLaunchParams(s);
@@ -315,22 +335,66 @@ contract DeployPathRhForkTest is Test {
         vm.stopPrank();
         assertTrue(curve.graduated(), "setup: curve did not graduate");
 
-        // Attempt LP removal. `unlock` context is required for
-        // modifyLiquidity, so use a real unlock-callback harness.
+        // Buy some launched-token supply so lpTrader can add both sides.
         PoolKey memory key = _poolKeyFor(token, s.multiHookHost);
-        LiquidityRemover remover = new LiquidityRemover(IPoolManager(s.poolManager));
-        int24 lower = GraduatorV2(payable(s.graduator)).tickLower();
-        int24 upper = GraduatorV2(payable(s.graduator)).tickUpper();
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CustomRevert.WrappedError.selector,
-                address(s.multiHookHost),
-                IHooks.beforeRemoveLiquidity.selector,
-                abi.encodeWithSelector(MultiHookHost.MultiHookHost__LiquidityLocked.selector),
-                abi.encodeWithSelector(Hooks.HookCallFailed.selector)
-            )
+        V4SwapRouter swapper = V4SwapRouter(payable(s.v4SwapRouter));
+        vm.prank(lpTrader);
+        uint256 tokenIn = swapper.swapExactETHForToken{value: 1 ether}(key, 0, lpTrader, block.timestamp + 600);
+        assertGt(tokenIn, 0, "setup: lpTrader could not buy tokens");
+
+        // Snapshot the graduation LP position (owned by the Graduator, keyed at
+        // its full-range tickLower/tickUpper with salt=0).
+        PoolId poolId = key.toId();
+        int24 gLower = GraduatorV2(payable(s.graduator)).tickLower();
+        int24 gUpper = GraduatorV2(payable(s.graduator)).tickUpper();
+        bytes32 gKey = keccak256(abi.encodePacked(address(s.graduator), gLower, gUpper, bytes32(0)));
+        uint128 graduationLpBefore = IPoolManager(s.poolManager).getPositionLiquidity(poolId, gKey);
+        assertGt(graduationLpBefore, 0, "setup: graduation LP position missing");
+
+        // Third-party LP adds a narrow position around current price. Unique
+        // (tickLower, tickUpper) so its position key differs from graduation.
+        int24 lpLower = -1200;
+        int24 lpUpper = 1200;
+        uint128 lpLiquidity = 1e12;
+        LiquidityManager lp = new LiquidityManager(IPoolManager(s.poolManager));
+        vm.deal(address(lp), 5 ether);
+        vm.prank(lpTrader);
+        // ERC20Template is non-FoT, so a plain transfer to the LiquidityManager
+        // suffices for the add-side deposit.
+        IERC20LikeTransfer(token).transfer(address(lp), tokenIn);
+
+        // ---- add ---------------------------------------------------------
+        lp.add(key, lpLower, lpUpper, int256(uint256(lpLiquidity)));
+        bytes32 lpKey = keccak256(abi.encodePacked(address(lp), lpLower, lpUpper, bytes32(0)));
+        assertEq(
+            IPoolManager(s.poolManager).getPositionLiquidity(poolId, lpKey),
+            lpLiquidity,
+            "LP add did not credit position"
         );
-        remover.tryRemove(key, lower, upper);
+        assertEq(
+            IPoolManager(s.poolManager).getPositionLiquidity(poolId, gKey),
+            graduationLpBefore,
+            "graduation LP changed on third-party add"
+        );
+
+        // ---- remove ------------------------------------------------------
+        // Would have reverted MultiHookHost__LiquidityLocked pre-fix.
+        uint256 lpEthBefore = address(lp).balance;
+        uint256 lpTokenBefore = IERC20Like(token).balanceOf(address(lp));
+        lp.remove(key, lpLower, lpUpper, -int256(uint256(lpLiquidity)));
+
+        assertEq(IPoolManager(s.poolManager).getPositionLiquidity(poolId, lpKey), 0, "LP remove did not zero position");
+        assertTrue(
+            address(lp).balance > lpEthBefore || IERC20Like(token).balanceOf(address(lp)) > lpTokenBefore,
+            "LP received nothing back on remove"
+        );
+
+        // Graduation LP still untouched.
+        assertEq(
+            IPoolManager(s.poolManager).getPositionLiquidity(poolId, gKey),
+            graduationLpBefore,
+            "graduation LP changed after add + remove cycle"
+        );
     }
 
     /// Curve.sell should mirror the buy path when the buyer wants out mid-curve.
@@ -503,11 +567,12 @@ contract DeployPathRhForkTest is Test {
     }
 }
 
-// Minimal unlock-callback harness that tries to remove liquidity from a v4
-// pool. modifyLiquidity requires an active unlock context; this contract
-// re-enters via PoolManager.unlock so the removal attempt originates from a
-// valid unlock frame.
-contract LiquidityRemover {
+// Small unlock-callback harness that adds and removes liquidity for the
+// caller in a v4 pool. modifyLiquidity requires an active unlock context;
+// this contract enters via PoolManager.unlock and settles both sides
+// (currency0 = ETH via settle{value}, currency1 = token via sync + transfer
+// + settle) on adds, and takes both sides on removes.
+contract LiquidityManager {
     IPoolManager internal immutable pm;
 
     constructor(
@@ -516,23 +581,59 @@ contract LiquidityRemover {
         pm = _pm;
     }
 
-    function tryRemove(
+    receive() external payable {}
+
+    function add(
         PoolKey memory key,
         int24 tickLower,
-        int24 tickUpper
+        int24 tickUpper,
+        int256 liquidityDelta
     ) external {
-        pm.unlock(abi.encode(key, tickLower, tickUpper));
+        pm.unlock(abi.encode(uint8(1), key, tickLower, tickUpper, liquidityDelta));
+    }
+
+    function remove(
+        PoolKey memory key,
+        int24 tickLower,
+        int24 tickUpper,
+        int256 liquidityDelta
+    ) external {
+        pm.unlock(abi.encode(uint8(2), key, tickLower, tickUpper, liquidityDelta));
     }
 
     function unlockCallback(
         bytes calldata data
     ) external returns (bytes memory) {
-        (PoolKey memory key, int24 tickLower, int24 tickUpper) = abi.decode(data, (PoolKey, int24, int24));
-        pm.modifyLiquidity(
+        (, PoolKey memory key, int24 tickLower, int24 tickUpper, int256 liquidityDelta) =
+            abi.decode(data, (uint8, PoolKey, int24, int24, int256));
+
+        (BalanceDelta callerDelta,) = pm.modifyLiquidity(
             key,
-            ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: -1, salt: bytes32(0)}),
+            ModifyLiquidityParams({
+                tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: liquidityDelta, salt: bytes32(0)
+            }),
             ""
         );
+
+        int128 delta0 = int128(int256(BalanceDelta.unwrap(callerDelta) >> 128));
+        int128 delta1 = int128(int256(BalanceDelta.unwrap(callerDelta)));
+
+        if (delta0 < 0) {
+            pm.settle{value: uint256(uint128(-delta0))}();
+        } else if (delta0 > 0) {
+            pm.take(key.currency0, address(this), uint256(uint128(delta0)));
+        }
+
+        if (delta1 < 0) {
+            uint256 owed = uint256(uint128(-delta1));
+            address tokenAddr = Currency.unwrap(key.currency1);
+            pm.sync(key.currency1);
+            SafeTransferLib.safeTransfer(tokenAddr, address(pm), owed);
+            pm.settle();
+        } else if (delta1 > 0) {
+            pm.take(key.currency1, address(this), uint256(uint128(delta1)));
+        }
+
         return "";
     }
 }

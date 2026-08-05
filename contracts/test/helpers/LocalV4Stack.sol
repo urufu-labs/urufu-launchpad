@@ -73,9 +73,13 @@ contract StackToken is ERC20 {
 abstract contract LocalV4Stack is Test {
     using PoolIdLibrary for PoolKey;
 
-    /// beforeInitialize | beforeRemoveLiquidity | beforeSwap | afterSwap |
-    /// afterSwapReturnsDelta  ==  0x2000 | 0x200 | 0x80 | 0x40 | 0x04
-    uint160 internal constant MHH_FLAGS = 0x22C4;
+    /// beforeInitialize | beforeSwap | afterSwap | afterSwapReturnsDelta
+    ///   ==  0x2000 | 0x80 | 0x40 | 0x04.
+    /// Audit-round-2 FINDING 5 dropped beforeRemoveLiquidity (0x200) — the
+    /// graduation LP is locked structurally by GraduatorV2 (no negative-
+    /// liquidityDelta path there), and gating remove was freezing every
+    /// third-party LP forever.
+    uint160 internal constant MHH_FLAGS = 0x20C4;
 
     uint24 internal constant FEE = 3000;
     int24 internal constant TICK_SPACING = 60;

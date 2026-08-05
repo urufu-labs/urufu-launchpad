@@ -152,11 +152,12 @@ contract UruDepositSink is Ownable, ReentrancyGuard {
         }
 
         // Reset approval to zero first, then set to `uruIn` — belt-and-braces against
-        // routers that read residual allowance non-idempotently.
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, 0);
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, uruIn);
+        // routers that read residual allowance non-idempotently. URU-A17 Low:
+        // safeApproveWithRetry enforces standard ERC-20 return-value semantics
+        // AND handles the USDT-style tokens that require zero-first, in a
+        // single call — kept as two calls here for zero-then-value clarity.
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, 0);
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, uruIn);
 
         uint256 ethBefore = address(this).balance;
         (bool ok,) = swapTarget.call(swapData);
@@ -167,8 +168,7 @@ contract UruDepositSink is Ownable, ReentrancyGuard {
 
         // Clear any residual allowance so a compromised swapTarget can't drain URU
         // between conversion runs.
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, 0);
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, 0);
 
         SafeTransferLib.safeTransferETH(distributionSink, ethOut);
         emit ConversionExecuted(uruIn, ethOut);

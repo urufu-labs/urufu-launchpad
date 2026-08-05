@@ -34,8 +34,11 @@ import type { Address } from 'viem';
 
 import {
   snapshotHolders,
+  snapshotFromIpfs,
   WlSnapshotTruncated,
   WlSnapshotBlockDrift,
+  WlHolderCountExceedsCap,
+  WlIpfsResponseTooLarge,
 } from './wl-snapshot.ts';
 
 // -----------------------------------------------------------
@@ -310,4 +313,268 @@ test('snapshotHolders accepts a small drift within maxBlockDrift and returns bot
   assert.equal(snap.snapshotStartBlock, 5000n);
   assert.equal(snap.snapshotEndBlock, 5005n);
   assert.equal(snap.partial, false);
+});
+
+// ================================================================
+// FINDING 3 (HIGH) AC #4: holder count above the cap raises
+// WlHolderCountExceedsCap with the observed count in the message.
+// ================================================================
+
+test('snapshotHolders rejects with WlHolderCountExceedsCap when the eligible set exceeds maxHolderCount, carrying the observed count', async () => {
+  const token = testToken('cap06');
+  // Six eligible holders in a single page; cap is 5. The error must fire
+  // BEFORE the Merkle build (otherwise the point of the cap is defeated).
+  const holders: Array<[string, string]> = [];
+  for (let i = 1; i <= 6; i++) {
+    holders.push([`0x${i.toString(16).padStart(40, '0')}`, '10']);
+  }
+  mock.blockscoutPages = [makePage(null, holders)];
+  // Only the startBlock read fires before we throw the cap error.
+  mock.rpcBlocks = [6000n];
+
+  await assert.rejects(
+    () =>
+      snapshotHolders({
+        chainId: 4663,
+        tokenAddress: token,
+        maxHolderCount: 5,
+      }),
+    (err: unknown) => {
+      assert.ok(
+        err instanceof WlHolderCountExceedsCap,
+        `expected WlHolderCountExceedsCap, got ${err}`,
+      );
+      // Observed count must be in the message — audit requirement is
+      // explicit ("with the observed count in the error message").
+      assert.equal(err.holderCount, 6);
+      assert.equal(err.maxHolderCount, 5);
+      assert.equal(err.source, 'blockscout');
+      assert.match(err.message, /holder count 6/);
+      assert.match(err.message, /cap 5/);
+      // Message must NOT truncate silently — audit requires an actionable hint.
+      assert.match(err.message, /WL_MAX_HOLDER_COUNT/);
+      return true;
+    },
+  );
+});
+
+test('fetchHoldersViaBlockscout aborts pagination mid-walk once the running count exceeds the cap, saving RPC/Blockscout budget', async () => {
+  const token = testToken('cap07');
+  // Two pages, three holders each. Cap is 4 — the walker should hard-stop
+  // on the second page WITHOUT fetching a hypothetical third page. If we
+  // stripped the early-abort, `blockscoutCalls` would go higher.
+  mock.blockscoutPages = [
+    makePage({ page: 2 }, [
+      ['0x0000000000000000000000000000000000000001', '10'],
+      ['0x0000000000000000000000000000000000000002', '10'],
+      ['0x0000000000000000000000000000000000000003', '10'],
+    ]),
+    makePage({ page: 3 }, [
+      ['0x0000000000000000000000000000000000000004', '10'],
+      ['0x0000000000000000000000000000000000000005', '10'],
+      ['0x0000000000000000000000000000000000000006', '10'],
+    ]),
+    // Deliberately unreachable — a passing test proves the walker stopped
+    // before touching this page.
+    makePage(null, [['0x0000000000000000000000000000000000000007', '10']]),
+  ];
+  mock.rpcBlocks = [7000n];
+
+  await assert.rejects(
+    () =>
+      snapshotHolders({
+        chainId: 4663,
+        tokenAddress: token,
+        maxHolderCount: 4,
+      }),
+    (err: unknown) => err instanceof WlHolderCountExceedsCap,
+  );
+  // Two pages walked, third never touched — saves us from paying for a
+  // full holder-set fetch we're about to reject anyway.
+  assert.equal(mock.blockscoutCalls, 2);
+});
+
+// ================================================================
+// FINDING 3 (HIGH) AC #5: propagate AbortSignal into snapshot builder,
+// client-abort mid-snapshot kills the fetch chain.
+// ================================================================
+
+test('snapshotHolders honors a pre-aborted signal without firing any downstream fetches', async () => {
+  const token = testToken('abort08');
+  // No pages / no blocks queued — if the code accidentally starts fetching,
+  // the mock will throw its own "unmocked / ran out" error and the test
+  // will fail loudly with a distinct message.
+  const controller = new AbortController();
+  controller.abort(new Error('client bailed'));
+
+  await assert.rejects(
+    () =>
+      snapshotHolders({
+        chainId: 4663,
+        tokenAddress: token,
+        signal: controller.signal,
+      }),
+    (err: unknown) => {
+      // We don't care whether it's the caller's own reason or an AbortError
+      // wrapper — the point is that we short-circuit before making a fetch.
+      assert.ok(err instanceof Error);
+      return true;
+    },
+  );
+  assert.equal(mock.blockscoutCalls, 0, 'must not fetch blockscout after early-abort');
+  assert.equal(
+    mock.rpcCalls.length,
+    0,
+    'must not fire any RPC after early-abort',
+  );
+});
+
+test('snapshotHolders abort mid-pagination stops fetching more pages', async () => {
+  const token = testToken('abort09');
+  mock.blockscoutPages = [
+    makePage({ page: 2 }, [['0x0000000000000000000000000000000000000001', '10']]),
+    // If the code kept walking, it would hit this page and blockscoutCalls
+    // would become 2 — the test fails.
+    makePage({ page: 3 }, [['0x0000000000000000000000000000000000000002', '10']]),
+  ];
+  mock.rpcBlocks = [9000n];
+
+  const controller = new AbortController();
+  // Signal the abort AFTER the first blockscout page returns but BEFORE
+  // the loop reads the next one. Hook the mock to fire the abort right
+  // when it dispatches its first blockscout response.
+  const origFetch = globalThis.fetch;
+  let firstBlockscoutSeen = false;
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+    const res = await origFetch(input, init);
+    if (url.includes('/holders') && !firstBlockscoutSeen) {
+      firstBlockscoutSeen = true;
+      // Defer to a microtask so the caller sees the successful response
+      // before the abort fires between pages.
+      queueMicrotask(() => controller.abort(new Error('client bailed mid-walk')));
+    }
+    return res;
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () =>
+        snapshotHolders({
+          chainId: 4663,
+          tokenAddress: token,
+          signal: controller.signal,
+        }),
+    );
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+  // Only the first blockscout page was fetched — the second must NOT be.
+  assert.equal(
+    mock.blockscoutCalls,
+    1,
+    `expected pagination to stop after abort; blockscoutCalls=${mock.blockscoutCalls}`,
+  );
+});
+
+// ================================================================
+// FINDING 3 (HIGH) AC #3: /wl/proof IPFS response exceeding the cap
+// terminates the fetch and rejects with WlIpfsResponseTooLarge.
+// ================================================================
+
+test('snapshotFromIpfs throws WlIpfsResponseTooLarge when the gateway body exceeds maxBytes', async () => {
+  const origFetch = globalThis.fetch;
+  // Build a payload that BYTE-EXCEEDS our tiny cap. JSON size is a proxy
+  // for real gateway abuse (a hostile gateway could send junk padding).
+  const bigString = 'x'.repeat(2_000);
+  const bodyText = JSON.stringify({
+    root: '0x' + '0'.repeat(64),
+    snapshotBlock: '1000',
+    holders: [`0x${'a'.repeat(40)}`],
+    junk: bigString,
+  });
+  globalThis.fetch = (async () => {
+    return new Response(bodyText, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () =>
+        // Cap is deliberately smaller than bodyText.length so the streamed
+        // read trips the ceiling.
+        snapshotFromIpfs('bafyfakecid', { maxBytes: 512 }),
+      (err: unknown) => {
+        assert.ok(
+          err instanceof WlIpfsResponseTooLarge,
+          `expected WlIpfsResponseTooLarge, got ${err}`,
+        );
+        assert.ok(err.bytesRead > 512, `bytesRead ${err.bytesRead} must be > cap 512`);
+        assert.equal(err.maxBytes, 512);
+        assert.match(err.message, /exceeded 512-byte cap/);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('snapshotFromIpfs accepts a body inside the cap and returns a valid snapshot', async () => {
+  const origFetch = globalThis.fetch;
+  // Build a tiny, integrity-valid payload — the root must match the Merkle
+  // root of the pinned holder list or snapshotFromIpfs returns null (see
+  // the pin-integrity check in the source).
+  //
+  // Easiest path: use one holder and let the code do the Merkle math for
+  // us in a scratch call. We embed the address, compute the root inline.
+  const addr = '0x000000000000000000000000000000000000dead';
+  // Import _leaf isn't exported, so recompute via a known-good tiny root
+  // using the module's own helpers. Instead we invoke snapshotHolders
+  // once with an inline mock to obtain a valid { root, holders } pair.
+  const singleHolderRoot = (async () => {
+    // Set up a fresh single-page mock ONLY for this bootstrap call.
+    mock.blockscoutPages = [
+      makePage(null, [[addr, '10']]),
+    ];
+    mock.rpcBlocks = [1n, 1n];
+    const snap = await snapshotHolders({
+      chainId: 4663,
+      tokenAddress: testToken('ipfsok10'),
+    });
+    return { root: snap.root, holders: snap.holders };
+  });
+  const ready = await singleHolderRoot();
+
+  const bodyText = JSON.stringify({
+    root: ready.root,
+    snapshotBlock: '1',
+    holders: ready.holders,
+  });
+  globalThis.fetch = (async () => {
+    return new Response(bodyText, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    // Cap comfortably above bodyText size — happy path must succeed.
+    const snap = await snapshotFromIpfs('bafyfakecid2', {
+      maxBytes: 10 * 1024,
+    });
+    assert.ok(snap, 'expected snapshotFromIpfs to return a valid snapshot');
+    assert.equal(snap.holderCount, 1);
+    assert.equal(snap.holders[0], addr);
+    assert.equal(snap.root, ready.root);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });

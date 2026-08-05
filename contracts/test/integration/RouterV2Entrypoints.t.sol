@@ -159,7 +159,10 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
 
         _graduate(curve);
         _assertPoolLive(token);
-        assertEq(address(graduator).balance, 0, "graduator stranded ETH");
+        // FINDING 6 round 2: residual dust is credited to the launcher via
+        // the pull-based refund ledger. Invariant is that no un-credited
+        // ETH remains on the graduator.
+        assertEq(address(graduator).balance, graduator.totalClaimable(), "graduator holds un-credited ETH");
     }
 
     function test_LaunchWithURU_RevertsBelowMinFee() public {
@@ -265,7 +268,10 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         vm.warp(curve.fallbackTs() + 1);
         _graduate(curve);
         _assertPoolLive(token);
-        assertEq(address(graduator).balance, 0, "graduator stranded ETH");
+        // FINDING 6 round 2: residual dust is credited to the launcher via
+        // the pull-based refund ledger. Invariant is that no un-credited
+        // ETH remains on the graduator.
+        assertEq(address(graduator).balance, graduator.totalClaimable(), "graduator holds un-credited ETH");
     }
 
     /// WL variants are meaningless without a curve and must reject that combo

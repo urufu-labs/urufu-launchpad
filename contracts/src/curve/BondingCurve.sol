@@ -381,7 +381,12 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffEth = effEth + ethAfterFee;
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
-        if (tokensOut > tokenReserve) tokensOut = tokenReserve;
+        // URU-A17 Low: match buy()'s tokenReserve-1 floor so quotes never
+        // exceed what execution will actually settle. Without this, a UI
+        // showing quoteBuy(ethIn)==tokenReserve would submit a buy that
+        // reverts BondingCurve__InsufficientReserves.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) tokensOut = available;
     }
 
     function quoteSell(

@@ -151,9 +151,11 @@ contract UruBuybackVault is Ownable, ReentrancyGuard {
         if (uruOut < minUruOut) revert UruBuybackVault__SlippageExceeded(uruOut, minUruOut);
         // slither-disable-end reentrancy-eth,reentrancy-benign,reentrancy-no-eth,reentrancy-events,reentrancy-balance
 
-        // Forward the acquired URU to the fixed distribution sink.
-        // slither-disable-next-line unchecked-transfer
-        uru.transfer(distributionSink, uruOut);
+        // Forward the acquired URU to the fixed distribution sink. URU-A17
+        // Low: SafeTransferLib enforces standard-ERC20 return-value semantics
+        // (revert on false / missing return) so a non-standard URU deploy or
+        // a hostile pausable token can't silently drop the sink credit.
+        SafeTransferLib.safeTransfer(address(uru), distributionSink, uruOut);
         emit BuybackExecuted(ethIn, uruOut);
     }
 

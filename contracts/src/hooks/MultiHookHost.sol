@@ -8,18 +8,25 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
 
 /// @title  MultiHookHost
-/// @notice One deployable hook that hosts every launchpad-side v4 hook feature: LP lock,
+/// @notice One deployable hook that hosts every launchpad-side v4 hook feature:
 ///         fee-redirect to platform + creator, optional anti-sniper gate, optional
 ///         buyback-burn on buys. v4 encodes permissions in the hook ADDRESS and only one
 ///         hook can attach per pool, so combining behaviours into one contract at one
 ///         address is required to ship all of them together.
 ///
+///         FINDING 5 (audit round 2): the hook USED to also gate `beforeRemoveLiquidity`
+///         to lock the graduation LP. That inadvertently locked EVERY LP on the pool,
+///         including third-party positions added post-graduation via the Uniswap UI. The
+///         graduation LP is now locked structurally by the Graduator itself (it opens
+///         the position via `poolManager.modifyLiquidity` with itself as the position
+///         owner, and `GraduatorV2.sol` has no code path that ever calls modifyLiquidity
+///         with a negative liquidityDelta) so third-party LPs can add + remove freely.
+///
 /// @dev    Deploy at an address whose low bits match the mask below (HookMiner):
 ///           BEFORE_INITIALIZE_FLAG           (1 << 13)
-///         | BEFORE_REMOVE_LIQUIDITY_FLAG     (1 << 9)
 ///         | BEFORE_SWAP_FLAG                 (1 << 7)
 ///         | AFTER_SWAP_FLAG                  (1 << 6)
 ///         | AFTER_SWAP_RETURNS_DELTA_FLAG    (1 << 2)
@@ -40,10 +47,6 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol
 ///         the `creator` fallback keeps the creator share from getting stuck.
 contract MultiHookHost is BaseHook {
     using PoolIdLibrary for PoolKey;
-
-    // ---- LPLocked ----
-    error MultiHookHost__LiquidityLocked();
-    event MultiHookHostRemoveAttempt(address indexed sender, PoolKey key);
 
     // ---- FeeRedirect ----
     error MultiHookHost__BpsTooHigh(uint256 total);
@@ -179,7 +182,7 @@ contract MultiHookHost is BaseHook {
             afterInitialize: false,
             beforeAddLiquidity: false,
             afterAddLiquidity: false,
-            beforeRemoveLiquidity: true,
+            beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
             beforeSwap: true,
             afterSwap: true,
@@ -249,17 +252,6 @@ contract MultiHookHost is BaseHook {
         if (sender != auth) revert MultiHookHost__UnauthorizedInitializer(sender);
         poolConfig[key.toId()].launchBlock = uint32(block.number);
         return this.beforeInitialize.selector;
-    }
-
-    // ---------------------------------------------------------------- LP lock
-    function beforeRemoveLiquidity(
-        address sender,
-        PoolKey calldata key,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    ) external override onlyPoolManager returns (bytes4) {
-        emit MultiHookHostRemoveAttempt(sender, key);
-        revert MultiHookHost__LiquidityLocked();
     }
 
     // ---------------------------------------------------------------- anti-sniper gate

@@ -138,7 +138,10 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
     ) internal {
         _driveToGraduation(curve);
 
-        assertEq(address(graduator).balance, 0, "graduator stranded ETH");
+        // FINDING 6 round 2: residual dust is now credited to the launcher's
+        // pull-based refund ledger, not pushed. Invariant is that NO
+        // un-credited ETH sits on the graduator and no tokens do.
+        assertEq(address(graduator).balance, graduator.totalClaimable(), "graduator holds un-credited ETH");
         assertEq(IERC20Min(token).balanceOf(address(graduator)), 0, "graduator stranded tokens");
 
         PoolId id = _poolIdFor(token);

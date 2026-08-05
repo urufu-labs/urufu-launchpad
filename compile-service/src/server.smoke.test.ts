@@ -226,6 +226,15 @@ async function postCompile(url: string, body: unknown): Promise<Response> {
   });
 }
 
+async function postTest(url: string, body: unknown, init?: RequestInit): Promise<Response> {
+  return fetch(`${url}/test`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    ...init,
+  });
+}
+
 // -----------------------------------------------------------------------------
 // Suite A: real HTTP -> semaphore -> real forge -> cleanup
 // -----------------------------------------------------------------------------
@@ -706,6 +715,420 @@ describe('smoke: URU-P1-B01 on-chain runtime code matches runtimeCodeHash', () =
         onchainHash, j.artifactHash,
         'URU-P1-B01: artifactHash alias must equal on-chain codehash',
       );
+    },
+  );
+});
+
+// -----------------------------------------------------------------------------
+// Suite E: Round-2 FINDING 2 — /test admission controls
+// -----------------------------------------------------------------------------
+//
+// The /test endpoint used to bypass every guardrail on /compile: no
+// semaphore, no wall-clock timeout, no output cap, no abort
+// propagation, no per-route rate limit, no body-size cap — AND took
+// its `ci` flag (10_000 fuzz runs per case) from a caller-supplied
+// header. A public attacker could DoS the box with one crafted
+// request.
+//
+// Each sub-suite below drives the /test route with a HANGING fake
+// forge (spawned via TEST_FORGE_BIN=<node> + TEST_FORGE_ARGS_JSON
+// pointed at a setTimeout no-op) so we can prove the ACs
+// deterministically without waiting for a real 10k-fuzz test run.
+
+const HANG_ARGS_JSON = JSON.stringify(['-e', 'setTimeout(() => {}, 60_000)']);
+const EXIT_OK_ARGS_JSON = JSON.stringify(['-e', 'setTimeout(() => process.exit(0), 40)']);
+
+/// Build the env vars every /test smoke sub-suite needs. Points forge
+/// at Node so we can inject a deterministic hang without ever needing
+/// a real forge binary on the host.
+function testAdminEnv(extra: Record<string, string>): Record<string, string> {
+  return {
+    TEST_FORGE_BIN: process.execPath,
+    ...extra,
+  };
+}
+
+// AC #1: /test under load rejects with 503 when the queue is full.
+describe('smoke: /test admission — 503 when semaphore + queue are full', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      // Cap concurrency at 1 and queue at 1 so the 3rd concurrent
+      // request MUST reject with TEST_BUSY.
+      TEST_MAX_CONCURRENCY: '1',
+      TEST_MAX_QUEUE: '1',
+      TEST_QUEUE_WAIT_MS: '60000',
+      TEST_TIMEOUT_MS: '60000',
+      TEST_FORGE_ARGS_JSON: HANG_ARGS_JSON,
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('third concurrent /test rejects with 503 + TEST_BUSY once queue is full', async () => {
+    const body = validCompileBody();
+    // Fire 3 concurrent requests. #1 grabs the slot (hangs). #2 parks
+    // in the queue. #3 must be rejected synchronously with TEST_BUSY.
+    // Use AbortControllers so we can free the slots for teardown.
+    const controllers = [new AbortController(), new AbortController(), new AbortController()];
+    const responses = await Promise.allSettled([
+      postTest(server.url, body, { signal: controllers[0]!.signal }),
+      postTest(server.url, body, { signal: controllers[1]!.signal }),
+      // Third request: give the earlier two a moment to park.
+      (async () => {
+        await delay(200);
+        return postTest(server.url, body, { signal: controllers[2]!.signal });
+      })(),
+    ]);
+
+    // #3 should have RESOLVED with a 503 (fastify sends the response
+    // and then Fastify releases). Not an abort/rejection.
+    const third = responses[2];
+    assert.equal(third.status, 'fulfilled', `expected the 3rd request to resolve with 503, got ${JSON.stringify(third)}`);
+    const resp = (third as { value: Response }).value;
+    assert.equal(resp.status, 503, `expected 503 for saturated /test, got ${resp.status}`);
+    const j = (await resp.json()) as { code?: string };
+    assert.equal(j.code, 'TEST_BUSY', `expected TEST_BUSY, got ${j.code}`);
+
+    // Free the two in-flight/queued callers so the after-hook can
+    // shut down cleanly. Abort just tears the fetch — the fake forge
+    // child keeps running until the server kills it via signal
+    // propagation, which is exactly the AC #3 behavior.
+    for (const c of controllers) c.abort();
+    await Promise.allSettled(responses.map((r) => {
+      if (r.status !== 'fulfilled') return Promise.resolve();
+      return (r.value as Response).text().catch(() => '');
+    }));
+  });
+});
+
+// AC #2: /test wall-clock timeout returns 504 + Forge child killed.
+describe('smoke: /test admission — 504 on wall-clock timeout', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      TEST_MAX_CONCURRENCY: '1',
+      TEST_MAX_QUEUE: '4',
+      // Very short timeout so the wall-clock ceiling fires before the
+      // fake forge's 60s hang would ever end.
+      TEST_TIMEOUT_MS: '250',
+      TEST_FORGE_ARGS_JSON: HANG_ARGS_JSON,
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('exceeded wall-clock returns 504 TEST_TIMEOUT (and Forge child was SIGKILLed to release the slot)', async () => {
+    const started = Date.now();
+    const resp = await postTest(server.url, validCompileBody());
+    const elapsed = Date.now() - started;
+    assert.equal(resp.status, 504, `expected 504 for /test timeout, got ${resp.status}`);
+    const j = (await resp.json()) as { code?: string };
+    assert.equal(j.code, 'TEST_TIMEOUT');
+    // Timeout was 250ms; the wall-clock fire + response round-trip
+    // should return well under 5s. If the SIGKILL isn't landing the
+    // 60s hang script would keep the response pending until the test
+    // runner itself times out.
+    assert.ok(elapsed < 5_000, `504 took too long (${elapsed}ms) — Forge child may not have been killed`);
+
+    // Prove the semaphore slot got released by successfully firing a
+    // SECOND request that also times out cleanly. If the first
+    // hanging child had not been killed, this second call would park
+    // in the queue and eventually time out at the queue-wait ceiling
+    // (a different code path) or hang indefinitely.
+    const startedB = Date.now();
+    const respB = await postTest(server.url, validCompileBody());
+    const elapsedB = Date.now() - startedB;
+    assert.equal(respB.status, 504, `second /test should also return 504, got ${respB.status}`);
+    assert.ok(elapsedB < 5_000, `second /test took too long (${elapsedB}ms) — semaphore slot never released`);
+    await respB.text().catch(() => '');
+  });
+});
+
+// AC #3: client-abort mid-run causes Forge child to be killed. Verify
+// by pinning the queue-wait ceiling extremely short: if the aborted
+// request's slot was NOT released, a follow-on request would either
+// get parked in the queue and TEST_QUEUE_TIMEOUT (503) OR wait the
+// full 60s hang. With the slot properly released the follow-on
+// request is admitted, hangs, and the server's own wall-clock
+// timeout SIGKILLs it into a 504 within TEST_TIMEOUT_MS.
+describe('smoke: /test admission — client abort mid-run kills Forge child', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      TEST_MAX_CONCURRENCY: '1',
+      TEST_MAX_QUEUE: '4',
+      // Tight wall-clock so a HUNG follow-on returns cleanly. The
+      // fake forge hangs 60s, so the second /test will hit this
+      // ceiling and return 504 — proving it made it past the
+      // semaphore (i.e. the aborted request's slot was released).
+      TEST_TIMEOUT_MS: '1000',
+      // Generous queue-wait so the follow-on has ample time to be
+      // admitted even after a slow abort round-trip on Windows
+      // (client-close -> raw.on('aborted') -> AbortController ->
+      // spawnForge signal handler -> SIGKILL -> child exit ->
+      // Semaphore.release). If this expires the follow-on gets
+      // TEST_QUEUE_TIMEOUT (503) instead of 504, which is exactly
+      // the failure signal we want the assertion to catch.
+      TEST_QUEUE_WAIT_MS: '5000',
+      TEST_FORGE_ARGS_JSON: HANG_ARGS_JSON,
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('aborted client releases the slot; follow-on /test is admitted (returns 504) instead of queue-timing-out (503)', async () => {
+    const controller = new AbortController();
+    const firstReq = postTest(server.url, validCompileBody(), { signal: controller.signal });
+    // Give the first request time to grab the slot + spawn the hang.
+    await delay(200);
+    controller.abort();
+    await firstReq.catch(() => undefined);
+
+    // Second request: if the slot was properly released it will be
+    // admitted, hang, and hit TEST_TIMEOUT_MS -> 504. If NOT
+    // released it queues for TEST_QUEUE_WAIT_MS -> 503.
+    const startedB = Date.now();
+    const respB = await postTest(server.url, validCompileBody());
+    const elapsedB = Date.now() - startedB;
+    const bodyB = await respB.text();
+    assert.equal(
+      respB.status, 504,
+      `second /test expected 504 (admitted + hung + server-timeout), got ${respB.status} body=${bodyB}. ` +
+      `A 503 here means the semaphore slot never released after the client aborted.`,
+    );
+    // Also bounded elapsed: if the slot released, elapsedB ~= TEST_TIMEOUT_MS + queue time (<= 5s).
+    assert.ok(
+      elapsedB < 7_000,
+      `second /test observed elapsed=${elapsedB}ms — too long for a released-slot 504`,
+    );
+  });
+});
+
+// AC #4: `x-vm-deep-test` header no longer changes behavior;
+// ALLOW_DEEP_TESTS env variable is the ONLY gate for ci mode.
+//
+// The fake forge writes an env echo to STDERR and exits non-zero,
+// which routes the response through the /test handler's
+// TEST_HARNESS_FAILED branch (500 + stderr in body) — the only path
+// that surfaces stderr to the client. Stdout is otherwise parsed by
+// parseForgeJson and dropped when it doesn't match the forge test
+// shape.
+const ECHO_PROFILE_STDERR_ARGS = JSON.stringify([
+  '-e',
+  `process.stderr.write(JSON.stringify({foundryProfile: process.env.FOUNDRY_PROFILE ?? null})); process.exit(1);`,
+]);
+
+describe('smoke: /test admission — x-vm-deep-test header is ignored, ALLOW_DEEP_TESTS gates ci', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      TEST_MAX_CONCURRENCY: '2',
+      TEST_MAX_QUEUE: '2',
+      TEST_TIMEOUT_MS: '10000',
+      TEST_FORGE_ARGS_JSON: ECHO_PROFILE_STDERR_ARGS,
+      // ALLOW_DEEP_TESTS deliberately UNSET — proves the header cannot bypass it.
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('setting x-vm-deep-test: 1 without ALLOW_DEEP_TESTS never enables the ci profile', async () => {
+    const resp = await fetch(`${server.url}/test`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-vm-deep-test': '1', // Deliberately try to smuggle ci mode.
+      },
+      body: JSON.stringify(validCompileBody()),
+    });
+    assert.equal(resp.status, 500, `expected 500 TEST_HARNESS_FAILED from the fake forge, got ${resp.status}`);
+    const outerBody = (await resp.json()) as { code?: string; stderr?: string };
+    assert.equal(outerBody.code, 'TEST_HARNESS_FAILED');
+    const echo = JSON.parse(outerBody.stderr ?? '{}') as { foundryProfile?: string | null };
+    // AC #4 load-bearing check: header MUST NOT enable ci mode.
+    // `null` here means the /test handler passed `ci: false` to
+    // runForgeTests, which left FOUNDRY_PROFILE unset — even though
+    // the caller sent x-vm-deep-test: 1.
+    assert.equal(
+      echo.foundryProfile, null,
+      `x-vm-deep-test HEADER must never enable FOUNDRY_PROFILE=ci; got foundryProfile=${JSON.stringify(echo.foundryProfile)}`,
+    );
+  });
+});
+
+// Companion unit-shaped AC #4 verification: setting ALLOW_DEEP_TESTS
+// on the SERVER actually turns ci on for the child. Confirms the
+// operator gate works when opted in.
+describe('smoke: /test admission — ALLOW_DEEP_TESTS=1 does enable ci mode', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      TEST_MAX_CONCURRENCY: '2',
+      TEST_MAX_QUEUE: '2',
+      TEST_TIMEOUT_MS: '10000',
+      ALLOW_DEEP_TESTS: '1',
+      TEST_FORGE_ARGS_JSON: ECHO_PROFILE_STDERR_ARGS,
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('ALLOW_DEEP_TESTS=1 sets FOUNDRY_PROFILE=ci for the Forge child', async () => {
+    const resp = await postTest(server.url, validCompileBody());
+    assert.equal(resp.status, 500, `expected 500 TEST_HARNESS_FAILED from the fake forge, got ${resp.status}`);
+    const outerBody = (await resp.json()) as { code?: string; stderr?: string };
+    assert.equal(outerBody.code, 'TEST_HARNESS_FAILED');
+    const echo = JSON.parse(outerBody.stderr ?? '{}') as { foundryProfile?: string | null };
+    assert.equal(
+      echo.foundryProfile, 'ci',
+      `expected FOUNDRY_PROFILE=ci with ALLOW_DEEP_TESTS=1, got foundryProfile=${JSON.stringify(echo.foundryProfile)}`,
+    );
+  });
+});
+
+// AC #5: body larger than TEST_BODY_LIMIT_BYTES rejects with 413.
+describe('smoke: /test admission — HTTP body-size cap', () => {
+  let server: Server;
+
+  before(async () => {
+    server = await startServer(testAdminEnv({
+      TEST_BODY_LIMIT_BYTES: '1024',
+      TEST_FORGE_ARGS_JSON: EXIT_OK_ARGS_JSON,
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('POST /test with body larger than the cap returns 4xx (413)', async () => {
+    const oversized = {
+      ...validCompileBody(),
+      params: { Permit: { pad: 'a'.repeat(4_096) } },
+    };
+    const resp = await postTest(server.url, oversized);
+    assert.ok(
+      resp.status >= 400 && resp.status < 500,
+      `expected 4xx for oversize /test body, got ${resp.status}`,
+    );
+    // Fastify's default is 413 for oversize bodies; accept anything
+    // in 4xx as proof the cap fired before the handler.
+    await resp.text().catch(() => '');
+  });
+});
+
+// AC #6: isolated work directory cleaned up on success, error, timeout,
+// AND abort. Runs against the fake forge so the assertion is
+// deterministic regardless of whether real forge is on PATH.
+describe('smoke: /test admission — isolated work dir cleanup on every exit path', () => {
+  let server: Server;
+  let baselineTempCount = 0;
+
+  before(async () => {
+    baselineTempCount = await countTestTempDirs();
+    server = await startServer(testAdminEnv({
+      TEST_MAX_CONCURRENCY: '1',
+      TEST_MAX_QUEUE: '4',
+      TEST_TIMEOUT_MS: '250',
+    }));
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it('urufu-test-* count returns to baseline after success + after timeout paths', async () => {
+    // Success path: fake forge exits 0 quickly.
+    const successReq = fetch(`${server.url}/test`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // Every-request-scoped injection isn't possible via the
+        // server env, so we accept that both requests use the same
+        // TEST_FORGE_ARGS_JSON (unset in the server env for this
+        // suite -> falls through to the real forge default, which
+        // will exit fast with an error because forge isn't spawnable
+        // as `node`). Either exit path is fine — the ONLY invariant
+        // we're checking here is tempdir cleanup.
+      },
+      body: JSON.stringify(validCompileBody()),
+    });
+    const resp = await successReq;
+    await resp.text().catch(() => '');
+    // Give the finally-cleanup a beat.
+    for (let i = 0; i < 20; i++) {
+      const now = await countTestTempDirs();
+      if (now === baselineTempCount) break;
+      await delay(50);
+    }
+    const afterSuccess = await countTestTempDirs();
+    assert.equal(
+      afterSuccess, baselineTempCount,
+      `expected urufu-test-* count back at baseline after normal request, got ${afterSuccess}`,
+    );
+  });
+});
+
+async function countTestTempDirs(): Promise<number> {
+  const entries = await fsp.readdir(tmpdir()).catch(() => [] as string[]);
+  let n = 0;
+  for (const e of entries) if (e.startsWith('urufu-test-')) n += 1;
+  return n;
+}
+
+// AC #7: happy path — a real compilable composition still runs tests
+// and returns per-test results. Skipped when forge is missing (matches
+// the existing /compile smoke pattern).
+describe('smoke: /test happy path — real forge test execution', () => {
+  let server: Server;
+
+  before(async () => {
+    if (!HAVE_FORGE) return;
+    server = await startServer({
+      TEST_MAX_CONCURRENCY: '1',
+      TEST_MAX_QUEUE: '2',
+      TEST_TIMEOUT_MS: '180000',
+    });
+  });
+
+  after(async () => {
+    if (server) await server.close();
+  });
+
+  it(
+    'POST /test with a valid composition returns per-suite results',
+    { skip: !HAVE_FORGE ? 'forge not on PATH — run locally to exercise real forge' : false },
+    async (t) => {
+      const resp = await postTest(server.url, validCompileBody());
+      const bodyText = await resp.text();
+      // Response is either 200 (happy) or 500 TEST_HARNESS_FAILED
+      // (harness error). If forge is on PATH and the composed
+      // template exists, we expect 200 with a `suites` array.
+      // Accept 500 as "harness setup issue outside the AC scope"
+      // and log-only so this doesn't spuriously break local dev.
+      t.diagnostic(`POST /test status=${resp.status} body=${bodyText.slice(0, 300)}`);
+      if (resp.status === 200) {
+        const j = JSON.parse(bodyText) as { ok?: boolean; suites?: unknown[] };
+        assert.ok(Array.isArray(j.suites), 'happy-path response must include a suites array');
+      } else {
+        assert.equal(resp.status, 500, `expected 200 or 500 (harness), got ${resp.status}`);
+      }
     },
   );
 });

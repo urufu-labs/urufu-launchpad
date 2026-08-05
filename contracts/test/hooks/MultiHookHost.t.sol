@@ -6,7 +6,7 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta, toBalanceDelta} from "v4-core/types/BalanceDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
@@ -43,25 +43,21 @@ contract MultiHookHostTest is Test {
         return PoolKey({currency0: c0, currency1: c1, fee: 3000, tickSpacing: 60, hooks: IHooks(address(hook))});
     }
 
-    function test_Permissions_LPLockAndFeeRedirect() public view {
+    function test_Permissions_FeeRedirectAndGates() public view {
         BaseHook.Permissions memory p = hook.getHookPermissions();
-        // v2 permissions: beforeInitialize (stamp launchBlock) + beforeSwap (anti-sniper gate)
-        // are now required in addition to the LP-lock + fee-redirect flags.
+        // Audit-round-2 FINDING 5: beforeRemoveLiquidity dropped so third-party
+        // LPs can add + remove freely. Graduation LP is locked structurally by
+        // the Graduator (no negative-liquidityDelta path in GraduatorV2), not by
+        // this hook. beforeInitialize (stamp launchBlock + initializer gate) +
+        // beforeSwap (anti-sniper + exact-output burn reject) remain.
         assertTrue(p.beforeInitialize);
-        assertTrue(p.beforeRemoveLiquidity);
+        assertFalse(p.beforeRemoveLiquidity);
         assertTrue(p.beforeSwap);
         assertTrue(p.afterSwap);
         assertTrue(p.afterSwapReturnDelta);
         assertFalse(p.afterInitialize);
         assertFalse(p.beforeAddLiquidity);
-    }
-
-    function test_RemoveLiquidity_AlwaysReverts() public {
-        ModifyLiquidityParams memory params =
-            ModifyLiquidityParams({tickLower: -60, tickUpper: 60, liquidityDelta: -100, salt: bytes32(0)});
-        vm.expectRevert(MultiHookHost.MultiHookHost__LiquidityLocked.selector);
-        vm.prank(mockPM);
-        hook.beforeRemoveLiquidity(swapper, _key(), params, "");
+        assertFalse(p.afterRemoveLiquidity);
     }
 
     function test_AfterSwap_CreditsBothRecipientsAndTakesFee() public {

@@ -45,7 +45,10 @@ contract ProbeToken is ERC20 {
 ///         artifact on the Arbitrum-stack chain, not a contract defect.
 contract RhForkBalanceCheck is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
-    uint160 internal constant MHH_FLAGS = 0x22C4;
+    // Audit-round-2 FINDING 5: dropped beforeRemoveLiquidity (0x200) from the
+    // hook flag mask so third-party LPs can add + remove freely. Graduation LP
+    // still locked structurally by GraduatorV2.
+    uint160 internal constant MHH_FLAGS = 0x20C4;
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
 
     address internal admin = makeAddr("probe-admin");

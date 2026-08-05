@@ -56,6 +56,38 @@ export const BLOCKSCOUT_MAX_PAGES = 100;
 /// than silently return a moving-target result. Tuned for RH (~1s blocks); on
 /// slower chains the caller should pass a smaller `maxBlockDrift`.
 export const DEFAULT_MAX_BLOCK_DRIFT = 25n;
+/// FINDING 3 (HIGH): hard-cap the number of holders a single snapshot will
+/// process. Above this we throw `WlHolderCountExceedsCap` rather than silently
+/// truncate — the Merkle build is O(N log N) and the eligible list gets pinned
+/// to IPFS, so an unbounded holder set is both a compute + storage pressure
+/// vector. 50k is generous for any realistic WL (URU launched with ~334).
+export const DEFAULT_MAX_HOLDER_COUNT = 50_000;
+/// Env override for the holder-count ceiling. Non-numeric / non-positive
+/// values fall back to `DEFAULT_MAX_HOLDER_COUNT` so a mis-configured deploy
+/// never accidentally lifts the cap.
+export function defaultMaxHolderCount(): number {
+  const raw = process.env.WL_MAX_HOLDER_COUNT;
+  if (!raw) return DEFAULT_MAX_HOLDER_COUNT;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1
+    ? Math.floor(parsed)
+    : DEFAULT_MAX_HOLDER_COUNT;
+}
+/// FINDING 3 (HIGH): hard-cap the number of bytes we buffer from an IPFS pin
+/// on `/wl/proof` lookups. A pinned snapshot is a compact self-describing JSON
+/// (address list + root + block); 50k lowercased addresses + JSON overhead
+/// tops out below 3 MB. The default 8 MB gives headroom while blocking a
+/// hostile gateway from streaming gigabytes at us. Overridable per-call and
+/// via `WL_MAX_IPFS_BYTES` for operators who need to change it.
+export const DEFAULT_MAX_IPFS_BYTES = 8 * 1024 * 1024;
+export function defaultMaxIpfsBytes(): number {
+  const raw = process.env.WL_MAX_IPFS_BYTES;
+  if (!raw) return DEFAULT_MAX_IPFS_BYTES;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1
+    ? Math.floor(parsed)
+    : DEFAULT_MAX_IPFS_BYTES;
+}
 
 /// Common ABI item — Transfer's signature is identical between ERC-20 and ERC-721;
 /// only ERC-721's third arg is indexed. viem's decoder handles both when we pass
@@ -87,6 +119,18 @@ export interface SnapshotRequest {
   /// hatch for tests — production callers should leave this unset and rely on
   /// the module-level cap.
   maxBlockscoutPages?: number;
+  /// FINDING 3 (HIGH): overrides the module-level `defaultMaxHolderCount()`
+  /// ceiling. When the eligible holder set exceeds this the snapshot rejects
+  /// with `WlHolderCountExceedsCap` (carrying the observed count) rather than
+  /// silently truncating. Primarily a test hook — production callers should
+  /// leave this unset and rely on `WL_MAX_HOLDER_COUNT`.
+  maxHolderCount?: number;
+  /// FINDING 3 (HIGH): cancels the snapshot when fired. Propagated into every
+  /// downstream fetch (Blockscout pagination, viem RPC calls, IPFS pin write)
+  /// so a client disconnect at the /wl/snapshot route immediately kills the
+  /// expensive tail rather than waiting for it to complete unobserved. Also
+  /// fires when the route-level wall-clock timeout elapses.
+  signal?: AbortSignal;
 }
 
 export interface SnapshotResult {
@@ -168,6 +212,51 @@ export class WlSnapshotTruncated extends Error {
   }
 }
 
+/// FINDING 3 (HIGH): thrown when a snapshot's eligible holder count exceeds
+/// the module-level (or per-call) cap. Silent truncation is unacceptable — a
+/// Merkle root computed over the truncated slice would permanently exclude
+/// the rest of the launch's WL, and downstream callers have no signal that
+/// anything is missing. The observed count + configured cap are both
+/// carried on the error so operators can decide whether to raise the cap
+/// (via `WL_MAX_HOLDER_COUNT`) or reject the launch.
+export class WlHolderCountExceedsCap extends Error {
+  readonly holderCount: number;
+  readonly maxHolderCount: number;
+  readonly source: 'blockscout' | 'rpc';
+  constructor(holderCount: number, maxHolderCount: number, source: 'blockscout' | 'rpc') {
+    super(
+      `wl snapshot holder count ${holderCount} exceeds cap ${maxHolderCount} ` +
+        `(source=${source}). Refusing to build Merkle tree — raise WL_MAX_HOLDER_COUNT ` +
+        `or narrow the source token before retrying.`,
+    );
+    this.name = 'WlHolderCountExceedsCap';
+    this.holderCount = holderCount;
+    this.maxHolderCount = maxHolderCount;
+    this.source = source;
+  }
+}
+
+/// FINDING 3 (HIGH): thrown when a size-capped IPFS fetch reads more bytes
+/// than the configured ceiling. Carries the byte counts so operators know
+/// whether to raise the cap or investigate a hostile gateway. The gateway
+/// URL is included for triage — a compromised third-party gateway would
+/// stand out here.
+export class WlIpfsResponseTooLarge extends Error {
+  readonly bytesRead: number;
+  readonly maxBytes: number;
+  readonly url: string;
+  constructor(bytesRead: number, maxBytes: number, url: string) {
+    super(
+      `ipfs response exceeded ${maxBytes}-byte cap (read >=${bytesRead} bytes from ${url}). ` +
+        `Aborted fetch to prevent memory pressure.`,
+    );
+    this.name = 'WlIpfsResponseTooLarge';
+    this.bytesRead = bytesRead;
+    this.maxBytes = maxBytes;
+    this.url = url;
+  }
+}
+
 /// Thrown when the chain tip drifted more than `maxBlockDrift` blocks between
 /// the start and end of a snapshot. Signals that the Blockscout holder set we
 /// paginated may already reflect a newer tip than we're reporting, so the
@@ -205,8 +294,22 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   const allowPartial = req.allowPartial === true;
   const maxDrift = req.maxBlockDrift ?? DEFAULT_MAX_BLOCK_DRIFT;
   const maxBlockscoutPages = req.maxBlockscoutPages ?? BLOCKSCOUT_MAX_PAGES;
+  // FINDING 3 (HIGH): resolve the holder cap ONCE at the top of the request so
+  // an operator flipping WL_MAX_HOLDER_COUNT mid-flight can't have a fetch
+  // race the check. Per-call `maxHolderCount` overrides the env for tests.
+  const maxHolderCount = req.maxHolderCount ?? defaultMaxHolderCount();
+  const signal = req.signal;
+  // Early-abort: if the caller already cancelled before we did any work,
+  // fail fast instead of firing off an RPC + Blockscout burst.
+  if (signal?.aborted) throw signal.reason ?? new Error('wl snapshot aborted');
 
-  const client = createPublicClient({ transport: http(rpc) });
+  // FINDING 3 (HIGH): thread the caller's AbortSignal into every fetch viem
+  // makes so a client disconnect / route timeout kills in-flight RPC work.
+  // A fresh client per request keeps the signal scoped correctly (viem's
+  // http transport applies fetchOptions to every request the client makes).
+  const client = createPublicClient({
+    transport: http(rpc, signal ? { fetchOptions: { signal } } : undefined),
+  });
   // Bookend the snapshot with two block-tip reads. The reported `snapshotBlock`
   // is the START read (that's the tip our holder set is "as of"), and the END
   // read is compared against it to detect chain-tip drift while we paginated
@@ -238,8 +341,27 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
         req.tokenAddress,
         minBal,
         maxBlockscoutPages,
+        // FINDING 3: pass the same signal so a client abort mid-pagination
+        // stops fetching more pages instead of finishing the walk unobserved.
+        // Also stop early if we've already exceeded the holder cap — no
+        // point paying for more pages when the snapshot will reject anyway.
+        { signal, maxHolderCount },
       );
     } catch (err) {
+      // FINDING 3: WlHolderCountExceedsCap is NOT recoverable — the raw
+      // count already crossed the ceiling, and continuing to the RPC
+      // replay would just re-derive the same too-many-holders answer with
+      // extra cost. Surface it directly.
+      if (err instanceof WlHolderCountExceedsCap) throw err;
+      // FINDING 3: abort propagation. If the caller cancelled, do NOT fall
+      // through to a fresh RPC replay — the whole point of the signal is
+      // that no more work happens. We check the SIGNAL rather than the
+      // error name because `controller.abort(reason)` propagates `reason`
+      // as-is (may be a plain Error, DOMException, string, etc.). Prefer
+      // the signal's own `reason` for the throw so callers get whatever
+      // hint the aborter attached.
+      if (signal?.aborted) throw signal.reason ?? err;
+      if ((err as { name?: string }).name === 'AbortError') throw err;
       // Blockscout HTTP / decode errors are recoverable — fall through to RPC
       // replay. Truncation is NOT an error here (fetchHoldersViaBlockscout
       // returns a result with `hadMorePages: true`); that decision is made
@@ -291,6 +413,20 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
     throw new WlSnapshotBlockDrift(startBlock, endBlock, maxDrift);
   }
 
+  // FINDING 3 (HIGH): reject if the eligible holder count is over the cap.
+  // Runs BEFORE the Merkle build — that step is O(N log N) and the pinned
+  // JSON grows linearly with N, so blocking here is where we stop the abuse.
+  // Explicit error class + observed count so operators triage instead of
+  // guessing which stage silently truncated. Applies to both Blockscout and
+  // RPC-replay paths (source recorded on the error for post-mortem).
+  if (eligible.length > maxHolderCount) {
+    throw new WlHolderCountExceedsCap(
+      eligible.length,
+      maxHolderCount,
+      fromRpcFallback ? 'rpc' : 'blockscout',
+    );
+  }
+
   // Sort in canonical form — lowercased addresses ordered lexically match how
   // leaves are computed for the Merkle root.
   eligible.sort();
@@ -315,7 +451,7 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // a shorter durability window (process restart evicts it). When pinning succeeds
   // the CID is durable and buyers can fetch the list directly from IPFS.
   try {
-    const pinned = await _pinListToIpfs(cacheKey, eligible, root, startBlock);
+    const pinned = await _pinListToIpfs(cacheKey, eligible, root, startBlock, signal);
     if (pinned) {
       result.listCid = pinned.cid;
       result.listGatewayUrl = pinned.gatewayUrl;
@@ -343,16 +479,43 @@ export function snapshotByListId(listId: string): SnapshotResult | null {
 /// matches what's on the launch curve.
 export async function snapshotFromIpfs(
   listCid: string,
+  opts?: {
+    /// FINDING 3 (HIGH): caller-supplied cancel (route disconnect / wall-clock
+    /// timeout). Composed with a 15s per-request timeout so BOTH bound the
+    /// fetch lifetime.
+    signal?: AbortSignal;
+    /// FINDING 3 (HIGH): hard cap on response body bytes. A pinned snapshot
+    /// is a compact JSON blob — a hostile gateway must not be able to make
+    /// us buffer arbitrary bytes just because it stayed under the timeout.
+    maxBytes?: number;
+  },
 ): Promise<SnapshotResult | null> {
   const url = _gatewayUrl(listCid);
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  const maxBytes = opts?.maxBytes ?? defaultMaxIpfsBytes();
+  const res = await fetch(url, {
+    signal: _composeSignals([opts?.signal, AbortSignal.timeout(15_000)]),
+  });
   if (!res.ok) return null;
-  const body = (await res.json()) as {
+  // FINDING 3 (HIGH): manual streamed read with a size accumulator. We do NOT
+  // trust `Content-Length` — a hostile / mis-configured gateway can advertise
+  // any value or omit the header entirely, and then dribble bytes forever.
+  // The stream reader gives us the actual byte count as it arrives; the
+  // moment we cross the ceiling we cancel the reader (which under fetch's
+  // semantics also aborts the underlying network stream) and reject.
+  const bodyText = await _readBodyWithCap(res, maxBytes, url);
+  let body: {
     root?: Hex;
     snapshotBlock?: string | number;
     holders?: string[];
     listId?: string;
   };
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    // Malformed JSON is treated the same as a 4xx from the gateway —
+    // caller can retry via a fresh snapshot.
+    return null;
+  }
   if (!body.root || !body.holders) return null;
   const holders = body.holders.map((a) => a.toLowerCase() as Address);
   // Content-integrity check: rebuild the Merkle root from the pinned holders
@@ -462,13 +625,33 @@ export async function fetchHoldersViaBlockscout(
   token: Address,
   minBalance: bigint,
   maxPages: number = BLOCKSCOUT_MAX_PAGES,
+  opts?: {
+    /// FINDING 3 (HIGH): caller-supplied cancel. Combined with the per-fetch
+    /// 15s timeout so an outer route disconnect stops mid-pagination.
+    signal?: AbortSignal;
+    /// FINDING 3 (HIGH): abort pagination once the running eligible count
+    /// crosses this ceiling. Avoids paying for the rest of the page walk
+    /// when the snapshot will reject anyway.
+    maxHolderCount?: number;
+  },
 ): Promise<BlockscoutHoldersResult> {
   const eligible: Address[] = [];
   let cursor: URLSearchParams | null = new URLSearchParams();
   let pages = 0;
+  const maxHolders = opts?.maxHolderCount ?? Number.POSITIVE_INFINITY;
   while (cursor && pages < maxPages) {
+    // Bail immediately if the caller cancelled between pages. The per-fetch
+    // timeout below only covers ONE page — a burst of small-and-fast pages
+    // would otherwise ignore the outer signal until the next network hop.
+    if (opts?.signal?.aborted) {
+      throw opts.signal.reason ?? new Error('wl snapshot aborted');
+    }
     const url = `${apiBase}/tokens/${token}/holders${cursor.toString() ? '?' + cursor.toString() : ''}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(url, {
+      // Compose the per-fetch 15s timeout with the outer request signal
+      // (via `AbortSignal.any`, Node 22+) so EITHER firing kills the fetch.
+      signal: _composeSignals([opts?.signal, AbortSignal.timeout(15_000)]),
+    });
     if (!res.ok) {
       throw new Error(`blockscout ${res.status} ${res.statusText}: ${url}`);
     }
@@ -481,6 +664,12 @@ export async function fetchHoldersViaBlockscout(
       const raw = it.value;
       if (!addr || !raw) continue;
       if (BigInt(raw) >= minBalance) eligible.push(addr as Address);
+    }
+    // FINDING 3: hard-stop pagination as soon as we exceed the ceiling.
+    // Throwing the dedicated error here (rather than at the caller) means we
+    // never spend more RPC + Merkle time on a snapshot we know will reject.
+    if (eligible.length > maxHolders) {
+      throw new WlHolderCountExceedsCap(eligible.length, maxHolders, 'blockscout');
     }
     if (body.next_page_params) {
       cursor = new URLSearchParams();
@@ -498,6 +687,32 @@ export async function fetchHoldersViaBlockscout(
   // `maxPages` cap while `next_page_params` was set on the last response — i.e.
   // Blockscout has more holders than we fetched.
   return { holders: eligible, pagesFetched: pages, hadMorePages: cursor !== null };
+}
+
+/// FINDING 3 (HIGH): combine an optional caller signal with a per-fetch
+/// timeout signal so a fetch dies on EITHER. Falls back to just the timeout
+/// when the caller didn't pass one, and to just the caller signal if the
+/// timeout is undefined — never returns undefined so the fetch always has a
+/// bounded lifetime. Uses `AbortSignal.any` when available (Node 20+) and
+/// falls back to a manual wiring on older runtimes.
+function _composeSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
+  const live = signals.filter((s): s is AbortSignal => s !== undefined);
+  if (live.length === 0) return AbortSignal.timeout(15_000);
+  if (live.length === 1) return live[0]!;
+  // Prefer the standard API when the runtime has it.
+  const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') return anyFn.call(AbortSignal, live);
+  // Manual polyfill — mirror abort onto a fresh controller. `once` so we
+  // don't leak listeners if the merged signal aborts more than once.
+  const controller = new AbortController();
+  for (const s of live) {
+    if (s.aborted) {
+      controller.abort(s.reason);
+      break;
+    }
+    s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
 }
 
 /// ERC-20 tokens implement `decimals()`; ERC-721 collections don't. Best-effort
@@ -566,6 +781,56 @@ function _hashPair(a: Hex, b: Hex): Hex {
   return keccak256(encodePacked(['bytes32', 'bytes32'], [lo, hi]));
 }
 
+/// FINDING 3 (HIGH): stream a `fetch` Response body into memory with a hard
+/// byte ceiling. `Content-Length` is deliberately NOT consulted — the header
+/// is caller-declared and a hostile gateway can lie or omit it. We tally
+/// bytes as they arrive from the reader and abort the moment the ceiling is
+/// crossed, then throw `WlIpfsResponseTooLarge` so /wl/proof can return a
+/// 413. Cancelling the reader closes the underlying network stream (per the
+/// fetch spec), so the caller isn't racing an unbounded background download.
+async function _readBodyWithCap(
+  res: Response,
+  maxBytes: number,
+  url: string,
+): Promise<string> {
+  // Some runtimes may hand back a body without `getReader()` (a rare shim
+  // path). Falling back to `.text()` for those is fine — the runtime is
+  // responsible for buffering, and we still validate the resulting size
+  // before returning.
+  const reader = res.body?.getReader?.();
+  if (!reader) {
+    const text = await res.text();
+    const bytes = Buffer.byteLength(text, 'utf8');
+    if (bytes > maxBytes) {
+      throw new WlIpfsResponseTooLarge(bytes, maxBytes, url);
+    }
+    return text;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        // Kill the underlying network read so we stop paying for bytes
+        // we're about to discard. `cancel` returns a Promise but we don't
+        // need to await it before throwing — the caller wants the error
+        // immediately, and the reader releases resources either way.
+        await reader.cancel().catch(() => { /* best-effort */ });
+        throw new WlIpfsResponseTooLarge(total, maxBytes, url);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    // Idempotent — releaseLock is a no-op once cancel/done has fired.
+    try { reader.releaseLock(); } catch { /* best-effort */ }
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
+}
+
 // -----------------------------------------------------------
 // IPFS pin (Pinata) — durable storage for holder lists so trade-time proof
 // lookups don't depend on process-local memory.
@@ -584,6 +849,7 @@ async function _pinListToIpfs(
   holders: Address[],
   root: Hex,
   snapshotBlock: bigint,
+  signal?: AbortSignal,
 ): Promise<{ cid: string; gatewayUrl: string } | null> {
   if (!PINATA_JWT) return null;
   // Pin a compact self-describing JSON — enough to reconstruct the tree client-side
@@ -607,7 +873,9 @@ async function _pinListToIpfs(
       pinataContent: payload,
       pinataMetadata: { name: `urufu-wl-${listId}` },
     }),
-    signal: AbortSignal.timeout(15_000),
+    // FINDING 3: compose caller signal + per-fetch 15s timeout so a route
+    // disconnect kills the pin write, not just the block/holder reads.
+    signal: _composeSignals([signal, AbortSignal.timeout(15_000)]),
   });
   if (!res.ok) return null;
   const body = (await res.json()) as { IpfsHash?: string };
