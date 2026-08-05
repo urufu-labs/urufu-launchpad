@@ -125,7 +125,7 @@ export async function migrate(): Promise<void> {
       merkle_root   text        NOT NULL,
       total_amount  text        NOT NULL,
       holder_count  integer     NOT NULL,
-      status        text        NOT NULL CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict')),
+      status        text        NOT NULL CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict', 'reverted')),
       tx_hash       text,
       block_number  bigint,
       created_at    timestamptz NOT NULL DEFAULT now(),
@@ -137,6 +137,21 @@ export async function migrate(): Promise<void> {
     CREATE INDEX IF NOT EXISTS rewards_publications_status_idx
     ON app.rewards_publications (chain_id, status, epoch_id)
   `;
+  // Round-2 audit FINDING 1: 'reverted' status is now valid. A broadcast row
+  // whose on-chain proposal was cancelled / dropped gets flipped so the next
+  // publish tick can retry at the same epoch id. Existing databases carry the
+  // narrower constraint from the initial CREATE, so drop + re-add it here.
+  await sql`ALTER TABLE app.rewards_publications DROP CONSTRAINT IF EXISTS rewards_publications_status_check`;
+  await sql`
+    ALTER TABLE app.rewards_publications ADD CONSTRAINT rewards_publications_status_check
+    CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict', 'reverted'))
+  `;
+  // Round-2 audit FINDING 4 provenance columns. snapshot_block records the
+  // exact head block that anchored the holder snapshot; expected_holder_count
+  // records the size the paginator observed. Both nullable so pre-migration
+  // rows keep working; new rows carry both.
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS snapshot_block bigint`;
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS expected_holder_count integer`;
 
   // Auto-backfill: any epoch-N JSON that shipped in contracts/tmp/epoch/ gets
   // seeded on startup if the corresponding (chain_id, epoch_id) row doesn't

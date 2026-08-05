@@ -119,38 +119,129 @@ interface Holder {
   balance: bigint; // NFT count
 }
 
-async function fetchGemuHoldersFromIndexer(cfg: ChainConfig): Promise<Holder[]> {
+/// Round-2 audit FINDING 4: page size the indexer returns per request. Ponder
+/// caps `limit` per page; 500 is well inside every deployment's ceiling and
+/// keeps the request/response bodies small enough to not stall the RPC event
+/// loop. The paginator loops until a partial page is returned.
+const INDEXER_HOLDER_PAGE_SIZE = 500;
+
+/// Round-2 audit FINDING 4: hard ceiling on how many holders the publisher will
+/// pull from the indexer in one snapshot. A run above this cap almost certainly
+/// signals a schema regression or a malicious cursor loop, not real growth —
+/// fail loudly so an operator raises the cap deliberately. Override with
+/// `REWARDS_HOLDER_CAP` if the collection genuinely outgrows this.
+const REWARDS_HOLDER_CAP_DEFAULT = 100_000;
+
+/// Round-2 audit FINDING 4: thrown when pagination exceeds the sanity ceiling.
+/// Exported so callers + tests can identify the failure mode without string
+/// matching.
+export class IndexerHolderCountExceedsCap extends Error {
+  readonly seen: number;
+  readonly cap: number;
+  constructor(seen: number, cap: number) {
+    super(`indexer holder count ${seen} exceeds cap ${cap} — raise REWARDS_HOLDER_CAP deliberately`);
+    this.name = 'IndexerHolderCountExceedsCap';
+    this.seen = seen;
+    this.cap = cap;
+  }
+}
+
+function holderCap(): number {
+  const raw = process.env.REWARDS_HOLDER_CAP;
+  if (!raw) return REWARDS_HOLDER_CAP_DEFAULT;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : REWARDS_HOLDER_CAP_DEFAULT;
+}
+
+/// Test seam: allow the unit tests to inject a fake fetch. Production always
+/// uses the global `fetch`.
+export interface IndexerFetch {
+  (url: string, init: RequestInit): Promise<{
+    ok: boolean;
+    status: number;
+    json: () => Promise<unknown>;
+  }>;
+}
+
+export async function fetchGemuHoldersFromIndexer(
+  cfg: ChainConfig,
+  fetchImpl: IndexerFetch = (globalThis as { fetch: IndexerFetch }).fetch,
+  cap: number = holderCap(),
+): Promise<Holder[]> {
+  // Cursor pagination — Ponder GraphQL exposes `pageInfo.endCursor` +
+  // `hasNextPage`; passing `endCursor` as `after` continues the walk. `orderBy`
+  // must be a total-ordering field (id is the primary key) so pages don't
+  // overlap or skip rows when the underlying data changes mid-walk.
   const query = `
-    query GemuHolders($chainId: Int!, $token: String!) {
+    query GemuHolders($chainId: Int!, $token: String!, $limit: Int!, $after: String) {
       holderss(
         where: { chainId: $chainId, tokenAddress: $token }
-        limit: 5000
+        orderBy: "id"
+        orderDirection: "asc"
+        limit: $limit
+        after: $after
       ) {
         items { holderAddress balance }
+        pageInfo { hasNextPage endCursor }
       }
     }
   `;
-  const res = await fetch(`${INDEXER_URL.replace(/\/$/, '')}/graphql`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      query,
-      variables: { chainId: cfg.chainId, token: cfg.gemuNftAddress.toLowerCase() },
-    }),
-  });
-  if (!res.ok) throw new Error(`indexer ${res.status}`);
-  const json = (await res.json()) as {
-    data?: { holderss: { items: Array<{ holderAddress: string; balance: string }> } };
-    errors?: unknown;
-  };
-  if (json.errors) throw new Error(`indexer errors: ${JSON.stringify(json.errors)}`);
-  const items = json.data?.holderss.items ?? [];
-  return items
-    .map((row) => ({
-      address: row.holderAddress.toLowerCase() as Address,
-      balance: BigInt(row.balance),
-    }))
-    .filter((h) => h.balance > 0n);
+  const holders: Holder[] = [];
+  let after: string | null = null;
+  // Belt-and-suspenders: the pageInfo.hasNextPage flag is the primary loop
+  // guard; also break on a partial page so a broken indexer that reports
+  // `hasNextPage: true` forever cannot spin us.
+  for (;;) {
+    const res = await fetchImpl(`${INDEXER_URL.replace(/\/$/, '')}/graphql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        variables: {
+          chainId: cfg.chainId,
+          token: cfg.gemuNftAddress.toLowerCase(),
+          limit: INDEXER_HOLDER_PAGE_SIZE,
+          after,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`indexer ${res.status}`);
+    const json = (await res.json()) as {
+      data?: {
+        holderss: {
+          items: Array<{ holderAddress: string; balance: string }>;
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        };
+      };
+      errors?: unknown;
+    };
+    if (json.errors) throw new Error(`indexer errors: ${JSON.stringify(json.errors)}`);
+    const items = json.data?.holderss.items ?? [];
+    for (const row of items) {
+      const balance = BigInt(row.balance);
+      if (balance <= 0n) continue;
+      holders.push({
+        address: row.holderAddress.toLowerCase() as Address,
+        balance,
+      });
+      if (holders.length > cap) {
+        console.log(
+          JSON.stringify({ rewards: 'fetchHolders', error: 'cap-exceeded', seen: holders.length, cap }),
+        );
+        throw new IndexerHolderCountExceedsCap(holders.length, cap);
+      }
+    }
+    const page = json.data?.holderss.pageInfo;
+    // Stop conditions: indexer says no more OR partial page (< requested).
+    // Either signals exhaustion; requiring both would loop forever if the
+    // indexer reports hasNextPage=true on the last page (Ponder does this
+    // occasionally when the underlying rows shift mid-query).
+    if (!page?.hasNextPage) break;
+    if (items.length < INDEXER_HOLDER_PAGE_SIZE) break;
+    if (!page.endCursor) break;
+    after = page.endCursor;
+  }
+  return holders;
 }
 
 /// Fallback: enumerate holders directly from on-chain Transfer events. Used
@@ -207,6 +298,10 @@ async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Ho
     }
     console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: 0, fallback: 'chain' }));
   } catch (err) {
+    // Round-2 audit FINDING 4: cap-exceeded errors are load-bearing signals —
+    // never silently swallow them into a chain fallback. Rethrow so the
+    // operator sees the loud message and decides whether to raise the cap.
+    if (err instanceof IndexerHolderCountExceedsCap) throw err;
     console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'chain' }));
   }
   const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
@@ -303,6 +398,22 @@ export interface PublishResult {
   txHash: Hex;
   blockNumber: string;
 }
+
+/// Round-2 audit FINDING 1: publishEpoch's outcome is now a discriminated
+/// union so the keeper + HTTP surface can distinguish an actual new epoch
+/// broadcast from an activation of an already-pending proposal, or a skipped
+/// cycle because the vault is still inside the timelock window. Prior return
+/// type was always a broadcast, which made the caller wedge as soon as the
+/// vault had `minConfigDelay > 0`.
+export type PublishOutcome =
+  | ({ action: 'published' } & PublishResult)
+  | ({ action: 'activated' } & PublishResult)
+  | {
+      action: 'skipped-immature-proposal';
+      chainId: number;
+      epochId: number;
+      readyAt: number;
+    };
 
 /// URU-A06: pg advisory-lock wrapper. All publish paths (HTTP + keeper) must
 /// hold this before reading `nextEpochId` so two concurrent publishers cannot
@@ -406,12 +517,18 @@ async function finalizePublication(
 /// `proposeEpoch` if the vault has a real timelock — URU-A11), waits for
 /// receipt, promotes the journal row to `confirmed`.
 ///
+/// Round-2 audit FINDING 1: before proposing a new epoch, checks the vault's
+/// on-chain `pendingEpoch()`. A matured proposal is activated in place; an
+/// immature one causes the call to return early with a
+/// `skipped-immature-proposal` outcome so the caller (keeper loop / HTTP)
+/// logs the wait and moves on instead of wedging.
+///
 /// `totalAmountOverride` is optional. When omitted, uses UNCOMMITTED balance
 /// only (URU-A07: `balance - totalCommitted`), not the whole vault balance.
 export async function publishEpoch(opts: {
   chainSlug: string;
   totalAmountOverride?: bigint;
-}): Promise<PublishResult> {
+}): Promise<PublishOutcome> {
   const cfg = chainConfigFor(opts.chainSlug);
   if (!cfg) throw new Error(`chain "${opts.chainSlug}" not configured for flywheel`);
   if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
@@ -422,8 +539,36 @@ export async function publishEpoch(opts: {
     // rows. Recovers a tx that confirmed while the process was down.
     await reconcilePendingForConfig(cfg, pub, db);
 
+    // Round-2 audit FINDING 1 AC #5: if the vault already carries a pending
+    // proposal, we MUST NOT try to propose again (contract would revert with
+    // `PendingEpochExists`). Instead:
+    //   matured  → activate it in place and return the activation result
+    //   immature → return early so the caller logs and waits this cycle out
+    const pendingOnchain = (await pub.readContract({
+      address: cfg.vaultAddress,
+      abi: vaultAbi,
+      functionName: 'pendingEpoch',
+    })) as readonly [bigint, Hex, bigint, bigint];
+    const [pExpectedId, , , pReadyAt] = pendingOnchain;
+    if (pReadyAt !== 0n) {
+      const nowSec = BigInt(Math.floor(Date.now() / 1000));
+      if (nowSec >= pReadyAt) {
+        const activated = await _activatePendingProposal(cfg, pub, db, pendingOnchain);
+        return { action: 'activated' as const, ...activated };
+      }
+      return {
+        action: 'skipped-immature-proposal' as const,
+        chainId: cfg.chainId,
+        epochId: Number(pExpectedId),
+        readyAt: Number(pReadyAt),
+      };
+    }
+
     // 1. Snapshot holders. Indexer preferred (fast); on-chain fallback covers
-    //    the case where Ponder isn't indexing the gemu NFT yet.
+    //    the case where Ponder isn't indexing the gemu NFT yet. Also capture
+    //    the head block so the journal row records the snapshot's provenance
+    //    (FINDING 4 AC #2 — needed to reproduce a tree from raw state).
+    const snapshotBlock = await pub.getBlockNumber();
     const holders = await fetchGemuHolders(cfg, pub);
     if (holders.length === 0) {
       throw new Error('no gemu holders found in indexer OR on-chain — check NFT deployment');
@@ -454,13 +599,37 @@ export async function publishEpoch(opts: {
     // 5. URU-A06: persist journal + leaves BEFORE broadcasting. If the process
     //    dies after the tx confirms but before the rewards_epochs write,
     //    reconciliation picks up the pending row and promotes it.
+    //
+    //    Round-2 audit FINDING 1: if reconcile flipped a prior attempt at this
+    //    epoch id to 'reverted', its row + leaves are cleaned first so the
+    //    fresh INSERT succeeds without a PK conflict. Rows in any other status
+    //    (pending/broadcast/confirmed/conflict) are left alone — the INSERT
+    //    fails loudly in that case, which is what we want.
     await db.begin(async (tx: any) => {
       await tx`
+        DELETE FROM app.rewards_leaves
+        WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(nextEpochId)}
+          AND EXISTS (
+            SELECT 1 FROM app.rewards_publications p
+            WHERE p.chain_id = ${cfg.chainId}
+              AND p.epoch_id = ${Number(nextEpochId)}
+              AND p.status = 'reverted'
+          )
+      `;
+      await tx`
+        DELETE FROM app.rewards_publications
+        WHERE chain_id = ${cfg.chainId}
+          AND epoch_id = ${Number(nextEpochId)}
+          AND status = 'reverted'
+      `;
+      await tx`
         INSERT INTO app.rewards_publications (
-          chain_id, epoch_id, vault_addr, merkle_root, total_amount, holder_count, status
+          chain_id, epoch_id, vault_addr, merkle_root, total_amount, holder_count, status,
+          snapshot_block, expected_holder_count
         ) VALUES (
           ${cfg.chainId}, ${Number(nextEpochId)}, ${cfg.vaultAddress.toLowerCase()},
-          ${root}, ${totalAmount.toString()}, ${leaves.length}, 'pending'
+          ${root}, ${totalAmount.toString()}, ${leaves.length}, 'pending',
+          ${snapshotBlock.toString()}, ${holders.length}
         )
       `;
       for (const l of leaves) {
@@ -530,6 +699,7 @@ export async function publishEpoch(opts: {
     }
 
     return {
+      action: 'published' as const,
       chainId: cfg.chainId,
       epochId: Number(nextEpochId),
       merkleRoot: root,
@@ -541,57 +711,80 @@ export async function publishEpoch(opts: {
   });
 }
 
-/// URU-A11 tangent: activate a matured pending epoch. Called by the keeper /
-/// operator after the vault's `minConfigDelay` elapses. Idempotent — if the
-/// pending epoch's expected ID matches the vault's `nextEpochId - 1` (i.e.
-/// already activated), returns without writing.
+/// Round-2 audit FINDING 1: shared activation core. Called by `publishEpoch`
+/// (when its opening reconcile finds a matured proposal) and by the keeper's
+/// activation loop. Assumes the caller has already read `pendingEpoch()` and
+/// confirmed maturity. Idempotent w.r.t. the journal row — falls back to a
+/// synthetic response if the journal is empty (e.g. a proposal that landed
+/// out-of-band from our publisher).
+async function _activatePendingProposal(
+  cfg: ChainConfig,
+  pub: PublicClient,
+  db: ReservedDb,
+  pending: readonly [bigint, Hex, bigint, bigint],
+): Promise<PublishResult> {
+  const [expectedEpochId, pRoot, pTotal /* readyAt is checked by caller */] = pending;
+  const { wallet, account } = walletClientFor(cfg);
+  const data = encodeFunctionData({ abi: vaultAbi, functionName: 'activateEpoch', args: [] });
+  const txHash = await wallet.sendTransaction({
+    account,
+    to: cfg.vaultAddress,
+    data,
+    chain: wallet.chain,
+  });
+  const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
+  if (receipt.status !== 'success') throw new Error(`activateEpoch tx reverted: ${txHash}`);
+
+  // Promote the journal row (its status was 'broadcast' after proposeEpoch).
+  const row = (await db`
+    SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash, block_number::text
+    FROM app.rewards_publications
+    WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(expectedEpochId)}
+  `) as Array<{
+    epoch_id: number;
+    merkle_root: string;
+    total_amount: string;
+    holder_count: number;
+    tx_hash: string | null;
+    block_number: string | null;
+  }>;
+  if (row[0]) await finalizePublication(db, cfg, row[0]);
+
+  return {
+    chainId: cfg.chainId,
+    epochId: Number(expectedEpochId),
+    merkleRoot: pRoot,
+    totalAmount: pTotal.toString(),
+    holderCount: row[0]?.holder_count ?? 0,
+    txHash,
+    blockNumber: receipt.blockNumber.toString(),
+  };
+}
+
+/// URU-A11 tangent: activate a matured pending epoch. Called by the keeper
+/// activation loop / operator after the vault's `minConfigDelay` elapses.
+/// Idempotent — no pending epoch is treated as a no-op (returns null) rather
+/// than a thrown error so a scheduled loop can call this cheaply every cycle.
 export async function activateVaultEpoch(chainSlug: string): Promise<{
   epochId: number;
   txHash: Hex | null;
-}> {
+} | null> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg) throw new Error(`chain "${chainSlug}" not configured for flywheel`);
   if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
 
   return withPublicationLock(async (db) => {
     const pub = publicClientFor(cfg);
-    const pending = await pub.readContract({
+    const pending = (await pub.readContract({
       address: cfg.vaultAddress,
       abi: vaultAbi,
       functionName: 'pendingEpoch',
-    });
+    })) as readonly [bigint, Hex, bigint, bigint];
     const [expectedEpochId, , , readyAt] = pending;
-    if (readyAt === 0n) throw new Error('no pending epoch to activate');
-    if (BigInt(Math.floor(Date.now() / 1000)) < readyAt) {
-      throw new Error(`pending epoch not yet ready — matures at ${readyAt}`);
-    }
-    const { wallet, account } = walletClientFor(cfg);
-    const data = encodeFunctionData({ abi: vaultAbi, functionName: 'activateEpoch', args: [] });
-    const txHash = await wallet.sendTransaction({
-      account,
-      to: cfg.vaultAddress,
-      data,
-      chain: wallet.chain,
-    });
-    const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
-    if (receipt.status !== 'success') throw new Error(`activateEpoch tx reverted: ${txHash}`);
-
-    // Promote the journal row (its status was 'broadcast' after proposeEpoch).
-    const row = (await db`
-      SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash, block_number::text
-      FROM app.rewards_publications
-      WHERE chain_id = ${cfg.chainId} AND epoch_id = ${Number(expectedEpochId)}
-    `) as Array<{
-      epoch_id: number;
-      merkle_root: string;
-      total_amount: string;
-      holder_count: number;
-      tx_hash: string | null;
-      block_number: string | null;
-    }>;
-    if (row[0]) await finalizePublication(db, cfg, row[0]);
-
-    return { epochId: Number(expectedEpochId), txHash };
+    if (readyAt === 0n) return null;
+    if (BigInt(Math.floor(Date.now() / 1000)) < readyAt) return null;
+    const result = await _activatePendingProposal(cfg, pub, db, pending);
+    return { epochId: Number(expectedEpochId), txHash: result.txHash };
   });
 }
 
@@ -602,6 +795,15 @@ export async function activateVaultEpoch(chainSlug: string): Promise<{
 /// Exported so the audit tests can drive each crash scenario with a fake db +
 /// fake public client. Production callers reach it via `publishEpoch` /
 /// `reconcilePendingPublications` and never pass their own deps.
+///
+/// Round-2 audit FINDING 1: `broadcast` rows are no longer treated the same as
+/// `pending` rows. A broadcast row means a tx has been sent on-chain; the
+/// on-chain state (`epochs[id]` + `pendingEpoch()`) is the source of truth for
+/// what happened. Four terminal states are modelled:
+///   A. our root is live in `epochs[id]`        → finalize to 'confirmed'
+///   B. a different root landed in `epochs[id]` → flag 'conflict' (throws)
+///   C. `pendingEpoch()` still holds our root   → log + return (do not throw)
+///   D. no on-chain match anywhere              → flip to 'reverted', clear leaves
 export async function reconcilePendingForConfig(
   cfg: ChainConfig,
   pub: PublicClient,
@@ -609,7 +811,7 @@ export async function reconcilePendingForConfig(
 ): Promise<void> {
   const pending = (await db`
     SELECT epoch_id, merkle_root, total_amount, holder_count, tx_hash,
-           block_number::text, created_at
+           block_number::text, created_at, status
     FROM app.rewards_publications
     WHERE chain_id = ${cfg.chainId} AND status IN ('pending', 'broadcast')
     ORDER BY epoch_id
@@ -621,15 +823,20 @@ export async function reconcilePendingForConfig(
     tx_hash: string | null;
     block_number: string | null;
     created_at: Date;
+    status: 'pending' | 'broadcast';
   }>;
+  const ZERO_ROOT = '0x' + '00'.repeat(32);
   for (const row of pending) {
-    const onchain = await pub.readContract({
+    const onchain = (await pub.readContract({
       address: cfg.vaultAddress,
       abi: vaultAbi,
       functionName: 'epochs',
       args: [BigInt(row.epoch_id)],
-    });
+    })) as readonly [Hex, bigint, bigint];
     const [root, total] = onchain;
+    // Case A: our root is live on-chain — either addEpoch confirmed, or a
+    // proposal already got activated. Finalize the journal row (Round-2
+    // audit FINDING 1 AC #3).
     if (
       root.toLowerCase() === row.merkle_root.toLowerCase()
       && total.toString() === row.total_amount
@@ -637,10 +844,8 @@ export async function reconcilePendingForConfig(
       await finalizePublication(db, cfg, row);
       continue;
     }
-    if (root !== ('0x' + '00'.repeat(32))) {
-      // On-chain landed a DIFFERENT root at this epoch id. Someone else
-      // published first — our journal is stale. Mark conflict; requires
-      // manual resolution.
+    // Case B: a different non-zero root landed at this epoch id → conflict.
+    if (root.toLowerCase() !== ZERO_ROOT) {
       await db`
         UPDATE app.rewards_publications
         SET status = 'conflict', updated_at = now()
@@ -648,17 +853,77 @@ export async function reconcilePendingForConfig(
       `;
       throw new Error(`reward publication conflict at epoch ${row.epoch_id}`);
     }
-    // Stale pending with no on-chain landing after 30 min → assume the tx was
-    // dropped / never sent (crash between insert and broadcast). Delete the
-    // row so a fresh publish can retry.
-    if (Date.now() - new Date(row.created_at).getTime() > 30 * 60 * 1000 && !row.tx_hash) {
-      await db.begin(async (tx: any) => {
-        await tx`DELETE FROM app.rewards_leaves WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
-        await tx`DELETE FROM app.rewards_publications WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
-      });
-    } else {
-      throw new Error(`reward publication ${row.epoch_id} is already pending`);
+    // Case C: no on-chain epoch at this id. Interpretation depends on the
+    // journal-row status.
+    if (row.status === 'pending') {
+      // Never-broadcast row (insert-then-crash). Stale → clean up so retry
+      // can succeed; fresh → throw so a concurrent publish doesn't clobber.
+      if (Date.now() - new Date(row.created_at).getTime() > 30 * 60 * 1000 && !row.tx_hash) {
+        await db.begin(async (tx: any) => {
+          await tx`DELETE FROM app.rewards_leaves WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
+          await tx`DELETE FROM app.rewards_publications WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
+        });
+      } else {
+        throw new Error(`reward publication ${row.epoch_id} is already pending`);
+      }
+      continue;
     }
+    // row.status === 'broadcast': a propose tx confirmed but the epoch isn't
+    // activated yet. Consult on-chain `pendingEpoch()` to decide whether it's
+    // still legitimately pending or has been dropped / replaced.
+    //
+    // Round-2 audit FINDING 1 AC #1 + AC #2 + AC #3 all live in this branch:
+    // MUST NOT throw for a live-but-immature proposal, MUST flip to 'reverted'
+    // when the on-chain pending is gone / mismatched, and MUST promote to
+    // 'confirmed' when activation moved past us (already handled above via
+    // Case A: activated proposals land in `epochs[id]`).
+    const pendingOnchain = (await pub.readContract({
+      address: cfg.vaultAddress,
+      abi: vaultAbi,
+      functionName: 'pendingEpoch',
+    })) as readonly [bigint, Hex, bigint, bigint];
+    const [pExpectedId, pRoot, , pReadyAt] = pendingOnchain;
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const isOurs =
+      pReadyAt !== 0n
+      && Number(pExpectedId) === row.epoch_id
+      && pRoot.toLowerCase() === row.merkle_root.toLowerCase();
+    if (isOurs) {
+      // Legitimate on-chain pending — the activation loop / next publish tick
+      // will activate it when it matures. Log + continue, do NOT throw.
+      const matured = nowSec >= pReadyAt;
+      console.log(
+        JSON.stringify({
+          rewards: 'reconcile',
+          epochId: row.epoch_id,
+          state: matured ? 'proposal-matured-awaiting-activation' : 'proposal-immature',
+          readyAt: Number(pReadyAt),
+          nowSec: Number(nowSec),
+        }),
+      );
+      continue;
+    }
+    // No matching on-chain pending — our propose was cancelled, dropped, or a
+    // different proposal took its slot. Flip to 'reverted' and clear the
+    // leaves; the next publish tick will insert a fresh attempt at this
+    // epoch id (Round-2 audit FINDING 1 AC #2).
+    console.log(
+      JSON.stringify({
+        rewards: 'reconcile',
+        epochId: row.epoch_id,
+        state: 'proposal-orphaned',
+        pendingOnchainRoot: pRoot,
+        pendingReadyAt: Number(pReadyAt),
+      }),
+    );
+    await db.begin(async (tx: any) => {
+      await tx`
+        UPDATE app.rewards_publications
+        SET status = 'reverted', updated_at = now()
+        WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}
+      `;
+      await tx`DELETE FROM app.rewards_leaves WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
+    });
   }
 }
 

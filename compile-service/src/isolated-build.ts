@@ -68,6 +68,18 @@ function capacityError(code: string, message: string): Error & { code: string } 
   return Object.assign(new Error(message), { code });
 }
 
+/// Optional overrides passed to the Semaphore constructor so distinct
+/// pools (compile vs test) can surface distinct error codes.
+///
+/// Round-2 FINDING 2 (/test admission controls): the /test endpoint gets
+/// its own Semaphore and needs its capacity/queue-timeout failures to
+/// surface as TEST_BUSY / TEST_QUEUE_TIMEOUT rather than reusing the
+/// COMPILE_* codes — the launcher client differentiates the two pools.
+export interface SemaphoreCodes {
+  busyCode?: string;
+  timeoutCode?: string;
+}
+
 /// A fair FIFO semaphore with a bounded queue and bounded wait time.
 ///
 /// Capping only the number of active Forge processes is insufficient: a
@@ -80,10 +92,17 @@ export class Semaphore {
   readonly max: number;
   readonly maxQueue: number;
   readonly waitTimeoutMs: number;
+  readonly busyCode: string;
+  readonly timeoutCode: string;
   private active = 0;
   private readonly queue: QueueWaiter[] = [];
 
-  constructor(max: number, maxQueue = 16, waitTimeoutMs = 30_000) {
+  constructor(
+    max: number,
+    maxQueue = 16,
+    waitTimeoutMs = 30_000,
+    codes?: SemaphoreCodes,
+  ) {
     if (!Number.isFinite(max) || max < 1) {
       throw new Error(`Semaphore: max must be >= 1, got ${max}`);
     }
@@ -96,6 +115,8 @@ export class Semaphore {
     this.max = Math.floor(max);
     this.maxQueue = Math.floor(maxQueue);
     this.waitTimeoutMs = Math.floor(waitTimeoutMs);
+    this.busyCode = codes?.busyCode ?? 'COMPILE_BUSY';
+    this.timeoutCode = codes?.timeoutCode ?? 'COMPILE_QUEUE_TIMEOUT';
   }
 
   /// Number of callers currently holding a slot. Test-only.
@@ -115,8 +136,8 @@ export class Semaphore {
     }
     if (this.queue.length >= this.maxQueue) {
       throw capacityError(
-        'COMPILE_BUSY',
-        `compile queue full (${this.queue.length}/${this.maxQueue})`,
+        this.busyCode,
+        `queue full (${this.queue.length}/${this.maxQueue})`,
       );
     }
 
@@ -129,8 +150,8 @@ export class Semaphore {
           if (idx >= 0) this.queue.splice(idx, 1);
           rejectP(
             capacityError(
-              'COMPILE_QUEUE_TIMEOUT',
-              `compile queue wait exceeded ${this.waitTimeoutMs}ms`,
+              this.timeoutCode,
+              `queue wait exceeded ${this.waitTimeoutMs}ms`,
             ),
           );
         }, this.waitTimeoutMs),
@@ -214,6 +235,57 @@ export function defaultCompileQueueWaitMs(): number {
 /// the semaphore slot is reclaimed for the next request.
 export function defaultCompileTimeoutMs(): number {
   return positiveEnvInt('COMPILE_TIMEOUT_MS', 120_000);
+}
+
+// -----------------------------------------------------------------------------
+// Round-2 FINDING 2 (/test admission controls)
+// -----------------------------------------------------------------------------
+// Test builds are considerably more expensive than compile builds:
+// `forge test` under the CI profile runs 10_000 fuzz iterations PER
+// case and needs to build the full contracts/ tree first. Left
+// unbounded, a public /test endpoint is a trivial DoS on the box —
+// which is exactly what the earlier audit round flagged. The knobs
+// below scale each admission-control lever DOWN from its /compile
+// equivalent (concurrency 1, smaller queue, longer per-run wall-clock)
+// so a single stuck /test cannot starve /compile or eat the process.
+
+/// Concurrency cap for /test. Defaults to 1 — a single test run is
+/// heavy enough that overlap on a Railway box costs more wall time
+/// than it saves.
+export function defaultTestConcurrency(): number {
+  return positiveEnvInt('TEST_MAX_CONCURRENCY', 1);
+}
+
+/// Queue depth for /test. Deliberately shorter than /compile's 16 —
+/// tests are slower to drain, so a longer queue would just deepen the
+/// wait for callers that will retry anyway.
+export function defaultTestQueueLimit(): number {
+  return positiveEnvInt('TEST_MAX_QUEUE', 4);
+}
+
+/// Per-caller wall-clock wait ceiling before a queued /test caller is
+/// evicted with TEST_QUEUE_TIMEOUT. Matches /compile's default (30s).
+export function defaultTestQueueWaitMs(): number {
+  return positiveEnvInt('TEST_QUEUE_WAIT_MS', 30_000);
+}
+
+/// Hard wall-clock ceiling for a single `forge test` invocation. A hung
+/// or runaway fuzz run is SIGKILLed after this many ms and surfaces as
+/// TEST_TIMEOUT so the semaphore slot is reclaimed for the next call.
+/// Defaults higher than /compile because `forge test` also runs a
+/// build step before executing cases.
+export function defaultTestTimeoutMs(): number {
+  return positiveEnvInt('TEST_TIMEOUT_MS', 180_000);
+}
+
+/// Combined stdout+stderr byte ceiling for a single `forge test`
+/// invocation. Once exceeded, subsequent chunks are dropped and the
+/// returned payload's `truncated` flag is set. 2 MiB is well above
+/// what a normal test run emits but low enough that a runaway
+/// `console.log` fuzz case can't OOM the process. Environment
+/// override supports beefier deploys.
+export function defaultTestMaxOutputBytes(): number {
+  return positiveEnvInt('TEST_MAX_OUTPUT_BYTES', 2 * 1024 * 1024);
 }
 
 /// Run `runBuild` inside a fresh workDir under `baseDir` (default os.tmpdir()).
@@ -404,6 +476,29 @@ export async function runIsolatedForgeBuild(req: BuildRequest): Promise<BuildArt
   );
 }
 
+/// Options passed to `spawnForge`. Only `forgeBin`, `args`, and
+/// `timeoutMs` are load-bearing — the rest are used by callers with
+/// specific needs (e.g. `/test` runs forge inside `contracts/` so it
+/// passes `cwd`; the test runner also needs `FOUNDRY_PROFILE` merged
+/// through, so it passes `env`; both paths cap output via
+/// `maxOutputBytes` to bound memory pressure from chatty forge runs).
+export interface SpawnForgeOptions {
+  /// Working directory for the forge child. Default: undefined (inherit
+  /// parent process cwd).
+  cwd?: string;
+  /// Full environment for the forge child. Callers that need
+  /// `FOUNDRY_PROFILE=ci` or repointed `FOUNDRY_CACHE_PATH` etc pass a
+  /// pre-merged env here. Default: undefined (inherit parent env).
+  env?: NodeJS.ProcessEnv;
+  /// Combined stdout+stderr byte ceiling. Once exceeded, subsequent
+  /// chunks are dropped and the returned payload's `truncated` flag is
+  /// set. A trailing marker is appended to the returned strings so a
+  /// log reader can see where the cutoff happened. Default: unbounded
+  /// (backwards-compatible with the pre-Round-2 /compile path, which
+  /// already runs behind a queue + timeout).
+  maxOutputBytes?: number;
+}
+
 /// Wraps child_process.spawn for forge, buffering stdout+stderr. Kept
 /// separate from server.ts's runForge so isolated-build has no dependency
 /// on server internals (easier to unit-test in isolation).
@@ -413,6 +508,12 @@ export async function runIsolatedForgeBuild(req: BuildRequest): Promise<BuildArt
 /// via `timedOut` / `aborted` in the resolved payload so the caller can
 /// return a distinct HTTP status (504 vs 503) without message-parsing.
 ///
+/// Round-2 FINDING 2: `spawnOpts` now carries optional `cwd`, `env`, and
+/// `maxOutputBytes`. `/test` needs cwd=contracts/, `env` for
+/// FOUNDRY_PROFILE, and the output cap so a chatty test run can't OOM
+/// the process. Kept as a trailing options bag so existing /compile
+/// callers (positional) are unaffected.
+///
 /// Exported so the unit tests can drive it with a hanging fake `forgeBin`
 /// (a Node one-liner) to prove SIGKILL fires on both timeout and abort.
 export async function spawnForge(
@@ -420,21 +521,58 @@ export async function spawnForge(
   args: string[],
   timeoutMs: number,
   signal?: AbortSignal,
+  spawnOpts?: SpawnForgeOptions,
 ): Promise<{
   code: number;
   stdout: string;
   stderr: string;
   timedOut: boolean;
   aborted: boolean;
+  /// True when combined stdout+stderr exceeded `maxOutputBytes` and one
+  /// or more chunks were dropped. Trailing truncation marker is appended
+  /// to whichever stream tripped the limit.
+  truncated: boolean;
 }> {
   return new Promise((resolveP, rejectP) => {
-    const proc = spawn(forgeBin, args, { windowsHide: true });
+    const proc = spawn(forgeBin, args, {
+      windowsHide: true,
+      cwd: spawnOpts?.cwd,
+      env: spawnOpts?.env,
+    });
     const outChunks: Buffer[] = [];
     const errChunks: Buffer[] = [];
+    const maxBytes = spawnOpts?.maxOutputBytes;
+    let totalBytes = 0;
+    let truncated = false;
     let timedOut = false;
     let aborted = false;
     let settled = false;
 
+    // Split the cap across streams by tracking a shared budget: once
+    // combined stdout+stderr crosses `maxBytes`, extra chunks are
+    // dropped and `truncated` is set. Preserves whatever was captured
+    // BEFORE the cap so error messages remain useful.
+    const pushCapped = (bucket: Buffer[], chunk: Buffer): void => {
+      if (maxBytes === undefined) {
+        bucket.push(chunk);
+        return;
+      }
+      const remaining = maxBytes - totalBytes;
+      if (remaining <= 0) {
+        truncated = true;
+        return;
+      }
+      if (chunk.length <= remaining) {
+        bucket.push(chunk);
+        totalBytes += chunk.length;
+        return;
+      }
+      bucket.push(chunk.subarray(0, remaining));
+      totalBytes += remaining;
+      truncated = true;
+    };
+
+    const truncationMarker = `\n[truncated: combined output exceeded ${maxBytes ?? 0} bytes]\n`;
     const cleanup = () => {
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onAbort);
@@ -443,12 +581,22 @@ export async function spawnForge(
       if (settled) return;
       settled = true;
       cleanup();
+      let stdout = Buffer.concat(outChunks).toString('utf8');
+      let stderr = Buffer.concat(errChunks).toString('utf8');
+      if (truncated) {
+        // Append the marker to whichever stream was non-empty; prefer
+        // stderr so it's visible to error handlers even when stdout was
+        // the noisy stream.
+        if (stderr.length > 0) stderr += truncationMarker;
+        else stdout += truncationMarker;
+      }
       resolveP({
         code: code ?? -1,
-        stdout: Buffer.concat(outChunks).toString('utf8'),
-        stderr: Buffer.concat(errChunks).toString('utf8'),
+        stdout,
+        stderr,
         timedOut,
         aborted,
+        truncated,
       });
     };
     const onAbort = () => {
@@ -462,8 +610,8 @@ export async function spawnForge(
       try { proc.kill('SIGKILL'); } catch { /* already exited */ }
     }, timeoutMs);
 
-    proc.stdout.on('data', (b: Buffer) => outChunks.push(b));
-    proc.stderr.on('data', (b: Buffer) => errChunks.push(b));
+    proc.stdout.on('data', (b: Buffer) => pushCapped(outChunks, b));
+    proc.stderr.on('data', (b: Buffer) => pushCapped(errChunks, b));
     proc.on('error', (err) => {
       if (settled) return;
       settled = true;

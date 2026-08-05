@@ -82,6 +82,9 @@ contract GraduatorV2 is IUnlockCallback {
     /// URU-A12: post-`setCreator` read-back showed a creator address other
     /// than the launcher. Reverts graduation atomically.
     error Graduator__HookCreatorMismatch(address expected, address actual);
+    /// FINDING 6: `claimRefund` / `claimRefundTo` called with a zero
+    /// balance in the launcher's ledger entry. Prevents silent no-op claims.
+    error Graduator__NothingToClaim();
 
     event Graduated(
         address indexed token,
@@ -95,14 +98,21 @@ contract GraduatorV2 is IUnlockCallback {
     /// The excess is transferred to `0x000...dEaD`.
     event ExcessBurned(address indexed token, uint256 amount);
     /// Emitted when the LP-add doesn't consume every wei of ETH the curve
-    /// handed us (rare — LP amounts are usually tightly matched by the
-    /// raw-ratio pricing). Refunded to the launcher, not the graduator's
-    /// owner, because that ETH belongs to the launcher's LP position — it's
-    /// their curve's accumulated fees. Prevents the 2026-07-30 bug (V7
-    /// Graduator opened pool at curve marginal price, requiring ~10x MORE
-    /// tokens per ETH than the raw ratio, leaving ~4 ETH per graduation
-    /// permanently stranded in the graduator with no recovery path).
-    event EthRefundedToLauncher(address indexed token, address indexed launcher, uint256 amount);
+    /// handed us (rare, LP amounts are usually tightly matched by the
+    /// raw-ratio pricing). The refund is CREDITED to the launcher's
+    /// pull-based ledger (`claimableRefunds`) instead of being pushed
+    /// synchronously so a contract-wallet launcher that rejects `receive()`
+    /// (Safe, DAO treasury, custody solution) can't brick graduation.
+    /// The launcher pulls with `claimRefund()` or `claimRefundTo(recipient)`.
+    ///
+    /// Prevents the 2026-07-30 bug (V7 Graduator opened pool at curve
+    /// marginal price, requiring ~10x MORE tokens per ETH than the raw
+    /// ratio, leaving ~4 ETH per graduation permanently stranded in the
+    /// graduator with no recovery path).
+    event RefundCredited(address indexed token, address indexed launcher, uint256 amount);
+    /// Emitted when a launcher (or the delegate they name in
+    /// `claimRefundTo`) drains their pull-based refund balance.
+    event RefundClaimed(address indexed launcher, address indexed recipient, uint256 amount);
     /// Emitted on owner sweep of unallocated ETH — safety net for any future
     /// bug that lets ETH accumulate here. Non-zero only if the LP-add math
     /// regresses; expected balance is 0 after every graduation.
@@ -128,6 +138,18 @@ contract GraduatorV2 is IUnlockCallback {
     /// sweep — an entire graduation's worth of ETH was permanently stuck.
     /// Never again.
     address public owner;
+
+    /// FINDING 6: pull-based refund ledger. Credited at graduation whenever
+    /// the LP-add leaves ETH unallocated; drained by the launcher (or their
+    /// delegate) via `claimRefund` / `claimRefundTo`. Pull-based instead of
+    /// push so a contract-wallet launcher whose `receive()` reverts cannot
+    /// brick graduation.
+    mapping(address launcher => uint256 amount) public claimableRefunds;
+
+    /// Sum of every entry in `claimableRefunds`. `sweep()` treats this as
+    /// reserved and only lifts the excess so an owner sweep can never
+    /// silently drain launcher refunds.
+    uint256 public totalClaimable;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Graduator__NotOwner();
@@ -166,15 +188,53 @@ contract GraduatorV2 is IUnlockCallback {
     /// ALWAYS zero after every graduation with the raw-ratio pricing (both
     /// amounts are guaranteed to match at the raw ratio, so LP absorbs both
     /// fully). Only fires if a future bug lets ETH accumulate.
+    ///
+    /// FINDING 6: reserves the outstanding pull-based refund balance
+    /// (`totalClaimable`) so the sweep can never silently drain a launcher's
+    /// credited refund. Sweeps `balance - totalClaimable`.
     function sweep(
         address payable to
     ) external onlyOwner {
         if (to == address(0)) revert Graduator__ZeroAddress();
-        uint256 amount = address(this).balance;
+        uint256 balance = address(this).balance;
+        uint256 reserved = totalClaimable;
+        uint256 amount = balance > reserved ? balance - reserved : 0;
         if (amount > 0) {
             SafeTransferLib.safeTransferETH(to, amount);
         }
         emit Swept(to, amount);
+    }
+
+    /// FINDING 6: pull the caller's accumulated refund to the caller.
+    /// Reverts `Graduator__NothingToClaim` on a zero balance so a UI can
+    /// tell "no refund" apart from "claim silently succeeded". Follows CEI:
+    /// balance is zeroed before the transfer, so a re-entering recipient
+    /// finds an empty entry and reverts.
+    function claimRefund() external {
+        _claimTo(msg.sender);
+    }
+
+    /// FINDING 6: pull the caller's accumulated refund to `recipient`.
+    /// Contract-wallet launchers that can't receive ETH themselves (Safe,
+    /// custody solutions) use this to route the refund to an EOA or a
+    /// receiver contract they control.
+    function claimRefundTo(
+        address recipient
+    ) external {
+        if (recipient == address(0)) revert Graduator__ZeroAddress();
+        _claimTo(recipient);
+    }
+
+    function _claimTo(
+        address recipient
+    ) private {
+        uint256 amount = claimableRefunds[msg.sender];
+        if (amount == 0) revert Graduator__NothingToClaim();
+        // CEI: zero the entry (and the aggregate) before the external call.
+        claimableRefunds[msg.sender] = 0;
+        totalClaimable -= amount;
+        SafeTransferLib.safeTransferETH(recipient, amount);
+        emit RefundClaimed(msg.sender, recipient, amount);
     }
 
     /// @notice Graduate a curve. Same signature as the original Graduator so
@@ -307,12 +367,28 @@ contract GraduatorV2 is IUnlockCallback {
         // LP (should never happen with raw-ratio pricing — both amounts
         // match exactly at the raw-ratio price — but LiquidityAmounts does
         // integer math with truncation, so rounding-dust wei can survive),
-        // refund it to the launcher. The launcher earned this ETH via curve
-        // sells; keeping it here would be theft.
-        uint256 ethResidual = address(this).balance;
+        // credit it to the launcher's pull-based refund ledger. The
+        // launcher earned this ETH via curve sells; keeping it here would
+        // be theft.
+        //
+        // FINDING 6: pull-based, not push. If launcher is a contract wallet
+        // (Safe, DAO treasury, custody solution) whose `receive()` reverts,
+        // a synchronous transfer would revert the whole graduation and
+        // brick the curve. Credit + claim decouples the two and keeps
+        // graduation atomically successful for every launcher shape. The
+        // aggregate is tracked so `sweep()` can never take credited funds.
+        //
+        // NOTE: `address(this).balance` is the right source. It's set by
+        // the ETH the launcher's curve sent in via `msg.value == ethAmount`
+        // minus whatever settle() took, so it captures rounding dust
+        // without accounting for any prior refunds that may still be
+        // sitting in the ledger (those are already reserved and are not
+        // part of `balance - totalClaimable` from the launcher's view).
+        uint256 ethResidual = address(this).balance - totalClaimable;
         if (ethResidual > 0 && launcher != address(0)) {
-            SafeTransferLib.safeTransferETH(launcher, ethResidual);
-            emit EthRefundedToLauncher(token, launcher, ethResidual);
+            claimableRefunds[launcher] += ethResidual;
+            totalClaimable += ethResidual;
+            emit RefundCredited(token, launcher, ethResidual);
         }
 
         emit Graduated(token, address(defaultHook), ethAmount, tokenAmount, sqrtPriceX96, liquidity);

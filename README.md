@@ -61,7 +61,7 @@ Pre-graduation, launcher earnings are zero — curve trade fees route to the pla
 
 Every guarantee below is enforced by contract, not the UI. Frontend-only anti-rug rules were the URU-A01 finding — closed in audit round 3.
 
-- **LP is locked forever.** MHH's `beforeRemoveLiquidity` reverts on every call. No admin path around it. Regression tested against live RH PoolManager (`test_FreshDeploy_LpRemovalPermanentlyRejected`).
+- **Graduation LP is locked structurally.** The Graduator holds the LP position NFT and exposes no burn, transfer, or withdraw path, so the graduated position can never be removed. Third-party LPs who add liquidity to the same pool via Uniswap can add + remove theirs freely. Regression tested against live RH PoolManager (`test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched`).
 - **Curved launches MUST renounce ownership.** Router `_validateLaunchPolicy` reverts `CurveMustRenounce` on any curve launch with `KeepEOA` or `TransferToMultisig`. Enforced on all 4 launch entrypoints.
 - **Owner-controlled modules cannot pair with the curve.** Pausable, AntiBot, AntiWhale all carry `FLAG_REQUIRES_OWNER`. Router blocks the combo with `CurveRequiresOwner`.
 - **Pausable no longer exempts the owner.** V1 exempted `from == owner()` transfers while paused — a one-sided sell freeze. V2 removes the exemption; V1 hash `0xa831…803a` is permanently banned (URU-A02).

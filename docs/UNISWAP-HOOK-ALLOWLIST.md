@@ -2,6 +2,18 @@
 
 Everything Uniswap's hook-review team asks for, in one place.
 
+> **STATE NOTE — read before submitting.** This doc pins the LIVE-DEPLOYED MHH at
+> `0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4`, which corresponds to the pre-F5 source
+> (mask `0x22C4`, hook-enforced LP lock). F5 (audit round 2) removed the
+> `beforeRemoveLiquidity` gate from `MultiHookHost.sol`; the source now compiles to a
+> different runtime bytecode and a different mined mask (`0x20C4`). To deploy the F5
+> source to production, a new MHH must be mined at a `0x20C4`-tail address, a fresh
+> Graduator wired to it, and `MHH.setInitializer` + `CurveFactory.setGraduator` re-run.
+> Pools graduated on the old MHH keep the old hook (and its LP-lock revert) forever;
+> only pools graduated on the new MHH would carry the F5 behavior. When the F5 rotation
+> ships, this doc must be re-submitted with the new address, new mask, and updated hook
+> description.
+
 **Primary submission**: <https://developers.uniswap.org/hook-allowlist> — a
 web form. Fields listed in the "Form quick-reference" section below. Uniswap's
 routing allowlist controls whether `app.uniswap.org` and aggregators that trust
@@ -303,10 +315,16 @@ on-chain split verification.
 
 ## For the reviewer (test scenarios they might ask for)
 
-- **Verify LP lock**: any `PoolManager.modifyLiquidity` call with negative
-  `liquidityDelta` on a pool with our hook reverts with
-  `MultiHookHost__LiquidityLocked`. Coverage:
-  `test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_LpRemovalPermanentlyRejected`.
+- **Verify LP lock on the LIVE hook (pre-F5 mask `0x22C4`)**: any
+  `PoolManager.modifyLiquidity` call with negative `liquidityDelta` reverts with
+  `MultiHookHost__LiquidityLocked`. That behavior was covered by the pre-F5
+  regression `test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_LpRemovalPermanentlyRejected`,
+  which was replaced at the F5 source rev by
+  `test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched` (the new test
+  proves LP add + remove work on the F5 source; run it against a pre-F5 checkout to
+  reproduce the live hook's revert instead). When the F5-rotated MHH ships, the
+  LP-lock check is replaced by the structural-lock check: the Graduator owns the
+  position and `GraduatorV2` has no code path that removes/burns/transfers it.
 - **Verify fee cap**: constructor reverts if `platformBps + creatorBps > 3000`.
   Coverage: `test/hooks/MultiHookHost.t.sol::test_Init_RevertsOnBpsOverCap`.
 - **Verify no admin path**: no `owner()`, no `Ownable`. Grep the compiled

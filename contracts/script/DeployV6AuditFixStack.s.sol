@@ -400,8 +400,11 @@ contract DeployV6AuditFixStack is Script {
         address feeSplitter,
         address deployerWallet
     ) internal returns (address) {
-        uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
-            | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        // Audit-round-2 FINDING 5: dropped BEFORE_REMOVE_LIQUIDITY_FLAG. Graduation
+        // LP is locked structurally by GraduatorV2; gating removal on the hook was
+        // freezing every third-party LP forever.
+        uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+            | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args = abi.encode(
             IPoolManager(poolManager),

@@ -133,7 +133,8 @@ is the only allowed writer post-`setRouter`.
 ## Graduator.sol
 
 **Purpose:** takes a graduated curve's ETH + tokens, mints a full-range v4 LP position,
-LP is locked forever by `LPLockedHook`.
+locked structurally because the Graduator owns the position and has no code path that
+ever removes, burns, or transfers it.
 
 **Invariants:**
 1. **`unlockCallback` is PoolManager-only.** Any other caller reverts with
@@ -145,15 +146,22 @@ LP is locked forever by `LPLockedHook`.
 3. **ETH-mismatch guard.** `execute()` reverts with `Graduator__EthMismatch` if
    `msg.value != ethAmount`.
 4. **LP position ownership immutable.** Graduator is the `owner` of the LP position (via
-   `modifyLiquidity` msg.sender). Combined with `LPLockedHook`, no path exists to remove
-   liquidity — verified end-to-end in `test/curve/GraduationForkTest.t.sol`.
+   `modifyLiquidity` msg.sender). `GraduatorV2` has no code path that ever calls
+   `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer
+   function — the position is locked structurally. Verified end-to-end in
+   `test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched`
+   (post-F5): a third-party LP adds then removes its own position while the
+   Graduator-owned graduation LP position stays untouched.
 
 **Threat model:**
 - Impersonating PoolManager to call `unlockCallback` with malicious data → mitigated:
   `msg.sender == poolManager` check.
 - USDT-family tokens → mitigated by `SafeTransferLib`.
-- LP theft after graduation → impossible: `LPLockedHook.beforeRemoveLiquidity` reverts
-  every call, verified by fork test against real Sepolia PoolManager.
+- LP theft after graduation → impossible: Graduator owns the position and `GraduatorV2`
+  has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`,
+  no burn function, no transfer function. Verified in
+  `test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched`.
+  Third-party LPs on the same pool can add + remove their own positions freely (post-F5).
 - Sandwich the graduation tx → the pool doesn't exist yet at that moment; no swap surface
   to sandwich until `poolManager.initialize` fires inside `execute`.
 
@@ -165,10 +173,17 @@ LP is locked forever by `LPLockedHook`.
 
 ---
 
-## LPLockedHook.sol + MultiHookHost.sol + FeeRedirectHook.sol + AntiSniperHook.sol + BuybackBurnHook.sol
+## MultiHookHost.sol
 
-**Purpose:** v4 hooks that shape pool behavior post-graduation. Each has a specific
-permission bit mask encoded in its deployed address.
+**Purpose:** the single v4 hook that shapes pool behavior post-graduation. All launchpad
+hook features live here (v4 allows only one hook per pool). Permission bit mask encoded
+in the deployed address.
+
+**Legacy note:** earlier revisions of this doc referenced separate `LPLockedHook`,
+`FeeRedirectHook`, `AntiSniperHook`, and `BuybackBurnHook` contracts. They were consolidated
+into `MultiHookHost` before shipping. F5 (audit round 2) additionally removed the LP-lock
+behavior from `MultiHookHost` — the graduation LP is now locked structurally by the
+Graduator, and third-party LPs can add + remove theirs freely.
 
 **Common invariants:**
 1. **Callback authorization.** Every hook callback has `onlyPoolManager` — reverts with
@@ -181,21 +196,37 @@ permission bit mask encoded in its deployed address.
 
 **Per-hook properties:**
 
-**LPLockedHook** — `beforeRemoveLiquidity` unconditionally reverts. LP locked at protocol
-level. Verified against real Sepolia v4 in `LPLockedHookForkTest`.
+**Initializer gate** — `beforeInitialize` reverts unless `sender == initializer` (wired
+Graduator, set one-shot at deploy). Blocks the "front-run `PoolManager.initialize` on a
+graduating pool's predictable pool key" DoS. On the authorized path, stamps
+`poolConfig[id].launchBlock`.
 
-**FeeRedirectHook** — `afterSwap` takes bps of the unspecified (output) currency and
-credits it to internal `owed` mapping. `claim(currency)` sweeps via `poolManager.unlock` →
-`take` path. Invariant: bps capped at `MAX_TOTAL_BPS = 3000` (30%).
+**LP lock (structural, not hook-enforced)** — post-F5, `beforeRemoveLiquidity` is not
+gated by the hook. The Graduator itself owns the graduation LP position (via
+`modifyLiquidity` msg.sender), and `GraduatorV2` has no code path to remove, burn, or
+transfer that position. Third-party LPs on the same pool can add + remove their own
+positions freely via the Uniswap UI. Verified in
+`test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched`.
 
-**MultiHookHost** — Combines LPLocked + FeeRedirect. Same claim path. `PoolKey.hooks` is
-one address per pool; combining behaviors here means both take effect.
+**Fee redirect** — `afterSwap` takes `platformBps + creatorBps` of the unspecified
+(output) currency, credits it to `owed[currency][platform]` + `owed[currency][creator]`.
+Per-pool `creators[poolId]` set by the Graduator; unset pools fall back to the
+constructor-provided `creator`. Recipients pull via `claim(currency)` (or permissionless
+`pushOwed(currency, account)` for contracts like FeeSplitter that cannot self-call).
+Invariant: `MAX_TOTAL_BPS = 3000` (30 %).
 
-**AntiSniperHook** — `beforeInitialize` records pool init block; `beforeSwap` reverts
-until `block.number ≥ initBlock + gateBlocks`. Auto-expires after window.
+**Anti-sniper gate** — `beforeSwap` reverts `AntiSniperGate(launchBlock, gateBlocks)`
+until `block.number >= launchBlock + antiSniperBlocks`. Per-pool, zero disables.
+`MAX_ANTI_SNIPER_BLOCKS = 7200` cap. Auto-expires after window.
 
-**BuybackBurnHook** — `afterSwap` takes bps of the launched-token output and routes it to
-`0xdead`. Invariant: bps capped at `MAX_BPS = 2000` (20%).
+**Buyback burn** — `afterSwap` transfers `poolConfig[id].buybackBurnBps` of exact-input
+BUY output tokens to `0x…dEaD`. Exact-output BUYs revert
+`ExactOutputBuyUnsupportedWithBurn` when burn is enabled (URU-P1-M04). Invariant:
+`MAX_BUYBACK_BPS = 2000` (20 %).
+
+**`setPoolConfig` + `setCreator`** — `onlyInitializer` (URU-A12). Freeze after the pool's
+`beforeInitialize` fires. Graduator reads them back post-set and reverts
+`HookConfigMismatch` / `HookCreatorMismatch` on drift.
 
 **Threat model:**
 - Hook impersonation → mitigated: `onlyPoolManager`.

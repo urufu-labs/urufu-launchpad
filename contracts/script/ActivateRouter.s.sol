@@ -84,8 +84,14 @@ contract ActivateRouter is Script {
     /// split brain). Operators must build the atomic Safe MultiSendCallOnly
     /// payload via `BuildRouterCutoverSafeBatch.s.sol` and submit it as ONE
     /// Safe delegatecall transaction. `runForTest` remains available for
-    /// in-process fork rehearsals only.
+    /// in-process fork rehearsals only, and hard-reverts on the RH production
+    /// chain unless `ALLOW_UNSAFE_CUTOVER=1` is explicitly set.
     error ActivateRouter__UnsafeDirectBroadcastDisabled();
+    error ActivateRouter__ProductionChainUnsafe(uint256 chainId);
+
+    /// RH production chain id. `runForTest` refuses to execute against this
+    /// chain unless an emergency env override is present.
+    uint256 internal constant RH_PROD_CHAIN_ID = 4663;
 
     // Preflight errors
     error ActivateRouter__NoPendingRouter(address registry);
@@ -140,6 +146,15 @@ contract ActivateRouter is Script {
     function runForTest(
         TestArgs memory a
     ) external {
+        // URU-A17 F7: even in "test" mode, refuse to touch the RH prod chain
+        // unless an operator has explicitly set ALLOW_UNSAFE_CUTOVER=1. Guards
+        // against forge script --sig 'runForTest((address,...))' --broadcast
+        // being used as a bypass around the run()-disabled Safe cutover path.
+        if (block.chainid == RH_PROD_CHAIN_ID) {
+            if (vm.envOr("ALLOW_UNSAFE_CUTOVER", uint256(0)) != 1) {
+                revert ActivateRouter__ProductionChainUnsafe(block.chainid);
+            }
+        }
         _isTestContext = true;
         _testArgs = a;
         _runInner();

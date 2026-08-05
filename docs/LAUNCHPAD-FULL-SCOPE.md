@@ -252,7 +252,7 @@ When a buy's `ethReserve` crosses `graduationTargetEth`, `_graduate()` fires:
 12. Any leftover token rounding dust burned to `0xdEaD`; any leftover ETH refunded to the launcher.
 13. Emits `Graduated(token, hook, ethAmount, tokenAmount, sqrtPriceX96, liquidity)`.
 
-Now the pool is live. The launcher owns nothing — the LP position was minted TO the Graduator, but MHH's `beforeRemoveLiquidity` unconditionally reverts, so the LP is permanently locked. No admin, no keyholder, no vault can pull it.
+Now the pool is live. The launcher owns nothing — the LP position was minted TO the Graduator, and `GraduatorV2` has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer function, so the graduation LP position is locked structurally. No admin, no keyholder, no vault can pull it. Third-party LPs on the same pool can add + remove their own positions freely (post-F5).
 
 ### 4.4 Trade page — post-graduation
 
@@ -1300,7 +1300,7 @@ address public owner;   // V8 addition — enables sweep + rotate
     - Handle any residual (rare) via `poolManager.take` back to Graduator.
 11. **Dust handling** (V8 safety belts):
     - Any leftover TOKENS → transferred to `BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD`. Emits `ExcessBurned(token, amount)`.
-    - Any leftover ETH → refunded to `launcher` via `safeTransferETH`. Emits `EthRefundedToLauncher(launcher, amount)`.
+    - Any leftover ETH → CREDITED (not pushed) to `claimableRefunds[launcher]` and tallied in `totalClaimable`. Emits `RefundCredited(token, launcher, amount)`. The launcher (or a delegate they name) drains it later via `claimRefund()` or `claimRefundTo(recipient)`, which emits `RefundClaimed(launcher, recipient, amount)`. Pull-based so a contract-wallet launcher whose `receive()` reverts (Safe, DAO treasury, custody solution) cannot brick graduation. `sweep()` treats `totalClaimable` as reserved and only lifts the excess. (FINDING 6, audit round 2.)
 12. Emit `Graduated(token, address(defaultHook), ethAmount, tokenAmount, sqrtPriceX96, liquidity)`.
 
 ### 13.4 `sweep(address payable to)` — V8 owner-only escape hatch
@@ -1313,7 +1313,9 @@ V7 had NO owner and NO sweep — the 4.003 ETH stranded there is permanently stu
 
 The LP position is booked to the Graduator contract in `PoolManager`'s per-position state — no NFT is minted (Graduator uses raw `PoolManager.modifyLiquidity`, not `PositionManager`). The position is identified by `(pool, owner=Graduator, tickLower, tickUpper, salt=0)`.
 
-**LP is permanently locked** because MHH's `beforeRemoveLiquidity` (see §14.3) unconditionally reverts `MultiHookHost__LiquidityLocked`. Even the Graduator can't pull the position — no admin path exists on either side.
+**Graduation LP is locked STRUCTURALLY** (post-F5, audit round 2). `GraduatorV2` has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer function, no owner escape — so the Graduator itself cannot pull the position, and since no other address is the position owner nobody else can either. The MHH no longer intercepts remove-liquidity, which means third-party LPs on the same pool can add + remove their own positions freely through the Uniswap UI. Only the Graduator-owned graduation position is locked.
+
+**Deployment status:** the currently-deployed RH MHH at `0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4` still carries the pre-F5 hook-enforced revert (mask `0x22C4`, `beforeRemoveLiquidity` gated). To ship F5 to production, a new MHH must be mined at a `0x20C4`-tail address, paired with a fresh Graduator, and rotated in via `MHH.setInitializer(newGraduator)` + `CurveFactory.setGraduator(newGraduator)`. Pools graduated on the old MHH inherit the pre-F5 hook and its LP-lock revert permanently.
 
 ### 13.6 Live state
 
@@ -1348,30 +1350,30 @@ Enforced in `RhLiveStackSnapshot.t.sol`:
 
 **Live address:** `0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4`.
 
-**Role:** the single v4 hook attached to every graduated launchpad pool. Combines four behaviors that would otherwise require four separate hooks (v4 allows only ONE hook per pool):
-1. **LP lock** — `beforeRemoveLiquidity` unconditional revert.
-2. **Anti-sniper gate** — per-pool block window during which swaps revert.
-3. **Fee redirect** — platform + creator take a slice of every swap's unspecified currency.
-4. **Buyback-burn** — optional per-pool slice of BUY output tokens sent to 0xdEaD.
+**Role:** the single v4 hook attached to every graduated launchpad pool. Combines three behaviors that would otherwise require three separate hooks (v4 allows only ONE hook per pool):
+1. **Anti-sniper gate** — per-pool block window during which swaps revert.
+2. **Fee redirect** — platform + creator take a slice of every swap's unspecified currency.
+3. **Buyback-burn** — optional per-pool slice of BUY output tokens sent to 0xdEaD.
 
 Plus a critical safety mechanism:
-5. **Initializer gate** — only the wired Graduator can initialize pools through this hook (blocks predictable-poolKey DoS).
+4. **Initializer gate** — only the wired Graduator can initialize pools through this hook (blocks predictable-poolKey DoS).
+
+**LP lock is structural, not hook-gated (post-F5).** The graduation LP position is locked because the Graduator itself owns it and `GraduatorV2` has no code path to remove/burn/transfer it. MHH no longer intercepts `beforeRemoveLiquidity`, so third-party LPs added post-graduation can add + remove theirs freely. See §13.5 for detail and the deployment status note (pre-F5 MHH still live on RH).
 
 ### 14.1 Hook flags — encoded in the address
 
-v4 encodes required permissions in the LOW BITS of the hook address; the address must be MINED via CREATE2 to have the right bits. MHH requires:
+v4 encodes required permissions in the LOW BITS of the hook address; the address must be MINED via CREATE2 to have the right bits. Post-F5 (audit round 2), MHH requires:
 
 ```
 BEFORE_INITIALIZE_FLAG         (1 << 13)
-BEFORE_REMOVE_LIQUIDITY_FLAG   (1 << 9)
 BEFORE_SWAP_FLAG               (1 << 7)
 AFTER_SWAP_FLAG                (1 << 6)
 AFTER_SWAP_RETURNS_DELTA_FLAG  (1 << 2)
 
-Sum: 0x2000 | 0x0200 | 0x0080 | 0x0040 | 0x0004 = 0x22C4
+Sum: 0x2000 | 0x0080 | 0x0040 | 0x0004 = 0x20C4
 ```
 
-Live hook address ends in `A2c4` — low 14 bits match `0x22C4`. Verified via `MultiHookHost.getHookPermissions()`.
+**Source vs live mismatch (F5 rotation pending):** the source-derived mask is `0x20C4` after F5 dropped `BEFORE_REMOVE_LIQUIDITY_FLAG`. The currently-deployed RH MHH at `0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4` was mined against the PRE-F5 mask `0x22C4` (`| 0x0200`) and ends in `A2c4`. It still carries the old `beforeRemoveLiquidity`-revert hook. Deploy scripts + `LocalV4Stack` helper have been updated to mine at the new `0x20C4` mask; the next MHH deploy will land at an address ending in the `0x20C4` low-14-bit pattern. See §13.5 deployment status.
 
 ### 14.2 Constructor + `setInitializer`
 
@@ -1408,19 +1410,20 @@ Sender is the address that called `PoolManager.initialize` (v4 passes it through
 
 Stamps `launchBlock = block.number` — after this, `setPoolConfig` and `setCreator` for this pool revert `ConfigFrozen`.
 
-### 14.4 `beforeRemoveLiquidity` — LP lock
+### 14.4 LP lock — structural, not hook-gated (post-F5)
 
-`:237-245`:
-```solidity
-function beforeRemoveLiquidity(address sender, PoolKey calldata key, ModifyLiquidityParams calldata, bytes calldata) external override onlyPoolManager returns (bytes4) {
-    emit MultiHookHostRemoveAttempt(sender, key);
-    revert MultiHookHost__LiquidityLocked();
-}
-```
+The hook no longer implements `beforeRemoveLiquidity`. `getHookPermissions().beforeRemoveLiquidity == false` and the function itself has been removed from the source (`MultiHookHost__LiquidityLocked` error deleted, hook mask changed `0x22C4` → `0x20C4`).
 
-Unconditional. No admin path, no timelock, no whitelist. Every launched token's LP is permanently locked.
+Instead, the graduation LP position is locked STRUCTURALLY by the Graduator:
+- Graduator opens the position via `poolManager.modifyLiquidity` with the Graduator as position owner.
+- `GraduatorV2` has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer function, no owner escape.
+- The position can never be moved by anyone.
 
-Regression coverage: `contracts/test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_LpRemovalPermanentlyRejected` — deploys a `LiquidityRemover` harness that calls `PoolManager.unlock` → `modifyLiquidity(-1)` and asserts the tx reverts via `Hooks.HookCallFailed → MultiHookHost__LiquidityLocked`.
+Third-party LPs added post-graduation on the same pool can add AND remove their own positions freely through the Uniswap UI.
+
+Regression coverage: `contracts/test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched` — deploys a fresh stack, launches + graduates a token, has a third-party LP add + remove a narrow-range position, and asserts (a) the third-party add succeeds, (b) the third-party remove succeeds and returns both sides, (c) the Graduator-owned graduation LP position is untouched across the whole cycle.
+
+**Deployment status:** the currently-deployed RH MHH at `0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4` STILL carries the pre-F5 revert. See §13.5 for the rotation plan.
 
 ### 14.5 `beforeSwap` — anti-sniper gate
 
@@ -2168,8 +2171,8 @@ The `whitelistRoot` is stored at curve initialization time — same tx as `Route
 - The one address in `isKeeper[]` on both `UruBuybackVault` and `UruDepositSink`.
 
 **Blast radius of a compromised deployer key** (worst case, exhaustively):
-- **Cannot** unlock LP (MHH's `beforeRemoveLiquidity` is unconditional revert; no owner path).
-- **Cannot** pull graduated tokens from the v4 pool (same).
+- **Cannot** unlock LP. Post-F5, the graduation LP is locked structurally by the Graduator (Graduator owns the position; `GraduatorV2` has no code path to remove/burn/transfer it, and no owner-mutable admin function grants one). On the pre-F5 live MHH at `0xed09…A2c4`, `beforeRemoveLiquidity` also reverts unconditionally, giving belt-and-suspenders LP-lock. Either way, no owner path exists.
+- **Cannot** pull graduated tokens from the v4 pool (same structural lock).
 - **Cannot** rotate FeeSplitter sinks instantly — 2-day timelock on `setConfig` gives the community a window to react.
 - **Cannot** rotate UruBuybackVault or UruDepositSink `distributionSink` instantly — same 2-day timelock.
 - **Cannot** mint new tokens (all launched tokens are immutable clones with `_initialized` locked to 1).
@@ -2235,7 +2238,7 @@ Two canonical deploy paths, each with different scope and safety guarantees.
 11. `Router.setConfigHashBanned(hash, true)` for all 3 retired-Airdrop hashes from `RhConfigManifest.retiredAirdropHashes()`. Post-state assertion refuses to write address book unless all bans confirmed.
 12. `ERC721AFactory` + `ERC1155Factory` + their template impls + `registerImpl` for each.
 13. `BondingCurve` impl + `CurveFactory(deployer, feeReceiver=FeeSplitter, curveImpl)`. `setTrustedRouter(Router, true)`.
-14. `MultiHookHost(PoolManager, platform=FeeSplitter, creator=deployer, platformBps=100, creatorBps=100, deployer)` — mined via CREATE2 to end in `0x22C4` bit pattern. `setInitializer(Graduator)` after Graduator deploys.
+14. `MultiHookHost(PoolManager, platform=FeeSplitter, creator=deployer, platformBps=100, creatorBps=100, deployer)` — mined via CREATE2 to end in the `0x20C4` bit pattern (post-F5; pre-F5 deploys used `0x22C4`, which added the now-removed `BEFORE_REMOVE_LIQUIDITY_FLAG`). `setInitializer(Graduator)` after Graduator deploys.
 15. `Graduator(PoolManager, MHH, CurveFactory, fee=3000, tickSpacing=60, deployer)`.
 16. `CurveFactory.setGraduator(Graduator)` and `Router.setCurveFactory(CurveFactory)`.
 17. Assertion pass — every wire cross-checked before writing address book.
@@ -2598,7 +2601,7 @@ Chronological summary of audit rounds and what each closed.
 
 ### 25.1 Round 1 — external audit (pre-branch)
 
-Closed at various commits pre-`audit-round-2`. Findings incorporated: `updateImpl` removal, per-config `moduleCountForConfig` gate (blocks caller-controlled underbilling), initial `bannedConfigHash` design, curve-incompat flags, launcher-recorded-as-creator flow, LP-lock via MHH `beforeRemoveLiquidity` revert, MHH `initializer` gate, LoyaltyOracle clamp, refund-on-launch-revert.
+Closed at various commits pre-`audit-round-2`. Findings incorporated: `updateImpl` removal, per-config `moduleCountForConfig` gate (blocks caller-controlled underbilling), initial `bannedConfigHash` design, curve-incompat flags, launcher-recorded-as-creator flow, initial LP-lock via MHH `beforeRemoveLiquidity` revert (later removed by F5 in favor of Graduator-owned structural lock — see §13.5), MHH `initializer` gate, LoyaltyOracle clamp, refund-on-launch-revert.
 
 ### 25.2 Round 2 v1 — LoyaltyOracle + URU config
 
