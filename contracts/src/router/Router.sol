@@ -7,6 +7,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
+import {UruDepositSink} from "src/router/UruDepositSink.sol";
+import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
 interface ICurveFactoryLike {
@@ -90,12 +92,57 @@ interface IModuleAllowanceSetters {
     ) external;
 }
 
+/// URU-A14 (round 3 follow-up): the read-back views paired with the setters
+/// above. Router uses these to (a) probe whether the module is installed on
+/// this token, and (b) confirm the setter actually landed. Both queries are
+/// staticcall-safe: an unknown selector produces `success == false` with
+/// empty return data, distinct from a valid selector that reverted.
+interface IModuleAllowanceViews {
+    function antiBotIsAllowed(
+        address who
+    ) external view returns (bool);
+    function antiWhaleIsExcluded(
+        address who
+    ) external view returns (bool);
+}
+
+/// Whitelist-aware CurveFactory entry. Only reached from the WL launch
+/// entrypoints; separate from ICurveFactoryLike so the WL surface stays
+/// scoped to those code paths.
+interface ICurveFactoryWlLike {
+    function createCurveWithConfigForWl(
+        address token,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) external returns (address curve);
+}
+
 /// @title  Router
 /// @notice User-facing entry to the launchpad. Collects the launch fee, dispatches to the correct
 ///         base-type factory, atomically reserves the name in `NameRegistry`, dispatches ownership
 ///         per the launcher's chosen mode, refunds any excess ETH, and emits `Launched`.
 /// @dev    See docs/SPEC-router.md. `nonReentrant` on `launch`; owner is a multisig post-deploy;
 ///         `paused` is flagged as a censorship vector — mitigations documented in the SPEC.
+///
+///         Launch entrypoints (all four flatten into one contract as of 2026-07-31):
+///           - `launch(params)` payable — ETH fee → `feeReceiver`
+///           - `launchWithURU(params, uruAmount)` — pulls URU into `uruSink`, keeper
+///             drains → ETH → `feeReceiver` out of band
+///           - `launchWithWhitelist(params, wl)` payable — ETH-pay + WL-enabled curve
+///           - `launchWithURUAndWhitelist(params, uruAmount, wl)` — URU-pay + WL curve
+///
+///         URU + WL surface is inert until the owner calls `setUruConfig(uru, uruSink)`
+///         post-deploy. Before that the URU entrypoints revert `Router__UruUnconfigured`.
+///         This lets local + unit tests instantiate Router with a 9-arg constructor and
+///         skip URU setup entirely; production deploy calls the setter as one extra tx.
+///
+///         Prior to 2026-07-31 the URU + WL surface lived in a separate `RouterV2`
+///         contract inheriting this one. Auditors kept asking why two files; the answer
+///         (audit ergonomics on the split) never landed. Flattened into a single Router
+///         contract. Any git history on `RouterV2.sol` from before that date is the
+///         old superclass shape.
 contract Router is Ownable, ReentrancyGuard {
     // ============================================================
     // Errors
@@ -126,6 +173,73 @@ contract Router is Ownable, ReentrancyGuard {
     /// curve if the owner had registered the impl on the factory but not
     /// yet called setFlagsForConfig on the Router).
     error Router__FlagsMissing(bytes32 configHash);
+    /// URU-pay entrypoint called before the owner ran `setUruConfig`. Live
+    /// deploy sets URU immediately; tests can construct Router without URU
+    /// and only reach this error if they try to use URU-pay paths without
+    /// wiring up the setter first.
+    error Router__UruUnconfigured();
+    /// URU-pay call with zero amount. Distinct from `Router__InsufficientUru`
+    /// so hand-crafted-tx debugging is unambiguous.
+    error Router__ZeroURU();
+    /// WL variants require `installBondingCurve = true` — there's no curve to
+    /// whitelist otherwise.
+    error Router__WlRequiresBondingCurve();
+    /// URU-pay path — caller didn't approve enough URU to meet the on-chain
+    /// minimum (`minUruFee` with loyalty discount applied).
+    error Router__InsufficientUru(uint256 required, uint256 provided);
+    /// setUruConfig rejected: the passed sink address has no deployed code.
+    /// EOAs, unset addresses, and to-be-deployed addresses all fail this
+    /// check; the sink must exist on-chain before Router can point at it.
+    error Router__UruSinkNoCode(address uruSink);
+    /// setUruConfig rejected: the passed sink's `uru()` immutable does not
+    /// match the URU token address being wired. Prevents Router forwarding
+    /// deposits into a sink that can't process the token (would otherwise
+    /// silently strand every URU launch fee).
+    error Router__UruSinkTokenMismatch(address expectedUru, address sinkUru);
+    /// Launch through a configHash the owner has explicitly banned. Used to
+    /// permanently retire a compromised or obsolete impl at a specific hash
+    /// without needing a Router redeploy. Setter is `setConfigHashBanned`.
+    /// All four launch entrypoints check this bit before any other work, so
+    /// banning a hash reverts ETH, URU, WL, and URU+WL launches uniformly.
+    error Router__ConfigHashBanned(bytes32 configHash);
+    /// URU-A01: bonding-curve launches must give up ownership at Router-side
+    /// dispatch. A launcher who chose KeepEOA/TransferToMultisig cannot combine
+    /// that with `installBondingCurve = true`; policy enforced on-chain, not
+    /// merely in the frontend.
+    error Router__CurveMustRenounce();
+    /// URU-A10: metadata (moduleCount OR flags) already set for this hash.
+    /// Registration is one-shot; a second attempt reverts. Belt against an
+    /// owner-key holder silently re-interpreting existing impls.
+    error Router__ConfigMetadataAlreadySet(bytes32 configHash);
+    /// URU-A01: launch attempted against a hash whose Router-side metadata
+    /// has not been registered. Fail-closed rather than assume defaults.
+    error Router__ConfigMetadataIncomplete(bytes32 configHash);
+    /// URU-A10: retirement is monotonic — a banned hash cannot be un-banned;
+    /// a curve-incompatible flag cannot be revoked. Any attempt reverts.
+    error Router__ConfigRetirementIrreversible(bytes32 configHash);
+    /// URU-A01: configHash carries FLAG_REQUIRES_OWNER (owner-only powers
+    /// exposed post-launch — Pausable, AntiBot, AntiWhale). Cannot pair with
+    /// the bonding-curve mechanic; owner would keep a censorship lever.
+    error Router__CurveRequiresOwner(bytes32 configHash);
+    /// URU-A01 / URU-A12: launcher-supplied antiSniperBlocks exceeds Router's
+    /// protocol maximum. Prevents unbounded lock windows via direct calls.
+    error Router__AntiSniperBlocksTooHigh(uint32 provided, uint32 maximum);
+    /// URU-A01 / URU-A12: launcher-supplied buybackBurnBps exceeds Router's
+    /// protocol maximum (mirrors MultiHookHost.MAX_BUYBACK_BPS).
+    error Router__BuybackBurnTooHigh(uint16 provided, uint16 maximum);
+    /// URU-A14: an owner-only setter received an EOA / unset address where a
+    /// live contract was required (setFactory, setCurveFactory, setLoyaltyOracle).
+    error Router__NotContract(address target);
+    /// URU-A14 (round 3 follow-up): the curve-time module-allowance grant failed.
+    /// Semantics: we detected the module IS installed on the token (its view
+    /// selector returned cleanly) but either the setter reverted or the post-
+    /// setter read-back did not confirm the allowlist entry. Prior versions
+    /// swallowed both cases with `try/catch {}` — a token whose module setter
+    /// was renamed / reverted silently produced a launched curve that would
+    /// fail its very first `buy` with a bot-guard revert. Now fails loud at
+    /// launch time so the launcher gets an actionable error, not a bricked
+    /// token. The `module` string is "AntiBot" or "AntiWhale" to disambiguate.
+    error Router__CurveModuleGrantFailed(address token, address who, string module);
 
     // ============================================================
     // Events
@@ -153,6 +267,36 @@ contract Router is Ownable, ReentrancyGuard {
     event CurveIncompatibleConfigHashSet(bytes32 indexed configHash, bool blocked);
     event ModuleCountForConfigSet(bytes32 indexed configHash, uint256 count);
     event FlagsForConfigSet(bytes32 indexed configHash, uint256 flags);
+
+    /// Paired 1:1 with the standard `Launched` event; joins on `token`.
+    /// `Launched.feePaid` is 0 on URU launches — indexers should read
+    /// `uruPaid` from here for those.
+    event LaunchedInURU(address indexed token, address indexed launchedBy, uint256 uruPaid);
+    event UruConfigSet(address indexed uru, address indexed uruSink);
+    event MinUruFeeSet(uint256 amount);
+    /// URU-A10: emitted by the atomic one-shot `registerConfigMetadata`. Pairs
+    /// with `ModuleCountForConfigSet` + `FlagsForConfigSet` so indexers see one
+    /// canonical event per registered hash.
+    event ConfigMetadataRegistered(bytes32 indexed configHash, uint256 moduleCount, uint256 flags);
+    /// URU-A10: emitted on the transition from un-banned → banned. Retirement
+    /// is monotonic so this fires at most once per hash.
+    event ConfigHashRetired(bytes32 indexed configHash);
+    event ConfigHashBanned(bytes32 indexed configHash, bool banned);
+
+    /// Emitted alongside `Launched` when a whitelist-enabled curve is
+    /// created. Same launch = same `token` topic across `Launched`,
+    /// `LaunchedInURU` (if URU-paid), and `LaunchedWithWhitelist` (if
+    /// WL-enabled). Indexers stitch on `token`.
+    event LaunchedWithWhitelist(
+        address indexed token,
+        address indexed launchedBy,
+        bytes32 whitelistRoot,
+        uint256 reservedTokens,
+        uint256 maxWlPerAddress,
+        uint64 fallbackTs,
+        address sourceTokenAddress,
+        uint32 sourceChainId
+    );
 
     // ============================================================
     // Immutable state
@@ -211,7 +355,50 @@ contract Router is Ownable, ReentrancyGuard {
     /// for every hash — even to explicitly declare "flags = 0" — before
     /// that hash becomes launchable.
     mapping(bytes32 => bool) public flagsConfigured;
-    uint256 internal constant FLAG_BALANCE_MUTATING = 1 << 0;
+    /// FLAG_BALANCE_MUTATING promoted to `public` so external tooling
+    /// (RhConfigManifest, snapshot tests, indexers) can reference it without
+    /// duplicating the literal.
+    uint256 public constant FLAG_BALANCE_MUTATING = 1 << 0;
+    /// URU-A01: set for any impl whose module set exposes post-launch owner
+    /// powers (Pausable, AntiBot, AntiWhale). Router rejects such hashes when
+    /// paired with `installBondingCurve = true` because a curve launch is
+    /// meant to be ownerless.
+    uint256 public constant FLAG_REQUIRES_OWNER = 1 << 1;
+    /// URU-A01 / URU-A12: protocol max on `params.antiSniperBlocks`. Roughly
+    /// one day of Robinhood blocks. Prevents a direct caller passing near-
+    /// `uint32.max` to lock swaps for years.
+    uint32 public constant MAX_ANTI_SNIPER_BLOCKS = 7200;
+    /// URU-A01: mirrors `MultiHookHost.MAX_BUYBACK_BPS`. Extra defense at the
+    /// Router layer so the cap is enforced BEFORE any downstream call.
+    uint16 public constant MAX_BUYBACK_BURN_BPS = 2000;
+
+    /// Owner-controlled block-list of configHashes that are permanently
+    /// forbidden from launching through this Router — regardless of ETH,
+    /// URU, or whitelist path. Introduced 2026-08-01 after audit round 2
+    /// showed that the earlier count-poison mitigation (setting
+    /// moduleCountForConfig to type(uint256).max) only blocked the ETH
+    /// path (which routes through _quote and overflows). URU + WL paths
+    /// bypass _quote entirely and were still exploitable through retired
+    /// impls whose bytecode remains permanently pinned to the factory
+    /// (registerImpl is one-shot; updateImpl was removed by M-1 audit fix).
+    /// The banning check runs earliest in every launch entrypoint so a
+    /// banned hash cannot deploy under any pricing path.
+    mapping(bytes32 => bool) public bannedConfigHash;
+
+    /// URU token + sink for the URU-pay entrypoints. Both start at address(0);
+    /// the owner wires them via `setUruConfig(uru_, uruSink_)` post-deploy.
+    /// Kept mutable rather than immutable so a fresh Router can be deployed
+    /// against a chain that doesn't yet have URU (tests, base chain rollout)
+    /// and still be operational for ETH launches. URU-pay entrypoints guard
+    /// on `address(uru) == 0` and revert `Router__UruUnconfigured`.
+    IERC20Like public uru;
+    UruDepositSink public uruSink;
+    /// Minimum URU (18 decimals) the caller must approve to launch via a URU
+    /// entrypoint. Zero (default) leaves the URU path wide open. Post-deploy
+    /// the owner sets a sensible floor — the frontend already quotes fair
+    /// ETH-equivalent, this is a hand-crafted-tx spam gate. Loyalty discount
+    /// applies to this floor exactly like the ETH path.
+    uint256 public minUruFee;
     /// Belt-and-braces cap that Router locally enforces on any discount returned
     /// by the loyalty oracle. Matches LoyaltyOracle.HARD_MAX_DISCOUNT_BPS (8000
     /// = 80%). If the oracle is ever swapped for a broken impl that returns
@@ -265,6 +452,7 @@ contract Router is Ownable, ReentrancyGuard {
         LaunchParams calldata params
     ) external payable nonReentrant returns (address token) {
         if (paused) revert Router__Paused();
+        _validateLaunchPolicy(params);
 
         uint256 fee = _quoteFor(params, msg.sender);
         if (msg.value < fee) revert Router__InsufficientFee(fee, msg.value);
@@ -339,6 +527,185 @@ contract Router is Ownable, ReentrancyGuard {
         return _quoteFor(params, launcher);
     }
 
+    /// @notice View for frontends to render the effective URU floor a specific
+    ///         wallet would need. Applies the same loyalty discount as the ETH
+    ///         path so URU quotes reflect the wallet's holdings.
+    function minUruFeeFor(
+        address launcher
+    ) external view returns (uint256) {
+        return _minUruFeeFor(launcher);
+    }
+
+    // ============================================================
+    // URU-pay + whitelisted-curve launch entrypoints
+    // ============================================================
+
+    /// @notice Launch a new token by paying the deploy fee in URU. Caller must
+    ///         have approved this Router for at least `uruAmount` of URU first.
+    ///         Non-payable — attach zero ETH.
+    /// @dev    Mirrors `launch()` — factory dispatch, registry reserve, curve
+    ///         install, ownership dispatch — but the fee leg pulls URU into
+    ///         `uruSink`. Keeper drains sink → ETH → `feeReceiver` out of band.
+    function launchWithURU(
+        LaunchParams calldata params,
+        uint256 uruAmount
+    ) external nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        _validateLaunchPolicy(params);
+        if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
+        if (uruAmount == 0) revert Router__ZeroURU();
+        // On-chain URU floor with loyalty discount applied — same discount rate
+        // as the ETH path so a holder isn't worse off in URU.
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert Router__InsufficientUru(required, uruAmount);
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        // Interactions.
+        // Pull URU from user directly into the sink — user must have approved THIS Router.
+        // Any excess above the "quoted" ETH-equivalent stays in the sink; the flywheel
+        // just gets slightly more. No per-user refund on the URU path.
+        SafeTransferLib.safeTransferFrom(address(uru), msg.sender, address(uruSink), uruAmount);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        // Same bonding-curve install as parent Router.launch. Router still holds the
+        // curve-supply tokens (as initialRecipient) and can approve the factory.
+        if (params.installBondingCurve) {
+            if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+            if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+            // FoT / rebasing / balance-mutating configs would drift the curve's
+            // arithmetic reserve vs actual balance. Mirror the block that
+            // `launch` has — was missing on this URU-pay path in the V2
+            // superclass, making the blacklist bypassable via hand-crafted calls.
+            if (_isCurveIncompatible(params.configHash)) {
+                revert Router__CurveIncompatibleModule(params.configHash);
+            }
+            uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+            IERC20Like(token).approve(curveFactory, supply);
+            address curve = ICurveFactoryLike(curveFactory)
+                .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
+            emit CurveInstalled(token, curve);
+            _grantCurveModuleAllowances(token, curve);
+        }
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        // Standard Launched event with feePaid = 0 (no ETH), plus paired URU event.
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
+        emit LaunchedInURU(token, msg.sender, uruAmount);
+    }
+
+    /// @notice Launch a new token with a whitelisted bonding curve, paying the
+    ///         launch fee in ETH. Same flow as `launch` but installs the curve
+    ///         via the whitelist-aware factory entry, binding a Merkle root +
+    ///         reserved slice.
+    /// @dev    Requires `params.installBondingCurve = true`.
+    function launchWithWhitelist(
+        LaunchParams calldata params,
+        BondingCurve.WhitelistInit calldata wl
+    ) external payable nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        _validateLaunchPolicy(params);
+        if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
+
+        uint256 fee = _quoteFor(params, msg.sender);
+        if (msg.value < fee) revert Router__InsufficientFee(fee, msg.value);
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        feeReceiver.receiveFee{value: fee}(msg.sender, params.base);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        // WL curve install — only structural difference from the standard launch flow.
+        if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+        IERC20Like(token).approve(curveFactory, supply);
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
+        emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        uint256 refund = msg.value - fee;
+        if (refund > 0) SafeTransferLib.safeTransferETH(msg.sender, refund);
+
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, fee, params);
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
+    }
+
+    /// @notice URU-pay variant of `launchWithWhitelist`.
+    function launchWithURUAndWhitelist(
+        LaunchParams calldata params,
+        uint256 uruAmount,
+        BondingCurve.WhitelistInit calldata wl
+    ) external nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        _validateLaunchPolicy(params);
+        if (address(uru) == address(0) || address(uruSink) == address(0)) revert Router__UruUnconfigured();
+        if (uruAmount == 0) revert Router__ZeroURU();
+        uint256 required = _minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert Router__InsufficientUru(required, uruAmount);
+        if (!params.installBondingCurve) revert Router__WlRequiresBondingCurve();
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        SafeTransferLib.safeTransferFrom(address(uru), msg.sender, address(uruSink), uruAmount);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+        IERC20Like(token).approve(curveFactory, supply);
+        address curve = ICurveFactoryWlLike(curveFactory)
+            .createCurveWithConfigForWl(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender, wl);
+        emit CurveInstalled(token, curve);
+        _grantCurveModuleAllowances(token, curve);
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
+        emit LaunchedInURU(token, msg.sender, uruAmount);
+        _emitLaunchedWithWhitelist(token, msg.sender, wl);
+    }
+
     // ============================================================
     // Admin — onlyOwner
     // ============================================================
@@ -348,6 +715,9 @@ contract Router is Ownable, ReentrancyGuard {
         address factory
     ) external onlyOwner {
         if (factory == address(0)) revert Router__ZeroAddress();
+        // URU-A14: reject EOAs / to-be-deployed addresses that would silently
+        // ship a Router with a broken factory pointer.
+        if (factory.code.length == 0) revert Router__NotContract(factory);
         factories[base] = factory;
         emit FactorySet(base, factory);
     }
@@ -356,6 +726,7 @@ contract Router is Ownable, ReentrancyGuard {
         address factory
     ) external onlyOwner {
         if (factory == address(0)) revert Router__ZeroAddress();
+        if (factory.code.length == 0) revert Router__NotContract(factory);
         curveFactory = factory;
         emit CurveFactorySet(factory);
     }
@@ -365,43 +736,66 @@ contract Router is Ownable, ReentrancyGuard {
     function setLoyaltyOracle(
         address oracle
     ) external onlyOwner {
+        // URU-A14: address(0) is a legitimate value (disables loyalty). Any
+        // non-zero value must have code — an EOA slot would silently bypass
+        // the try/catch guard by not implementing discountBpsFor at all.
+        if (oracle != address(0) && oracle.code.length == 0) {
+            revert Router__NotContract(oracle);
+        }
         loyaltyOracle = oracle;
         emit LoyaltyOracleSet(oracle);
     }
 
-    /// @notice Mark a configHash as incompatible with the bonding-curve install
-    ///         path. Owner maintains this blacklist for every FoT / rebasing /
-    ///         balance-mutating module combination. `installBondingCurve = true`
-    ///         reverts with `Router__CurveIncompatibleModule` when the launcher's
-    ///         chosen configHash is blocked.
+    /// @notice Mark a configHash as PERMANENTLY curve-incompatible.
+    ///         URU-A10: retirement is monotonic — any attempt to unblock a
+    ///         previously-blocked hash reverts. Combined with the primary
+    ///         FLAG_BALANCE_MUTATING structural flag, this is the belt-and-
+    ///         braces denylist for anything the flag misses.
     function setCurveIncompatibleConfigHash(
         bytes32 configHash,
         bool blocked
     ) external onlyOwner {
-        curveIncompatibleConfigHash[configHash] = blocked;
-        emit CurveIncompatibleConfigHashSet(configHash, blocked);
+        if (!blocked) revert Router__ConfigRetirementIrreversible(configHash);
+        curveIncompatibleConfigHash[configHash] = true;
+        emit CurveIncompatibleConfigHashSet(configHash, true);
     }
 
-    /// Register the authoritative module count for a configHash. Called by
-    /// the owner once per launched configHash — usually right after the
-    /// corresponding factory.registerImpl() call. Once set, the Router uses
-    /// this value for fee calculation instead of trusting the caller.
+    /// Register the authoritative module count for a configHash. URU-A10:
+    /// one-shot per hash. Any second registration reverts, even with an
+    /// identical value. New impl revisions require a fresh configHash.
     function setModuleCountForConfig(
         bytes32 configHash,
         uint256 count
     ) external onlyOwner {
+        if (moduleCountConfigured[configHash]) {
+            revert Router__ConfigMetadataAlreadySet(configHash);
+        }
         moduleCountForConfig[configHash] = count;
         moduleCountConfigured[configHash] = true;
         emit ModuleCountForConfigSet(configHash, count);
     }
 
     /// Batch variant for the initial post-deploy population when N configs
-    /// need to be registered in a single tx.
+    /// need to be registered in a single tx. Every entry is one-shot per
+    /// URU-A10; a duplicate anywhere in the batch reverts the whole call.
     function setModuleCountForConfigBatch(
         bytes32[] calldata configHashes,
         uint256[] calldata counts
     ) external onlyOwner {
         if (configHashes.length != counts.length) revert Router__ZeroAddress();
+        // Two-pass: verify EVERY hash is un-registered before mutating any of
+        // them so a duplicate at index N doesn't leave 0..N-1 half-written.
+        // Also reject same-batch duplicates so URU-A10's one-shot guarantee
+        // holds even when both entries land in one call.
+        for (uint256 i = 0; i < configHashes.length; ++i) {
+            bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
+            if (moduleCountConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
+            }
+        }
         for (uint256 i = 0; i < configHashes.length; ++i) {
             moduleCountForConfig[configHashes[i]] = counts[i];
             moduleCountConfigured[configHashes[i]] = true;
@@ -409,13 +803,12 @@ contract Router is Ownable, ReentrancyGuard {
         }
     }
 
-    /// Set the flag bitset for a configHash. Owner sets FLAG_BALANCE_MUTATING
-    /// for any impl that mutates transferred amounts (FoT / rebasing) so the
-    /// install path automatically rejects a curve pairing.
+    /// Set the flag bitset for a configHash. URU-A10: one-shot per hash.
     function setFlagsForConfig(
         bytes32 configHash,
         uint256 flags
     ) external onlyOwner {
+        if (flagsConfigured[configHash]) revert Router__ConfigMetadataAlreadySet(configHash);
         flagsForConfig[configHash] = flags;
         flagsConfigured[configHash] = true;
         emit FlagsForConfigSet(configHash, flags);
@@ -426,10 +819,80 @@ contract Router is Ownable, ReentrancyGuard {
         uint256[] calldata flags
     ) external onlyOwner {
         if (configHashes.length != flags.length) revert Router__ZeroAddress();
+        // Same same-batch-duplicate check as setModuleCountForConfigBatch.
+        for (uint256 i = 0; i < configHashes.length; ++i) {
+            bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
+            if (flagsConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
+            }
+        }
         for (uint256 i = 0; i < configHashes.length; ++i) {
             flagsForConfig[configHashes[i]] = flags[i];
             flagsConfigured[configHashes[i]] = true;
             emit FlagsForConfigSet(configHashes[i], flags[i]);
+        }
+    }
+
+    /// @notice **Preferred** one-shot atomic registration. Sets both metadata
+    /// (`moduleCount` and `flags`) for a configHash in one tx, so an operator
+    /// cannot ship a Router in the "count-registered but flags-missing" state
+    /// where a launch would revert `Router__FlagsMissing` mid-flow. Closes the
+    /// URU-A10 finding that mutable Router metadata defeats immutable factory
+    /// registration — this call is one-shot and its emit event is what
+    /// downstream tooling / indexers watch.
+    function registerConfigMetadata(
+        bytes32 configHash,
+        uint256 count,
+        uint256 flags
+    ) external onlyOwner {
+        if (moduleCountConfigured[configHash] || flagsConfigured[configHash]) {
+            revert Router__ConfigMetadataAlreadySet(configHash);
+        }
+        moduleCountForConfig[configHash] = count;
+        moduleCountConfigured[configHash] = true;
+        flagsForConfig[configHash] = flags;
+        flagsConfigured[configHash] = true;
+        emit ModuleCountForConfigSet(configHash, count);
+        emit FlagsForConfigSet(configHash, flags);
+        emit ConfigMetadataRegistered(configHash, count, flags);
+    }
+
+    /// Batch variant of `registerConfigMetadata`, used by DeployRouter to seed
+    /// every canonical hash from `RhConfigManifest.all()` in one tx.
+    function registerConfigMetadataBatch(
+        bytes32[] calldata configHashes,
+        uint256[] calldata counts,
+        uint256[] calldata flags
+    ) external onlyOwner {
+        uint256 length = configHashes.length;
+        if (length != counts.length || length != flags.length) revert Router__ZeroAddress();
+        // Two-pass: verify EVERY hash is un-registered before mutating any of
+        // them so a duplicate at index N doesn't leave 0..N-1 half-written.
+        // The inner loop also rejects SAME-BATCH duplicates — URU-A10 says a
+        // second registration reverts "even with identical values", and that
+        // guarantee has to hold even when both registrations land in the same
+        // batch call. O(N²) is fine — batches are ~10 canonical hashes.
+        for (uint256 i = 0; i < length; ++i) {
+            bytes32 h = configHashes[i];
+            for (uint256 j = 0; j < i; ++j) {
+                if (configHashes[j] == h) revert Router__ConfigMetadataAlreadySet(h);
+            }
+            if (moduleCountConfigured[h] || flagsConfigured[h]) {
+                revert Router__ConfigMetadataAlreadySet(h);
+            }
+        }
+        for (uint256 i = 0; i < length; ++i) {
+            bytes32 h = configHashes[i];
+            moduleCountForConfig[h] = counts[i];
+            moduleCountConfigured[h] = true;
+            flagsForConfig[h] = flags[i];
+            flagsConfigured[h] = true;
+            emit ModuleCountForConfigSet(h, counts[i]);
+            emit FlagsForConfigSet(h, flags[i]);
+            emit ConfigMetadataRegistered(h, counts[i], flags[i]);
         }
     }
 
@@ -469,9 +932,116 @@ contract Router is Ownable, ReentrancyGuard {
         emit Swept(to, amount);
     }
 
+    /// @notice Owner wires up URU-pay support. Both `uru_` and `uruSink_` must
+    ///         be non-zero. Callable multiple times if URU or sink ever needs
+    ///         to be rotated (they stay mutable for that reason). Until this
+    ///         is called at least once, every URU entrypoint reverts.
+    function setUruConfig(
+        address uru_,
+        address uruSink_
+    ) external onlyOwner {
+        if (uru_ == address(0) || uruSink_ == address(0)) revert Router__ZeroAddress();
+        // Sink must be a live contract. Blocks EOAs and unset addresses that
+        // would silently accept the transferFrom + leave URU stranded.
+        if (uruSink_.code.length == 0) revert Router__UruSinkNoCode(uruSink_);
+        // Sink's own `uru` immutable must match the token we're wiring. A
+        // mismatched pair pushes URU into a sink whose keeper flow was built
+        // for a different token, stranding every deposit until manual recovery.
+        address sinkUru = address(UruDepositSink(payable(uruSink_)).uru());
+        if (sinkUru != uru_) revert Router__UruSinkTokenMismatch(uru_, sinkUru);
+        uru = IERC20Like(uru_);
+        uruSink = UruDepositSink(payable(uruSink_));
+        emit UruConfigSet(uru_, uruSink_);
+    }
+
+    /// @notice Owner permanently bans (or un-bans) a configHash from all four
+    ///         launch entrypoints. Once true, `launch`, `launchWithURU`,
+    ///         `launchWithWhitelist`, and `launchWithURUAndWhitelist` all
+    ///         revert with `Router__ConfigHashBanned(hash)` for that hash.
+    ///
+    ///         Use this to retire a compromised or obsolete impl at a
+    ///         specific hash without redeploying Router. Prior to this
+    ///         mechanism the only options were pausing the whole Router or
+    ///         setting `moduleCountForConfig` to a value that overflows the
+    ///         fee-quote math — the latter only blocked the ETH path (URU
+    ///         and WL bypass `_quote`), which is the exact hole that
+    ///         motivated adding this mapping.
+    function setConfigHashBanned(
+        bytes32 configHash,
+        bool banned
+    ) external onlyOwner {
+        // URU-A10: retirement is monotonic. A ban that could be reversed by
+        // the owner is not a retirement — it's a censorship lever. If a
+        // hash needs to be un-banned, the correct path is a fresh Router
+        // deploy at the same audited source with `bannedConfigHash[h] = false`
+        // by construction.
+        if (!banned) revert Router__ConfigRetirementIrreversible(configHash);
+        if (!bannedConfigHash[configHash]) {
+            bannedConfigHash[configHash] = true;
+            emit ConfigHashBanned(configHash, true);
+            emit ConfigHashRetired(configHash);
+        }
+    }
+
+    /// @notice Owner sets the URU-side minimum fee (18 decimals). Applies to
+    ///         both launchWithURU and launchWithURUAndWhitelist. Zero disables
+    ///         the floor.
+    function setMinUruFee(
+        uint256 amount
+    ) external onlyOwner {
+        minUruFee = amount;
+        emit MinUruFeeSet(amount);
+    }
+
     // ============================================================
     // Internal
     // ============================================================
+
+    /// @dev URU-A01: canonical policy boundary for all four launch entrypoints.
+    /// Frontend restrictions are usability controls only — the Router is the
+    /// authority. Any check that must apply to every launch path lives HERE so
+    /// a future entrypoint cannot accidentally skip it.
+    ///
+    /// Checks (in order — cheapest first, most-severe first within tier):
+    ///   1. `bannedConfigHash` (URU-A10 retirement gate)
+    ///   2. `moduleCountConfigured` + `flagsConfigured` (URU-A10 fail-closed on
+    ///      any hash whose Router metadata hasn't been registered)
+    ///   3. If `installBondingCurve`:
+    ///      3a. base MUST be ERC20 (curve mechanic is ERC-20 only)
+    ///      3b. ownership MUST be Renounce (URU-A01 — curve is meant to be
+    ///          ownerless; renouncing at Router dispatch is what protects
+    ///          post-launch holders from launcher control)
+    ///      3c. flags MUST NOT include FLAG_REQUIRES_OWNER (URU-A01 — modules
+    ///          exposing post-launch owner power are structurally incompatible
+    ///          with the renounce requirement)
+    ///      3d. flags MUST NOT include FLAG_BALANCE_MUTATING and hash MUST NOT
+    ///          be on the manual curve-incompatible denylist
+    ///      3e. antiSniperBlocks ≤ MAX_ANTI_SNIPER_BLOCKS
+    ///      3f. buybackBurnBps ≤ MAX_BUYBACK_BURN_BPS
+    function _validateLaunchPolicy(
+        LaunchParams calldata params
+    ) internal view {
+        if (bannedConfigHash[params.configHash]) revert Router__ConfigHashBanned(params.configHash);
+        if (!moduleCountConfigured[params.configHash] || !flagsConfigured[params.configHash]) {
+            revert Router__ConfigMetadataIncomplete(params.configHash);
+        }
+        if (!params.installBondingCurve) return;
+        if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+        if (params.ownership != OwnershipMode.Renounce) revert Router__CurveMustRenounce();
+        uint256 flags = flagsForConfig[params.configHash];
+        if ((flags & FLAG_REQUIRES_OWNER) != 0) {
+            revert Router__CurveRequiresOwner(params.configHash);
+        }
+        if (_isCurveIncompatible(params.configHash)) {
+            revert Router__CurveIncompatibleModule(params.configHash);
+        }
+        if (params.antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS) {
+            revert Router__AntiSniperBlocksTooHigh(params.antiSniperBlocks, MAX_ANTI_SNIPER_BLOCKS);
+        }
+        if (params.buybackBurnBps > MAX_BUYBACK_BURN_BPS) {
+            revert Router__BuybackBurnTooHigh(params.buybackBurnBps, MAX_BUYBACK_BURN_BPS);
+        }
+    }
 
     /// Consolidates the curve-incompatibility check. A config is incompatible
     /// with a bonding curve if EITHER:
@@ -531,12 +1101,21 @@ contract Router is Ownable, ReentrancyGuard {
 
     /// Reads the loyalty oracle and clamps the returned bps to Router's local
     /// max. Returns 0 (no discount) when the oracle isn't wired.
+    ///
+    /// URU-A14: previously a reverting oracle (e.g. one that internally reads
+    /// a broken URU / GEMU token contract) would halt every launch platform-
+    /// wide. Fail-open on discount reads — a broken oracle costs the LAUNCHER
+    /// their discount (they pay gross) but never gives them a free launch.
     function _discountBpsFor(
         address launcher
     ) internal view returns (uint16 discountBps) {
         address oracle = loyaltyOracle;
         if (oracle == address(0) || launcher == address(0)) return 0;
-        discountBps = ILoyaltyOracleLike(oracle).discountBpsFor(launcher);
+        try ILoyaltyOracleLike(oracle).discountBpsFor(launcher) returns (uint16 bps) {
+            discountBps = bps;
+        } catch {
+            return 0;
+        }
         if (discountBps > MAX_LOYALTY_DISCOUNT_BPS) discountBps = MAX_LOYALTY_DISCOUNT_BPS;
     }
 
@@ -575,10 +1154,31 @@ contract Router is Ownable, ReentrancyGuard {
     ///   2. The Graduator — from-side of the transfer INTO the PoolManager during graduation.
     ///   3. The PoolManager — to-side of that transfer + from-side of any post-grad routing.
     ///
-    /// Every call is try/catch'd: tokens without the module revert with an unknown
-    /// selector, which we swallow (bare ERC20 → no-op). Router is still `owner()`
-    /// at this point (ownership dispatch fires after), so the setters succeed for
-    /// tokens that DO have the module. Called only when `installBondingCurve` is on.
+    /// Every grant is executed strictly (URU-A14 round 3 follow-up). For each
+    /// (token, who, module) triple:
+    ///   1. `staticcall` the module's read-back view. If it reverts with empty
+    ///      return data (unknown selector), the module isn't installed on this
+    ///      token — skip cleanly.
+    ///   2. If the view returns cleanly, the module IS installed. Call the
+    ///      setter — any revert bubbles up to the launch, so the launcher sees
+    ///      the failure at launch time (not at first buy).
+    ///   3. Read back the view. If it doesn't reflect `true`, revert
+    ///      `Router__CurveModuleGrantFailed`.
+    /// Prior versions wrapped every call in `try/catch {}` and dropped the
+    /// result on the floor. URU-A14 flagged this as unacceptable: a launched
+    /// curve whose AntiBot setter had been renamed / reverted silently would
+    /// brick on its very first buy with a bot-guard revert, with no signal
+    /// visible at launch. Route contract state remains coherent because the
+    /// entire launch is `nonReentrant` and any grant revert unwinds the whole
+    /// tx (no partial launch state persists).
+    ///
+    /// In production this helper is called ONLY when `installBondingCurve == true`,
+    /// and `_validateLaunchPolicy` blocks the AntiBot / AntiWhale configHashes
+    /// (both carry FLAG_REQUIRES_OWNER) from being paired with curves at all.
+    /// So the probe should ALWAYS return "module not installed" for a legitimate
+    /// curve launch — the strict grant paths are defense-in-depth against a
+    /// future manifest drift, a new module missing its FLAG_REQUIRES_OWNER
+    /// classification, or a hand-crafted config bypassing the frontend.
     ///
     /// Pausable is intentionally NOT auto-toggled: the module has no per-address
     /// exemption and unpausing would defeat the launcher's stated intent. Frontend
@@ -591,56 +1191,113 @@ contract Router is Ownable, ReentrancyGuard {
         // moves hundreds of millions of tokens through curve buys + the
         // graduation transferFrom. Neither is bot-like OR whale-like — the
         // launcher chose this mechanic, so curve activity is exempt by design.
-        _tryGrantBoth(token, curve);
-        // Both external reads are best-effort. Mock CurveFactory / mock Graduator in
-        // unit tests may not implement the getter — try/catch keeps launch working
-        // for tokens without any module (which is when a mocked-out setup is used).
-        address grad;
-        try ICurveFactoryLike(curveFactory).graduator() returns (address g) {
-            grad = g;
-        } catch {}
-        if (grad != address(0)) {
-            // Graduator: full bypass on both gates. Same rationale — during
-            // graduation the Graduator temporarily holds ~800M tokens on the
-            // path from curve → v4 pool.
-            _tryGrantBoth(token, grad);
-            address pm;
-            try IGraduatorLike(grad).poolManager() returns (address p) {
-                pm = p;
-            } catch {}
-            if (pm != address(0)) {
-                // PoolManager: AntiBot bypass ONLY. Graduation happens once,
-                // during the anti-bot window, and moves large amounts INTO the
-                // pool — needs AntiBot bypass to succeed. But every post-grad
-                // v4 swap ALSO transits tokens through PoolManager for the
-                // lifetime of the token; excluding PoolManager from AntiWhale
-                // would silently defeat maxTx/maxWallet on the v4 lane while
-                // still enforcing them for P2P transfers (v4 whales get a free
-                // dump lane; honest users can't send to a friend). AntiWhale
-                // callers accept that graduation itself must fit under maxTx
-                // (docs already tell launchers to size caps sensibly).
-                _tryGrantAntiBot(token, pm);
-            }
+        _ensureAntiBotAllowed(token, curve);
+        _ensureAntiWhaleExcluded(token, curve);
+        // curveFactory is guaranteed to be a live contract at this point:
+        // _validateLaunchPolicy runs earlier and reverts CurveFactoryUnset on
+        // zero and NotContract on EOA when a curve launch is attempted. Same
+        // for graduator — CurveFactory._requireGraduator enforces it at every
+        // curve creation. Direct calls, no try/catch: any revert now surfaces.
+        address grad = ICurveFactoryLike(curveFactory).graduator();
+        _ensureAntiBotAllowed(token, grad);
+        _ensureAntiWhaleExcluded(token, grad);
+        address pm = IGraduatorLike(grad).poolManager();
+        // PoolManager: AntiBot bypass ONLY. Graduation happens once, during
+        // the anti-bot window, and moves large amounts INTO the pool — needs
+        // AntiBot bypass to succeed. But every post-grad v4 swap ALSO transits
+        // tokens through PoolManager for the lifetime of the token; excluding
+        // PoolManager from AntiWhale would silently defeat maxTx/maxWallet on
+        // the v4 lane while still enforcing them for P2P transfers (v4 whales
+        // get a free dump lane; honest users can't send to a friend). AntiWhale
+        // callers accept that graduation itself must fit under maxTx (docs
+        // already tell launchers to size caps sensibly).
+        _ensureAntiBotAllowed(token, pm);
+    }
+
+    /// URU-A14 (round 3): probe → grant → verify for AntiBot. If the token
+    /// doesn't expose the AntiBot view (module not installed), no-op cleanly.
+    /// If the module IS installed, both the setter and the read-back must
+    /// succeed or we revert loud.
+    function _ensureAntiBotAllowed(
+        address token,
+        address who
+    ) internal {
+        (bool ok, bytes memory ret) =
+            token.staticcall(abi.encodeWithSelector(IModuleAllowanceViews.antiBotIsAllowed.selector, who));
+        // Empty-return revert = unknown selector = module not installed. A
+        // non-empty revert (custom-error data) MEANS the selector IS present
+        // and returned a failure — surface that by attempting the setter,
+        // which will revert with the same error.
+        if (!ok && ret.length == 0) return;
+        IModuleAllowanceSetters(token).setAntiBotAllowed(who, true);
+        if (!IModuleAllowanceViews(token).antiBotIsAllowed(who)) {
+            revert Router__CurveModuleGrantFailed(token, who, "AntiBot");
         }
     }
 
-    /// Both allowlists in one shot — used for curve + Graduator, addresses that
-    /// legitimately move large amounts throughout the token lifecycle.
-    function _tryGrantBoth(
+    /// URU-A14 (round 3): probe → grant → verify for AntiWhale. See
+    /// `_ensureAntiBotAllowed` for pattern rationale.
+    function _ensureAntiWhaleExcluded(
         address token,
         address who
     ) internal {
-        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
-        try IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true) {} catch {}
+        (bool ok, bytes memory ret) =
+            token.staticcall(abi.encodeWithSelector(IModuleAllowanceViews.antiWhaleIsExcluded.selector, who));
+        if (!ok && ret.length == 0) return;
+        IModuleAllowanceSetters(token).setAntiWhaleExcluded(who, true);
+        if (!IModuleAllowanceViews(token).antiWhaleIsExcluded(who)) {
+            revert Router__CurveModuleGrantFailed(token, who, "AntiWhale");
+        }
     }
 
-    /// AntiBot-only bypass — used for PoolManager so post-grad v4 swaps still
-    /// respect the launcher's whale caps. Graduation transfers must be sized
-    /// under maxTx by construction.
-    function _tryGrantAntiBot(
+    /// URU-side min-fee resolver with the launcher's loyalty discount applied.
+    /// Used by both the on-chain guard (in launchWithURU) and the external view
+    /// (`minUruFeeFor`) that the frontend calls to render quotes.
+    function _minUruFeeFor(
+        address launcher
+    ) internal view returns (uint256) {
+        uint256 floor = minUruFee;
+        if (floor == 0) return 0;
+        uint16 discountBps = _discountBpsFor(launcher);
+        return floor - (floor * discountBps) / 10_000;
+    }
+
+    /// Extracted so all four launch entrypoints emit the same 8-arg `Launched`
+    /// event without every outer function paying the stack cost of inlining.
+    /// The extraction was originally forced by `forge coverage --ir-minimum`'s
+    /// stack-too-deep threshold on the WL entrypoints; keeping it as one
+    /// helper simplifies indexer schemas too (one code path emits it).
+    function _emitLaunched(
         address token,
-        address who
+        address launcher,
+        BaseType base,
+        bytes32 nameHash,
+        bytes32 tickerHash,
+        uint256 feePaid,
+        LaunchParams calldata params
     ) internal {
-        try IModuleAllowanceSetters(token).setAntiBotAllowed(who, true) {} catch {}
+        emit Launched(
+            token, launcher, base, nameHash, tickerHash, feePaid, params.installHook, params.installGovernance
+        );
+    }
+
+    /// Extracted from both WL entrypoints for the same stack-too-deep reason
+    /// as `_emitLaunched`. Struct read from calldata; no runtime cost beyond
+    /// the extra JUMP.
+    function _emitLaunchedWithWhitelist(
+        address token,
+        address launcher,
+        BondingCurve.WhitelistInit calldata wl
+    ) internal {
+        emit LaunchedWithWhitelist(
+            token,
+            launcher,
+            wl.root,
+            wl.reservedTokens,
+            wl.maxWlPerAddress,
+            wl.fallbackTs,
+            wl.sourceTokenAddress,
+            wl.sourceChainId
+        );
     }
 }

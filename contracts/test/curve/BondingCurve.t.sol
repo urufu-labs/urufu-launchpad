@@ -24,10 +24,31 @@ contract MockToken is ERC20 {
     }
 }
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`, so the
+/// tests need a real deployed contract as the wired graduator. Stub is a
+/// no-op — none of the tests in this file cross the graduation target.
+contract MockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+
+    /// URU-A14 (round 3): Router reads `graduator.poolManager()` on curve
+    /// launches. Return address(this) as a benign placeholder.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
+}
+
 contract BondingCurveTest is Test {
     BondingCurve internal impl;
     BondingCurve internal curve;
     MockToken internal token;
+    MockGraduator internal mockGrad;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -45,6 +66,9 @@ contract BondingCurveTest is Test {
         token = new MockToken();
         token.mint(address(curve), CURVE_SUPPLY);
 
+        // URU-A05: graduator must be a live contract on init.
+        mockGrad = new MockGraduator();
+
         curve.initialize(
             address(token),
             feeReceiver,
@@ -53,7 +77,7 @@ contract BondingCurveTest is Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             FEE_BPS,
-            address(0),
+            address(mockGrad),
             0,
             0,
             address(0)
@@ -166,7 +190,14 @@ contract BondingCurveTest is Test {
         vm.prank(alice);
         curve.buy{value: 3 ether}(0);
         assertTrue(curve.graduated());
-        assertGe(curve.ethReserve(), GRAD_TARGET);
+        // URU-A05: graduation atomically transfers reserves to the graduator
+        // (previously graduator=0 was allowed and _graduate silently no-op'd,
+        // leaving the reserves stranded on the curve). Assert that (a) the
+        // curve's reserves are now zero, and (b) the mock graduator received
+        // AT LEAST the target ETH so we know the transfer path executed.
+        assertEq(curve.ethReserve(), 0, "eth reserve must be zeroed on graduation");
+        assertEq(curve.tokenReserve(), 0, "token reserve must be zeroed on graduation");
+        assertGe(address(mockGrad).balance, GRAD_TARGET, "graduator did not receive target ETH");
     }
 
     function test_Graduation_BlocksFurtherBuys() public {

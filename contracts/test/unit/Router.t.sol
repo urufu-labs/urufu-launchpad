@@ -135,12 +135,15 @@ contract RouterTest is Test {
     }
 
     function test_Quote_ThreeModules() public {
-        // Audit fix #3: Router now derives moduleCount from moduleCountForConfig
-        // mapping, not from caller-supplied params.moduleCount. Owner must
-        // register the count that corresponds to the config hash first.
+        // Audit fix #3: Router derives moduleCount from moduleCountForConfig,
+        // not from caller-supplied params.moduleCount. Post-audit, setters are
+        // ONE-SHOT — the default configHash in setUp is already registered as
+        // "1", so we use a fresh hash here to register 3 and quote against it.
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "N", "T");
+        bytes32 freshHash = keccak256(abi.encode("QUOTE_THREE_MODULES"));
+        p.configHash = freshHash;
         vm.prank(owner);
-        router.setModuleCountForConfig(p.configHash, 3);
+        router.setModuleCountForConfig(freshHash, 3);
         p.moduleCount = 3;
         assertEq(router.quote(p), ERC20_FEE + 2 * MODULE_ADD_ON);
     }
@@ -254,9 +257,15 @@ contract RouterTest is Test {
     function test_Launch_ForwardsCorrectFeeToReceiver_WithMultipleAddOns() public {
         LaunchParams memory p = _defaultParams(BaseType.ERC20, "Loaded", "LOAD");
         // Audit fix #3: register moduleCount for the config hash — Router
-        // now sources it from moduleCountForConfig, not params.moduleCount.
-        vm.prank(owner);
-        router.setModuleCountForConfig(p.configHash, 5);
+        // sources it from moduleCountForConfig, not params.moduleCount.
+        // Setters are one-shot (ConfigMetadataAlreadySet); use a fresh hash
+        // since the default in setUp is already registered as 1.
+        bytes32 freshHash = keccak256(abi.encode("LAUNCH_MULTI_ADDON"));
+        p.configHash = freshHash;
+        vm.startPrank(owner);
+        router.setModuleCountForConfig(freshHash, 5);
+        router.setFlagsForConfig(freshHash, 0);
+        vm.stopPrank();
         p.moduleCount = 5; // 4 extra
         p.installHook = true;
         p.installGovernance = true;
@@ -289,11 +298,11 @@ contract RouterTest is Test {
     }
 
     function test_Launch_RevertsOnFactoryUnset() public {
-        // Wipe the ERC20 factory.
-        vm.prank(owner);
-        router.setFactory(BaseType.ERC20, address(0x1)); // set something...
-        // Actually setFactory rejects zero; simulate unset by using a base type we never set.
-        // Use a fresh router without any factory.
+        // URU-A08: setFactory now requires a live contract (rejects EOAs and
+        // address(0x1)). The old test tried to "wipe" the factory by setting
+        // it to 0x1, which was itself a security hole (unset-factory pointer
+        // silently accepted). Use a fresh router that never had a factory
+        // set to reach the FactoryUnset revert.
         Router freshRouter = new Router(
             owner,
             registry,
@@ -394,12 +403,15 @@ contract RouterTest is Test {
     }
 
     function test_SetFactory_EmitsAndUpdates() public {
-        address newFactory = makeAddr("newFactory");
+        // URU-A08: setFactory rejects non-contracts. Use a fresh deployed
+        // MockFactory (real contract with router wire) rather than an EOA.
+        MockFactory newFactory = new MockFactory();
+        newFactory.setRouter(address(router));
         vm.expectEmit(true, true, false, true, address(router));
-        emit Router.FactorySet(BaseType.ERC20, newFactory);
+        emit Router.FactorySet(BaseType.ERC20, address(newFactory));
         vm.prank(owner);
-        router.setFactory(BaseType.ERC20, newFactory);
-        assertEq(router.factories(BaseType.ERC20), newFactory);
+        router.setFactory(BaseType.ERC20, address(newFactory));
+        assertEq(router.factories(BaseType.ERC20), address(newFactory));
     }
 
     function test_SetFee_UpdatesQuote() public {

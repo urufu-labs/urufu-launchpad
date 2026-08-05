@@ -35,7 +35,7 @@ interface IRouterAdmin {
 ///
 ///         Wiring the new stack (one broadcast, atomic):
 ///           1. deploy V9 CurveFactory (with airdrop cap in _createCurve)
-///           2. mine + deploy new MHH (hook flags 0x22C4)
+///           2. mine + deploy new MHH (hook flags 0x20C4 post-round-2 finding 5)
 ///           3. deploy V9 Graduator wired to V9 MHH + V9 CF
 ///           4. V9 MHH.setInitializer(V9 Graduator)         [one-shot lock]
 ///           5. V9 CF.setGraduator(V9 Graduator)            [creation-time wiring]
@@ -183,8 +183,11 @@ contract DeployV9StackFix is Script {
         address feeSplitter,
         address operator
     ) internal returns (address) {
-        uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
-            | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        // Audit-round-2 FINDING 5: dropped BEFORE_REMOVE_LIQUIDITY_FLAG. Graduation
+        // LP is locked structurally by GraduatorV2; gating removal on the hook was
+        // freezing every third-party LP forever.
+        uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+            | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args =
             abi.encode(IPoolManager(poolManager), feeSplitter, operator, uint16(100), uint16(100), operator);

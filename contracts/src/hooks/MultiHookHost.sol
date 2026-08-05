@@ -8,18 +8,25 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
 
 /// @title  MultiHookHost
-/// @notice One deployable hook that hosts every launchpad-side v4 hook feature: LP lock,
+/// @notice One deployable hook that hosts every launchpad-side v4 hook feature:
 ///         fee-redirect to platform + creator, optional anti-sniper gate, optional
 ///         buyback-burn on buys. v4 encodes permissions in the hook ADDRESS and only one
 ///         hook can attach per pool, so combining behaviours into one contract at one
 ///         address is required to ship all of them together.
 ///
+///         FINDING 5 (audit round 2): the hook USED to also gate `beforeRemoveLiquidity`
+///         to lock the graduation LP. That inadvertently locked EVERY LP on the pool,
+///         including third-party positions added post-graduation via the Uniswap UI. The
+///         graduation LP is now locked structurally by the Graduator itself (it opens
+///         the position via `poolManager.modifyLiquidity` with itself as the position
+///         owner, and `GraduatorV2.sol` has no code path that ever calls modifyLiquidity
+///         with a negative liquidityDelta) so third-party LPs can add + remove freely.
+///
 /// @dev    Deploy at an address whose low bits match the mask below (HookMiner):
 ///           BEFORE_INITIALIZE_FLAG           (1 << 13)
-///         | BEFORE_REMOVE_LIQUIDITY_FLAG     (1 << 9)
 ///         | BEFORE_SWAP_FLAG                 (1 << 7)
 ///         | AFTER_SWAP_FLAG                  (1 << 6)
 ///         | AFTER_SWAP_RETURNS_DELTA_FLAG    (1 << 2)
@@ -40,10 +47,6 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol
 ///         the `creator` fallback keeps the creator share from getting stuck.
 contract MultiHookHost is BaseHook {
     using PoolIdLibrary for PoolKey;
-
-    // ---- LPLocked ----
-    error MultiHookHost__LiquidityLocked();
-    event MultiHookHostRemoveAttempt(address indexed sender, PoolKey key);
 
     // ---- FeeRedirect ----
     error MultiHookHost__BpsTooHigh(uint256 total);
@@ -69,6 +72,19 @@ contract MultiHookHost is BaseHook {
     error MultiHookHost__NotDeployer();
     error MultiHookHost__InitializerAlreadySet();
     error MultiHookHost__InitializerNotSet();
+    /// URU-A12: `setPoolConfig` and `setCreator` are now restricted to the
+    /// authorized Graduator. Previously permissionless, letting anyone plant
+    /// a per-pool config that would freeze at initialize.
+    error MultiHookHost__NotInitializer(address caller);
+    /// URU-A12: launcher-supplied antiSniperBlocks exceeds the hook's cap. A
+    /// direct MHH call could otherwise lock a pool's swaps for years.
+    error MultiHookHost__AntiSniperTooLong(uint32 provided, uint32 maximum);
+    /// URU-P1-M04: buyback-burn is token-denominated. On an exact-output BUY
+    /// the unspecified side is ETH input, so applying `buybackBurnBps` there
+    /// would silently destroy ETH while claiming token supply was burned.
+    /// Reject the mode rather than misreport it — callers can either issue an
+    /// exact-input buy (spirit-preserving) or disable buybackBurnBps for the pool.
+    error MultiHookHost__ExactOutputBuyUnsupportedWithBurn();
 
     event PoolConfigSet(PoolId indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps);
     event CreatorSet(PoolId indexed poolId, address indexed creator);
@@ -77,6 +93,9 @@ contract MultiHookHost is BaseHook {
 
     /// Chain-wide caps.
     uint16 public constant MAX_TOTAL_BPS = 3000; // fee-redirect total (platform + creator)
+    /// URU-A12: per-pool max anti-sniper window. Mirrors Router.MAX_ANTI_SNIPER_BLOCKS
+    /// so a launcher who bypasses Router cannot land a longer freeze here.
+    uint32 public constant MAX_ANTI_SNIPER_BLOCKS = 7200;
     uint16 public constant MAX_BUYBACK_BPS = 2000; // per-swap buyback burn slice
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
@@ -163,7 +182,7 @@ contract MultiHookHost is BaseHook {
             afterInitialize: false,
             beforeAddLiquidity: false,
             afterAddLiquidity: false,
-            beforeRemoveLiquidity: true,
+            beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
             beforeSwap: true,
             afterSwap: true,
@@ -178,32 +197,34 @@ contract MultiHookHost is BaseHook {
 
     // ---------------------------------------------------------------- per-pool config
 
-    /// Set per-pool AntiSniper + BuybackBurn config. Must be called BEFORE
-    /// `poolManager.initialize(key, ...)` for this poolId — after that,
-    /// `beforeInitialize` stamps `launchBlock` and config becomes immutable.
-    ///
-    /// Callable by anyone. Front-run risk is nil in practice because the Graduator does
-    /// setPoolConfig + initialize atomically inside a single `poolManager.unlock` tx.
+    /// Set per-pool AntiSniper + BuybackBurn config. URU-A12: restricted to the
+    /// wired Graduator so an outsider can no longer plant a config that then
+    /// freezes at `beforeInitialize`. `initializer` is the one-shot setter's
+    /// target (typically the Graduator) — if it's ever 0, this reverts.
     function setPoolConfig(
         PoolId id,
         uint32 antiSniperBlocks,
         uint16 buybackBurnBps
     ) external {
+        if (msg.sender != initializer) revert MultiHookHost__NotInitializer(msg.sender);
         if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
+        if (antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS) {
+            revert MultiHookHost__AntiSniperTooLong(antiSniperBlocks, MAX_ANTI_SNIPER_BLOCKS);
+        }
         if (buybackBurnBps > MAX_BUYBACK_BPS) revert MultiHookHost__BurnBpsTooHigh(buybackBurnBps);
         poolConfig[id].antiSniperBlocks = antiSniperBlocks;
         poolConfig[id].buybackBurnBps = buybackBurnBps;
         emit PoolConfigSet(id, antiSniperBlocks, buybackBurnBps);
     }
 
-    /// Assign a creator to a pool BEFORE it initializes. After `beforeInitialize` fires
-    /// for this poolId, `launchBlock` is stamped and the creator is frozen — subsequent
-    /// calls revert with `ConfigFrozen`. Same anti-front-run rationale as setPoolConfig:
-    /// Graduator does this in the same tx as initialize.
+    /// Assign a creator to a pool BEFORE it initializes. URU-A12: same
+    /// initializer-only gate as `setPoolConfig` so attacker cannot plant a
+    /// hostile creator address that then freezes at initialize.
     function setCreator(
         PoolId id,
         address _creator
     ) external {
+        if (msg.sender != initializer) revert MultiHookHost__NotInitializer(msg.sender);
         if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
         if (_creator == address(0)) revert MultiHookHost__ZeroAddress();
         creators[id] = _creator;
@@ -233,25 +254,21 @@ contract MultiHookHost is BaseHook {
         return this.beforeInitialize.selector;
     }
 
-    // ---------------------------------------------------------------- LP lock
-    function beforeRemoveLiquidity(
-        address sender,
-        PoolKey calldata key,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    ) external override onlyPoolManager returns (bytes4) {
-        emit MultiHookHostRemoveAttempt(sender, key);
-        revert MultiHookHost__LiquidityLocked();
-    }
-
     // ---------------------------------------------------------------- anti-sniper gate
     function beforeSwap(
         address,
         PoolKey calldata key,
-        SwapParams calldata,
+        SwapParams calldata params,
         bytes calldata
     ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         PoolConfig storage cfg = poolConfig[key.toId()];
+        // URU-P1-M04: reject exact-output BUYs (zeroForOne = true, ETH -> token,
+        // `amountSpecified > 0` means "I want exactly N tokens out") whenever
+        // buyback-burn is enabled. See error doc for the misreporting rationale.
+        // Exact-input BUYs (amountSpecified < 0) and every SELL still fall through.
+        if (cfg.buybackBurnBps > 0 && params.zeroForOne && params.amountSpecified > 0) {
+            revert MultiHookHost__ExactOutputBuyUnsupportedWithBurn();
+        }
         if (cfg.antiSniperBlocks > 0) {
             // launchBlock is stamped in beforeInitialize; if for some reason a swap
             // fires before initialize (impossible via v4), launchBlock == 0 and the
@@ -310,18 +327,16 @@ contract MultiHookHost is BaseHook {
         uint256 totalBps = uint256(platformBps) + uint256(creatorBps);
         uint256 fee = (absDelta * totalBps) / 10_000;
 
-        // Buyback-burn only fires when the launched TOKEN was the swap output -
-        // i.e. exact-input BUYs (unspecDelta > 0 AND unspec == currency1). We
-        // intentionally skip exact-output BUYs (where unspec = ETH input) since the
-        // burn's semantics ("destroy a slice of tokens on acquisition") only make
-        // sense when tokens are the received asset, not the paid asset.
+        // URU-P1-M04: buyback-burn is token-denominated and therefore only valid
+        // when the unspecified currency is the launched token — i.e. an
+        // exact-input BUY (amountSpecified < 0). Exact-output BUYs are rejected
+        // in `beforeSwap` above, so the `< 0` check here is defence-in-depth:
+        // any exact-output BUY that somehow reaches afterSwap gets zero burn
+        // (as opposed to silently destroying ETH input while emitting a token-burn event).
         uint256 burn = 0;
         PoolId id = key.toId();
         PoolConfig storage cfg = poolConfig[id];
-        if (
-            cfg.buybackBurnBps > 0 && unspecDelta > 0
-                && Currency.unwrap(unspecCurrency) == Currency.unwrap(key.currency1)
-        ) {
+        if (cfg.buybackBurnBps > 0 && params.zeroForOne && params.amountSpecified < 0) {
             burn = (absDelta * uint256(cfg.buybackBurnBps)) / 10_000;
         }
 

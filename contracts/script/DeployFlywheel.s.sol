@@ -15,7 +15,7 @@ import {Router} from "src/router/Router.sol";
 ///         UruBuybackVault) and wires them into a live Phase 1 deployment.
 ///
 ///         Prereqs:
-///           1. `DeployPhase1` broadcast (address book at `deployment.<chainid>.json`)
+///           1. `Router deploy` broadcast (address book at `deployment.<chainid>.json`)
 ///           2. `URU_TOKEN_ADDRESS` + `GEMU_NFT_ADDRESS` env vars set — see
 ///              `docs/references/ecosystem-contracts.md`
 ///
@@ -59,15 +59,18 @@ contract DeployFlywheel is Script {
 
         FeeSplitter splitter = new FeeSplitter(admin, treasury, configDelay);
         LoyaltyOracle oracle_ = new LoyaltyOracle(admin, uruToken, gemuNft, uruThreshold);
-        NftRevenueVault nftVault_ = new NftRevenueVault(admin);
+        // URU-A11: 2-day publish timelock. `configDelay` mirrors the value
+        // FeeSplitter + URU vaults use so admin governance is unified.
+        NftRevenueVault nftVault_ = new NftRevenueVault(admin, configDelay);
         UruBuybackVault buybackVault_ = new UruBuybackVault(admin, uruToken, address(nftVault_), 2 days);
 
         // NFT secondary-royalty split scaffolding. Wired to FeeSplitter so 2981 flows land
         // in the same 40/35/25 loop as launch + curve + swap fees. Not registered in any
         // launch flow yet — activated when NFT bases turn on in the UI.
         RoyaltyRouterImpl royaltyImpl = new RoyaltyRouterImpl();
-        RoyaltyRouterFactory royaltyFactory =
-            new RoyaltyRouterFactory(admin, address(royaltyImpl), address(splitter), royaltyPlatformBps);
+        RoyaltyRouterFactory royaltyFactory = new RoyaltyRouterFactory(
+            admin, address(royaltyImpl), keccak256(address(royaltyImpl).code), address(splitter), royaltyPlatformBps
+        );
 
         Router(payable(router)).setLoyaltyOracle(address(oracle_));
 

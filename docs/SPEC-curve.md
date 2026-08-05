@@ -2,7 +2,8 @@
 
 > pump.fun-style x·y=k bonding curve with virtual reserves. One curve per token, deployed via
 > factory-clone. Auto-graduates to a Uniswap v4 pool via `Graduator` when it hits its ETH
-> target. LP locked forever by `LPLockedHook`.
+> target. Graduation LP position locked structurally by the Graduator (owns the position,
+> no code path to remove).
 
 **Status:** IMPLEMENTED.
 **Files:** `contracts/src/curve/BondingCurve.sol`, `CurveFactory.sol`, `Graduator.sol`
@@ -12,7 +13,7 @@
 
 ## Purpose
 
-Every bonding-curve launch flows: `Router.launch{installBondingCurve: true}` → factory deploys the token → Router forwards initial supply to the CurveFactory → CurveFactory clones a BondingCurve and pulls the supply → trading begins. When the curve's ETH reserve hits `graduationTargetEth`, `_graduate()` fires: reserves are pushed into a fresh v4 pool via `Graduator`, LP is minted full-range, `LPLockedHook` locks it forever.
+Every bonding-curve launch flows: `Router.launch{installBondingCurve: true}` → factory deploys the token → Router forwards initial supply to the CurveFactory → CurveFactory clones a BondingCurve and pulls the supply → trading begins. When the curve's ETH reserve hits `graduationTargetEth`, `_graduate()` fires: reserves are pushed into a fresh v4 pool via `Graduator`, LP is minted full-range with the Graduator itself as position owner. The Graduator has no code path to remove or transfer that position, so it is locked structurally — third-party LPs on the same pool can add + remove theirs freely (post-F5).
 
 ## Contract 1 — `BondingCurve.sol`
 
@@ -165,7 +166,7 @@ Only callable by `poolManager`. Reverts otherwise (`Graduator__NotPoolManager`).
 
 Using the exact delta from `modifyLiquidity` — not the intended amounts — protects against rounding drift between `LiquidityAmounts.getLiquidityForAmounts` and v4's internal amount-for-liquidity math.
 
-**LP position ownership:** Graduator owns the position (msg.sender to `modifyLiquidity`). But `LPLockedHook.beforeRemoveLiquidity` reverts every attempt, so even Graduator can't unlock. Verified end-to-end in `GraduationForkTest`.
+**LP position ownership:** Graduator owns the position (msg.sender to `modifyLiquidity`). `GraduatorV2` has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer function — so the Graduator itself cannot remove the position either. Structural lock verified end-to-end in `test/audit/DeployPathRhFork.t.sol::test_FreshDeploy_ThirdPartyLpCanAddAndRemove_GraduationLpUntouched` (third-party LP adds + removes; graduation position untouched).
 
 ## Wiring in `Router`
 
@@ -186,6 +187,6 @@ Reverts:
 - **Reentrancy** — `BondingCurve.buy/sell` use `nonReentrant` (Solady). `Graduator` unlocks are guarded by `msg.sender == poolManager`.
 - **Sandwich attacks pre-graduation** — Buyer can be front-run. Mitigation: `minTokensOut` slippage param on every `buy`. UI defaults to 2% tolerance.
 - **Graduation griefing** — Can a whale drain curve to exactly zero token then abort? No — `_graduate()` runs inside the `buy` that triggered it, atomic. Either both succeed or both revert.
-- **LP theft after graduation** — Impossible. Position ownership is Graduator's, and `LPLockedHook.beforeRemoveLiquidity` reverts every attempt including from Graduator itself.
+- **LP theft after graduation** — Impossible. Position ownership is Graduator's, and `GraduatorV2` has no code path that ever calls `modifyLiquidity` with a negative `liquidityDelta`, no burn function, no transfer function. Third-party LPs on the same pool can add + remove their own positions freely (post-F5), but the Graduator-owned graduation position cannot be moved by anyone.
 - **USDT-family tokens on the curve** — `SafeTransferLib` used everywhere. USDT's non-standard `transfer` return value handled.
 - **Fee-on-transfer tokens as the launched asset** — `BondingCurve` assumes exact-amount transfers. `FeeOnTransfer` module is declared incompatible with `Staking`; also incompatible with the curve flow because the curve receives fewer tokens than approved. Not currently enforced in `LaunchParams` validation — TODO.

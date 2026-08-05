@@ -24,10 +24,31 @@ contract MockToken is ERC20 {
     }
 }
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`, so tests
+/// need a real deployed contract (not an EOA) as the wired graduator. This is
+/// a no-op stub; the curve tests never exercise graduation.
+contract MockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+
+    /// URU-A14 (round 3): Router reads `graduator.poolManager()` on curve
+    /// launches. Return address(this) as a benign placeholder.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
+}
+
 contract CurveFactoryTest is Test {
     BondingCurve internal impl;
     CurveFactory internal factory;
     MockToken internal token;
+    MockGraduator internal mockGrad;
 
     address internal owner = makeAddr("owner");
     address internal feeReceiver = makeAddr("feeReceiver");
@@ -36,6 +57,12 @@ contract CurveFactoryTest is Test {
     function setUp() public {
         impl = new BondingCurve();
         factory = new CurveFactory(owner, feeReceiver, address(impl));
+        // URU-A05: every curve creation now requires a live-contract graduator
+        // wired on the factory. Tests use a no-op stub; production wires the
+        // real GraduatorV2.
+        mockGrad = new MockGraduator();
+        vm.prank(owner);
+        factory.setGraduator(address(mockGrad));
         token = new MockToken();
         token.mint(launcher, factory.defaultCurveSupply());
     }
@@ -101,12 +128,15 @@ contract CurveFactoryTest is Test {
     }
 
     function test_SetDefaults_OnlyOwner() public {
+        // Values must satisfy CurveFactory._validateCurveDefaults so the test
+        // exercises the OWNER gate, not the math gate. maxReachable here is
+        // 800M * 10 / 800M = 10 ETH, target 4 ETH < 10 ETH — reachable.
         vm.expectRevert();
-        factory.setDefaults(1e18, 1e18, 1e18, 1e18, 100);
+        factory.setDefaults(800_000_000e18, 800_000_000e18, 10 ether, 4 ether, 100);
 
         vm.prank(owner);
-        factory.setDefaults(500_000_000e18, 100_000_000e18, 0.5 ether, 10 ether, 50);
-        assertEq(factory.defaultCurveSupply(), 500_000_000e18);
+        factory.setDefaults(800_000_000e18, 800_000_000e18, 10 ether, 4 ether, 50);
+        assertEq(factory.defaultCurveSupply(), 800_000_000e18);
         assertEq(factory.defaultTradeFeeBps(), 50);
     }
 

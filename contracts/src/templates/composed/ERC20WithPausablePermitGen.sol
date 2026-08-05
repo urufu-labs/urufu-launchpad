@@ -164,7 +164,12 @@ contract ERC20WithPausablePermitGen is ERC20, Ownable {
         // ============================================================
         // VM_INJECT_BEFORE_TRANSFER
         // --- from Pausable.frag.sol ---
-        if (_pausablePaused && from != address(0) && to != address(0) && from != owner()) {
+        // URU-A02: PATCH-COVERAGE.md item #2 required regenerating every
+        // composed template from the patched fragment. Owner exemption
+        // (`from != owner()`) removed here so this composed impl matches
+        // Pausable V2's honest freeze semantics. If this line ever comes
+        // back, ERC20WithPausableGen.t.sol + tests must catch it.
+        if (_pausablePaused && from != address(0) && to != address(0)) {
             revert Pausable__Paused();
         }
         // ============================================================

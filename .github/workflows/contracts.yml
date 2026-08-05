@@ -46,3 +46,16 @@ jobs:
         # https://github.com/foundry-rs/foundry/issues/3357
         continue-on-error: true
         run: forge coverage --report summary --ir-minimum
+      # URU-A14 additional: security.sh runs Slither over src/ + script/ and
+      # fails hard on analyzer error (the `|| true` swallow was removed).
+      # Slither is python-installed here since the foundry-toolchain image
+      # doesn't carry it. Blocks merge on any HIGH/MEDIUM regression.
+      - name: Install Slither
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install slither-analyzer
+      - name: Slither (src + script)
+        # Belt-and-braces: invoke via `bash` so a stripped exec bit (Windows
+        # git checkouts drop +x by default) doesn't 126-error the whole job.
+        # The tracked mode is now 100755 too via `git update-index --chmod=+x`.
+        run: bash security.sh

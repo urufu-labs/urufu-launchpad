@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {console2} from "forge-std/Test.sol";
 
 import {LocalV4Stack, StackToken} from "test/helpers/LocalV4Stack.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {ERC20Factory} from "src/factories/ERC20Factory.sol";
@@ -30,7 +29,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 contract RouterV2EntrypointsTest is LocalV4Stack {
     using StateLibrary for IPoolManager;
 
-    RouterV2 internal routerV2;
+    Router internal routerV2;
     NameRegistry internal registryV2;
     ERC20Factory internal factoryV2;
     StackToken internal uru;
@@ -49,10 +48,10 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         uru = new StackToken("URU", "URU");
         uruSink = new UruDepositSink(admin, address(uru), address(feeReceiver), 2 days);
 
-        // RouterV2 needs its own NameRegistry — `setRouter` is one-shot and the
+        // Router needs its own NameRegistry — `setRouter` is one-shot and the
         // base stack already bound its registry to the V1 Router.
         registryV2 = new NameRegistry(admin, admin, new string[](0));
-        routerV2 = new RouterV2(
+        routerV2 = new Router(
             admin,
             registryV2,
             IFeeReceiver(address(feeReceiver)),
@@ -61,10 +60,10 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
             0.05 ether,
             0.01 ether,
             0.01 ether,
-            0.01 ether,
-            address(uru),
-            uruSink
+            0.01 ether
         );
+        vm.prank(admin);
+        routerV2.setUruConfig(address(uru), address(uruSink));
 
         vm.prank(admin);
         registryV2.setRouter(address(routerV2));
@@ -73,6 +72,8 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         factoryV2 = new ERC20Factory(admin, address(routerV2), admin);
 
         vm.startPrank(admin);
+        // URU-A08 (round 3): pin the audited codehash before registerImpl.
+        factoryV2.setExpectedCodeHash(CH_BARE, keccak256(address(implV2).code));
         factoryV2.registerImpl(CH_BARE, address(implV2));
         routerV2.setFactory(BaseType.ERC20, address(factoryV2));
         routerV2.setModuleCountForConfig(CH_BARE, 1);
@@ -138,7 +139,7 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
     // =====================================================================
 
     function test_LaunchWithURU_GraduatesAndSeedsPool() public {
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         vm.prank(launcher);
         uru.approve(address(routerV2), type(uint256).max);
 
@@ -158,17 +159,20 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
 
         _graduate(curve);
         _assertPoolLive(token);
-        assertEq(address(graduator).balance, 0, "graduator stranded ETH");
+        // FINDING 6 round 2: residual dust is credited to the launcher via
+        // the pull-based refund ledger. Invariant is that no un-credited
+        // ETH remains on the graduator.
+        assertEq(address(graduator).balance, graduator.totalClaimable(), "graduator holds un-credited ETH");
     }
 
     function test_LaunchWithURU_RevertsBelowMinFee() public {
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         vm.prank(launcher);
         uru.approve(address(routerV2), type(uint256).max);
 
         LaunchParams memory p = _params("Cheap", "CHP");
         vm.prank(launcher);
-        vm.expectRevert(abi.encodeWithSelector(RouterV2.RouterV2__InsufficientUru.selector, MIN_URU_FEE, 1e18));
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__InsufficientUru.selector, MIN_URU_FEE, 1e18));
         routerV2.launchWithURU(p, 1e18);
     }
 
@@ -201,9 +205,7 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
 
         // Public buys are locked out during the exclusive window.
         vm.prank(buyer);
-        vm.expectRevert(
-            abi.encodeWithSelector(BondingCurve.BondingCurve__WlWindowActive.selector, curve.fallbackTs())
-        );
+        vm.expectRevert(abi.encodeWithSelector(BondingCurve.BondingCurve__WlWindowActive.selector, curve.fallbackTs()));
         curve.buy{value: 1 ether}(0);
 
         // A whitelisted wallet can buy, and the tokens are HELD on the curve
@@ -241,7 +243,7 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
 
     function test_LaunchWithURUAndWhitelist_GraduatesAndSeedsPool() public {
         (bytes32 root,) = _wlTree();
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         vm.prank(launcher);
         uru.approve(address(routerV2), type(uint256).max);
 
@@ -266,7 +268,10 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         vm.warp(curve.fallbackTs() + 1);
         _graduate(curve);
         _assertPoolLive(token);
-        assertEq(address(graduator).balance, 0, "graduator stranded ETH");
+        // FINDING 6 round 2: residual dust is credited to the launcher via
+        // the pull-based refund ledger. Invariant is that no un-credited
+        // ETH remains on the graduator.
+        assertEq(address(graduator).balance, graduator.totalClaimable(), "graduator holds un-credited ETH");
     }
 
     /// WL variants are meaningless without a curve and must reject that combo
@@ -288,7 +293,7 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
 
         uint256 fee = routerV2.quote(p);
         vm.prank(launcher);
-        vm.expectRevert(RouterV2.RouterV2__WlRequiresBondingCurve.selector);
+        vm.expectRevert(Router.Router__WlRequiresBondingCurve.selector);
         routerV2.launchWithWhitelist{value: fee}(p, wl);
     }
 }

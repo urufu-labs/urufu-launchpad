@@ -17,19 +17,28 @@
 ///     vault balance is under a threshold (avoids wasting gas + creating
 ///     dust epochs when trading is quiet).
 ///
-/// Both loops are:
+///  3. **activateEpochLoop** (every 30 min)
+///     Round-2 audit FINDING 1. Reads `NftRevenueVault.pendingEpoch()`; if a
+///     proposal is on-chain and its timelock has elapsed, sends
+///     `activateEpoch()`. Cheap (single read + occasional tx), idempotent
+///     (no-op when nothing is pending), and mandatory for the vault's
+///     production `minConfigDelay > 0` mode — without it, propose-path
+///     epochs sit un-activated forever and claims never open.
+///
+/// All loops are:
 ///   - Opt-in via `KEEPER_ENABLED=true` — off by default so local dev + PR
 ///     previews don't accidentally publish epochs against prod state.
 ///   - Idempotent — safe to run twice in a row. `pushOwed` reverts with
 ///     `NothingToClaim` if owed==0 (caught + logged); `publishEpoch` is
-///     gated by a minimum-balance threshold.
+///     gated by a minimum-balance threshold; `activateVaultEpoch` returns
+///     null when there's nothing to activate.
 ///   - Log-friendly — every action prints a single JSON-shaped line so
 ///     Railway logs stay grep-able.
 
 import { createPublicClient, createWalletClient, http, parseAbi, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { publishEpoch, vaultSummary } from './rewards.ts';
+import { activateVaultEpoch, publishEpoch, vaultSummary } from './rewards.ts';
 
 /// Contract wiring — MultiHookHost + FeeSplitter for the sweep leg. The
 /// publish leg reuses `rewards.ts` which reads its own env.
@@ -117,10 +126,52 @@ async function publishEpochOnce(): Promise<void> {
     return;
   }
   try {
-    const result = await publishEpoch({ chainSlug: 'robinhood' });
-    console.log(JSON.stringify({ keeper: 'publish-epoch', action: 'published', epochId: result.epochId, totalAmount: result.totalAmount, holderCount: result.holderCount, tx: result.txHash }));
+    // Round-2 audit FINDING 1: `publishEpoch` now returns a discriminated
+    // outcome — a matured pending proposal is activated in place, an immature
+    // one is a no-op for this cycle, everything else is a fresh publish.
+    // Prior code always logged "published" which lied when the vault had a
+    // real timelock configured.
+    const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+    if (outcome.action === 'published') {
+      console.log(JSON.stringify({
+        keeper: 'publish-epoch', action: 'published',
+        epochId: outcome.epochId, totalAmount: outcome.totalAmount,
+        holderCount: outcome.holderCount, tx: outcome.txHash,
+      }));
+    } else if (outcome.action === 'activated') {
+      console.log(JSON.stringify({
+        keeper: 'publish-epoch', action: 'activated-pending',
+        epochId: outcome.epochId, tx: outcome.txHash,
+      }));
+    } else {
+      console.log(JSON.stringify({
+        keeper: 'publish-epoch', action: 'skip-immature-proposal',
+        epochId: outcome.epochId, readyAt: outcome.readyAt,
+      }));
+    }
   } catch (err) {
     console.log(JSON.stringify({ keeper: 'publish-epoch', action: 'failed', error: (err as Error).message }));
+  }
+}
+
+/// Round-2 audit FINDING 1 AC #4: activation loop. Reads the vault's
+/// `pendingEpoch()`; if matured, calls `activateEpoch`. Any propose that
+/// lands on-chain — whether from our keeper's own publish leg or an
+/// out-of-band operator tx — is picked up and activated automatically once
+/// the timelock elapses.
+async function activateEpochOnce(): Promise<void> {
+  try {
+    const result = await activateVaultEpoch('robinhood');
+    if (!result) {
+      console.log(JSON.stringify({ keeper: 'activate-epoch', action: 'skip-no-mature-pending' }));
+      return;
+    }
+    console.log(JSON.stringify({
+      keeper: 'activate-epoch', action: 'activated',
+      epochId: result.epochId, tx: result.txHash,
+    }));
+  } catch (err) {
+    console.log(JSON.stringify({ keeper: 'activate-epoch', action: 'failed', error: (err as Error).message }));
   }
 }
 
@@ -158,6 +209,23 @@ function startPublishLoop(): void {
   setInterval(runSafely, 24 * 60 * 60 * 1000);
 }
 
+/// Round-2 audit FINDING 1 AC #4: activation loop — 30 min cadence.
+/// Activation is cheap (one small read + one small tx when matured) and
+/// idempotent (`activateVaultEpoch` returns null when there's nothing to
+/// do). First run 10 min after boot so we don't fight the publish loop's
+/// first run.
+function startActivationLoop(): void {
+  const runSafely = async () => {
+    try {
+      await activateEpochOnce();
+    } catch (err) {
+      console.log(JSON.stringify({ keeper: 'activate-epoch', action: 'error', error: (err as Error).message }));
+    }
+  };
+  setTimeout(runSafely, 10 * 60 * 1000);
+  setInterval(runSafely, 30 * 60 * 1000);
+}
+
 /// Entry point — called once from server.ts on boot. Returns a status message
 /// so the server can log why it did or didn't start each loop.
 export function startKeeper(): { started: string[]; skipped: string[] } {
@@ -174,10 +242,12 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
   } else {
     skipped.push('sweep-mhh (missing env: ROBINHOOD_RPC_URL / _MULTI_HOOK_HOST_ADDRESS / _FEE_SPLITTER_ADDRESS / KEEPER_PRIVATE_KEY)');
   }
-  // Publish loop reuses env from rewards.ts (chainConfigFor) and doesn't need
-  // a separate config here. If any required env is missing, publishEpochOnce
-  // will log 'skip-no-summary' each cycle rather than crash.
+  // Publish + activation loops reuse env from rewards.ts (chainConfigFor)
+  // and don't need a separate config here. If any required env is missing,
+  // they log a skip line each cycle rather than crash.
   startPublishLoop();
   started.push('publish-epoch (24h)');
+  startActivationLoop();
+  started.push('activate-epoch (30min)');
   return { started, skipped };
 }

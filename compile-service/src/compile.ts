@@ -148,6 +148,12 @@ export function compose(input: CompileInput): CompileOutput {
   for (const mid of input.config.modules) {
     const spec = input.matrix.modules[mid];
     if (!spec) throw new Error(`UNKNOWN_MODULE: ${mid}`); // validate should catch, but belt-and-braces
+    // URU-A09: `fragmentPath` is optional on the shared schema — post-graduation
+    // hook modules (LPLocked, MultiHookHost, …) and planned modules have no
+    // .frag.sol. `validateConfig` above already rejects those with
+    // MODULE_NOT_COMPILABLE, so hitting this branch means either the caller
+    // bypassed validation or the shared JSON entry is malformed.
+    if (!spec.fragmentPath) throw new Error(`MODULE_NOT_COMPILABLE: ${mid} has no fragmentPath`);
     const fragPath = resolve(input.repoRoot, spec.fragmentPath);
     fragments.push(parseFragment(fragPath));
   }

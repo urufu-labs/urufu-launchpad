@@ -12,9 +12,7 @@ optimizer = true
 optimizer_runs = 10_000
 via_ir = true
 
-# Allow reading local fixture files in tests; write access is scoped to the deployment
-# address book DeployPhase1 emits (deployment.<chainid>.json at the contracts/ root).
-# Foundry does prefix matching on path, so `./deployment.` catches every chain-id variant.
+# Allow reading + writing local fixture files (test outputs, epoch JSONs).
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "write", path = "./" },
@@ -27,7 +25,28 @@ max_test_rejects = 65_536
 [invariant]
 runs = 256
 depth = 32
+# Kept at false because BondingCurveInvariant + the WL solvency invariant use
+# handlers that legitimately probe out-of-band actions (e.g. buys that would
+# push past the reserve floor). Individual handlers wrap their actions in
+# vm.assume() bounds so reverts still exercise honest boundary conditions,
+# not silent noise.
+#
+# URU-A14 additional-defect concern (auditor page 10, "Invariant tests
+# tolerate reverts"): the `strict` profile below flips this to true so at
+# least one CI job proves successful-path liveness. Solvency invariants that
+# encode "action X on state Y must succeed" belong in that profile.
 fail_on_revert = false
+call_override = false
+
+# URU-A14 additional: strict invariant profile — every handler call MUST
+# succeed. Run this against the WL solvency invariant + curve reachability
+# fuzz to prove liveness end to end. CI runs both `default` and `strict`.
+[profile.strict]
+
+[profile.strict.invariant]
+runs = 512
+depth = 48
+fail_on_revert = true
 call_override = false
 
 # Clone profile — used when compiling contracts that get cloned by factories.

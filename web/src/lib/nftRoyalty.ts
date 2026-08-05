@@ -99,7 +99,7 @@ export const materializeRoyaltyClone = {
 
 /**
  * Compute the ERC-2981 config-hash slice matching the on-chain `PhaseX_CONFIG` derivation.
- * Kept in sync with `DeployPhase1.s.sol`: `keccak256(abi.encode(baseName, sortedModuleList))`.
+ * Kept in sync with `Router deploy.s.sol`: `keccak256(abi.encode(baseName, sortedModuleList))`.
  * Not currently used inside this file — exported as a convenience for the caller building
  * `LaunchParams` for a 721A/1155 launch that includes `ERC2981Royalty` in its module set.
  */

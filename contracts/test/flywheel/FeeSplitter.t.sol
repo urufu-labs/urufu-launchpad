@@ -65,19 +65,45 @@ contract FeeSplitterTest is Test {
         assertEq(nftVault.balance, 3.5 ether);
     }
 
+    /// URU-A11: when `minConfigDelay > 0`, direct `setConfig` is disabled
+    /// entirely; the only path is `proposeConfig` -> wait -> `activateConfig`.
+    /// The old "cooldown-since-last-change" gate was replaced because a
+    /// compromised owner could still push a malicious final config in one
+    /// shot on cooldown expiry. The propose/activate flow forces the
+    /// pending values to sit on-chain for the delay window so watchers can
+    /// react.
     function test_SetConfig_TimelockGate() public {
         splitter = new FeeSplitter(owner, treasury, 1 days);
 
+        // Direct setConfig always reverts on a delayed splitter.
         vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(FeeSplitter.FeeSplitter__TooSoon.selector, block.timestamp, block.timestamp + 1 days)
-        );
+        vm.expectRevert(FeeSplitter.FeeSplitter__DirectConfigDisabled.selector);
         splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
 
-        vm.warp(block.timestamp + 1 days);
+        // Propose stages the pending config with its readyAt.
+        uint256 proposedAt = block.timestamp;
         vm.prank(owner);
-        splitter.setConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
+        splitter.proposeConfig(buyback, nftVault, treasury, 4000, 3500, 2500);
+
+        // Values are not yet live — reading state shows the cold-start defaults.
+        assertEq(splitter.uruBuybackSink(), address(0), "pending config leaked into live state");
+        assertEq(splitter.treasuryBps(), 10_000, "pending config leaked into live state");
+
+        // Activate before maturity reverts.
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(FeeSplitter.FeeSplitter__PendingConfigNotReady.selector, proposedAt + 1 days)
+        );
+        splitter.activateConfig();
+
+        // After the timelock, activation succeeds and the pending values go live.
+        vm.warp(proposedAt + 1 days);
+        vm.prank(owner);
+        splitter.activateConfig();
         assertEq(splitter.uruBuybackSink(), buyback);
+        assertEq(splitter.uruBuybackBps(), 4000);
+        assertEq(splitter.nftRevenueBps(), 3500);
+        assertEq(splitter.treasuryBps(), 2500);
     }
 
     function test_Sweep_OwnerRecoversStuck() public {

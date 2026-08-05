@@ -104,6 +104,10 @@ contract LaunchWithLoyaltyTest is Test {
         router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(impl20).code));
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(impl20));
 

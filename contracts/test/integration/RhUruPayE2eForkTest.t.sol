@@ -4,7 +4,6 @@ pragma solidity 0.8.26;
 import {Test, console2, Vm} from "forge-std/Test.sol";
 
 import {Router} from "src/router/Router.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {UruDepositSink} from "src/router/UruDepositSink.sol";
 import {FeeSplitter} from "src/router/FeeSplitter.sol";
 import {IFeeReceiver} from "src/router/FeeReceiver.sol";
@@ -40,7 +39,7 @@ interface IERC20Metadata {
 }
 
 /// @notice URU-pay end-to-end fork test. Reuses the RH deploy-pipeline setup
-///         (Flywheel + RouterV2 wired to FeeSplitter), then drives an actual
+///         (Flywheel + Router wired to FeeSplitter), then drives an actual
 ///         `launchWithURU` call against real RH factories + registry and asserts:
 ///           1. URU pulled into UruDepositSink
 ///           2. Token deployed by ERC20Factory
@@ -82,7 +81,7 @@ contract RhUruPayE2eForkTest is Test {
     NftRevenueVault internal nftVault;
     UruBuybackVault internal buybackVault;
     UruDepositSink internal uruSink;
-    RouterV2 internal routerV2;
+    Router internal routerV2;
 
     /// Copied from RhDeployPipelineForkTest so this file can run independently. If
     /// this drifts, extract into a shared fixture contract.
@@ -103,21 +102,22 @@ contract RhUruPayE2eForkTest is Test {
                 || CURVE_FACTORY.code.length == 0
         ) vm.skip(true);
 
-        // Deploy flywheel.
+        // Deploy flywheel. URU-A11: production configDelay = 2 days, but the
+        // fork test uses 0 to skip the propose+wait dance for every setter —
+        // the delay itself is exercised by unit + invariant tests.
         vm.startPrank(admin);
-        splitter = new FeeSplitter(admin, treasury, 2 days);
+        splitter = new FeeSplitter(admin, treasury, 0);
         oracle = new LoyaltyOracle(admin, URU_TOKEN, GEMU_NFT, 100_000e18);
-        nftVault = new NftRevenueVault(admin);
-        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 2 days);
+        nftVault = new NftRevenueVault(admin, 0);
+        buybackVault = new UruBuybackVault(admin, URU_TOKEN, address(nftVault), 0);
         buybackVault.setKeeper(keeper, true);
         buybackVault.setSwapTarget(UNI_UR, true);
-        vm.warp(block.timestamp + splitter.minConfigDelay() + 1);
         splitter.setConfig(address(buybackVault), address(nftVault), treasury, 4000, 3500, 2500);
 
-        // Deploy RouterV2 stack.
-        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 2 days);
+        // Deploy Router stack.
+        uruSink = new UruDepositSink(admin, URU_TOKEN, address(splitter), 0);
         Router old = Router(payable(OLD_ROUTER));
-        routerV2 = new RouterV2(
+        routerV2 = new Router(
             admin,
             NameRegistry(NAME_REGISTRY),
             IFeeReceiver(address(splitter)),
@@ -126,18 +126,23 @@ contract RhUruPayE2eForkTest is Test {
             old.fees(BaseType.ERC1155),
             old.moduleAddOnFee(),
             old.hookAddOnFee(),
-            old.governanceAddOnFee(),
-            URU_TOKEN,
-            uruSink
+            old.governanceAddOnFee()
         );
+        routerV2.setUruConfig(URU_TOKEN, address(uruSink));
         routerV2.setFactory(BaseType.ERC20, ERC20_FACTORY);
         routerV2.setFactory(BaseType.ERC721A, ERC721A_FACTORY);
         routerV2.setFactory(BaseType.ERC1155, ERC1155_FACTORY);
         routerV2.setCurveFactory(CURVE_FACTORY);
         routerV2.setLoyaltyOracle(address(oracle));
+
+        // URU-A01 / URU-A10: Router now fails-closed on any launch whose
+        // configHash isn't registered. Seed the bare-ERC20 metadata so the
+        // launchWithURU tests can reach the URU-transfer path we're actually
+        // testing. flags=0 (no BALANCE_MUTATING, no REQUIRES_OWNER).
+        routerV2.registerConfigMetadata(BARE_ERC20_CONFIG, 0, 0);
         vm.stopPrank();
 
-        // Authorize RouterV2 on each factory + NameRegistry by pranking as current owner.
+        // Authorize Router on each factory + NameRegistry by pranking as current owner.
         _authorizeOnFactory(ERC20_FACTORY);
         _authorizeOnFactory(ERC721A_FACTORY);
         _authorizeOnFactory(ERC1155_FACTORY);
@@ -146,7 +151,7 @@ contract RhUruPayE2eForkTest is Test {
         ICurveFactoryOwned(CURVE_FACTORY).setTrustedRouter(address(routerV2), true);
 
         // NameRegistry.reserve is gated on msg.sender == router — repoint it so the
-        // new RouterV2 can register launches. Same owner-only setter as the factories.
+        // new Router can register launches. Same owner-only setter as the factories.
         address regOwner = _ownerOf(NAME_REGISTRY);
         vm.prank(regOwner);
         (bool ok,) = NAME_REGISTRY.call(abi.encodeWithSignature("setRouter(address)", address(routerV2)));

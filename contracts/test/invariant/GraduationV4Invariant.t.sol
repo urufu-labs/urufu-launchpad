@@ -5,6 +5,7 @@ import {Test, StdInvariant, console2} from "forge-std/Test.sol";
 
 import {LocalV4Stack, StackToken} from "test/helpers/LocalV4Stack.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
+import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -51,7 +52,7 @@ contract GraduationHandler is LocalV4Stack {
         actors.push(makeAddr("g-bob"));
         actors.push(makeAddr("g-carol"));
         for (uint256 i; i < actors.length; ++i) {
-            vm.deal(actors[i], 1_000 ether);
+            vm.deal(actors[i], 1000 ether);
         }
         _launch();
     }
@@ -66,9 +67,8 @@ contract GraduationHandler is LocalV4Stack {
     /// just the curve in isolation.
     function _launch() internal {
         uint256 n = tokens.length;
-        (address t, BondingCurve c) = _launchViaRouter(
-            string.concat("Inv", vm.toString(n)), string.concat("INV", vm.toString(n)), actors[0]
-        );
+        (address t, BondingCurve c) =
+            _launchViaRouter(string.concat("Inv", vm.toString(n)), string.concat("INV", vm.toString(n)), actors[0]);
         tokens.push(t);
         curves.push(address(c));
         launchCount++;
@@ -227,10 +227,15 @@ contract GraduationV4InvariantTest is StdInvariant, Test {
     /// The V7 Graduator opened the pool at a price that made tokens the limiting
     /// side, so the LP absorbed every token but only a fraction of the ETH. ~4 ETH
     /// per graduation was left on a contract with no withdraw path. GraduatorV2
-    /// prices at the raw real ratio and refunds any dust to the launcher, so its
-    /// resting balance must be exactly zero — not "small", zero.
+    /// prices at the raw real ratio and refunds any dust to the launcher, so no
+    /// un-credited ETH should ever sit here.
+    ///
+    /// FINDING 6 round 2: refund is now credited via a pull-based ledger, so
+    /// the invariant is `balance == totalClaimable` rather than `balance == 0`.
+    /// The V7 4-ETH strand had zero credit path, which this still forbids.
     function invariant_GraduatorNeverHoldsEth() public view {
-        assertEq(address(handler.graduator()).balance, 0, "graduator is holding ETH");
+        GraduatorV2 g = GraduatorV2(payable(address(handler.graduator())));
+        assertEq(address(g).balance, g.totalClaimable(), "graduator holds un-credited ETH");
     }
 
     /// Same idea on the token side: anything the LP didn't absorb is burned.

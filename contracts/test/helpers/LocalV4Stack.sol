@@ -73,9 +73,13 @@ contract StackToken is ERC20 {
 abstract contract LocalV4Stack is Test {
     using PoolIdLibrary for PoolKey;
 
-    /// beforeInitialize | beforeRemoveLiquidity | beforeSwap | afterSwap |
-    /// afterSwapReturnsDelta  ==  0x2000 | 0x200 | 0x80 | 0x40 | 0x04
-    uint160 internal constant MHH_FLAGS = 0x22C4;
+    /// beforeInitialize | beforeSwap | afterSwap | afterSwapReturnsDelta
+    ///   ==  0x2000 | 0x80 | 0x40 | 0x04.
+    /// Audit-round-2 FINDING 5 dropped beforeRemoveLiquidity (0x200) — the
+    /// graduation LP is locked structurally by GraduatorV2 (no negative-
+    /// liquidityDelta path there), and gating remove was freezing every
+    /// third-party LP forever.
+    uint160 internal constant MHH_FLAGS = 0x20C4;
 
     uint24 internal constant FEE = 3000;
     int24 internal constant TICK_SPACING = 60;
@@ -115,18 +119,15 @@ abstract contract LocalV4Stack is Test {
         address hookAddr = address((uint160(0xBEEF) << 144) | MHH_FLAGS);
         deployCodeTo(
             "MultiHookHost.sol:MultiHookHost",
-            abi.encode(IPoolManager(address(poolManager)), address(feeReceiver), admin, uint16(100), uint16(100), admin),
+            abi.encode(
+                IPoolManager(address(poolManager)), address(feeReceiver), admin, uint16(100), uint16(100), admin
+            ),
             hookAddr
         );
         mhh = MultiHookHost(payable(hookAddr));
 
         graduator = new GraduatorV2(
-            IPoolManager(address(poolManager)),
-            IHooks(hookAddr),
-            FEE,
-            TICK_SPACING,
-            address(curveFactory),
-            admin
+            IPoolManager(address(poolManager)), IHooks(hookAddr), FEE, TICK_SPACING, address(curveFactory), admin
         );
 
         vm.prank(admin);
@@ -149,7 +150,7 @@ abstract contract LocalV4Stack is Test {
     /// suites can launch the way a real user does rather than poking
     /// `CurveFactory` directly.
     ///
-    /// @dev Note the live chain runs `RouterV2`, but `RouterV2 is Router` and
+    /// @dev Note the live chain runs `RouterV2`, but `Router is Router` and
     ///      does NOT override `launch()` — a standard ETH launch executes this
     ///      exact code on both. RouterV2's additions (`launchWithURU`,
     ///      `launchWithWhitelist`) are separate entrypoints, out of scope here.
@@ -176,6 +177,10 @@ abstract contract LocalV4Stack is Test {
         erc20Factory = new ERC20Factory(admin, address(router), admin);
 
         vm.startPrank(admin);
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl. Same admin acts as both owner + registrar in
+        // this helper, so no vm.stopPrank/vm.prank shuffle is needed.
+        erc20Factory.setExpectedCodeHash(CH_BARE, keccak256(address(erc20Impl).code));
         erc20Factory.registerImpl(CH_BARE, address(erc20Impl));
         router.setFactory(BaseType.ERC20, address(erc20Factory));
         // Router fails closed without both of these registered for a hash.

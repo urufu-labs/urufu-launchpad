@@ -13,7 +13,6 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SetChunkyDefaults} from "script/SetChunkyDefaults.s.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
-import {RouterV2} from "src/router/RouterV2.sol";
 import {Router} from "src/router/Router.sol";
 import {BaseType, LaunchParams, OwnershipMode} from "src/types/VMTypes.sol";
 
@@ -166,7 +165,7 @@ contract ChunkyModuleMatrixForkTest is Test {
         bytes[] memory md = new bytes[](1);
         md[0] = abi.encode(uint16(500), uint16(5000), uint16(5000), address(this));
         LaunchParams memory p = _params("FoT M", "FOTM", H_FOT, md, 1, 800_000_000e18);
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         uint256 fee = router.quote(p);
         vm.deal(launcher, fee + 1 ether);
         vm.prank(launcher);
@@ -224,7 +223,7 @@ contract ChunkyModuleMatrixForkTest is Test {
     ) internal {
         LaunchParams memory p = _params(name_, ticker_, configHash_, md, moduleCount_, 800_000_000e18);
 
-        RouterV2 router = RouterV2(payable(ROUTER_V7));
+        Router router = Router(payable(ROUTER_V7));
         uint256 fee = router.quote(p);
         vm.deal(launcher, fee + 1 ether);
         vm.prank(launcher);
