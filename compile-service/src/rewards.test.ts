@@ -34,13 +34,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { decodeFunctionData, encodeFunctionData, parseAbi, type Address, type Hex } from 'viem';
+
 import {
   IndexerHolderCountExceedsCap,
+  _setTestOverrides,
   fetchGemuHoldersFromIndexer,
+  publishEpoch,
   reconcilePendingForConfig,
   resolvePublishAmount,
   withPublicationLockOn,
   type ChainConfig,
+  type Holder,
 } from './rewards.ts';
 
 const ZERO_ROOT = ('0x' + '00'.repeat(32)) as `0x${string}`;
@@ -68,6 +73,11 @@ interface PubRow {
   tx_hash: string | null;
   block_number: string | null;
   created_at: Date;
+  /// Round-2 audit FINDING 4 provenance columns. Optional so pre-migration
+  /// rows (existing reconcile fixtures) can omit them; the new publishEpoch
+  /// journal INSERT always populates both.
+  snapshot_block?: string | null;
+  expected_holder_count?: number | null;
 }
 interface LeafRow {
   chain_id: number;
@@ -257,6 +267,80 @@ async function handleQuery(
     return [];
   }
 
+  // FINDING 4 AC #2: publishEpoch's journal INSERT — now carries snapshot_block
+  // + expected_holder_count. The 'pending' status literal is baked into the SQL
+  // template, so it isn't in `values`; that's why status is populated inline.
+  if (firstFragment.startsWith('INSERT INTO app.rewards_publications')) {
+    const [chainId, epochId, vault, root, total, holderCount, snapshotBlock, expectedHolderCount] =
+      values as [number, number, string, string, string, number, string, number];
+    if (state.publications.some((p) => p.chain_id === chainId && p.epoch_id === epochId)) {
+      throw new Error(`duplicate INSERT into rewards_publications for (${chainId}, ${epochId})`);
+    }
+    state.publications.push({
+      chain_id: chainId,
+      epoch_id: epochId,
+      vault_addr: vault,
+      merkle_root: root,
+      total_amount: total,
+      holder_count: holderCount,
+      status: 'pending',
+      tx_hash: null,
+      block_number: null,
+      created_at: new Date(),
+      snapshot_block: snapshotBlock,
+      expected_holder_count: expectedHolderCount,
+    });
+    return [];
+  }
+
+  // publishEpoch happy-path: after wallet.sendTransaction, flip status →
+  // broadcast + record tx_hash.
+  if (firstFragment.startsWith("UPDATE app.rewards_publications SET status = 'broadcast'")) {
+    const [txHash, chainId, epochId] = values as [string, number, number];
+    for (const p of state.publications) {
+      if (p.chain_id === chainId && p.epoch_id === epochId) {
+        p.status = 'broadcast';
+        p.tx_hash = txHash;
+      }
+    }
+    return [];
+  }
+
+  // publishEpoch happy-path: after waitForTransactionReceipt, stamp
+  // block_number onto the journal row.
+  if (firstFragment.startsWith('UPDATE app.rewards_publications SET block_number')) {
+    const [blockNumber, chainId, epochId] = values as [string, number, number];
+    for (const p of state.publications) {
+      if (p.chain_id === chainId && p.epoch_id === epochId) {
+        p.block_number = blockNumber;
+      }
+    }
+    return [];
+  }
+
+  // publishEpoch happy-path: per-leaf INSERT. We don't need to assert on the
+  // proof shape in these tests but the fake needs to accept the write so
+  // publishEpoch's `db.begin(...)` block completes.
+  if (firstFragment.startsWith('INSERT INTO app.rewards_leaves')) {
+    const [chainId, epochId, holder, amount, proofJson] = values as [
+      number,
+      number,
+      string,
+      string,
+      string,
+    ];
+    const existing = state.leaves.find(
+      (l) => l.chain_id === chainId && l.epoch_id === epochId && l.holder === holder,
+    );
+    if (existing) {
+      existing.amount = amount;
+      existing.proof = proofJson;
+    } else {
+      state.leaves.push({ chain_id: chainId, epoch_id: epochId, holder, amount, proof: proofJson });
+    }
+    return [];
+  }
+
   throw new Error(`unhandled fake sql: ${firstFragment.slice(0, 120)}`);
 }
 
@@ -312,6 +396,105 @@ function makeFakePub(
       throw new Error(`unexpected readContract in reconcile: ${functionName}`);
     },
   };
+}
+
+// ---------------------------------------------------------------- publishEpoch fakes
+
+/// Extended fake public client for the publishEpoch end-to-end tests. Serves
+/// `pendingEpoch` (state-machine decision), `epochs` (reconcile pass at top of
+/// publishEpoch), scalar reads (`totalCommitted`, `nextEpochId`,
+/// `minConfigDelay`), plus the ETH-side reads (`getBlockNumber`, `getBalance`)
+/// and receipt polling that the happy path funnels through.
+interface FakePubOpts {
+  pendingEpoch?: readonly [bigint, `0x${string}`, bigint, bigint];
+  epochsByEpochId?: Record<number, readonly [`0x${string}`, bigint, bigint]>;
+  blockNumber?: bigint;
+  vaultBalance?: bigint;
+  totalCommitted?: bigint;
+  nextEpochId?: bigint;
+  minConfigDelay?: bigint;
+  receiptBlock?: bigint;
+}
+
+function makeFakePubForPublish(opts: FakePubOpts = {}): any {
+  const pending = opts.pendingEpoch ?? ([0n, ZERO_ROOT, 0n, 0n] as const);
+  const epochsMap = opts.epochsByEpochId ?? {};
+  const blockNumber = opts.blockNumber ?? 20_000_000n;
+  const balance = opts.vaultBalance ?? 10_000_000_000_000_000_000n; // 10 ETH
+  const committed = opts.totalCommitted ?? 0n;
+  const nextEpochId = opts.nextEpochId ?? 5n;
+  const minConfigDelay = opts.minConfigDelay ?? 0n;
+  const receiptBlock = opts.receiptBlock ?? blockNumber + 100n;
+  return {
+    getBlockNumber: async () => blockNumber,
+    getBalance: async (_: { address: Address }) => balance,
+    waitForTransactionReceipt: async (_: { hash: Hex }) => ({
+      status: 'success' as const,
+      blockNumber: receiptBlock,
+    }),
+    readContract: async ({
+      functionName,
+      args,
+    }: {
+      functionName: string;
+      args?: readonly unknown[];
+    }) => {
+      if (functionName === 'pendingEpoch') return pending;
+      if (functionName === 'epochs') {
+        const id = Number((args as readonly [bigint])[0]);
+        return epochsMap[id] ?? ([ZERO_ROOT, 0n, 0n] as const);
+      }
+      if (functionName === 'totalCommitted') return committed;
+      if (functionName === 'nextEpochId') return nextEpochId;
+      if (functionName === 'minConfigDelay') return minConfigDelay;
+      throw new Error(`unexpected readContract in publish: ${functionName}`);
+    },
+  };
+}
+
+/// Records every sendTransaction so tests can assert on the encoded calldata
+/// (e.g. is the tx an `activateEpoch()` vs `proposeEpoch(...)`?).
+interface FakeWalletRecorder {
+  wallet: any;
+  account: Address;
+  calls: Array<{ to: Address; data: Hex }>;
+}
+
+function makeFakeWallet(): FakeWalletRecorder {
+  const calls: Array<{ to: Address; data: Hex }> = [];
+  // A deterministic, well-formed 32-byte tx hash so downstream code that
+  // stringifies + updates the journal row sees a normal Hex value.
+  const txHash = ('0x' + 'de'.repeat(32)) as Hex;
+  const wallet: any = {
+    chain: null,
+    sendTransaction: async (opts: { to: Address; data: Hex }) => {
+      calls.push({ to: opts.to, data: opts.data });
+      return txHash;
+    },
+  };
+  return {
+    wallet,
+    account: '0x000000000000000000000000000000000000dEaD' as Address,
+    calls,
+  };
+}
+
+/// The vault-side ABI subset that publishEpoch's happy path encodes. Kept in
+/// this file (rather than imported from rewards.ts) so a signature drift in
+/// production code trips the tests' expected-vs-actual encoding assertion.
+const publishAbi = parseAbi([
+  'function activateEpoch()',
+  'function proposeEpoch(uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount)',
+  'function addEpoch(uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount)',
+]);
+
+/// Sets ROBINHOOD_* env so `chainConfigFor('robinhood')` inside publishEpoch
+/// returns a real ChainConfig (values are only used to shape the config; every
+/// live RPC / DB / wallet call is intercepted by _setTestOverrides).
+function ensureRobinhoodEnv(): void {
+  process.env.ROBINHOOD_RPC_URL = process.env.ROBINHOOD_RPC_URL ?? 'http://ignored';
+  process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS = CFG.vaultAddress;
+  process.env.ROBINHOOD_GEMU_NFT_ADDRESS = CFG.gemuNftAddress;
 }
 
 // ================================================================
@@ -663,6 +846,165 @@ test('FINDING 1 AC #2 reconcile flips broadcast → reverted when a DIFFERENT pr
 
   assert.equal(state.publications[0]!.status, 'reverted');
   assert.equal(state.leaves.length, 0);
+});
+
+// ================================================================
+// FINDING 1 AC #5 + AC #6 — publishEpoch entry-point state machine
+// FINDING 4 AC #2       — journal INSERT carries snapshot_block +
+//                          expected_holder_count
+// ================================================================
+//
+// These tests drive `publishEpoch` end-to-end through the injected
+// `_setTestOverrides` slot rather than a live pg / RPC / signer. They
+// cover the two gaps the reconcile-layer tests above do NOT touch:
+//
+//   * whether the OPENING pendingEpoch() read gates the propose vs
+//     activate branches at the top of publishEpoch (FINDING 1)
+//   * whether the journal INSERT actually persists the new provenance
+//     columns end-to-end (FINDING 4)
+
+test('FINDING 1 AC #5 publishEpoch skips fresh proposal when on-chain pendingEpoch is still immature', async (t) => {
+  ensureRobinhoodEnv();
+  const state = makeFakeState();
+  const fakeSql = makeFakeSql(state);
+  const futureReadyAt = BigInt(Math.floor(Date.now() / 1000)) + 3600n;
+  const fakePub = makeFakePubForPublish({
+    pendingEpoch: [7n, ROOT_A, 1000n, futureReadyAt],
+  });
+  const walletRec = makeFakeWallet();
+
+  _setTestOverrides({
+    sql: fakeSql,
+    publicClientFor: () => fakePub,
+    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+    fetchHolders: async () => {
+      throw new Error('fetchHolders MUST NOT be called on the immature-skip branch');
+    },
+  });
+  t.after(() => _setTestOverrides());
+
+  const publicationsBefore = state.publications.length;
+
+  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+
+  assert.equal(outcome.action, 'skipped-immature-proposal');
+  // Discriminated-union narrowing so we can assert on the schema-specific
+  // fields without an `as` cast.
+  if (outcome.action === 'skipped-immature-proposal') {
+    assert.equal(outcome.epochId, 7);
+    assert.equal(outcome.readyAt, Number(futureReadyAt));
+  }
+  // No journal INSERT — publisher bailed BEFORE touching state.
+  assert.equal(state.publications.length, publicationsBefore);
+  // And no tx of any kind was signed.
+  assert.equal(walletRec.calls.length, 0);
+});
+
+test('FINDING 1 AC #5 + AC #6 publishEpoch activates matured pendingEpoch instead of proposing a fresh one', async (t) => {
+  ensureRobinhoodEnv();
+  const state = makeFakeState();
+  const fakeSql = makeFakeSql(state);
+  const pastReadyAt = BigInt(Math.floor(Date.now() / 1000)) - 3600n;
+  const pendingExpectedId = 5n;
+  const pendingRoot = ROOT_A;
+  const pendingTotal = 1_000_000_000_000_000_000n;
+  const fakePub = makeFakePubForPublish({
+    pendingEpoch: [pendingExpectedId, pendingRoot, pendingTotal, pastReadyAt],
+  });
+  const walletRec = makeFakeWallet();
+
+  _setTestOverrides({
+    sql: fakeSql,
+    publicClientFor: () => fakePub,
+    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+    fetchHolders: async () => {
+      throw new Error('fetchHolders MUST NOT be called on the activate branch');
+    },
+  });
+  t.after(() => _setTestOverrides());
+
+  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+
+  assert.equal(outcome.action, 'activated');
+  // Exactly one signed tx (the activate) — no propose, no addEpoch.
+  assert.equal(walletRec.calls.length, 1);
+  const sent = walletRec.calls[0]!;
+  assert.equal(sent.to.toLowerCase(), CFG.vaultAddress.toLowerCase());
+  // Decode the calldata against the local ABI subset. A drift in production
+  // (e.g. selector accidentally swapped to `proposeEpoch`) would either fail
+  // to decode as `activateEpoch` or land in the wrong `functionName` bucket.
+  const decoded = decodeFunctionData({ abi: publishAbi, data: sent.data });
+  assert.equal(decoded.functionName, 'activateEpoch');
+  // Belt-and-suspenders: byte-exact match against the expected encoding so a
+  // future extra-arg addition to `activateEpoch` in production wouldn't
+  // silently pass this test.
+  const expectedData = encodeFunctionData({
+    abi: publishAbi,
+    functionName: 'activateEpoch',
+    args: [],
+  });
+  assert.equal(sent.data, expectedData);
+});
+
+test('FINDING 4 AC #2 publishEpoch journal INSERT records snapshot_block and expected_holder_count', async (t) => {
+  ensureRobinhoodEnv();
+  const state = makeFakeState();
+  const fakeSql = makeFakeSql(state);
+  const snapshotBlock = 20_000_000n;
+  const fakePub = makeFakePubForPublish({
+    // No on-chain pending — publisher takes the fresh-propose / addEpoch path.
+    pendingEpoch: [0n, ZERO_ROOT, 0n, 0n],
+    blockNumber: snapshotBlock,
+    vaultBalance: 10_000_000_000_000_000_000n, // 10 ETH
+    totalCommitted: 0n,
+    nextEpochId: 12n,
+    // minConfigDelay = 0 → addEpoch (single-shot) so finalizePublication runs
+    // and the happy-path SQL journey is exercised end-to-end without a
+    // separate activation tick.
+    minConfigDelay: 0n,
+  });
+  const walletRec = makeFakeWallet();
+
+  // Two holders → non-zero snapshot, deterministic assertion target.
+  const holders: Holder[] = [
+    { address: ('0x' + 'a'.padEnd(40, '0')) as Address, balance: 2n },
+    { address: ('0x' + 'b'.padEnd(40, '0')) as Address, balance: 3n },
+  ];
+
+  _setTestOverrides({
+    sql: fakeSql,
+    publicClientFor: () => fakePub,
+    walletClientFor: () => ({ wallet: walletRec.wallet, account: walletRec.account }),
+    fetchHolders: async () => holders,
+  });
+  t.after(() => _setTestOverrides());
+
+  const outcome = await publishEpoch({ chainSlug: 'robinhood' });
+  assert.equal(outcome.action, 'published');
+
+  // Exactly one journal row landed and it carries both provenance columns.
+  assert.equal(state.publications.length, 1);
+  const row = state.publications[0]!;
+  assert.equal(row.chain_id, CFG.chainId);
+  assert.equal(row.epoch_id, 12);
+  // Persisted as text (bigint would lose precision at wei scale) — must
+  // stringify the head-block bigint the publisher captured.
+  assert.equal(row.snapshot_block, snapshotBlock.toString());
+  // expected_holder_count is the paginator-observed size BEFORE dust
+  // filtering; matches holders.length, not leaves.length (which can drop
+  // rows whose allocation rounds to zero).
+  assert.equal(row.expected_holder_count, holders.length);
+  // Sanity: the rest of the row is filled and the happy path advanced all
+  // the way to `confirmed` via finalizePublication (addEpoch path).
+  assert.equal(row.status, 'confirmed');
+  assert.equal(row.tx_hash, '0x' + 'de'.repeat(32));
+  // holder_count reflects the leaf count, distinct from expected_holder_count.
+  assert.equal(row.holder_count, holders.length);
+  // rewards_epochs mirrored the confirmation.
+  assert.equal(state.epochs.length, 1);
+  assert.equal(state.epochs[0]!.epoch_id, 12);
+  // One tx signed — the addEpoch call.
+  assert.equal(walletRec.calls.length, 1);
 });
 
 // ================================================================
