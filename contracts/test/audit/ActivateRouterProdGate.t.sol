@@ -39,7 +39,34 @@ contract ActivateRouterProdGateTest is Test {
         script.runForTest(a);
     }
 
-    /// AC #3: `runForTest` on non-prod chains never fires the prod gate. Base
+    /// AC #3: `runForTest` on the RH prod chain WITH `ALLOW_UNSAFE_CUTOVER=1`
+    /// passes the chain gate. Downstream preflight then fails for the RIGHT
+    /// reason (zero-address lookups revert inside registry) — proves the gate
+    /// opened rather than short-circuiting on env. Without this test, a
+    /// regression that always-reverts on the prod chain regardless of env
+    /// would pass every other test in this file.
+    function test_RunForTest_OnProdChain_WithEnvOverride_PassesChainGate() public {
+        vm.chainId(RH_PROD);
+        vm.setEnv("ALLOW_UNSAFE_CUTOVER", "1");
+
+        ActivateRouter.TestArgs memory a;
+        (bool ok, bytes memory ret) = address(script).call(abi.encodeCall(script.runForTest, (a)));
+        assertFalse(ok, "runForTest with zero addresses must still fail preflight");
+        bytes4 sel;
+        if (ret.length >= 4) {
+            assembly {
+                sel := mload(add(ret, 0x20))
+            }
+        }
+        // The whole point: NOT the prod gate. Any OTHER revert (registry EOA
+        // extcodesize check, address(0) call, etc.) is expected.
+        assertTrue(sel != ActivateRouter.ActivateRouter__ProductionChainUnsafe.selector, "gate was not crossed");
+
+        // Restore for other tests in this file even though setUp resets too.
+        vm.setEnv("ALLOW_UNSAFE_CUTOVER", "0");
+    }
+
+    /// AC #4: `runForTest` on non-prod chains never fires the prod gate. Base
     /// chain (8453) reverts for the RIGHT reason (zero-address preflight),
     /// never ProductionChainUnsafe. Grabs the raw selector and pins the
     /// negative assertion.
