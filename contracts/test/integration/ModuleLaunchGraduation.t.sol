@@ -17,6 +17,9 @@ import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.so
 import {ERC20WithStakingGen} from "src/templates/composed/ERC20WithStakingGen.sol";
 import {ERC20WithFeeOnTransferGen} from "src/templates/composed/ERC20WithFeeOnTransferGen.sol";
 import {ERC20WithAntiBotAntiWhaleGen} from "src/templates/composed/ERC20WithAntiBotAntiWhaleGen.sol";
+import {ERC20WithAntiBotPermitGen} from "src/templates/composed/ERC20WithAntiBotPermitGen.sol";
+import {ERC20WithPermitStakingGen} from "src/templates/composed/ERC20WithPermitStakingGen.sol";
+import {ERC20WithPermitVestingGen} from "src/templates/composed/ERC20WithPermitVestingGen.sol";
 
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -235,6 +238,42 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
         _graduateAndSwap(token, curve);
     }
 
+    /// Permit + Staking pair. moduleData order per composed template
+    /// ERC20WithPermitStakingGen.initialize: [0] = Permit (no params), [1] =
+    /// Staking (rewardsTotal, duration). Staking carves its reward pool out of
+    /// the mintTarget's balance before the curve is funded, so the curve prices
+    /// itself against a smaller float — same invariant as the solo Staking
+    /// test above, verified alongside a live Permit module.
+    function test_PermitAndStaking_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("Permit,Staking", address(new ERC20WithPermitStakingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = ""; // Permit takes no init params
+        md[1] = abi.encode(uint256(50_000_000e18), uint256(90 days));
+        (address token, BondingCurve curve) = _launch(ch, "Permit Staking", "PSK", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "staking did not carve out supply");
+        // Permit sanity: solady's EIP-2612 domain separator returns non-zero
+        // once name() is set, which happens in initialize() for every launch.
+        assertTrue(ERC20WithPermitStakingGen(token).DOMAIN_SEPARATOR() != bytes32(0), "Permit not initialized");
+        _graduateAndSwap(token, curve);
+    }
+
+    /// Permit + Vesting pair. moduleData order per composed template
+    /// ERC20WithPermitVestingGen.initialize: [0] = Permit (no params), [1] =
+    /// Vesting (beneficiary, total, cliff, end). Same reserve-carve invariant
+    /// as the solo Vesting test — proves the pair composes cleanly through the
+    /// full curve → graduate → v4 swap pipeline.
+    function test_PermitAndVesting_GraduatesWithReducedCurveSupply() public {
+        bytes32 ch = _register("Permit,Vesting", address(new ERC20WithPermitVestingGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        uint256 vested = 100_000_000e18;
+        md[0] = ""; // Permit takes no init params
+        md[1] = abi.encode(makeAddr("pv-beneficiary"), vested, block.timestamp + 30 days, block.timestamp + 365 days);
+        (address token, BondingCurve curve) = _launch(ch, "Permit Vesting", "PVS", md);
+        assertLt(curve.curveSupply(), curveFactory.defaultCurveSupply(), "vesting did not carve out supply");
+        assertTrue(ERC20WithPermitVestingGen(token).DOMAIN_SEPARATOR() != bytes32(0), "Permit not initialized");
+        _graduateAndSwap(token, curve);
+    }
+
     // Airdrop test removed 2026-07-31: Airdrop module retired platform-wide (V1
     // composed impl has an inflation rug). Vesting + Staking above cover the
     // reserve-backed carve invariant identically.
@@ -276,6 +315,31 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
         md[1] = abi.encode(uint256(800_000_000e18), uint256(800_000_000e18), uint256(0));
         (address token, BondingCurve curve) = _launch(ch, "Bot Whale", "BWM", md);
         vm.roll(block.number + 10);
+        _graduateAndSwap(token, curve);
+    }
+
+    /// AntiBot + Permit pair. moduleData order per composed template
+    /// ERC20WithAntiBotPermitGen.initialize: [0] = AntiBot (uint16 blockGate),
+    /// [1] = Permit (no params). AntiBot's before-transfer hook fires on every
+    /// curve buy inside its window — Router allowlists the curve at launch so
+    /// the install transfer succeeds, and we roll past the gate before driving
+    /// to graduation so all subsequent transfers are unrestricted.
+    function test_AntiBotAndPermit_GraduatesAndSwaps() public {
+        bytes32 ch = _register("AntiBot,Permit", address(new ERC20WithAntiBotPermitGen()), 3);
+        bytes[] memory md = new bytes[](2);
+        md[0] = abi.encode(uint16(3)); // 3-block AntiBot gate
+        md[1] = ""; // Permit takes no init params
+        (address token, BondingCurve curve) = _launch(ch, "AntiBot Permit", "ABP", md);
+        // AntiBot should be active immediately after launch (proves the gate
+        // wired even in the composed impl, not just the solo one).
+        assertTrue(ERC20WithAntiBotPermitGen(token).antiBotIsGated(), "AntiBot gate not active at launch");
+        // Roll past the anti-bot window so curve buys settle to non-allowlisted
+        // buyers without needing per-buyer whitelisting.
+        vm.roll(block.number + 10);
+        assertFalse(ERC20WithAntiBotPermitGen(token).antiBotIsGated(), "AntiBot gate should have expired");
+        // Permit sanity: solady's EIP-2612 domain separator returns non-zero
+        // once name() is set — proves the Permit slice ran in initialize().
+        assertTrue(ERC20WithAntiBotPermitGen(token).DOMAIN_SEPARATOR() != bytes32(0), "Permit not initialized");
         _graduateAndSwap(token, curve);
     }
 
