@@ -72,7 +72,7 @@ post-audit follow-ups tracked as open issues: on-chain [`PoolPolicy`](https://gi
 
 ---
 
-## 🎀 anti-rug guarantees 🎀
+## ⌒ anti-rug guarantees ⌒
 
 every guarantee below is enforced by contract, not the frontend. contract references sit in [`docs/LAUNCHPAD-FULL-SCOPE.md`](./docs/LAUNCHPAD-FULL-SCOPE.md).
 
@@ -197,7 +197,7 @@ every launch fee, curve trade, and post-graduation swap feeds a `FeeSplitter` co
 
 | slice | % | destination |
 |:---:|:---:|:---|
-| **URU buyback** 🎀 | 40% | `UruBuybackVault` → keeper swaps ETH → URU → forwards to `NftRevenueVault` |
+| **URU buyback** ✿ | 40% | `UruBuybackVault` → keeper swaps ETH → URU → forwards to `NftRevenueVault` |
 | **NFT revenue** ✿ | 35% | `NftRevenueVault` → journaled merkle drops direct to urufu gemu holders |
 | **treasury** ⌒ | 25% | platform, infra, audits |
 
@@ -248,7 +248,7 @@ pnpm dev:compile-service   # http://localhost:3001   (fastify)
 
 ---
 
-## 🎀 testing 🎀
+## ✿ testing ✿
 
 the launchpad ships with **934 tests** across contracts, compile-service, and fork suites. every audit round adds regressions for the specific behaviors under review.
 
@@ -323,7 +323,7 @@ uniswap v4 poolmanager on robinhood: `0x8366a39CC670B4001A1121B8F6A443A643e40951
 
 ---
 
-## 🎀 audit history 🎀
+## ⌒ audit history ⌒
 
 full round-by-round remediation table lives at [`PATCH-COVERAGE.md`](./PATCH-COVERAGE.md).
 
