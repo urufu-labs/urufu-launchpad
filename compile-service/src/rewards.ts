@@ -32,7 +32,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { sql, hasDb } from './db.ts';
+import { sql } from './db.ts';
 
 // ---------------------------------------------------------------- config
 
@@ -109,12 +109,58 @@ function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Add
   return { wallet, account: account.address };
 }
 
+// ---------------------------------------------------------------- test-only DI
+
+/// Round-2 audit FINDING 1 / FINDING 4 test coverage — some of the dependencies
+/// this module reaches for (the pg singleton, viem RPC + wallet clients, the
+/// indexer holder fetch) are constructed from env inside the module and cannot
+/// be swapped by a caller. The audit acceptance criteria for `publishEpoch`
+/// require end-to-end unit coverage of the pendingEpoch state machine (immature
+/// vs matured branches) and the journal-column INSERT — both live below the
+/// env-driven boundary. Rather than plumb an options bag through every public
+/// signature (which would ripple into `server.ts`, `keeper.ts` and every
+/// existing route handler), we expose a single module-level override slot.
+///
+/// TEST-ONLY. Never call from production code. Guarded only by documentation
+/// on purpose — NODE_ENV is not a security boundary; operators legitimately
+/// set NODE_ENV=production for CI test runs, so gating on it would either
+/// break tests or make the override active in prod. The slot defaults to
+/// empty, so a production process that never calls `_setTestOverrides` behaves
+/// exactly as before.
+export interface RewardsTestOverrides {
+  sql?: unknown;
+  publicClientFor?: (cfg: ChainConfig) => PublicClient;
+  walletClientFor?: (cfg: ChainConfig) => { wallet: WalletClient; account: Address };
+  fetchHolders?: (cfg: ChainConfig, pub: PublicClient) => Promise<Holder[]>;
+}
+
+let _rewardsOverrides: RewardsTestOverrides = {};
+
+export function _setTestOverrides(overrides: RewardsTestOverrides = {}): void {
+  _rewardsOverrides = overrides;
+}
+
+function _resolveSql(): unknown {
+  return _rewardsOverrides.sql ?? sql;
+}
+function _resolvePublicClientFor(cfg: ChainConfig): PublicClient {
+  return (_rewardsOverrides.publicClientFor ?? publicClientFor)(cfg);
+}
+function _resolveWalletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Address } {
+  return (_rewardsOverrides.walletClientFor ?? walletClientFor)(cfg);
+}
+function _resolveFetchHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+  return (_rewardsOverrides.fetchHolders ?? fetchGemuHolders)(cfg, pub);
+}
+
 // ---------------------------------------------------------------- snapshot query
 
 /// Read all current gemu NFT holders (balance > 0) from the indexer. Uses Ponder's
 /// GraphQL — same source the frontend hits. Returns lowercase-normalized addresses
 /// so downstream Merkle-tree hashing is deterministic.
-interface Holder {
+/// Exported so the test override type below can reference it without a duplicate
+/// declaration.
+export interface Holder {
   address: Address;
   balance: bigint; // NFT count
 }
@@ -531,10 +577,11 @@ export async function publishEpoch(opts: {
 }): Promise<PublishOutcome> {
   const cfg = chainConfigFor(opts.chainSlug);
   if (!cfg) throw new Error(`chain "${opts.chainSlug}" not configured for flywheel`);
-  if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
+  const activeSql = _resolveSql();
+  if (!activeSql) throw new Error('DATABASE_URL not set — cannot persist tree');
 
-  return withPublicationLock(async (db) => {
-    const pub = publicClientFor(cfg);
+  return withPublicationLockOn(activeSql, async (db) => {
+    const pub = _resolvePublicClientFor(cfg);
     // URU-A06: on every publish, first sweep any prior pending / broadcast
     // rows. Recovers a tx that confirmed while the process was down.
     await reconcilePendingForConfig(cfg, pub, db);
@@ -569,7 +616,7 @@ export async function publishEpoch(opts: {
     //    the head block so the journal row records the snapshot's provenance
     //    (FINDING 4 AC #2 — needed to reproduce a tree from raw state).
     const snapshotBlock = await pub.getBlockNumber();
-    const holders = await fetchGemuHolders(cfg, pub);
+    const holders = await _resolveFetchHolders(cfg, pub);
     if (holders.length === 0) {
       throw new Error('no gemu holders found in indexer OR on-chain — check NFT deployment');
     }
@@ -647,7 +694,7 @@ export async function publishEpoch(opts: {
     });
 
     // 6. Broadcast. Route depends on the vault's real timelock config.
-    const { wallet, account } = walletClientFor(cfg);
+    const { wallet, account } = _resolveWalletClientFor(cfg);
     const isProposal = minConfigDelay > 0n;
     const data = isProposal
       ? encodeFunctionData({
@@ -724,7 +771,7 @@ async function _activatePendingProposal(
   pending: readonly [bigint, Hex, bigint, bigint],
 ): Promise<PublishResult> {
   const [expectedEpochId, pRoot, pTotal /* readyAt is checked by caller */] = pending;
-  const { wallet, account } = walletClientFor(cfg);
+  const { wallet, account } = _resolveWalletClientFor(cfg);
   const data = encodeFunctionData({ abi: vaultAbi, functionName: 'activateEpoch', args: [] });
   const txHash = await wallet.sendTransaction({
     account,
@@ -771,10 +818,11 @@ export async function activateVaultEpoch(chainSlug: string): Promise<{
 } | null> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg) throw new Error(`chain "${chainSlug}" not configured for flywheel`);
-  if (!hasDb() || !sql) throw new Error('DATABASE_URL not set — cannot persist tree');
+  const activeSql = _resolveSql();
+  if (!activeSql) throw new Error('DATABASE_URL not set — cannot persist tree');
 
-  return withPublicationLock(async (db) => {
-    const pub = publicClientFor(cfg);
+  return withPublicationLockOn(activeSql, async (db) => {
+    const pub = _resolvePublicClientFor(cfg);
     const pending = (await pub.readContract({
       address: cfg.vaultAddress,
       abi: vaultAbi,
