@@ -526,4 +526,76 @@ contract RouterTest is Test {
 
     // Allow this test contract to receive refunds.
     receive() external payable {}
+
+    // =========================================================
+    // GH #8 — launchAndBuy revert branches (unit)
+    //
+    // Integration coverage (happy path, curve install, atomic buyFor call,
+    // refund, single-tx window proof, loyalty discount) lives in
+    // test/integration/LaunchAndBuy.t.sol so it can use the real ERC20
+    // template + CurveFactory stack. These unit tests exercise the revert
+    // paths that fire BEFORE curve install and don't need the full stack.
+    // =========================================================
+
+    /// AC #12: `recipient == address(0)` reverts with the dedicated selector
+    /// unconditionally — even when `initialBuyEth == 0` (recipient is
+    /// required regardless of the buy leg).
+    function test_LaunchAndBuy_RevertsOnZeroRecipient() public {
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "ZeroRecip", "ZRC");
+        vm.expectRevert(Router.Router__LaunchAndBuyZeroRecipient.selector);
+        vm.prank(launcher);
+        router.launchAndBuy{value: ERC20_FEE}(p, 0, 0, address(0));
+    }
+
+    /// AC #14: `msg.value < fee + initialBuyEth` reverts with the standard
+    /// `Router__InsufficientFee(required, provided)` selector. Reuses the
+    /// existing error so downstream tooling (indexer, frontend) doesn't need
+    /// a new case. Unit-tested here with `initialBuyEth = 0` (no curve
+    /// factory needed); the combined-sum insufficient path with a positive
+    /// buy leg is exercised in the integration file.
+    function test_LaunchAndBuy_RevertsOnInsufficientFee() public {
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "Cheap8", "CHP8");
+        vm.expectRevert(abi.encodeWithSelector(Router.Router__InsufficientFee.selector, ERC20_FEE, ERC20_FEE - 1));
+        vm.prank(launcher);
+        router.launchAndBuy{value: ERC20_FEE - 1}(p, 0, 0, launcher);
+    }
+
+    /// AC #11: passing `initialBuyEth > 0` when `installBondingCurve == false`
+    /// reverts with the dedicated selector. Fires BEFORE any factory / curve
+    /// interaction — MockFactory is never touched.
+    function test_LaunchAndBuy_RevertsRequiresCurveWhenNoCurve() public {
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "NoCurve8", "NC8");
+        p.installBondingCurve = false;
+        vm.expectRevert(Router.Router__LaunchAndBuyRequiresCurve.selector);
+        vm.prank(launcher);
+        router.launchAndBuy{value: ERC20_FEE + 0.1 ether}(p, 0.1 ether, 0, launcher);
+    }
+
+    /// Pause gate is shared with `launch` — verify it applies on this
+    /// entrypoint too, otherwise the atomic-buy path could survive a pause
+    /// aimed at freezing the platform.
+    function test_LaunchAndBuy_RevertsWhenPaused() public {
+        vm.prank(owner);
+        router.setPaused(true);
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "Paused8", "PAUS8");
+        vm.expectRevert(Router.Router__Paused.selector);
+        vm.prank(launcher);
+        router.launchAndBuy{value: ERC20_FEE}(p, 0, 0, launcher);
+    }
+
+    /// AC #10 (partial — installBondingCurve = false path): with
+    /// `initialBuyEth == 0` and `installBondingCurve == false` the flow is
+    /// equivalent to `launch`: deploys token, dispatches ownership, forwards
+    /// fee. No curve, no buy, no atomic-buy event fires. Full parity coverage
+    /// with installBondingCurve = true lives in the integration file.
+    function test_LaunchAndBuy_ZeroInitialBuy_NoCurve_Parity() public {
+        LaunchParams memory p = _defaultParams(BaseType.ERC20, "ZeroBuy8", "ZBY8");
+        p.installBondingCurve = false;
+        vm.prank(launcher);
+        address token = router.launchAndBuy{value: ERC20_FEE}(p, 0, 0, launcher);
+        assertTrue(token != address(0), "token must be deployed");
+        assertEq(f20.deployCount(), 1, "factory must have been invoked once");
+        assertEq(address(feeReceiver).balance, ERC20_FEE, "fee must land at receiver");
+        assertEq(address(router).balance, 0, "router must not retain ETH");
+    }
 }

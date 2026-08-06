@@ -59,3 +59,4 @@ pnpm-debug.log*
 # per-session Claude Code artifacts (skills, workflows, local settings). Live
 # per-developer; nothing here should ship in the repo.
 .claude/
+.vercel

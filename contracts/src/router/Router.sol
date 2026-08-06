@@ -240,6 +240,17 @@ contract Router is Ownable, ReentrancyGuard {
     /// launch time so the launcher gets an actionable error, not a bricked
     /// token. The `module` string is "AntiBot" or "AntiWhale" to disambiguate.
     error Router__CurveModuleGrantFailed(address token, address who, string module);
+    /// GH #8 (launchAndBuy): caller passed `initialBuyEth > 0` on a launch
+    /// that does not install a bonding curve. There is no curve to buy from,
+    /// so the buy leg is structurally undefined. Distinct selector so a
+    /// misconfigured frontend / hand-crafted tx gets a clear signal.
+    error Router__LaunchAndBuyRequiresCurve();
+    /// GH #8 (launchAndBuy): `recipient == address(0)` on `launchAndBuy`.
+    /// Distinct from the generic `Router__ZeroAddress` (which covers the
+    /// multisig-target and constructor cases) so a bad recipient argument
+    /// reads unambiguously in the trace. Enforced unconditionally, including
+    /// when `initialBuyEth == 0` — recipient is a required field.
+    error Router__LaunchAndBuyZeroRecipient();
 
     // ============================================================
     // Events
@@ -296,6 +307,19 @@ contract Router is Ownable, ReentrancyGuard {
         uint64 fallbackTs,
         address sourceTokenAddress,
         uint32 sourceChainId
+    );
+
+    /// GH #8 (launchAndBuy): emitted alongside `Launched` when the launcher
+    /// paired deployment with an initial curve buy in the same tx. Not fired
+    /// when `initialBuyEth == 0` (parity with plain `launch`). Indexers join
+    /// on `token` — same 1:1 relationship as `LaunchedInURU` and
+    /// `LaunchedWithWhitelist`.
+    event LaunchedWithInitialBuy(
+        address indexed token,
+        address indexed launchedBy,
+        address indexed recipient,
+        uint256 initialBuyEth,
+        uint256 tokensOut
     );
 
     // ============================================================
@@ -704,6 +728,141 @@ contract Router is Ownable, ReentrancyGuard {
         _emitLaunched(token, msg.sender, params.base, nameHash, tickerHash, 0, params);
         emit LaunchedInURU(token, msg.sender, uruAmount);
         _emitLaunchedWithWhitelist(token, msg.sender, wl);
+    }
+
+    // ============================================================
+    // Atomic launch + first-buy (GH #8)
+    // ============================================================
+
+    /// @notice Deploy a token AND execute the launcher's first curve buy in a
+    ///         single transaction. Denies snipers the block-window between
+    ///         `launch` and any external `buy` — the first buy IS the launch
+    ///         tx, so it is naturally the earliest possible on-chain trade.
+    /// @dev    ETH-pay path only (URU + WL variants deliberately deferred per
+    ///         issue spec). Preserves every existing check that `launch` runs
+    ///         via `_validateLaunchPolicy` — including curve-required-renounce,
+    ///         curve-incompatible module denylist, and anti-sniper bounds.
+    ///
+    ///         Fee math is identical to `launch`: `_quoteFor(params, msg.sender)`
+    ///         with LoyaltyOracle discount applied. Total `msg.value` must be
+    ///         at least `fee + initialBuyEth`; any excess above that sum is
+    ///         refunded to `msg.sender` the same way `launch` handles overpay.
+    ///
+    ///         When `initialBuyEth == 0` the flow is a strict superset of
+    ///         `launch` — token is deployed, curve is installed (if requested),
+    ///         no `buyFor` is invoked, no `LaunchedWithInitialBuy` fires. This
+    ///         lets the frontend adopt `launchAndBuy` as its default entry-
+    ///         point without forcing every launch to include a seed buy.
+    ///
+    ///         When `initialBuyEth > 0` we require `installBondingCurve = true`
+    ///         (there is no curve to buy from otherwise) and forward
+    ///         `initialBuyEth` to `curve.buyFor(recipient, minTokensOut)` after
+    ///         install completes. Slippage protection is delegated to `buyFor`.
+    /// @param params        Same shape as `launch` — validated identically.
+    /// @param initialBuyEth ETH to spend on the first curve buy. Zero for
+    ///                      launch-only parity.
+    /// @param minTokensOut  Slippage floor for the buy leg. Ignored when
+    ///                      `initialBuyEth == 0`.
+    /// @param recipient     Who receives the purchased tokens. Must be
+    ///                      non-zero even when `initialBuyEth == 0`.
+    /// @return token        Address of the freshly deployed token.
+    function launchAndBuy(
+        LaunchParams calldata params,
+        uint256 initialBuyEth,
+        uint256 minTokensOut,
+        address recipient
+    ) external payable nonReentrant returns (address token) {
+        if (paused) revert Router__Paused();
+        // GH #8: recipient is a required field — enforce unconditionally so a
+        // launcher who intends `initialBuyEth = 0` today cannot silently ship
+        // an unusable zero-recipient value that would only surface later if
+        // they added a buy leg. Same rationale as multisig-target on `launch`.
+        if (recipient == address(0)) revert Router__LaunchAndBuyZeroRecipient();
+        _validateLaunchPolicy(params);
+
+        // A positive buy leg requires a curve to buy from. This check runs
+        // BEFORE fee math so the caller sees the misconfiguration before any
+        // ETH is quoted or moved. `_validateLaunchPolicy` already rejects
+        // curve-hostile configs when `installBondingCurve = true`, so the
+        // guard here is strictly the "no curve at all" case.
+        if (initialBuyEth > 0 && !params.installBondingCurve) {
+            revert Router__LaunchAndBuyRequiresCurve();
+        }
+
+        uint256 fee = _quoteFor(params, msg.sender);
+        // Combined-value check — mirrors `launch`'s InsufficientFee semantics
+        // but on the sum. Overpay refunds; underpay reverts.
+        uint256 required = fee + initialBuyEth;
+        if (msg.value < required) revert Router__InsufficientFee(required, msg.value);
+
+        address factory = factories[params.base];
+        if (factory == address(0)) revert Router__FactoryUnset(params.base);
+        if (bytes(params.name).length == 0) revert Router__EmptyName();
+        if (bytes(params.ticker).length == 0) revert Router__EmptyTicker();
+        if (params.ownership == OwnershipMode.TransferToMultisig && params.ownerTargetIfMultisig == address(0)) {
+            revert Router__ZeroAddress();
+        }
+
+        // Fee forward — same primitive as `launch` so FeeReceiver's ledger
+        // records this launch identically to any other ETH-pay launch.
+        feeReceiver.receiveFee{value: fee}(msg.sender, params.base);
+
+        token = IVMFactory(factory).deploy(params.name, params.ticker, params.configHash, params.initData, msg.sender);
+        if (token == address(0)) revert Router__DeployFailed();
+
+        (bytes32 nameHash, bytes32 tickerHash) = registry.reserve(params.name, params.ticker, token, msg.sender);
+
+        address curve = address(0);
+        // Same install shape as `launch`. Repeated inline (rather than
+        // extracted) so the read-order matches the existing 4 entrypoints and
+        // an auditor can diff them line-for-line.
+        if (params.installBondingCurve) {
+            if (curveFactory == address(0)) revert Router__CurveFactoryUnset();
+            if (params.base != BaseType.ERC20) revert Router__CurveOnlyForERC20();
+            if (_isCurveIncompatible(params.configHash)) {
+                revert Router__CurveIncompatibleModule(params.configHash);
+            }
+            uint256 supply = ICurveFactoryLike(curveFactory).defaultCurveSupply();
+            IERC20Like(token).approve(curveFactory, supply);
+            curve = ICurveFactoryLike(curveFactory)
+                .createCurveWithConfigFor(token, params.antiSniperBlocks, params.buybackBurnBps, msg.sender);
+            emit CurveInstalled(token, curve);
+            _grantCurveModuleAllowances(token, curve);
+        }
+
+        // Atomic first buy — must land BEFORE any external tx can observe the
+        // curve, so it is placed here (post-install, same block, same tx).
+        // The `buyFor` inside BondingCurve is `nonReentrant` (its own guard,
+        // not Router's), preserves every existing curve-side check, and will
+        // revert loud on slippage / graduation / WL-window collision. Any
+        // revert unwinds the whole tx — no partial launch state persists.
+        uint256 tokensOut = 0;
+        if (initialBuyEth > 0) {
+            // curve is guaranteed non-zero here: `initialBuyEth > 0` was
+            // already validated to imply `installBondingCurve = true`, and
+            // the install block above always assigns `curve` in that case.
+            tokensOut = BondingCurve(payable(curve)).buyFor{value: initialBuyEth}(recipient, minTokensOut);
+        }
+
+        _dispatchOwnership(token, params.ownership, params.ownerTargetIfMultisig, msg.sender);
+
+        // Refund any ETH above `fee + initialBuyEth`. Same primitive as
+        // `launch`. Router must NOT retain ETH after a top-level entry.
+        uint256 refund = msg.value - required;
+        if (refund > 0) {
+            SafeTransferLib.safeTransferETH(msg.sender, refund);
+        }
+
+        emit Launched(
+            token, msg.sender, params.base, nameHash, tickerHash, fee, params.installHook, params.installGovernance
+        );
+        // Only emit the atomic-buy event when there actually was a buy — a
+        // launchAndBuy call with `initialBuyEth == 0` is intentionally
+        // event-identical to `launch` so indexers don't have to special-case
+        // "launched with zero seed buy" as a distinct product.
+        if (initialBuyEth > 0) {
+            emit LaunchedWithInitialBuy(token, msg.sender, recipient, initialBuyEth, tokensOut);
+        }
     }
 
     // ============================================================

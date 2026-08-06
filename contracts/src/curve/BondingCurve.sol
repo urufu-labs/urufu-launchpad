@@ -38,6 +38,10 @@ contract BondingCurve is ReentrancyGuard {
     error BondingCurve__Slippage(uint256 got, uint256 min);
     error BondingCurve__ExceedsSupply(uint256 requested, uint256 available);
     error BondingCurve__ZeroAddress();
+    /// GH #8 (launchAndBuy): `buyFor` requires an explicit non-zero recipient.
+    /// Distinct selector from the generic `ZeroAddress` so a caller who passed
+    /// `recipient = address(0)` sees an unambiguous error at the trade layer.
+    error BondingCurve__ZeroRecipient();
     // NOTE: parameter-sanity checks (fee cap, non-zero reserves, reachable
     // graduation target) live in CurveFactory.setDefaults / _validateCurveDefaults
     // only. Mirroring them in _init was tried on 2026-07-31 and broke legitimate
@@ -114,6 +118,13 @@ contract BondingCurve is ReentrancyGuard {
     );
     event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter);
     event WlClaimed(address indexed buyer, uint256 amount);
+
+    /// GH #8 (launchAndBuy): payer/recipient split emitted alongside the
+    /// standard `Trade` event when tokens flow to an address that is not the
+    /// caller. Router's `launchAndBuy` uses this path so indexers can
+    /// distinguish "Router paid on behalf of launcher" from a self-buy. The
+    /// standard `Trade` event still fires so OHLC pipelines are unchanged.
+    event BoughtFor(address indexed payer, address indexed recipient, uint256 ethAmount, uint256 tokensOut);
 
     // ============================================================
     // Immutable-after-init state (LibClone friendly — no constructor args)
@@ -472,6 +483,87 @@ contract BondingCurve is ReentrancyGuard {
         // gated on ethReserve alone; the subsequent `_graduate` still checks
         // `tokenOut > 0` as belt-and-suspenders in case a custom curve invariant
         // ever produces 0-token graduation.
+        if (ethReserve >= graduationTargetEth) {
+            _graduate();
+        }
+    }
+
+    /// @notice Same as `buy` but the purchased tokens go to `recipient` instead
+    ///         of `msg.sender`. Payer is still `msg.sender` (they pay the ETH).
+    ///         Introduced for GH #8 so `Router.launchAndBuy` can execute the
+    ///         creator's first buy atomically with token deployment, denying
+    ///         snipers any window between launch and first trade.
+    /// @dev    All existing guards are preserved (graduated check, WL window,
+    ///         zero-amount, dust, slippage, ExceedsSupply floor). Reserve
+    ///         updates, fee routing, and the graduation trigger are identical
+    ///         to `buy`. The only differences are:
+    ///           * the ERC20 `safeTransfer` targets `recipient`;
+    ///           * the `Trade` event's `trader` field is `recipient` (not
+    ///             `msg.sender`) so indexer / analytics attribution follows
+    ///             the actual holder rather than the Router when Router
+    ///             brokers the buy in `launchAndBuy`;
+    ///           * a `BoughtFor(msg.sender, recipient, ...)` event is
+    ///             additionally emitted so consumers that need the payer /
+    ///             recipient split still see both sides;
+    ///           * zero-recipient reverts `BondingCurve__ZeroRecipient`.
+    ///         WL state (`wlHeldForUser`, `wlSold`) is not touched — this
+    ///         path is public-window ONLY, matching `buy`'s semantics.
+    function buyFor(
+        address recipient,
+        uint256 minTokensOut
+    ) external payable nonReentrant returns (uint256 tokensOut) {
+        if (recipient == address(0)) revert BondingCurve__ZeroRecipient();
+        if (graduated) revert BondingCurve__Graduated();
+        if (msg.value == 0) revert BondingCurve__ZeroAmount();
+
+        uint256 fee = (msg.value * tradeFeeBps) / 10_000;
+        uint256 ethAfterFee = msg.value - fee;
+
+        uint256 effEth = ethReserve + virtualEthReserve;
+        uint256 effToken = tokenReserve + virtualTokenReserve;
+        uint256 k = effEth * effToken;
+        uint256 newEffEth = effEth + ethAfterFee;
+        uint256 newEffToken = k / newEffEth;
+        tokensOut = effToken - newEffToken;
+        // URU-A04: same tokenReserve-1 floor as `buy` — never let a buy consume
+        // the complete remaining reserve, so `_graduate` always has non-zero LP
+        // inventory. See `buy` for full rationale.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) revert BondingCurve__ExceedsSupply(tokensOut, available);
+        // Dust-buy guard — msg.value small enough that curve math rounds
+        // tokensOut to 0. Same as `buy`.
+        if (tokensOut == 0) revert BondingCurve__ZeroAmount();
+        if (tokensOut < minTokensOut) revert BondingCurve__Slippage(tokensOut, minTokensOut);
+
+        // Same time-gated WL window as `buy`. This is a public-buy path — during
+        // the exclusive window it MUST revert regardless of who the recipient
+        // is, otherwise `buyFor` would be a WL bypass (router-forwarded buys
+        // land ahead of the fallback timestamp with no proof required).
+        if (whitelistRoot != bytes32(0) && block.timestamp < fallbackTs) {
+            revert BondingCurve__WlWindowActive(fallbackTs);
+        }
+
+        tokenReserve -= tokensOut;
+        publicSold += tokensOut;
+        ethReserve += ethAfterFee;
+
+        if (fee > 0) SafeTransferLib.safeTransferETH(feeReceiver, fee);
+        SafeTransferLib.safeTransfer(token, recipient, tokensOut);
+
+        // Standard Trade event for OHLC pipelines. Trader = `recipient`, NOT
+        // `msg.sender`. Router.launchAndBuy is the primary caller of buyFor,
+        // and there `msg.sender == Router` while the actual trader is the
+        // launcher / whoever will end up holding the tokens. Attributing the
+        // Trade to Router would misreport every atomic first-buy as
+        // "Router bought" in indexer feeds / holder analytics. `buy()` keeps
+        // trader = msg.sender because payer and recipient are the same there.
+        // Full payer/recipient split is still surfaced via `BoughtFor` for
+        // consumers that need both sides of the split.
+        emit Trade(recipient, true, ethAfterFee, tokensOut, ethReserve, tokenReserve, block.timestamp);
+        emit BoughtFor(msg.sender, recipient, ethAfterFee, tokensOut);
+
+        // Same graduation trigger as `buy` — see comment there for why the
+        // `tokenReserve == 0` alternate was removed.
         if (ethReserve >= graduationTargetEth) {
             _graduate();
         }
