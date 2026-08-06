@@ -163,6 +163,10 @@ contract DeployFreshLocal is Script {
     /// handoff pattern: run this script with ADMIN=broadcaster, then run
     /// `HandoffOwnership.s.sol` from the multisig context after deploy.
     error DeployFresh__AdminMustEqualBroadcaster(address admin, address broadcaster);
+    /// Stale-env broadcast guard. Fires when `V4_POOL_MANAGER` env doesn't
+    /// match the canonical live PoolManager for `block.chainid`. See
+    /// project_graduator_v8_rotation for the incident that motivated this.
+    error DeployFresh__StaleEnvForChain(uint256 chainId, address expected, address actual);
 
     /// Test-context flag flipped by runForTest(). vm.startBroadcast can't be
     /// used inside a forge test — the setter calls between constructor + owner
@@ -255,6 +259,18 @@ contract DeployFreshLocal is Script {
         uint256 minUruFee = vm.envOr("MIN_URU_FEE", uint256(0));
         if (minUruFee == 0) revert DeployFresh__ZeroMinUruFee();
         if (poolManager.code.length == 0) revert DeployFresh__PoolManagerNoCode();
+
+        // Chain-scoped stale-env guard. The prior V7 deploy stranded 4 ETH
+        // because a stale `V4_POOL_MANAGER` (base-sepolia value) was
+        // broadcast against RH RPC — the Graduator got wired to a non-live
+        // pool manager and its LP math bricked on the first graduation. This
+        // guard refuses to broadcast to RH prod (chainid 4663) unless env
+        // matches the canonical live PoolManager. Add the equivalent guard
+        // for every future chain rotation.
+        if (block.chainid == 4663) {
+            address rhPm = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+            if (poolManager != rhPm) revert DeployFresh__StaleEnvForChain(block.chainid, rhPm, poolManager);
+        }
 
         address admin = vm.envOr("ADMIN", msg.sender);
         address treasury = vm.envOr("TREASURY", msg.sender);
