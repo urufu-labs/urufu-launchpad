@@ -144,6 +144,13 @@ contract MultiHookHost is BaseHook {
     /// every knob a downstream tool needs to render "this pool's rules" without
     /// re-deriving them from constructor immutables + separate events.
     ///
+    /// AGGREGATOR NOTE: `HookPolicySet` uses a topic0 that is NOT unique to this
+    /// contract — any address could deploy a lookalike hook and emit the same
+    /// signature. Consumers reading raw event logs (e.g. custom indexers, non-
+    /// Ponder subgraphs) MUST filter by `emitter == expected MHH address` before
+    /// trusting the policy payload. Ponder handles this implicitly via per-
+    /// contract subscription.
+    ///
     /// Field order + widths are load-bearing (auditor-visible): types match the
     /// GH-9 spec so the on-chain layout maps 1:1 to the struct in the
     /// aggregator's ABI. Widths were chosen to pack the struct into two

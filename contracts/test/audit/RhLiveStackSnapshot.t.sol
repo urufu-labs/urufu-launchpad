@@ -98,6 +98,12 @@ contract RhLiveStackSnapshotTest is Test {
         GraduatorV2 g = GraduatorV2(payable(GRADUATOR));
         assertEq(address(g.curveFactory()), CURVE_FACTORY, "Graduator.curveFactory != pin");
         assertEq(address(g.defaultHook()), MULTI_HOOK_HOST, "Graduator.defaultHook != pin");
+        // GH-9 audit LOW #1: pool params must match what the GH-13 indexer
+        // hardcodes for v4 poolId derivation. A future rotation that changed
+        // fee or tickSpacing would silently null out every hookPolicy field
+        // in the launch-card API. Fail loud instead.
+        assertEq(uint256(g.fee()), 3000, "Graduator.fee drifted; indexer launch-card poolId derivation would break");
+        assertEq(uint256(int256(g.tickSpacing())), 60, "Graduator.tickSpacing drifted; same reason");
     }
 
     function test_Snapshot_MHH_InitializerIsGraduatorPin() public view {

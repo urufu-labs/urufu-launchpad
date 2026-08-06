@@ -230,9 +230,16 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
         // The per-pool anti-sniper + burn values in the emitted policy must
         // agree with the legacy PoolConfig — both are written from the same
         // Graduator flow, and drift between them would be a real bug.
-        (, uint32 legacyAnti, uint16 legacyBurn) = mhh.poolConfig(id);
+        (uint32 legacyLaunchBlock, uint32 legacyAnti, uint16 legacyBurn) = mhh.poolConfig(id);
         assertEq(uint256(antiSniperBlocks), uint256(legacyAnti), "GH-9: antiSniperBlocks divergence");
         assertEq(uint256(buybackBurnBps), uint256(legacyBurn), "GH-9: buybackBurnBps divergence");
+        // GH-9 audit LOW #2: assert launchBlock parity across the two shapes so
+        // any future refactor that stamps them at different times fails loud.
+        assertEq(
+            uint256(legacyLaunchBlock),
+            uint256(launchBlock),
+            "GH-9: launchBlock divergence between poolConfig and poolPolicy"
+        );
 
         PoolKey memory key = _poolKeyFor(token);
         vm.prank(trader);
