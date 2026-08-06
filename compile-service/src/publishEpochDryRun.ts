@@ -6,7 +6,7 @@
 // Run manually:
 //   INDEXER_URL=<railway-indexer-url> \
 //   ROBINHOOD_RPC_URL=<rpc> \
-//   ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS=0x93CFF459d5019eEc82fE9335013e265F1eD659c7 \
+//   ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS=0xAcd981FBBD32c5FAa837F1170E30449123106fb7 \
 //   ROBINHOOD_GEMU_NFT_ADDRESS=<gemu> \
 //   node --experimental-strip-types compile-service/src/publishEpochDryRun.ts
 

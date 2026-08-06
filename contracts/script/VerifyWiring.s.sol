@@ -164,24 +164,25 @@ interface IFactoryOwned {
 contract VerifyWiring is Script {
     uint256 internal constant EXPECTED_CHAIN_ID = 4663;
 
-    // Current live RH mainnet defaults (V7 Router + CurveFactory, V8 MHH + Graduator).
+    // Current live RH mainnet defaults — V8 fresh stack, broadcast 2026-08-05.
+    // Source of truth: contracts/deployment-fresh.4663.json.
     // Update whenever the stack rotates; consumers can override via env vars.
-    address internal constant DEFAULT_ROUTER = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
-    address internal constant DEFAULT_CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
-    address internal constant DEFAULT_NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
+    address internal constant DEFAULT_ROUTER = 0x9133E9323BD58b95a48a8171a5B451fd67c6BB98;
+    address internal constant DEFAULT_CURVE_FACTORY = 0xa7CbEec5E06E9AF964B86ce5094BDaeb39Bcceea;
+    address internal constant DEFAULT_NAME_REGISTRY = 0x7e0f161398eeEa3C46f910f5ca4026a2892705a6;
     address internal constant DEFAULT_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant DEFAULT_MHH = 0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4;
-    address internal constant DEFAULT_GRADUATOR = 0x0Db63b8Af346c5edabF79b16A236AEDA0428e712;
-    address internal constant DEFAULT_FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;
-    address internal constant DEFAULT_LOYALTY_ORACLE = 0xd13A1fb6d9c209B56044464269fce66Ed417AC2E;
-    address internal constant DEFAULT_URU_DEPOSIT_SINK = 0xA6b3748023540af1aD4C4731E8B8A09fACFf737e;
-    address internal constant DEFAULT_URU_BUYBACK_VAULT = 0x68c5Ec467027fCe56f158eB1ff34cF89d0929354;
-    address internal constant DEFAULT_NFT_REVENUE_VAULT = 0x93CFF459d5019eEc82fE9335013e265F1eD659c7;
-    address internal constant DEFAULT_ROYALTY_ROUTER_FACTORY = 0x6309D5EcBbE9E2093D5b0f08AD86dDDa6988dB05;
-    address internal constant DEFAULT_ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;
-    address internal constant DEFAULT_ERC721A_FACTORY = 0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc;
-    address internal constant DEFAULT_ERC1155_FACTORY = 0x0f16a0D9aEef54e2321Ea6Fa264d638130297597;
-    address internal constant DEFAULT_V4_SWAP_ROUTER = 0x2E4cd43C07879f52422B3e83F00Be877eFD88738;
+    address internal constant DEFAULT_MHH = 0xcb11Ab6723442f82f3B1016d1Ab96dD0342360c4;
+    address internal constant DEFAULT_GRADUATOR = 0x5d8270815CF5f0d99F1D854919959F49C41FE843;
+    address internal constant DEFAULT_FEE_SPLITTER = 0x013851d40ed7c2Ed1432bf33A9916CB19A4Dc93F;
+    address internal constant DEFAULT_LOYALTY_ORACLE = 0x3B0B4e387f56EE69923691AF5C892754280f6142;
+    address internal constant DEFAULT_URU_DEPOSIT_SINK = 0x0F707Ac23d53398b46E8088EBe052c48Bc07B5E5;
+    address internal constant DEFAULT_URU_BUYBACK_VAULT = 0xBb49dd406c68F51d28139CF9573325cC146b0eF5;
+    address internal constant DEFAULT_NFT_REVENUE_VAULT = 0xAcd981FBBD32c5FAa837F1170E30449123106fb7;
+    address internal constant DEFAULT_ROYALTY_ROUTER_FACTORY = 0x5a004b113b33feD1D9cC71261a482b7E0E874490;
+    address internal constant DEFAULT_ERC20_FACTORY = 0x8Ba5e5D361625BDFBD33a7F5c48AD0A9857ABB31;
+    address internal constant DEFAULT_ERC721A_FACTORY = 0x7A9161E8276eBc1A8dB8B2D1408166ED2a6116F4;
+    address internal constant DEFAULT_ERC1155_FACTORY = 0x2A972aE7620baE1c561e7dA253d95Ca041baDafE;
+    address internal constant DEFAULT_V4_SWAP_ROUTER = 0xb30c85F3D7Acdf75fd691a9d498502f7B67Ae699;
     address internal constant DEFAULT_URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
     address internal constant DEFAULT_GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
     address internal constant DEFAULT_OWNER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;

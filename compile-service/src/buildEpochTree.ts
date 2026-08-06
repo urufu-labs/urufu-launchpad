@@ -22,7 +22,11 @@ import { MerkleTree } from 'merkletreejs';
 import { keccak_256 } from '@noble/hashes/sha3';
 
 const RPC = 'https://rpc.mainnet.chain.robinhood.com';
-const VAULT: Address = '0x93CFF459d5019eEc82fE9335013e265F1eD659c7';
+// V8 NftRevenueVault (2026-08-05 fresh stack). Rotate here whenever the vault
+// moves; buildEpochTree writes the tree JSON that BroadcastFirstEpoch consumes
+// so a stale VAULT pin would build a proof set against a dead contract.
+const VAULT: Address = '0xAcd981FBBD32c5FAa837F1170E30449123106fb7';
+// gemu NFT is canonical (unchanged across V7 / V8 launchpad rotations).
 const NFT: Address = '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17';
 const NFT_DEPLOY_BLOCK = 18_349_000n;
 const CHAIN_ID = 4663;

@@ -70,6 +70,7 @@ fi
 NO_BROADCAST=0
 
 case "$SCRIPT" in
+  DeployFreshLocal|FreshLocal|Fresh)  TARGET="script/DeployFreshLocal.s.sol:DeployFreshLocal" ;;
   NameRegistry)       TARGET="script/DeployNameRegistry.s.sol:DeployNameRegistry" ;;
   V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
   Router|RouterV2)    TARGET="script/DeployRouter.s.sol:DeployRouter" ;;

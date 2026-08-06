@@ -124,11 +124,19 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
   base: null,
   'base-sepolia': null,
   robinhood: {
-    NameRegistry: '0x60b797f18292d941E72B2b59916C0afC1A81118C',
-    Router: '0x84C72d6882f10833bD4eBD7c45D4353FDf20B596',
-    FeeReceiver: '0x518DD310fAe76318eF56c04806c93861C8cC86CA',
-    ERC20Factory: '0x14c1f066b91760565d5eEc8Cf4696A4648b552F2',
-    ERC20TemplateImpl: '0x6722AC329bF4701C7d6A408bE387D083741C3719',
+    // V8 fresh stack, broadcast 2026-08-05.
+    // Source of truth: contracts/deployment-fresh.4663.json.
+    NameRegistry: '0x7e0f161398eeEa3C46f910f5ca4026a2892705a6',
+    Router: '0x9133E9323BD58b95a48a8171a5B451fd67c6BB98',
+    // FeeReceiver = FeeSplitter address (Router.feeReceiver returns it).
+    FeeReceiver: '0x013851d40ed7c2Ed1432bf33A9916CB19A4Dc93F',
+    ERC20Factory: '0x8Ba5e5D361625BDFBD33a7F5c48AD0A9857ABB31',
+    ERC20TemplateImpl: '0x87572Ba592f129f8052e3713c62a6A11D00762B1',
+    // ERC20With*Impl slots were NOT in the fresh V8 broadcast JSON — only the
+    // base ERC20Impl rotated. Slots below are the pre-V8 (V7) impls, pending
+    // clarification whether V8 preserves impl compatibility or a separate
+    // register-impls broadcast is coming. Do not treat any With* Impl below
+    // as authoritative for V8 until re-registered against the new factory.
     ERC20WithAntiBotImpl: '0x14b8132547d9e724Ce557F69897E66b9e699e64a',
     ERC20WithAntiWhaleImpl: '0xdD7c50BEb82b53F8FFa746dd85cc3BcDa43BabcD',
     ERC20WithFoTImpl: '0x19E133a55c45ce9195dd8F994C58dd97edff93BC',
@@ -137,7 +145,9 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC20WithVestingImpl: '0x203F3687dEf60bc54280b78E6fe0d66FD26Db731',
     ERC20WithStakingImpl: '0x4601B97eE914FDcd571546D48d6D5330B28928e4',
     ERC20WithVotesImpl: '0xf0a7AA9d95793DA05Ec07EAe5DDa23C1982AF0E8',
-    ERC721AFactory: '0xFDEAa36708a9Edc71692394c2C036A4336E5A9Fc',
+    ERC721AFactory: '0x7A9161E8276eBc1A8dB8B2D1408166ED2a6116F4',
+    // Same caveat as ERC20With* — ERC721A*Impl slots are pre-V8 pending
+    // impl-registration confirmation.
     ERC721ATemplateImpl: '0xb7b804F8dA3Be3F8159D5E1aE6c659a8e317ca78',
     ERC721AWithDelayedRevealImpl: '0x45C36c475D29c4aA46Cc50569A09b57e6BdD018d',
     ERC721AWithSvgImpl: '0xc7BB288008B1751D6F0b86897D614E52ECa38a60',
@@ -145,10 +155,12 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     ERC721AWithSvgAndRoyaltyImpl: '0xF018A077a59fD9a24e99B76D0a7d0780792eB1Ac',
     ERC721AWithSoulboundImpl: '0xE9FfA2B7Dc3b7012A4E919DA293E663ddfbFec9A',
     ERC721AWithRefundableImpl: '0x9cCD1f59543c4160B658233DaD0D197CFa964c2F',
-    ERC1155Factory: '0x0f16a0D9aEef54e2321Ea6Fa264d638130297597',
+    ERC1155Factory: '0x2A972aE7620baE1c561e7dA253d95Ca041baDafE',
+    // Same caveat as ERC20With* — ERC1155TemplateImpl is pre-V8 pending
+    // impl-registration confirmation.
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0x1c340f092c89d018d7F6410B0A418253FB522c70',
-    BondingCurveImpl: '0x5afcA487A9DB4728fb23B1b8A2f22931d49b5Aa9',
+    CurveFactory: '0xa7CbEec5E06E9AF964B86ce5094BDaeb39Bcceea',
+    BondingCurveImpl: '0x959eE7E330182BE7659cD41b6229e8573792803b',
   },
   'robinhood-testnet': null,
 };
@@ -187,12 +199,9 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // MHH (V8-final) — deployed with V8 Graduator as a matched pair after
-    // the V7 Graduator LP-math bug stranded 4 ETH. The MHH+Graduator pair
-    // was rotated together because MHH.setInitializer is one-shot-locked;
-    // fixing the graduator alone can't re-authorize the existing MHH.
-    // Paired with Graduator 0x0Db63b8Af346c5edabF79b16A236AEDA0428e712.
-    MultiHookHost: '0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4',
+    // MHH — V8 fresh stack, broadcast 2026-08-05 (mask 0x20C4 verified).
+    // Paired with Graduator 0x5d8270815CF5f0d99F1D854919959F49C41FE843.
+    MultiHookHost: '0xcb11Ab6723442f82f3B1016d1Ab96dD0342360c4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -205,12 +214,10 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  // Graduator V8-final — LP-math fix: opens pool at RAW REAL RATIO so both
-  // amounts absorbed fully (no stranded ETH). Also has owner + sweep()
-  // escape hatch. V7 Graduator (0x36234107…) has 4.003 ETH permanently
-  // stuck from the buggy math + no recovery function; do not point at it.
-  // Paired with MHH 0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4.
-  robinhood: '0x0Db63b8Af346c5edabF79b16A236AEDA0428e712',
+  // Graduator — V8 fresh stack, broadcast 2026-08-05. Retains V8-final LP-math
+  // fix (raw real ratio pricing) + owner + sweep() escape hatch.
+  // Paired with MHH 0xcb11Ab6723442f82f3B1016d1Ab96dD0342360c4.
+  robinhood: '0x5d8270815CF5f0d99F1D854919959F49C41FE843',
   'robinhood-testnet': null,
 };
 
@@ -222,7 +229,8 @@ export const V4_ROUTERS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0x6657e76803d3Bb000CFb68Af9C9587C4D9eF8288',
   'base-sepolia': '0x729844c9Cc23407BF400535B28F787344c3321c1',
-  robinhood: '0x2E4cd43C07879f52422B3e83F00Be877eFD88738',
+  // V4SwapRouter — V8 fresh stack, broadcast 2026-08-05.
+  robinhood: '0xb30c85F3D7Acdf75fd691a9d498502f7B67Ae699',
   'robinhood-testnet': null,
 };
 
@@ -245,12 +253,13 @@ export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
   base: null,
   'base-sepolia': null,
   robinhood: {
-    FeeSplitter: '0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA',
-    LoyaltyOracle: '0xd13A1fb6d9c209B56044464269fce66Ed417AC2E',
-    NftRevenueVault: '0x93CFF459d5019eEc82fE9335013e265F1eD659c7',
-    UruBuybackVault: '0x68c5Ec467027fCe56f158eB1ff34cF89d0929354',
-    RoyaltyRouterImpl: '0x4CAD1C5cFA9C20F3cfcC2C8881b4a9fdd63D20e3',
-    RoyaltyRouterFactory: '0x6309D5EcBbE9E2093D5b0f08AD86dDDa6988dB05',
+    // V8 fresh stack, broadcast 2026-08-05.
+    FeeSplitter: '0x013851d40ed7c2Ed1432bf33A9916CB19A4Dc93F',
+    LoyaltyOracle: '0x3B0B4e387f56EE69923691AF5C892754280f6142',
+    NftRevenueVault: '0xAcd981FBBD32c5FAa837F1170E30449123106fb7',
+    UruBuybackVault: '0xBb49dd406c68F51d28139CF9573325cC146b0eF5',
+    RoyaltyRouterImpl: '0xca128266FF3d8149b60B43cDe064046C174e5eB8',
+    RoyaltyRouterFactory: '0x5a004b113b33feD1D9cC71261a482b7E0E874490',
   },
   'robinhood-testnet': null,
 };
