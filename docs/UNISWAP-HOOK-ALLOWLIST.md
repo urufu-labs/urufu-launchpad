@@ -1,5 +1,8 @@
 # Uniswap v4 Hook Allowlist Submission — urufu labs `MultiHookHost`
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 Everything Uniswap's hook-review team asks for, in one place.
 
 > **STATE NOTE — read before submitting.** This doc pins the LIVE-DEPLOYED MHH at

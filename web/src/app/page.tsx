@@ -22,6 +22,7 @@ import { fetchRecentTrades, fetchRecentV4Swaps, type IndexerTrade, type IndexerV
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 
 // All tabs are curve-only now; the create page only launches curves (quick +
 // customizable, both fire installBondingCurve=true). The old 'direct mint' tab
@@ -53,6 +54,12 @@ function HomePageContent() {
   const chainId = CHAIN_KEY_TO_ID[activeChain];
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
+  // Layer-3 release gate — the "up to 50% off launch fees" callout in the
+  // right-rail flywheel card only shows when the on-chain loyalty wiring
+  // is verified live. Falls back to hiding the callout on unsupported
+  // chains / when RPC is down, so we never promise a specific % the
+  // frontend can't back with a live read.
+  const loyaltyReady = useLoyaltyDiscountReady();
 
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
@@ -437,18 +444,20 @@ function HomePageContent() {
                   <li><b style={{ color: 'var(--pink-hot)' }}>35%</b> urufu gemu nft holders</li>
                   <li><b style={{ color: 'var(--pink-hot)' }}>25%</b> treasury</li>
                 </ul>
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: 6,
-                    background: 'var(--yolk)',
-                    border: '1px solid var(--anchor)',
-                    fontSize: 10,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
-                </div>
+                {loyaltyReady.ready && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: 6,
+                      background: 'var(--yolk)',
+                      border: '1px solid var(--anchor)',
+                      fontSize: 10,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
+                  </div>
+                )}
                 {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
                     URU link opens Uniswap on Robinhood with the pre-selected outputCurrency
                     so the swap widget is pre-filled, no chain-picker fumbling. NFT link

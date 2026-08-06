@@ -1,5 +1,8 @@
 # SPEC — NameRegistry
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > Onchain source of truth for reserved token names and tickers. Every VM launch consults it before deploy. Immutable reservations, Router-gated writes, admin-owned reserved-list.
 
 **Status:** ✅ IMPLEMENTED. This document is the design-intent reference; the shipping contract is `contracts/src/registry/NameRegistry.sol` and covers everything below.

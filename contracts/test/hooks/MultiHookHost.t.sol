@@ -122,8 +122,11 @@ contract MultiHookHostTest is Test {
     // ---- setCreator: per-pool creator revenue ---------------------------------
 
     /// setCreator populates the `creators[poolId]` slot before the pool is initialized.
-    /// After beforeInitialize fires (stamps launchBlock), further setCreator calls for
-    /// that same poolId revert with ConfigFrozen — same freeze contract as setPoolConfig.
+    /// After beforeInitialize fires it stamps launchBlock AND freezes the
+    /// canonical `poolPolicy` (GH-9). The freeze check is ordered so the
+    /// canonical `PolicyFrozen(id)` selector wins over the legacy
+    /// `ConfigFrozen` — aggregators + auditors see the same selector that
+    /// documents the state.
     function test_SetCreator_StoresPerPoolAndFreezesAfterInit() public {
         PoolId id = _key().toId();
         assertEq(hook.creators(id), address(0));
@@ -139,7 +142,7 @@ contract MultiHookHostTest is Test {
         hook.beforeInitialize(graduator, _key(), 0);
 
         vm.prank(graduator);
-        vm.expectRevert(MultiHookHost.MultiHookHost__ConfigFrozen.selector);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__PolicyFrozen.selector, id));
         hook.setCreator(id, makeAddr("other"));
     }
 
@@ -330,5 +333,234 @@ contract MultiHookHostTest is Test {
         vm.prank(mockPM);
         vm.expectRevert(MultiHookHost.MultiHookHost__InitializerNotSet.selector);
         fresh.beforeInitialize(graduator, _key(), 0);
+    }
+
+    // =====================================================================
+    // GH-9: canonical on-chain PoolPolicy + HookPolicySet event
+    // =====================================================================
+    // Aggregators trust the auto-generated `poolPolicy(id)` accessor + the
+    // one-shot `HookPolicySet` event instead of stitching PoolConfigSet +
+    // CreatorSet + hook constants together. Every test below pins EXACT
+    // struct values and EXACT selectors — the auditor reads the struct
+    // layout and the pin, not a "state changed" claim.
+    // =====================================================================
+
+    /// AC #9: unqueried poolIds return the zero PoolPolicy tuple. Proves the
+    /// mapping accessor is safe to read for any id without producing false
+    /// positives on a launched-pool detector.
+    function test_PoolPolicy_UnknownPoolIdReturnsZero() public view {
+        PoolId unknown = PoolId.wrap(keccak256("no-such-pool"));
+        (
+            uint16 antiSniperBlocks,
+            uint16 buybackBurnBps,
+            uint16 platformFeeBps,
+            uint16 creatorFeeBps,
+            address creatorRecipient,
+            uint64 launchBlock,
+            bool immutableAfterLaunch
+        ) = hook.poolPolicy(unknown);
+        assertEq(antiSniperBlocks, uint16(0));
+        assertEq(buybackBurnBps, uint16(0));
+        assertEq(platformFeeBps, uint16(0));
+        assertEq(creatorFeeBps, uint16(0));
+        assertEq(creatorRecipient, address(0));
+        assertEq(launchBlock, uint64(0));
+        assertFalse(immutableAfterLaunch);
+    }
+
+    /// AC #1, #3, #4, #5: `beforeInitialize` emits HookPolicySet(id, policy)
+    /// exactly once, with policy fields matching the on-chain state at the
+    /// graduation block. `vm.expectEmit(true,true,true,true,mhh)` pins the
+    /// indexed topic AND the full struct data segment.
+    function test_BeforeInitialize_EmitsHookPolicySetWithExactStruct() public {
+        PoolId id = _key().toId();
+        uint16 anti = 42;
+        uint16 burn = 250;
+        vm.prank(graduator);
+        hook.setPoolConfig(id, uint32(anti), burn);
+        vm.prank(graduator);
+        hook.setCreator(id, launcher);
+
+        // Roll forward so the launchBlock captured in the event is a
+        // non-trivial, verifiable value (not the default `1` in tests).
+        vm.roll(123_456);
+
+        MultiHookHost.PoolPolicy memory expected = MultiHookHost.PoolPolicy({
+            antiSniperBlocks: anti,
+            buybackBurnBps: burn,
+            platformFeeBps: 100,
+            creatorFeeBps: 100,
+            creatorRecipient: launcher,
+            launchBlock: uint64(123_456),
+            immutableAfterLaunch: true
+        });
+
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit MultiHookHost.HookPolicySet(id, expected);
+
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+    }
+
+    /// AC #1, #2: after beforeInitialize the auto-generated `poolPolicy`
+    /// accessor returns the exact struct that was emitted. Positive side of
+    /// the state-change (paired with `test_PoolPolicy_UnknownPoolIdReturnsZero`
+    /// above as the negative side).
+    function test_PoolPolicy_MappingStoresExactStructAfterInit() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, uint32(7), uint16(500));
+        vm.prank(graduator);
+        hook.setCreator(id, launcher);
+        vm.roll(999);
+
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+
+        (
+            uint16 antiSniperBlocks,
+            uint16 buybackBurnBps,
+            uint16 platformFeeBps,
+            uint16 creatorFeeBps,
+            address creatorRecipient,
+            uint64 launchBlock,
+            bool immutableAfterLaunch
+        ) = hook.poolPolicy(id);
+        assertEq(antiSniperBlocks, uint16(7));
+        assertEq(buybackBurnBps, uint16(500));
+        assertEq(platformFeeBps, uint16(100));
+        assertEq(creatorFeeBps, uint16(100));
+        assertEq(creatorRecipient, launcher);
+        assertEq(launchBlock, uint64(999));
+        assertTrue(immutableAfterLaunch);
+    }
+
+    /// AC #5: pre-init the policy is not `immutableAfterLaunch`. Split from
+    /// the positive test above so each state (unfrozen -> frozen) has its
+    /// own assertion pair rather than one test conflating both.
+    function test_PoolPolicy_NotFrozenBeforeInit() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, uint32(7), uint16(500));
+        vm.prank(graduator);
+        hook.setCreator(id, launcher);
+
+        (,,,,, uint64 launchBlock, bool immutableAfterLaunch) = hook.poolPolicy(id);
+        assertEq(launchBlock, uint64(0), "launchBlock must be unset pre-init");
+        assertFalse(immutableAfterLaunch, "policy must be mutable pre-init");
+    }
+
+    /// AC #4: launchBlock in the emitted + stored policy equals
+    /// `block.number` at the moment of graduation. Rolls between setter
+    /// calls and beforeInitialize to prove the stamp captures the init
+    /// block, not the setter block.
+    function test_PoolPolicy_LaunchBlockEqualsBlockNumberAtInit() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, 0, 0);
+        // Advance BETWEEN setter and init to guarantee the stamp came from
+        // beforeInitialize and not from any earlier setter call.
+        vm.roll(block.number + 50);
+        uint256 initBlock = block.number;
+
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+
+        (,,,,, uint64 launchBlock,) = hook.poolPolicy(id);
+        assertEq(launchBlock, uint64(initBlock));
+    }
+
+    /// AC #6: after graduation, `setPoolConfig` reverts with the canonical
+    /// `PolicyFrozen(id)` selector — the frozen-policy signal wins over the
+    /// legacy `ConfigFrozen` so aggregators + auditors read one selector.
+    function test_SetPoolConfig_RevertsPolicyFrozenAfterInit() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, uint32(5), uint16(200));
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+
+        vm.prank(graduator);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__PolicyFrozen.selector, id));
+        hook.setPoolConfig(id, uint32(9), uint16(300));
+    }
+
+    /// AC #6 sibling: `setCreator` reverts the same selector after init.
+    /// (The parent `test_SetCreator_StoresPerPoolAndFreezesAfterInit`
+    /// above covers this path too; keeping this shorter test around so a
+    /// regression in setCreator alone surfaces without the composite
+    /// scenario clouding the signal.)
+    function test_SetCreator_RevertsPolicyFrozenAfterInit() public {
+        PoolId id = _key().toId();
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+
+        vm.prank(graduator);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__PolicyFrozen.selector, id));
+        hook.setCreator(id, makeAddr("post-launch-plant"));
+    }
+
+    /// AC #7: pre-graduation writes to `poolPolicy` via the initializer are
+    /// permitted. Modeled as: `setPoolConfig(id, ...)` from the wired
+    /// initializer succeeds (state changes are visible on the legacy
+    /// PoolConfig accessor) BEFORE any beforeInitialize call has fired.
+    function test_PoolPolicy_InitializerCanWritePreGraduation() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, uint32(11), uint16(750));
+        (, uint32 storedAnti, uint16 storedBurn) = hook.poolConfig(id);
+        assertEq(storedAnti, uint32(11));
+        assertEq(storedBurn, uint16(750));
+
+        vm.prank(graduator);
+        hook.setCreator(id, launcher);
+        assertEq(hook.creators(id), launcher);
+        // Pre-init the canonical policy has not been stamped yet.
+        (,,,,,, bool frozen) = hook.poolPolicy(id);
+        assertFalse(frozen, "policy must not be frozen before init");
+    }
+
+    /// AC #8: unauthorized callers cannot write pre-graduation either. This
+    /// duplicates coverage from `test_SetPoolConfig_RevertsFromUnauthorizedCaller`
+    /// + `test_SetCreator_RevertsFromUnauthorizedCaller` above but frames
+    /// the pin in the GH-9 policy vocabulary so the auditor can trace both
+    /// the write path AND the freeze path from one linked pair of tests.
+    function test_PoolPolicy_UnauthorizedCannotWritePreGraduation() public {
+        PoolId id = _key().toId();
+        vm.prank(swapper);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__NotInitializer.selector, swapper));
+        hook.setPoolConfig(id, uint32(1), uint16(1));
+
+        vm.prank(swapper);
+        vm.expectRevert(abi.encodeWithSelector(MultiHookHost.MultiHookHost__NotInitializer.selector, swapper));
+        hook.setCreator(id, launcher);
+    }
+
+    /// A pool that skipped `setCreator` still emits a policy — the
+    /// creatorRecipient falls back to the constructor `creator`, mirroring
+    /// what `afterSwap` will actually credit. Aggregators must see the
+    /// resolved recipient, not `address(0)`.
+    function test_HookPolicySet_CreatorRecipientFallback() public {
+        PoolId id = _key().toId();
+        vm.prank(graduator);
+        hook.setPoolConfig(id, 0, 0);
+
+        MultiHookHost.PoolPolicy memory expected = MultiHookHost.PoolPolicy({
+            antiSniperBlocks: 0,
+            buybackBurnBps: 0,
+            platformFeeBps: 100,
+            creatorFeeBps: 100,
+            creatorRecipient: creator, // constructor fallback
+            launchBlock: uint64(block.number),
+            immutableAfterLaunch: true
+        });
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit MultiHookHost.HookPolicySet(id, expected);
+
+        vm.prank(mockPM);
+        hook.beforeInitialize(graduator, _key(), 0);
+
+        (,,,, address recipient,,) = hook.poolPolicy(id);
+        assertEq(recipient, creator, "fallback creator not written to poolPolicy");
     }
 }

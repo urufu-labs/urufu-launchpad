@@ -7,7 +7,7 @@ import { eq } from '@ponder/core';
 import {
   launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers,
   wlPurchases, wlClaims,
-  hookConfigs, hookFees, hookFeeClaims, hookBurns,
+  hookConfigs, hookFees, hookFeeClaims, hookBurns, poolPolicy,
   flywheelReceipts, flywheelDistributions,
   uruBuybacks, uruSinkDeposits, uruSinkConversions,
 } from '../ponder.schema.ts';
@@ -106,8 +106,18 @@ ponder.on('Router:Launched', async ({ event, context }) => {
     configHash: deployed?.configHash ?? ('0x' as `0x${string}`),
     impl: deployed?.impl ?? null,
     feePaid,
+    // GH-13: `installedHook` / `installedGovernance` are the LEGACY column
+    // names — they carry the launcher's REQUESTED flags. `requestedHook` /
+    // `requestedGovernance` are the honest-named columns for the same event
+    // data; the REST /api/launches/:token endpoint additionally derives a
+    // separate `installedHook` from on-chain state (poolPolicy row exists +
+    // immutableAfterLaunch=true) to distinguish "asked for a hook" from
+    // "MHH actually initialized this pool". Dual-write here keeps every
+    // existing GraphQL consumer unchanged while unblocking the disambiguation.
     installedHook,
     installedGovernance,
+    requestedHook: installedHook,
+    requestedGovernance: installedGovernance,
     // If the curve was installed atomically (Router.launch with installBondingCurve=true),
     // its CurveInitialized/CurveCreated events fired earlier in this same tx and buffered
     // the address into pendingCurve. Standalone CurveFactory.createCurve() after launch
@@ -783,6 +793,48 @@ ponder.on('MultiHookHost:BuybackBurned', async ({ event, context }) => {
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
+});
+
+/// GH-13: HookPolicySet fires exactly once per pool, atomically inside
+/// `MHH.beforeInitialize` (which the Graduator calls at graduation). The event
+/// carries the fully-populated `PoolPolicy` struct — every knob an aggregator
+/// needs to render the pool's rules without re-deriving them from constructor
+/// immutables + separate config events. Post-launch the on-chain struct is
+/// frozen (`immutableAfterLaunch = true`, any further write reverts
+/// `MultiHookHost__PolicyFrozen`), so this row's data matches on-chain state
+/// indefinitely. Handler is upsert-idempotent as a defence in case Ponder
+/// re-processes the historical block during a re-sync.
+ponder.on('MultiHookHost:HookPolicySet', async ({ event, context }) => {
+  const { poolId, policy } = event.args;
+  const chainId = chainIdOf(context);
+  const id = `${chainId}-${poolId}`;
+  const values = {
+    id,
+    chainId,
+    poolId,
+    hookAddress: event.log.address,
+    // uint16 struct fields decode as `number` in viem; cast defensively to keep
+    // the ponder integer column happy even if abitype ever widens them.
+    antiSniperBlocks: Number(policy.antiSniperBlocks),
+    buybackBurnBps: Number(policy.buybackBurnBps),
+    platformFeeBps: Number(policy.platformFeeBps),
+    creatorFeeBps: Number(policy.creatorFeeBps),
+    creatorRecipient: policy.creatorRecipient,
+    // uint64 decodes as `bigint` — carry through unchanged.
+    launchBlock: policy.launchBlock,
+    immutableAfterLaunch: policy.immutableAfterLaunch,
+    emittedAtBlock: event.block.number,
+    emittedAtTxHash: event.transaction.hash,
+  };
+  const existing = await context.db.find(poolPolicy, { id });
+  if (existing) {
+    // The on-chain struct is frozen, so re-emission would only happen on a
+    // Ponder cache invalidation / re-sync. Overwrite with the same values
+    // to keep the row deterministic per event.
+    await context.db.update(poolPolicy, { id }).set(values);
+  } else {
+    await context.db.insert(poolPolicy).values(values).onConflictDoNothing();
+  }
 });
 
 /// PoolConfigSet fires on both initial config AND updates — we upsert (insert

@@ -1,5 +1,10 @@
 # HANDOFF — for Claude Code
 
+> **Status:** historical
+> _last updated: 2026-08-05_
+>
+> This document was written pre-launch under the "VM / Vending Machine" codename. Kept for reference. Current handoff is `README.md` + `docs/LAUNCHPAD-FULL-SCOPE.md`.
+
 > This document tells Claude Code (or any next dev) everything they need to keep building VM. Read `PLAN.md` first for the "why" and "when." This document is the "how."
 
 ---

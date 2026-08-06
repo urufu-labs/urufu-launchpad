@@ -1,5 +1,10 @@
 # VENDING MACHINE — PROJECT PLAN
 
+> **Status:** historical
+> _last updated: 2026-08-05_
+>
+> Pre-launch plan under the "VM / Vending Machine" codename (later shipped as "urufu labs"). Kept for reference. Current scope reference is `docs/LAUNCHPAD-FULL-SCOPE.md`.
+
 > Codename: **VM** (pending final brand)
 > Solo build. Mainnet first. Full v4 hook v1. ~6–8 months to public launch.
 

@@ -1,5 +1,10 @@
 # TODO — Vending Machine
 
+> **Status:** historical
+> _last updated: 2026-08-05_
+>
+> Pre-launch punchlist under the "VM" codename. VM-### IDs retired per `docs/decisions/log.md` (2026-07-02 entry). Current in-flight work tracked in GitHub issues.
+
 > Punchlist. Ordered. Checkbox-only. Reference by ID (`VM-###`).
 > Update after each work session. Move completed items to `docs/decisions/log.md` with date.
 

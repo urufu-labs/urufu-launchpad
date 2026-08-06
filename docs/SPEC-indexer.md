@@ -1,5 +1,8 @@
 # SPEC — Indexer (Ponder)
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > Real-time indexing of every Launch, Trade, Graduation, and CurveInstalled event. Powers the
 > live feed on `/discover` and the trade page's chart + recent-trades list. Falls back to
 > client-side `getLogs` when the indexer is unreachable so the app degrades gracefully.

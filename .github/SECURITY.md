@@ -1,5 +1,8 @@
 # Security posture
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 Where we sit on the risk gradient today, what's been checked, and what a real production launch still needs.
 
 ## Reporting a vulnerability

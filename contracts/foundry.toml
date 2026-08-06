@@ -66,7 +66,7 @@ runs = 10_000
 runs = 1_024
 depth = 64
 
-# Formatting rules — match HANDOFF.md §Solidity style.
+# Formatting rules — match docs/archive/HANDOFF.md §Solidity style.
 [fmt]
 bracket_spacing = false
 int_types = "long"

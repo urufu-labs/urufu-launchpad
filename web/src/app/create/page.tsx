@@ -54,6 +54,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 
 type OwnershipMode = 'Renounce' | 'TransferToMultisig' | 'KeepEOA';
 const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
@@ -509,6 +510,15 @@ function CreatePageContent() {
     if (gross === 0n) return 0;
     return Number(((gross - net) * 10_000n) / gross);
   }, [grossQuote.data, discountedQuote.data]);
+  // Layer-3 release gate — the receipt "loyalty discount: -N%" line only
+  // renders when the on-chain loyalty wiring is verified live. The router
+  // still charges the discounted quote either way (quoteFor is what we
+  // pay and simulate against), so degrading here is purely a copy safety
+  // measure: we never advertise a specific % that isn't backed by live
+  // read. If ready is false the receipt falls back to the plain net
+  // total with no strikethrough / no callout — same UX as an unconnected
+  // wallet or a chain without loyalty wiring.
+  const loyaltyReady = useLoyaltyDiscountReady();
 
   // Live fee schedule — the receipt breakdown reads from these so the display always
   // matches what Router.quote() actually charges, even after owner-side setFee /
@@ -1737,7 +1747,7 @@ function CreatePageContent() {
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
                 <li>✿ base fee: {formatEther(feeSchedule.base)} ETH</li>
                 <li>✿ module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
-                {discountBps > 0 && grossQuote.data && (
+                {loyaltyReady.ready && discountBps > 0 && grossQuote.data && (
                   <>
                     <li style={{ marginTop: 4, color: 'var(--anchor-soft)', textDecoration: 'line-through' }}>
                       subtotal: {formatEther(grossQuote.data as bigint)} ETH

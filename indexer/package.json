@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ponder dev",
     "start": "ponder start",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint 'src/**/*.ts'"
   },

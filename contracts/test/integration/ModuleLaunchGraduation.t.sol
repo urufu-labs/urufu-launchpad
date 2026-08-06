@@ -39,6 +39,8 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
+import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
+
 interface IERC20Min {
     function balanceOf(
         address
@@ -175,10 +177,23 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
     }
 
     /// Buy to graduation, confirm the pool opened, then round-trip a swap.
+    ///
+    /// GH-9 (AC #10): every test that reaches graduation via this helper
+    /// automatically inherits the HookPolicySet + `poolPolicy` assertions.
+    /// The canonical policy MUST be frozen with the exact fee bps the hook
+    /// was constructed with, the exact per-pool antiSniperBlocks /
+    /// buybackBurnBps written pre-init, launchBlock == the graduation-tx
+    /// block, `immutableAfterLaunch = true`, and a non-zero creatorRecipient
+    /// (either the per-pool launcher or the constructor fallback).
     function _graduateAndSwap(
         address token,
         BondingCurve curve
     ) internal {
+        // Capture the graduation block up front. `_driveToGraduation` does
+        // NOT vm.roll between iterations, so every buy — including the one
+        // that flips `graduated` — lands at THIS block. That's the block
+        // beforeInitialize will stamp into `poolPolicy.launchBlock`.
+        uint256 expectedLaunchBlock = block.number;
         _driveToGraduation(curve);
 
         // FINDING 6 round 2: residual dust is now credited to the launcher's
@@ -191,6 +206,33 @@ contract ModuleLaunchGraduationTest is LocalV4Stack {
         (uint160 sqrtPriceX96,,,) = ipm.getSlot0(id);
         assertGt(sqrtPriceX96, 0, "v4 pool not initialized");
         assertGt(ipm.getLiquidity(id), 0, "v4 pool has no liquidity");
+
+        // GH-9: assert the canonical PoolPolicy was written + frozen with
+        // the exact values a downstream indexer would need. Reads the same
+        // fields the HookPolicySet event carried (see `test/audit/
+        // HookPolicyOnGraduation.t.sol` for the event-topic pin — kept
+        // separate so this helper stays cheap for the 20+ graduation tests
+        // that invoke it).
+        (
+            uint16 antiSniperBlocks,
+            uint16 buybackBurnBps,
+            uint16 platformFeeBps,
+            uint16 creatorFeeBps,
+            address creatorRecipient,
+            uint64 launchBlock,
+            bool immutableAfterLaunch
+        ) = mhh.poolPolicy(id);
+        assertTrue(immutableAfterLaunch, "GH-9: poolPolicy not frozen post-graduation");
+        assertEq(uint256(launchBlock), expectedLaunchBlock, "GH-9: launchBlock != graduation block");
+        assertEq(platformFeeBps, mhh.platformBps(), "GH-9: platformFeeBps drifted from hook constant");
+        assertEq(creatorFeeBps, mhh.creatorBps(), "GH-9: creatorFeeBps drifted from hook constant");
+        assertTrue(creatorRecipient != address(0), "GH-9: creatorRecipient must resolve to a real address");
+        // The per-pool anti-sniper + burn values in the emitted policy must
+        // agree with the legacy PoolConfig — both are written from the same
+        // Graduator flow, and drift between them would be a real bug.
+        (, uint32 legacyAnti, uint16 legacyBurn) = mhh.poolConfig(id);
+        assertEq(uint256(antiSniperBlocks), uint256(legacyAnti), "GH-9: antiSniperBlocks divergence");
+        assertEq(uint256(buybackBurnBps), uint256(legacyBurn), "GH-9: buybackBurnBps divergence");
 
         PoolKey memory key = _poolKeyFor(token);
         vm.prank(trader);

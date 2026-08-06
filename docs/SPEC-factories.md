@@ -1,5 +1,8 @@
 # SPEC — Factories
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > One factory per base type. Router → Factory → clone. Factories maintain a registry of per-config impls, deploy new impls when a config first appears, and produce cheap cloned launches thereafter. CREATE2 salt is msg.sender-mixed to prevent front-mining.
 
 **Status:** ✅ IMPLEMENTED. Three factories shipping, one per base type. 33 curated impls registered by `DeployPhase1`.

@@ -1,5 +1,8 @@
 # Audit remediation patch coverage
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 Baseline: PR #1 head `0b983499e8af93c95434d84e23eb106d46b5e0d5`.
 
 This file is intentionally strict: a finding is not marked closed merely

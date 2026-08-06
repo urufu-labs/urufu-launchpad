@@ -1,5 +1,8 @@
 # Audit prep — formal invariants + threat model per contract
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > Handoff document for external auditors. One page per critical contract with the exact
 > properties it must maintain, the threat model I've considered, and what my own tests
 > already cover. Read this alongside `.github/SECURITY.md` (triage of Slither findings) and

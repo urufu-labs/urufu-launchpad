@@ -79,6 +79,13 @@ contract MultiHookHost is BaseHook {
     /// URU-A12: launcher-supplied antiSniperBlocks exceeds the hook's cap. A
     /// direct MHH call could otherwise lock a pool's swaps for years.
     error MultiHookHost__AntiSniperTooLong(uint32 provided, uint32 maximum);
+    /// GH-9: post-launch attempt to mutate a pool's canonical `poolPolicy`.
+    /// The policy is populated + `immutableAfterLaunch`-stamped once, at
+    /// `beforeInitialize`; every subsequent write path (including the
+    /// initializer's own `setPoolConfig` / `setCreator`) fails closed here
+    /// so aggregators can trust the on-chain struct without watching for
+    /// silent rewrites.
+    error MultiHookHost__PolicyFrozen(PoolId poolId);
     /// URU-P1-M04: buyback-burn is token-denominated. On an exact-output BUY
     /// the unspecified side is ETH input, so applying `buybackBurnBps` there
     /// would silently destroy ETH while claiming token supply was burned.
@@ -90,6 +97,12 @@ contract MultiHookHost is BaseHook {
     event CreatorSet(PoolId indexed poolId, address indexed creator);
     event InitializerSet(address indexed initializer);
     event BuybackBurned(Currency indexed currency, uint256 amount);
+    /// GH-9: canonical per-pool policy emitted exactly once, at the block a
+    /// pool is initialized through this hook. Aggregators / block explorers
+    /// index this instead of stitching PoolConfigSet + CreatorSet + hook
+    /// constants together, and the paired `poolPolicy(poolId)` accessor lets
+    /// them verify the emitted values on-chain without trusting the log.
+    event HookPolicySet(PoolId indexed poolId, PoolPolicy policy);
 
     /// Chain-wide caps.
     uint16 public constant MAX_TOTAL_BPS = 3000; // fee-redirect total (platform + creator)
@@ -122,6 +135,39 @@ contract MultiHookHost is BaseHook {
     }
 
     mapping(PoolId => PoolConfig) public poolConfig;
+
+    /// GH-9: canonical per-pool policy consumed by external indexers.
+    ///
+    /// The existing `PoolConfig` struct is optimized for hot-path reads inside
+    /// `beforeSwap` / `afterSwap` — it stores only the fields those callbacks
+    /// need. `PoolPolicy` is the OTHER shape: an aggregator-facing snapshot of
+    /// every knob a downstream tool needs to render "this pool's rules" without
+    /// re-deriving them from constructor immutables + separate events.
+    ///
+    /// Field order + widths are load-bearing (auditor-visible): types match the
+    /// GH-9 spec so the on-chain layout maps 1:1 to the struct in the
+    /// aggregator's ABI. Widths were chosen to pack the struct into two
+    /// storage slots:
+    ///   Slot 0: 4x uint16 (8B) + address (20B) = 28B
+    ///   Slot 1: uint64 (8B) + bool (1B) = 9B
+    /// `antiSniperBlocks` is narrowed from the internal `uint32` because
+    /// `MAX_ANTI_SNIPER_BLOCKS = 7200` fits safely in a `uint16`. `launchBlock`
+    /// is widened from the internal `uint32` because uint16 would overflow
+    /// well before mainnet block heights do and the spec asks for uint64.
+    struct PoolPolicy {
+        uint16 antiSniperBlocks;
+        uint16 buybackBurnBps;
+        uint16 platformFeeBps;
+        uint16 creatorFeeBps;
+        address creatorRecipient;
+        uint64 launchBlock;
+        bool immutableAfterLaunch; // frozen once launchBlock is set
+    }
+
+    /// Populated at graduation-time `beforeInitialize`. `poolPolicy(unknownId)`
+    /// returns the zero struct — the auto-generated tuple accessor is what
+    /// aggregators read.
+    mapping(PoolId => PoolPolicy) public poolPolicy;
 
     /// Wallet allowed to call `setInitializer` exactly once. Stamped at deploy time
     /// and never changes. Not an admin key — after `setInitializer` fires the
@@ -207,6 +253,11 @@ contract MultiHookHost is BaseHook {
         uint16 buybackBurnBps
     ) external {
         if (msg.sender != initializer) revert MultiHookHost__NotInitializer(msg.sender);
+        // GH-9: the canonical `poolPolicy` freeze must reject writes here
+        // too, or an initializer that survived a re-wire could mutate the
+        // legacy PoolConfig while `poolPolicy` continued to report the old
+        // (frozen) values to indexers. Fail closed on either freeze.
+        if (poolPolicy[id].immutableAfterLaunch) revert MultiHookHost__PolicyFrozen(id);
         if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
         if (antiSniperBlocks > MAX_ANTI_SNIPER_BLOCKS) {
             revert MultiHookHost__AntiSniperTooLong(antiSniperBlocks, MAX_ANTI_SNIPER_BLOCKS);
@@ -225,6 +276,9 @@ contract MultiHookHost is BaseHook {
         address _creator
     ) external {
         if (msg.sender != initializer) revert MultiHookHost__NotInitializer(msg.sender);
+        // GH-9: same rationale as `setPoolConfig` — the canonical policy
+        // freeze subsumes the legacy `ConfigFrozen` check post-launch.
+        if (poolPolicy[id].immutableAfterLaunch) revert MultiHookHost__PolicyFrozen(id);
         if (poolConfig[id].launchBlock != 0) revert MultiHookHost__ConfigFrozen();
         if (_creator == address(0)) revert MultiHookHost__ZeroAddress();
         creators[id] = _creator;
@@ -250,7 +304,34 @@ contract MultiHookHost is BaseHook {
         address auth = initializer;
         if (auth == address(0)) revert MultiHookHost__InitializerNotSet();
         if (sender != auth) revert MultiHookHost__UnauthorizedInitializer(sender);
-        poolConfig[key.toId()].launchBlock = uint32(block.number);
+        PoolId id = key.toId();
+        PoolConfig storage cfg = poolConfig[id];
+        cfg.launchBlock = uint32(block.number);
+
+        // GH-9: stamp + emit the canonical `PoolPolicy` in the same call the
+        // legacy `PoolConfig.launchBlock` freezes. Fee bps come from the
+        // constructor immutables (chain-wide), the per-pool knobs come from
+        // whatever the Graduator wrote via `setPoolConfig` + `setCreator`.
+        // `setPoolConfig` caps antiSniperBlocks at MAX_ANTI_SNIPER_BLOCKS (=
+        // 7200), so the uint32 -> uint16 cast is provably lossless — a hostile
+        // Graduator that skipped the setter cannot land a wider value here
+        // because `beforeInitialize` reverts unless the sender is the wired
+        // initializer, and every real initializer flow calls `setPoolConfig`
+        // first (which enforces the cap).
+        address recipient = creators[id];
+        if (recipient == address(0)) recipient = creator;
+        PoolPolicy memory p = PoolPolicy({
+            antiSniperBlocks: uint16(cfg.antiSniperBlocks),
+            buybackBurnBps: cfg.buybackBurnBps,
+            platformFeeBps: platformBps,
+            creatorFeeBps: creatorBps,
+            creatorRecipient: recipient,
+            launchBlock: uint64(block.number),
+            immutableAfterLaunch: true
+        });
+        poolPolicy[id] = p;
+        emit HookPolicySet(id, p);
+
         return this.beforeInitialize.selector;
     }
 

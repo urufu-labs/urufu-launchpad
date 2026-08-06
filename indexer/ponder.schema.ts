@@ -15,8 +15,22 @@ export const launches = onchainTable('launches', (t) => ({
   configHash: t.hex().notNull(),
   impl: t.hex(),                                   // set from factory.Deployed correlated event
   feePaid: t.bigint().notNull(),
+  /// GH-13 field cleanup — the Router `Launched` event's `installedHook` /
+  /// `installedGovernance` flags describe what the launcher REQUESTED, not what
+  /// is factually on-chain post-launch. The legacy columns below are kept as-is
+  /// so existing GraphQL consumers (web/) keep working; the new `requestedHook`
+  /// / `requestedGovernance` columns are the honest names for the same event
+  /// data, and the REST `/api/launches/:token` endpoint additionally exposes an
+  /// `installedHook` field derived from on-chain state (a `poolPolicy` row
+  /// exists for the token's pool AND `immutableAfterLaunch == true`, both of
+  /// which happen atomically inside MHH.beforeInitialize when the wired
+  /// initializer opens the pool). Dual-write keeps every consumer happy —
+  /// legacy queries see the same field, new consumers get the disambiguated
+  /// pair through the REST layer.
   installedHook: t.boolean().notNull(),
   installedGovernance: t.boolean().notNull(),
+  requestedHook: t.boolean().notNull().default(false),
+  requestedGovernance: t.boolean().notNull().default(false),
   installedBondingCurve: t.boolean().notNull(),    // set from Router:CurveInstalled event
   curveAddress: t.hex(),                           // populated when a bonding curve is installed
   /// "ETH" (default) or "URU" — set to "URU" by Router:LaunchedInURU handler for URU-paid
@@ -226,6 +240,33 @@ export const hookConfigs = onchainTable('hook_configs', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+/// GH-13: aggregator-facing per-pool policy snapshot. One row per (chain,
+/// poolId) — populated exactly once by the MHH.HookPolicySet event that fires
+/// atomically inside `beforeInitialize`. Post-launch the on-chain struct is
+/// frozen (any second write reverts `MultiHookHost__PolicyFrozen(poolId)`), so
+/// this row's data matches on-chain state indefinitely.
+///
+/// Aggregators / block explorers consume this table (or its GraphQL projection
+/// + the REST `/api/launches/:token` launch-card) instead of stitching
+/// PoolConfigSet + CreatorSet + hook constants together. All eight struct
+/// fields from `MultiHookHost.PoolPolicy` are stored 1:1 so the schema maps
+/// straight onto the on-chain ABI.
+export const poolPolicy = onchainTable('pool_policy', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${poolId}`
+  chainId: t.integer().notNull(),
+  poolId: t.hex().notNull(),
+  hookAddress: t.hex().notNull(),                  // the MHH that emitted this event
+  antiSniperBlocks: t.integer().notNull(),         // uint16 on-chain, safe in JS integer
+  buybackBurnBps: t.integer().notNull(),           // uint16
+  platformFeeBps: t.integer().notNull(),           // uint16
+  creatorFeeBps: t.integer().notNull(),            // uint16
+  creatorRecipient: t.hex().notNull(),             // address; 0x0 means the constructor fallback creator
+  launchBlock: t.bigint().notNull(),               // uint64 on-chain; bigint here to survive the widening
+  immutableAfterLaunch: t.boolean().notNull(),     // always true when this row exists — the flag is what freezes further writes
+  emittedAtBlock: t.bigint().notNull(),            // block that emitted HookPolicySet — matches launchBlock in practice
+  emittedAtTxHash: t.hex().notNull(),
+}));
+
 /// Per-currency running fee accrual on a MultiHookHost. Every FeeAccrued event
 /// splits the swap fee into a platform share (routed to FeeSplitter) and a
 /// creator share (claimable via FeeClaimed).
@@ -376,5 +417,25 @@ export const transfersRelations = relations(transfers, ({ one }) => ({
   launch: one(launches, {
     fields: [transfers.tokenAddress],
     references: [launches.tokenAddress],
+  }),
+}));
+
+/// GH-13: relate a poolPolicy row to the graduation that opened its pool. Join
+/// key is v4 `poolId` — set on the graduations row at Graduated-event time from
+/// `computeV4PoolId(token, hookHost)` so the REST launch-card can hop
+/// `launches → curves → graduations → poolPolicy` without knowing the poolId
+/// directly. `one()` on both sides because a poolId is unique per graduated
+/// token AND unique per policy row.
+export const graduationsRelations = relations(graduations, ({ one }) => ({
+  policy: one(poolPolicy, {
+    fields: [graduations.poolId],
+    references: [poolPolicy.poolId],
+  }),
+}));
+
+export const poolPolicyRelations = relations(poolPolicy, ({ one }) => ({
+  graduation: one(graduations, {
+    fields: [poolPolicy.poolId],
+    references: [graduations.poolId],
   }),
 }));

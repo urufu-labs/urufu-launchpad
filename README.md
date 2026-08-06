@@ -4,6 +4,9 @@
 
 # ✿ urufu launchpad ✿
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 ⌒ the composable token launchpad ⌒  
 _pick a base, stack modules, deploy in one transaction_
 

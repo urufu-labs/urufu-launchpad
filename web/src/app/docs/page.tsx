@@ -7,6 +7,7 @@
 import Link from 'next/link';
 
 import { Mascot } from '@/components/Mascot';
+import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 
 type Section = { id: string; label: string; jp: string };
 
@@ -25,6 +26,13 @@ const SECTIONS: Section[] = [
 ];
 
 export default function DocsPage() {
+  // Layer-3 release gate — every hardcoded discount tier % below (20 / 40 /
+  // 50) only renders when the on-chain loyalty wiring is verified live on
+  // the connected chain. If ready is false the tier tables are replaced
+  // with a plain-language placeholder pointing users at the profile page
+  // for the live tier value. No specific % ever shows without a
+  // corresponding on-chain read having succeeded within the last 30s.
+  const loyaltyReady = useLoyaltyDiscountReady();
   return (
     <div className="mx-auto max-w-4xl px-3 sm:px-4 py-4">
       {/* ================================================================
@@ -113,7 +121,9 @@ export default function DocsPage() {
             <li><b>LP is math-locked forever</b> post-graduation. no rugs, no vampire attacks, no team-triggered removals.</li>
             <li><b>urufu flywheel</b>: 35% of every trade fee airdrops to urufu gemu NFT holders as ETH, 40% buys back URU on market.</li>
             <li><b>snapshot whitelists</b>: point at any existing token, we hash its holders into a merkle root. no CSV uploads, no manual lists.</li>
-            <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
+            {loyaltyReady.ready && (
+              <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
+            )}
             <li><b>name + ticker are globally unique</b> via the on-chain registry, so copycat bots can&apos;t front-run ur brand.</li>
           </ul>
         </Callout>
@@ -225,20 +235,27 @@ export default function DocsPage() {
           discount. this is the loyalty flywheel: holders launch cheaper, and the URU they
           pay goes right back into the buyback vault that supports the URU price.
         </p>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
-            <li>
-              <b>hold ≥ 100,000 URU:</b> 40% off launch fee (threshold on-chain,
-              tunable by owner)
-            </li>
-            <li><b>hold ≥ 1 urufu gemu NFT:</b> 20% off launch fee</li>
-            <li>
-              <b>hold both:</b> 50% off (capped, not the naive 60% because we max at 50%)
-            </li>
-            <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
-          </ul>
-        </div>
+        {loyaltyReady.ready ? (
+          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
+            <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
+              <li>
+                <b>hold ≥ 100,000 URU:</b> 40% off launch fee (threshold on-chain,
+                tunable by owner)
+              </li>
+              <li><b>hold ≥ 1 urufu gemu NFT:</b> 20% off launch fee</li>
+              <li>
+                <b>hold both:</b> 50% off (capped, not the naive 60% because we max at 50%)
+              </li>
+              <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
+            </ul>
+          </div>
+        ) : (
+          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)', fontSize: 13, lineHeight: 1.6, opacity: 0.85 }}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
+            loyalty discounts loading ~ live tiers show up once wallet + chain are connected.
+          </div>
+        )}
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how the URU flows</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
@@ -347,14 +364,21 @@ export default function DocsPage() {
           </ul>
         </div>
 
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>hold ≥ 1 urufu gemu nft → <b>20% off</b></li>
-            <li>hold ≥ 100,000 URU → <b>40% off</b></li>
-            <li>hold both → <b>50% off</b> (capped)</li>
-          </ul>
-        </div>
+        {loyaltyReady.ready ? (
+          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
+            <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+              <li>hold ≥ 1 urufu gemu nft → <b>20% off</b></li>
+              <li>hold ≥ 100,000 URU → <b>40% off</b></li>
+              <li>hold both → <b>50% off</b> (capped)</li>
+            </ul>
+          </div>
+        ) : (
+          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)', fontSize: 12, opacity: 0.85 }}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
+            loyalty discounts loading ~ connect a wallet on a supported chain to see live tiers.
+          </div>
+        )}
 
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ trade fee (paid per swap)</div>

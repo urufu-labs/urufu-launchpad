@@ -1,5 +1,8 @@
 # Decision log
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 Chronological, one entry per significant milestone or shift. Newest at top.
 Complements per-decision ADRs in `docs/decisions/ADR-*` — this is the per-session narrative.
 
@@ -30,7 +33,7 @@ Complements per-decision ADRs in `docs/decisions/ADR-*` — this is the per-sess
 
 **Naming:** Codename shifted from "VM / Vending Machine" to **urufu labs**. `README.md`, `docs/PLAN.md`, `docs/HANDOFF.md`, `docs/TODO.md`, all SPEC files updated. Old TODO IDs `VM-###` retired; new ones use `URU-###`.
 
-**Next up (Phase 4-5):** B20 module lineup (planned), invariant tests, external audit, Immunefi bounty, mainnet multisig deploy. See `docs/TODO.md`.
+**Next up (Phase 4-5):** B20 module lineup (planned), invariant tests, external audit, Immunefi bounty, mainnet multisig deploy. See `docs/archive/TODO.md`.
 
 ---
 

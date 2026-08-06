@@ -1,5 +1,8 @@
 # Urufu Launchpad — Full Scope Reference
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 **Every mechanic in the launchpad, end to end.** Written for auditors, integrators, and future contributors who need the complete picture without piecing it together from source files. No summaries, no hand-waving; every claim points at a specific file, line number, or on-chain read.
 
 **Audience prerequisite:** Solidity 0.8, Uniswap v4 pool/hook model, EIP-1167 clones, ERC-2981 royalty standard, merkle proofs.

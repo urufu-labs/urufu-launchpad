@@ -1,5 +1,8 @@
 # SPEC — Bonding curve stack
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > pump.fun-style x·y=k bonding curve with virtual reserves. One curve per token, deployed via
 > factory-clone. Auto-graduates to a Uniswap v4 pool via `Graduator` when it hits its ETH
 > target. Graduation LP position locked structurally by the Graduator (owns the position,

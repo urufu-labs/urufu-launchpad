@@ -1,5 +1,8 @@
 # Existing ecosystem contracts
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 The urufu labs flywheel routes value into these two contracts that Brandon deployed for
 the `urufu gemu` game. The launchpad's `LoyaltyOracle`, `NftRevenueVault`, and
 `UruBuybackVault` all read/write against them.

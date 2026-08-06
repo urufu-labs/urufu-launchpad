@@ -1,5 +1,8 @@
 # Deploy — indexer + compile service on Railway
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 The web frontend on Vercel needs two backends: **Ponder indexer(s)** for on-chain
 data + **compile-service** for social/UGC + IPFS pinning.
 

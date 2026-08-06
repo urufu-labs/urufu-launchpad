@@ -1,5 +1,8 @@
 # SPEC — Uniswap v4 hooks
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > One shipped hook (`MultiHookHost`) that hosts every launchpad-side behavior on graduated pools, plus a `BaseHook` shim (v4-periphery doesn't ship one at our pinned version) and a `HookMiner` library for CREATE2 salt search. The hook advertises its permissions via `getHookPermissions()`; the deployed address's low 14 bits must encode those permissions or v4 rejects the pool.
 
 **Status:** IMPLEMENTED.

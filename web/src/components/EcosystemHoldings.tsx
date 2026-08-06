@@ -15,6 +15,7 @@ import { useReadContracts } from 'wagmi';
 
 import { ECOSYSTEM_TOKENS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 
 interface Props {
   visibleFor: Address;
@@ -43,6 +44,12 @@ const URU_LOYALTY_THRESHOLD_WEI = 100_000n * 10n ** 18n;
 export function EcosystemHoldings({ visibleFor, chain }: Props) {
   const tokens = ECOSYSTEM_TOKENS[chain];
   const chainId = CHAIN_KEY_TO_ID[chain];
+  // Layer-3 release gate — never render specific discount %s unless the
+  // wiring is verified live on the connected chain. If ready is false we
+  // still show the raw URU / NFT balances (those aren't gated on wiring),
+  // but the "loyalty tier N% off" row + the "X more URU for +M%" hint
+  // are hidden.
+  const loyalty = useLoyaltyDiscountReady();
 
   const reads = useReadContracts({
     contracts: tokens
@@ -108,28 +115,30 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
           <span>urufu gemu NFT</span>
           <span className="uru-num" style={{ fontWeight: 600 }}>{nftCount.toString()}</span>
         </div>
-        <div
-          style={{
-            marginTop: 4,
-            paddingTop: 6,
-            borderTop: '1px dashed var(--cream-shadow)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 8,
-            alignItems: 'baseline',
-            fontSize: 12,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          <span>loyalty tier</span>
-          <span>
-            <span className="uru-num" style={{ fontWeight: 600, color: loyaltyTier.pct > 0 ? 'var(--pink-hot)' : 'inherit' }}>
-              {loyaltyTier.pct}%
-            </span>{' '}
-            off · {loyaltyTier.label}
-          </span>
-        </div>
-        {uruRemainingToTier !== null && (
+        {loyalty.ready && (
+          <div
+            style={{
+              marginTop: 4,
+              paddingTop: 6,
+              borderTop: '1px dashed var(--cream-shadow)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 8,
+              alignItems: 'baseline',
+              fontSize: 12,
+              color: 'var(--anchor-soft)',
+            }}
+          >
+            <span>loyalty tier</span>
+            <span>
+              <span className="uru-num" style={{ fontWeight: 600, color: loyaltyTier.pct > 0 ? 'var(--pink-hot)' : 'inherit' }}>
+                {loyaltyTier.pct}%
+              </span>{' '}
+              off · {loyaltyTier.label}
+            </span>
+          </div>
+        )}
+        {loyalty.ready && uruRemainingToTier !== null && (
           <div style={{ fontSize: 11, color: 'var(--anchor-soft)', fontStyle: 'italic' }}>
             hold <span className="uru-num">{uruShort(uruRemainingToTier)}</span> more URU
             for the +{nftCount > 0n ? 30 : 40}% tier ~
