@@ -44,22 +44,22 @@ contract RhLiveStackSnapshotTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
     // ------ PINNED LIVE ADDRESSES (must match .env AND on-chain wiring) ----
-    // V8 fresh stack, broadcast 2026-08-05.
+    // V9 fresh stack, broadcast 2026-08-06.
     // Source of truth: contracts/deployment-fresh.4663.json.
     // DEPLOYER unchanged across rotations (deployer identity, not a rotated slot).
-    // ROUTER_V7 kept as a legacy variable name; value is now the V8 Router.
+    // ROUTER_V7 kept as a legacy variable name; value is now the V9 Router.
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
-    address internal constant NAME_REGISTRY = 0x7e0f161398eeEa3C46f910f5ca4026a2892705a6;
-    address internal constant ROUTER_V7 = 0x9133E9323BD58b95a48a8171a5B451fd67c6BB98;
-    address internal constant CURVE_FACTORY = 0xa7CbEec5E06E9AF964B86ce5094BDaeb39Bcceea;
-    address internal constant MULTI_HOOK_HOST = 0xcb11Ab6723442f82f3B1016d1Ab96dD0342360c4;
-    address internal constant GRADUATOR = 0x5d8270815CF5f0d99F1D854919959F49C41FE843;
+    address internal constant NAME_REGISTRY = 0x965Aa2420635Ca0431888c6752b9aE8Bbe8d1F05;
+    address internal constant ROUTER_V7 = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
+    address internal constant CURVE_FACTORY = 0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805;
+    address internal constant MULTI_HOOK_HOST = 0xc282245A22b602c90d04283B22E414f75AFc20c4;
+    address internal constant GRADUATOR = 0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant FEE_SPLITTER = 0x013851d40ed7c2Ed1432bf33A9916CB19A4Dc93F;
-    address internal constant V4_SWAP_ROUTER = 0xb30c85F3D7Acdf75fd691a9d498502f7B67Ae699;
-    address internal constant ERC20_FACTORY = 0x8Ba5e5D361625BDFBD33a7F5c48AD0A9857ABB31;
-    address internal constant LOYALTY_ORACLE = 0x3B0B4e387f56EE69923691AF5C892754280f6142;
-    address internal constant ROYALTY_ROUTER_FACTORY = 0x5a004b113b33feD1D9cC71261a482b7E0E874490;
+    address internal constant FEE_SPLITTER = 0x60835C422a3671b5F01E6806Fd96b27c90941C83;
+    address internal constant V4_SWAP_ROUTER = 0xDb3D1C43225faEe04551b663E5aA0969937beEa4;
+    address internal constant ERC20_FACTORY = 0xfCfE7Db4F4d4ed6CC2fa6143a8C163Da11246f99;
+    address internal constant LOYALTY_ORACLE = 0xDcAd73EB96Bd0573b6ed0Ac3FFA32b1A7e0C0b52;
+    address internal constant ROYALTY_ROUTER_FACTORY = 0xd9439BA974108af90E84fABFc206b63f6b70cAF1;
     // Ecosystem tokens (canonical post-2026-07-25 RH migration).
     address internal constant URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
     address internal constant GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
@@ -165,9 +165,9 @@ contract RhLiveStackSnapshotTest is Test {
     /// This assertion locks in the poison; if anyone ever calls the setter
     /// with a real count for these hashes, the test fails and the attack
     /// path re-opens.
-    /// V8 uses the newer `bannedConfigHash` mechanism (not the V6/V7 poison
-    /// pattern of setting moduleCountForConfig to type(uint256).max). Both
-    /// mechanisms achieve the same launch rejection but through different
+    /// V8 and V9 use the newer `bannedConfigHash` mechanism (not the V6/V7
+    /// poison pattern of setting moduleCountForConfig to type(uint256).max).
+    /// Both mechanisms achieve the same launch rejection but through different
     /// Router validation paths. `DeployFreshLocal` seeds bans via
     /// `setConfigHashBanned(hash, true)` for every hash in
     /// `RhConfigManifest.retiredAirdropHashes()` (which despite the name

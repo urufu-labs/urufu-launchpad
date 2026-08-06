@@ -45,7 +45,7 @@ import {RhConfigManifest} from "./manifest/RhConfigManifest.sol";
 ///           forge script script/VerifyWiring.s.sol:VerifyWiring \
 ///             --rpc-url https://rpc.mainnet.chain.robinhood.com
 ///
-///         Env vars (all optional, defaults match current live RH V7+V8):
+///         Env vars (all optional, defaults match current live RH V9):
 ///           ROBINHOOD_ROUTER_ADDRESS
 ///           ROBINHOOD_CURVE_FACTORY_ADDRESS
 ///           ROBINHOOD_NAME_REGISTRY_ADDRESS
@@ -164,25 +164,25 @@ interface IFactoryOwned {
 contract VerifyWiring is Script {
     uint256 internal constant EXPECTED_CHAIN_ID = 4663;
 
-    // Current live RH mainnet defaults — V8 fresh stack, broadcast 2026-08-05.
+    // Current live RH mainnet defaults — V9 fresh stack, broadcast 2026-08-06.
     // Source of truth: contracts/deployment-fresh.4663.json.
     // Update whenever the stack rotates; consumers can override via env vars.
-    address internal constant DEFAULT_ROUTER = 0x9133E9323BD58b95a48a8171a5B451fd67c6BB98;
-    address internal constant DEFAULT_CURVE_FACTORY = 0xa7CbEec5E06E9AF964B86ce5094BDaeb39Bcceea;
-    address internal constant DEFAULT_NAME_REGISTRY = 0x7e0f161398eeEa3C46f910f5ca4026a2892705a6;
+    address internal constant DEFAULT_ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
+    address internal constant DEFAULT_CURVE_FACTORY = 0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805;
+    address internal constant DEFAULT_NAME_REGISTRY = 0x965Aa2420635Ca0431888c6752b9aE8Bbe8d1F05;
     address internal constant DEFAULT_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
-    address internal constant DEFAULT_MHH = 0xcb11Ab6723442f82f3B1016d1Ab96dD0342360c4;
-    address internal constant DEFAULT_GRADUATOR = 0x5d8270815CF5f0d99F1D854919959F49C41FE843;
-    address internal constant DEFAULT_FEE_SPLITTER = 0x013851d40ed7c2Ed1432bf33A9916CB19A4Dc93F;
-    address internal constant DEFAULT_LOYALTY_ORACLE = 0x3B0B4e387f56EE69923691AF5C892754280f6142;
-    address internal constant DEFAULT_URU_DEPOSIT_SINK = 0x0F707Ac23d53398b46E8088EBe052c48Bc07B5E5;
-    address internal constant DEFAULT_URU_BUYBACK_VAULT = 0xBb49dd406c68F51d28139CF9573325cC146b0eF5;
-    address internal constant DEFAULT_NFT_REVENUE_VAULT = 0xAcd981FBBD32c5FAa837F1170E30449123106fb7;
-    address internal constant DEFAULT_ROYALTY_ROUTER_FACTORY = 0x5a004b113b33feD1D9cC71261a482b7E0E874490;
-    address internal constant DEFAULT_ERC20_FACTORY = 0x8Ba5e5D361625BDFBD33a7F5c48AD0A9857ABB31;
-    address internal constant DEFAULT_ERC721A_FACTORY = 0x7A9161E8276eBc1A8dB8B2D1408166ED2a6116F4;
-    address internal constant DEFAULT_ERC1155_FACTORY = 0x2A972aE7620baE1c561e7dA253d95Ca041baDafE;
-    address internal constant DEFAULT_V4_SWAP_ROUTER = 0xb30c85F3D7Acdf75fd691a9d498502f7B67Ae699;
+    address internal constant DEFAULT_MHH = 0xc282245A22b602c90d04283B22E414f75AFc20c4;
+    address internal constant DEFAULT_GRADUATOR = 0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB;
+    address internal constant DEFAULT_FEE_SPLITTER = 0x60835C422a3671b5F01E6806Fd96b27c90941C83;
+    address internal constant DEFAULT_LOYALTY_ORACLE = 0xDcAd73EB96Bd0573b6ed0Ac3FFA32b1A7e0C0b52;
+    address internal constant DEFAULT_URU_DEPOSIT_SINK = 0xeCD30ea7d0945A99b2032af4A6ad9d5bF345B8C8;
+    address internal constant DEFAULT_URU_BUYBACK_VAULT = 0x78E388F9B1bABAa61BB17Bbd41A2B499CfE503a1;
+    address internal constant DEFAULT_NFT_REVENUE_VAULT = 0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8;
+    address internal constant DEFAULT_ROYALTY_ROUTER_FACTORY = 0xd9439BA974108af90E84fABFc206b63f6b70cAF1;
+    address internal constant DEFAULT_ERC20_FACTORY = 0xfCfE7Db4F4d4ed6CC2fa6143a8C163Da11246f99;
+    address internal constant DEFAULT_ERC721A_FACTORY = 0xA3C03b4874C3fA0b1C8453565c326cF2658de8EA;
+    address internal constant DEFAULT_ERC1155_FACTORY = 0x63ee240906c80842261191e47d10ED0ea12D5946;
+    address internal constant DEFAULT_V4_SWAP_ROUTER = 0xDb3D1C43225faEe04551b663E5aA0969937beEa4;
     address internal constant DEFAULT_URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
     address internal constant DEFAULT_GEMU_NFT = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
     address internal constant DEFAULT_OWNER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
