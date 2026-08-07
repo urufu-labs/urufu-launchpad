@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A static design direction for Urufu Labs: the culture-first token launchpad."
+    />
+    <title>Urufu — Culture-first launchpad</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #101010;
+        --ink-raised: #1a1918;
+        --ink-soft: #282521;
+        --paper: #f4efe3;
+        --paper-dim: #c9c2b4;
+        --rule: rgba(244, 239, 227, 0.24);
+        --hot: #ff6b5e;
+        --acid: #d8ff52;
+        --sky: #86cdfc;
+        --mint: #6ee7ad;
+        --font-ui:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --font-display: Georgia, 'Times New Roman', serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--ink);
+        color: var(--paper);
+        font-family: var(--font-ui);
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      a {
+        color: inherit;
+      }
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 20;
+        display: flex;
+        width: 76px;
+        min-height: 100vh;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 0 18px;
+        border-right: 1px solid var(--rule);
+        background: rgba(16, 16, 16, 0.92);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid var(--paper);
+        color: var(--acid);
+        font-family: var(--font-display);
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1;
+        text-decoration: none;
+      }
+
+      .rail-nav,
+      .rail-utility {
+        display: grid;
+        gap: 20px;
+      }
+
+      .rail-link {
+        writing-mode: vertical-rl;
+        color: var(--paper-dim);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-decoration: none;
+        text-transform: uppercase;
+        transition: color 160ms ease;
+      }
+
+      .rail-link:hover,
+      .rail-link[aria-current='page'] {
+        color: var(--paper);
+      }
+
+      .rail-status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--mint);
+        box-shadow: 0 0 16px var(--mint);
+      }
+
+      .mobile-nav {
+        display: none;
+      }
+
+      main {
+        width: min(100% - 76px, 1600px);
+        margin-left: 76px;
+      }
+
+      .topline {
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 0 34px;
+        border-bottom: 1px solid var(--rule);
+        color: var(--paper-dim);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .topline p {
+        margin: 0;
+      }
+      .topline strong {
+        color: var(--paper);
+        font-weight: 700;
+      }
+      .prototype {
+        color: var(--acid);
+      }
+
+      .hero {
+        position: relative;
+        display: grid;
+        min-height: 730px;
+        grid-template-columns: minmax(0, 1.04fr) minmax(420px, 0.96fr);
+        overflow: hidden;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .hero-copy {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: clamp(38px, 8vw, 126px) clamp(28px, 6vw, 104px);
+      }
+
+      .eyebrow,
+      .meta-label {
+        margin: 0 0 18px;
+        color: var(--acid);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 700px;
+        margin-bottom: 26px;
+        font-family: var(--font-display);
+        font-size: clamp(54px, 6.4vw, 112px);
+        font-weight: 400;
+        letter-spacing: -0.065em;
+        line-height: 0.91;
+      }
+
+      .hero-copy > p:not(.eyebrow) {
+        max-width: 565px;
+        margin-bottom: 30px;
+        color: var(--paper-dim);
+        font-size: clamp(17px, 1.5vw, 22px);
+        letter-spacing: -0.025em;
+        line-height: 1.34;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid var(--paper);
+        background: transparent;
+        color: var(--paper);
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0.045em;
+        text-decoration: none;
+        text-transform: uppercase;
+        transition:
+          background 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease,
+          transform 160ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-2px);
+      }
+      .button--primary {
+        border-color: var(--acid);
+        background: var(--acid);
+        color: var(--ink);
+      }
+      .button--primary:hover {
+        background: var(--paper);
+        border-color: var(--paper);
+      }
+      .button--dark {
+        border-color: var(--ink);
+        color: var(--ink);
+      }
+      .button--dark:hover {
+        background: var(--ink);
+        color: var(--paper);
+      }
+
+      .hero-art {
+        position: relative;
+        display: flex;
+        min-height: 510px;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: #ff6b5e;
+      }
+
+      .hero-art::before {
+        position: absolute;
+        top: -16%;
+        right: -14%;
+        width: 85%;
+        aspect-ratio: 1;
+        border: min(3vw, 38px) solid var(--ink);
+        border-radius: 50%;
+        content: '';
+      }
+
+      .hero-art::after {
+        position: absolute;
+        right: 10%;
+        bottom: 6%;
+        width: 23%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--acid);
+        box-shadow: 28px -29px 0 var(--sky);
+        content: '';
+      }
+
+      .art-window {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        width: min(70%, 480px);
+        aspect-ratio: 0.72;
+        place-items: center;
+        overflow: hidden;
+        border: min(2.2vw, 24px) solid var(--paper);
+        background: var(--ink);
+        box-shadow: 24px 24px 0 var(--ink);
+      }
+
+      .art-window__sun {
+        position: absolute;
+        top: 10%;
+        right: 11%;
+        width: 42%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--acid);
+      }
+
+      .art-window__arch {
+        position: absolute;
+        bottom: -13%;
+        left: -14%;
+        width: 92%;
+        height: 85%;
+        border: 34px solid var(--sky);
+        border-bottom: 0;
+        border-radius: 50% 50% 0 0;
+        transform: rotate(-13deg);
+      }
+
+      .art-window__line {
+        position: absolute;
+        top: 9%;
+        bottom: 0;
+        left: 48%;
+        width: 13px;
+        background: var(--hot);
+        transform: rotate(25deg);
+        transform-origin: bottom center;
+      }
+
+      .art-window__type {
+        position: relative;
+        z-index: 2;
+        width: 76%;
+        color: var(--paper);
+        font-family: var(--font-display);
+        font-size: clamp(42px, 6.6vw, 84px);
+        font-weight: 400;
+        letter-spacing: -0.08em;
+        line-height: 0.8;
+        mix-blend-mode: difference;
+      }
+
+      .art-caption {
+        position: absolute;
+        z-index: 3;
+        right: 30px;
+        bottom: 28px;
+        display: flex;
+        width: min(335px, 66%);
+        flex-direction: column;
+        gap: 5px;
+        border-top: 1px solid var(--ink);
+        padding-top: 9px;
+        color: var(--ink);
+        font-size: 11px;
+      }
+
+      .art-caption strong {
+        font-size: 14px;
+      }
+      .art-caption span {
+        color: rgba(16, 16, 16, 0.72);
+      }
+
+      .section {
+        padding: clamp(72px, 9vw, 144px) clamp(28px, 6vw, 104px);
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .section-heading {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr);
+        gap: 28px;
+        align-items: end;
+        margin-bottom: 42px;
+      }
+
+      .section-heading h2 {
+        max-width: 700px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(42px, 4.7vw, 78px);
+        font-weight: 400;
+        letter-spacing: -0.065em;
+        line-height: 0.94;
+      }
+
+      .section-heading > p {
+        max-width: 380px;
+        margin: 0;
+        color: var(--paper-dim);
+        font-size: 15px;
+      }
+
+      .release-grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .release {
+        position: relative;
+        display: flex;
+        min-height: 470px;
+        flex-direction: column;
+        justify-content: flex-end;
+        overflow: hidden;
+        border: 1px solid var(--rule);
+        padding: 24px;
+        color: var(--ink);
+        text-decoration: none;
+        transition:
+          transform 180ms ease,
+          box-shadow 180ms ease;
+      }
+
+      .release:hover {
+        transform: translateY(-5px);
+        box-shadow: 8px 8px 0 var(--paper);
+      }
+      .release--feature {
+        grid-column: span 7;
+        min-height: 600px;
+        background: #e2d9ff;
+      }
+      .release--one {
+        grid-column: span 5;
+        background: #b6e2ff;
+      }
+      .release--two {
+        grid-column: span 5;
+        background: #f8f1e1;
+      }
+      .release--three {
+        grid-column: span 7;
+        background: #d8ff52;
+      }
+
+      .release-art {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .release-art::before,
+      .release-art::after {
+        position: absolute;
+        content: '';
+      }
+
+      .release--feature .release-art::before {
+        top: -14%;
+        left: 8%;
+        width: 68%;
+        aspect-ratio: 1;
+        border: 36px solid var(--ink);
+        border-radius: 50%;
+      }
+      .release--feature .release-art::after {
+        right: -6%;
+        bottom: -8%;
+        width: 66%;
+        height: 58%;
+        border: 30px solid var(--hot);
+        transform: rotate(-13deg);
+      }
+      .release--one .release-art::before {
+        top: 13%;
+        left: 13%;
+        width: 72%;
+        height: 48%;
+        background: repeating-linear-gradient(90deg, var(--ink) 0 9px, transparent 9px 19px);
+      }
+      .release--one .release-art::after {
+        right: 14%;
+        bottom: 16%;
+        width: 44%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--hot);
+      }
+      .release--two .release-art::before {
+        top: -10%;
+        right: 8%;
+        width: 50%;
+        height: 125%;
+        background: var(--hot);
+        transform: rotate(26deg);
+      }
+      .release--two .release-art::after {
+        top: 17%;
+        left: 9%;
+        width: 45%;
+        aspect-ratio: 1;
+        border: 23px solid var(--ink);
+        border-radius: 50%;
+      }
+      .release--three .release-art::before {
+        top: 10%;
+        left: -4%;
+        width: 110%;
+        height: 34%;
+        border-top: 28px solid var(--ink);
+        border-bottom: 28px solid var(--ink);
+        transform: rotate(-8deg);
+      }
+      .release--three .release-art::after {
+        right: 15%;
+        bottom: 12%;
+        width: 29%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: var(--sky);
+        box-shadow: -190px -55px 0 var(--hot);
+      }
+
+      .release__stamp,
+      .release__copy {
+        position: relative;
+        z-index: 1;
+      }
+      .release__stamp {
+        align-self: flex-start;
+        border: 1px solid currentColor;
+        padding: 5px 7px;
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .release__copy {
+        margin-top: auto;
+      }
+      .release__copy h3 {
+        max-width: 390px;
+        margin: 0 0 9px;
+        font-family: var(--font-display);
+        font-size: clamp(32px, 3.4vw, 56px);
+        font-weight: 400;
+        letter-spacing: -0.065em;
+        line-height: 0.9;
+      }
+      .release__copy p {
+        max-width: 415px;
+        margin: 0 0 14px;
+        font-size: 13px;
+        line-height: 1.36;
+      }
+      .release__footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .release__footer span {
+        border-top: 1px solid rgba(16, 16, 16, 0.48);
+        padding-top: 5px;
+      }
+
+      .truth {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+        gap: 0;
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      .truth-intro,
+      .truth-grid {
+        padding: clamp(34px, 5vw, 76px);
+      }
+      .truth-intro {
+        border-right: 1px solid rgba(16, 16, 16, 0.21);
+      }
+      .truth-intro .eyebrow {
+        color: var(--hot);
+      }
+      .truth-intro h2 {
+        margin-bottom: 17px;
+        font-family: var(--font-display);
+        font-size: clamp(44px, 4.7vw, 76px);
+        font-weight: 400;
+        letter-spacing: -0.065em;
+        line-height: 0.89;
+      }
+      .truth-intro p {
+        max-width: 365px;
+        margin-bottom: 0;
+        color: rgba(16, 16, 16, 0.7);
+      }
+      .truth-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0;
+        padding: 0;
+      }
+      .truth-item {
+        min-height: 184px;
+        padding: 28px;
+        border-right: 1px solid rgba(16, 16, 16, 0.21);
+        border-bottom: 1px solid rgba(16, 16, 16, 0.21);
+      }
+      .truth-item:nth-child(2n) {
+        border-right: 0;
+      }
+      .truth-item:nth-last-child(-n + 2) {
+        border-bottom: 0;
+      }
+      .truth-item span {
+        display: block;
+        margin-bottom: 38px;
+        color: rgba(16, 16, 16, 0.57);
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+      .truth-item strong {
+        display: block;
+        max-width: 240px;
+        font-family: var(--font-display);
+        font-size: clamp(26px, 2.4vw, 39px);
+        font-weight: 400;
+        letter-spacing: -0.05em;
+        line-height: 0.95;
+      }
+      .truth-item--risk {
+        background: var(--hot);
+      }
+
+      .manifest {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+        gap: 64px;
+      }
+
+      .manifest h2 {
+        max-width: 720px;
+        margin-bottom: 0;
+        font-family: var(--font-display);
+        font-size: clamp(42px, 5vw, 82px);
+        font-weight: 400;
+        letter-spacing: -0.067em;
+        line-height: 0.9;
+      }
+      .manifest-copy {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 44px;
+      }
+      .manifest-copy > p {
+        margin: 0;
+        color: var(--paper-dim);
+        font-size: 18px;
+        line-height: 1.42;
+      }
+      .manifest-list {
+        margin: 0;
+        padding: 0;
+        border-top: 1px solid var(--rule);
+        list-style: none;
+      }
+      .manifest-list li {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 12px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--rule);
+        color: var(--paper-dim);
+        font-size: 13px;
+      }
+      .manifest-list b {
+        color: var(--acid);
+        font-size: 11px;
+      }
+
+      .launch-callout {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+        background: var(--acid);
+        color: var(--ink);
+      }
+      .launch-callout h2 {
+        max-width: 670px;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(44px, 5.2vw, 84px);
+        font-weight: 400;
+        letter-spacing: -0.07em;
+        line-height: 0.87;
+      }
+      .launch-callout p {
+        max-width: 340px;
+        margin: 0;
+        color: rgba(16, 16, 16, 0.71);
+      }
+      .launch-callout__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 20px 34px;
+        color: var(--paper-dim);
+        font-size: 11px;
+      }
+      footer p {
+        margin: 0;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--sky);
+        outline-offset: 4px;
+      }
+
+      @media (max-width: 1040px) {
+        .hero {
+          grid-template-columns: 1fr 0.72fr;
+        }
+        .hero-copy {
+          padding-right: 40px;
+        }
+        .section-heading {
+          grid-template-columns: 1fr;
+        }
+        .release--feature,
+        .release--one,
+        .release--two,
+        .release--three {
+          grid-column: span 6;
+        }
+        .truth {
+          grid-template-columns: 1fr;
+        }
+        .truth-intro {
+          border-right: 0;
+          border-bottom: 1px solid rgba(16, 16, 16, 0.21);
+        }
+        .manifest {
+          grid-template-columns: 1fr;
+          gap: 42px;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .rail {
+          display: none;
+        }
+        .mobile-nav {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          display: flex;
+          min-height: 60px;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 0 18px;
+          border-bottom: 1px solid var(--rule);
+          background: rgba(16, 16, 16, 0.94);
+          backdrop-filter: blur(18px);
+        }
+        .mobile-nav .brand {
+          width: 32px;
+          height: 32px;
+          font-size: 23px;
+        }
+        .mobile-nav__links {
+          display: flex;
+          gap: 15px;
+          color: var(--paper-dim);
+          font-size: 10px;
+          font-weight: 750;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .mobile-nav__links a {
+          text-decoration: none;
+        }
+        main {
+          width: 100%;
+          margin-left: 0;
+        }
+        .topline {
+          min-height: 45px;
+          padding: 0 18px;
+          font-size: 9px;
+        }
+        .topline p:last-child {
+          display: none;
+        }
+        .hero {
+          min-height: auto;
+          grid-template-columns: 1fr;
+        }
+        .hero-copy {
+          min-height: 490px;
+          padding: 88px 22px 48px;
+        }
+        .hero-art {
+          min-height: 440px;
+        }
+        .art-window {
+          width: 62%;
+        }
+        .section {
+          padding: 76px 22px;
+        }
+        .section-heading {
+          margin-bottom: 28px;
+        }
+        .release-grid {
+          gap: 12px;
+        }
+        .release--feature,
+        .release--one,
+        .release--two,
+        .release--three {
+          grid-column: span 12;
+          min-height: 450px;
+        }
+        .release--feature {
+          min-height: 540px;
+        }
+        .release {
+          padding: 19px;
+        }
+        .truth-intro {
+          padding: 44px 22px;
+        }
+        .truth-grid {
+          grid-template-columns: 1fr;
+        }
+        .truth-item,
+        .truth-item:nth-child(2n),
+        .truth-item:nth-last-child(-n + 2) {
+          min-height: 154px;
+          border-right: 0;
+          border-bottom: 1px solid rgba(16, 16, 16, 0.21);
+        }
+        .truth-item:last-child {
+          border-bottom: 0;
+        }
+        .truth-item span {
+          margin-bottom: 24px;
+        }
+        .launch-callout {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        footer {
+          flex-direction: column;
+          padding: 18px 22px;
+        }
+      }
+
+      @media (max-width: 400px) {
+        .mobile-nav__links a:last-child {
+          display: none;
+        }
+        h1 {
+          font-size: 51px;
+        }
+        .hero-copy {
+          min-height: 465px;
+        }
+        .hero-actions {
+          display: grid;
+          width: 100%;
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="rail" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="Urufu home">u</a>
+      <div class="rail-nav">
+        <a class="rail-link" href="#releases" aria-current="page">Explore</a>
+        <a class="rail-link" href="#pool-truth">Pool truth</a>
+        <a class="rail-link" href="#start">Start</a>
+      </div>
+      <div class="rail-utility" aria-label="Network status">
+        <span class="rail-status" title="Prototype active" aria-label="Prototype active"></span>
+        <a class="rail-link" href="#manifest">About</a>
+      </div>
+    </nav>
+
+    <nav class="mobile-nav" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="Urufu home">u</a>
+      <div class="mobile-nav__links">
+        <a href="#releases">Explore</a>
+        <a href="#pool-truth">Truth</a>
+        <a href="#start">Start</a>
+      </div>
+    </nav>
+
+    <main id="top">
+      <div class="topline">
+        <p><strong>Urufu Labs</strong> / Robinhood Chain / ERC-20 releases</p>
+        <p class="prototype">Static design prototype · no live pools</p>
+      </div>
+
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Urufu Labs / release no. 01</p>
+          <h1 id="hero-title">The culture-first token launchpad.</h1>
+          <p>
+            Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and a
+            protected opening.
+          </p>
+          <div class="hero-actions">
+            <a class="button button--primary" href="#start"
+              >Start a release <span aria-hidden="true">↗</span></a
+            >
+            <a class="button" href="#releases">Browse releases <span aria-hidden="true">↓</span></a>
+          </div>
+        </div>
+
+        <div
+          class="hero-art"
+          role="img"
+          aria-label="Original abstract artwork for a featured sample release"
+        >
+          <div class="art-window" aria-hidden="true">
+            <span class="art-window__sun"></span>
+            <span class="art-window__arch"></span>
+            <span class="art-window__line"></span>
+            <span class="art-window__type">for<br />the<br />weird</span>
+          </div>
+          <div class="art-caption">
+            <strong>Signal Bloom / $SIG</strong>
+            <span
+              >Featured sample release · artwork, statement, and pool guarantees live
+              together.</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="releases" aria-labelledby="releases-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Open studios</p>
+            <h2 id="releases-title">A release can be a world people enter.</h2>
+          </div>
+          <p>
+            Artwork and the artist’s intention lead. The market is real, but it is never the only
+            thing a holder sees.
+          </p>
+        </div>
+
+        <div class="release-grid">
+          <a
+            class="release release--feature"
+            href="#pool-truth"
+            aria-label="View pool truth for Night Index sample release"
+          >
+            <div class="release-art" aria-hidden="true"></div>
+            <span class="release__stamp">Featured / sample</span>
+            <div class="release__copy">
+              <h3>Night Index</h3>
+              <p>
+                $NITE is a common signal for the midnight radio archives. Holders decide which
+                broadcast gets restored next.
+              </p>
+              <div class="release__footer">
+                <span>@softsignal</span><span>ERC-20</span><span>V4 hooked</span>
+              </div>
+            </div>
+          </a>
+
+          <a
+            class="release release--one"
+            href="#pool-truth"
+            aria-label="View pool truth for Canal 33 sample release"
+          >
+            <div class="release-art" aria-hidden="true"></div>
+            <span class="release__stamp">New / sample</span>
+            <div class="release__copy">
+              <h3>Canal 33</h3>
+              <p>A moving-image club funding small-batch broadcasts.</p>
+              <div class="release__footer"><span>@nocturne_33</span><span>$CANAL</span></div>
+            </div>
+          </a>
+
+          <a
+            class="release release--two"
+            href="#pool-truth"
+            aria-label="View pool truth for Soft Armour sample release"
+          >
+            <div class="release-art" aria-hidden="true"></div>
+            <span class="release__stamp">New / sample</span>
+            <div class="release__copy">
+              <h3>Soft Armour</h3>
+              <p>A garment workshop for collective protection and improbable uniforms.</p>
+              <div class="release__footer"><span>@warmhardware</span><span>$SARM</span></div>
+            </div>
+          </a>
+
+          <a
+            class="release release--three"
+            href="#pool-truth"
+            aria-label="View pool truth for Post Office sample release"
+          >
+            <div class="release-art" aria-hidden="true"></div>
+            <span class="release__stamp">Opening soon / sample</span>
+            <div class="release__copy">
+              <h3>Post Office</h3>
+              <p>A postal system for messages that deserve to arrive slowly.</p>
+              <div class="release__footer">
+                <span>@lettersfromelsewhere</span><span>$POST</span><span>Opening protected</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <section class="truth" id="pool-truth" aria-labelledby="truth-title">
+        <div class="truth-intro">
+          <p class="eyebrow">Pool truth / the readable contract</p>
+          <h2 id="truth-title">The technical part stays visible.</h2>
+          <p>
+            Every release page puts its economic and control facts in plain language. No tooltip
+            scavenger hunt, no marketing fog.
+          </p>
+        </div>
+        <div class="truth-grid" aria-label="Sample pool configuration">
+          <article class="truth-item">
+            <span>Liquidity</span>
+            <strong>Locked permanently</strong>
+          </article>
+          <article class="truth-item">
+            <span>Creator fee</span>
+            <strong>1.00% per swap</strong>
+          </article>
+          <article class="truth-item">
+            <span>Opening protection</span>
+            <strong>7-block sniper gate</strong>
+          </article>
+          <article class="truth-item truth-item--risk">
+            <span>Holder notice</span>
+            <strong>Token prices can fall.</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="manifest" aria-labelledby="manifest-title">
+        <div class="manifest">
+          <h2 id="manifest-title">A creator’s statement belongs beside the pool.</h2>
+          <div class="manifest-copy">
+            <p>
+              Urufu should feel like a place to start a scene, a film club, a label, a game world,
+              or a strange little economy—not a form for launching a ticker.
+            </p>
+            <ol class="manifest-list">
+              <li>
+                <b>01</b
+                ><span>Lead with cover art, artist name, and the reason this release exists.</span>
+              </li>
+              <li>
+                <b>02</b
+                ><span
+                  >Use V4 hooks as readable creative infrastructure, not a late-stage technical
+                  upsell.</span
+                >
+              </li>
+              <li>
+                <b>03</b
+                ><span
+                  >Keep trading controls honest, exact, and separate from the artist’s voice.</span
+                >
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="section launch-callout" id="start" aria-labelledby="start-title">
+        <div>
+          <p class="eyebrow">Start a release</p>
+          <h2 id="start-title">Make the token part of the work.</h2>
+        </div>
+        <div class="launch-callout__actions">
+          <p>
+            Identity first. Then token basics, pool rules, creator economics, and a preview of the
+            exact holder-facing truth.
+          </p>
+          <a class="button button--dark" href="#top"
+            >Open the studio <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Urufu Labs — culture-first token launchpad / static design direction</p>
+      <p>Prototype content and configurations are illustrative only.</p>
+    </footer>
+  </body>
+</html>
