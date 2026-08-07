@@ -62,6 +62,19 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS tiktok text`;
+  // Verified X (Twitter) binding — written only by the /profile/:address/x-verified
+  // endpoint (bearer-auth, server-to-server from web callback). The signed-write
+  // /profile/:address path IGNORES these columns so a client cannot claim a
+  // handle they didn't OAuth-prove ownership of.
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_handle text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_id text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_at timestamptz`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_avatar_url text`;
+  // Uniqueness: one wallet per X id. Prevents an attacker from re-binding the
+  // same X account to multiple wallets after the fact. Partial index skips
+  // rows where the binding was cleared (x_verified_id IS NULL).
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_x_verified_id_uq
+            ON app.user_profile (x_verified_id) WHERE x_verified_id IS NOT NULL`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.token_chat (

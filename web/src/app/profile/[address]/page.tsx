@@ -64,9 +64,36 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const activeChain = useActiveChain();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Post-OAuth callback landing: /api/auth/x/callback always redirects here
+  // with ?xVerified=<code>. Surface a toast, refetch the profile so the
+  // freshly-persisted verified fields appear, and strip the query param so
+  // a refresh doesn't re-fire the toast.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const reason = url.searchParams.get('xVerified');
+    if (!reason) return;
+    const msg = _X_VERIFIED_TOAST[reason] ?? _X_VERIFIED_TOAST.error;
+    setXVerifiedToast(msg);
+    if (reason === 'ok') {
+      setXVerifiedRefreshTick((n) => n + 1);
+      playSfx('coin');
+    } else {
+      playSfx('error');
+    }
+    url.searchParams.delete('xVerified');
+    window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+    const t = setTimeout(() => setXVerifiedToast(null), 5000);
+    return () => clearTimeout(t);
+  }, []);
   const isOwn = mounted && !!wallet && wallet.toLowerCase() === address.toLowerCase();
 
   const [profile, setProfile] = useState<UserProfile>(() => ({ address: address.toLowerCase(), savedAt: 0 }));
+  // Bumped after the X OAuth callback returns to this page so we re-fetch the
+  // remote profile and pick up the freshly-persisted xVerified* fields.
+  const [xVerifiedRefreshTick, setXVerifiedRefreshTick] = useState(0);
+  const [xVerifiedToast, setXVerifiedToast] = useState<string | null>(null);
   useEffect(() => {
     if (!isValid) return;
     // Local snapshot first (instant paint, offline-friendly), then hydrate from the
@@ -89,10 +116,17 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         // Fall back to whatever local snapshot this browser has so first-visit users
         // see something immediately while the API is in flight.
         avatarDataUrl: remote.avatarUrl ?? prev.avatarDataUrl,
+        // Verified X binding — server-authoritative. If the server says null,
+        // we clear whatever local cache we had (a disconnect on another device
+        // must propagate here).
+        xVerifiedHandle: remote.xVerifiedHandle ?? undefined,
+        xVerifiedId: remote.xVerifiedId ?? undefined,
+        xVerifiedAt: remote.xVerifiedAt ?? undefined,
+        xAvatarUrl: remote.xAvatarUrl ?? undefined,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || prev.savedAt,
       }));
     })();
-  }, [address, isValid]);
+  }, [address, isValid, xVerifiedRefreshTick]);
 
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
   const [trades, setTrades] = useState<IndexerTrade[] | null>(null);
@@ -275,6 +309,23 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
   return (
     <div className="mx-auto max-w-6xl px-3 sm:px-4 py-4">
+      {xVerifiedToast && (
+        <div
+          role="status"
+          style={{
+            marginBottom: 10,
+            padding: '8px 12px',
+            border: '1.5px solid var(--anchor)',
+            background: xVerifiedToast.startsWith('X connected') ? 'var(--mint)' : 'var(--pink-warm)',
+            fontFamily: 'var(--font-round), Klee One, cursive',
+            fontSize: 12.5,
+            color: 'var(--anchor)',
+            boxShadow: '2px 2px 0 var(--anchor)',
+          }}
+        >
+          {xVerifiedToast}
+        </div>
+      )}
       {/* ================================================================
           IDENTITY HEADER — avatar + name + address + socials + CTA
           ================================================================ */}
@@ -359,9 +410,19 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               {profile.bio}
             </p>
           )}
-          {(profile.twitter || profile.telegram || profile.discord || profile.website) && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {profile.twitter && <MiniLink href={profile.twitter} label="twitter" />}
+          {(profile.xVerifiedHandle || profile.twitter || profile.telegram || profile.discord || profile.website) && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+              {profile.xVerifiedHandle ? (
+                // Verified X — link out and show the green checkmark. Uses the
+                // exact stored handle string; the id is what actually pins the
+                // binding (see xVerifiedId) but the handle is what humans read.
+                <XVerifiedBadge handle={profile.xVerifiedHandle} />
+              ) : profile.twitter ? (
+                // Legacy / unverified self-declared handle — NEVER link out
+                // (phishing vector: anyone could type "https://x.com/vitalik").
+                // Rendered gray + noninteractive with an "unverified" hint.
+                <XUnverifiedBadge value={profile.twitter} />
+              ) : null}
               {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
               {profile.discord && <MiniLink href={profile.discord} label="discord" />}
               {profile.website && <MiniLink href={profile.website} label="site" />}
@@ -936,6 +997,53 @@ function EmptyRow({ label, tight }: { label: string; tight?: boolean }) {
   );
 }
 
+function XVerifiedBadge({ handle }: { handle: string }) {
+  return (
+    <a
+      href={`https://x.com/${encodeURIComponent(handle)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="uru-88"
+      style={{
+        padding: '2px 8px',
+        fontSize: 11,
+        fontFamily: 'var(--font-pixel), monospace',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        background: 'var(--mint)',
+        color: 'var(--mint-hot,#2b8a3e)',
+      }}
+      title="verified X account"
+    >
+      @{handle} <span aria-hidden="true">✓</span>
+      <span className="sr-only">verified</span>
+    </a>
+  );
+}
+
+function XUnverifiedBadge({ value }: { value: string }) {
+  // Strip a leading @ or https://x.com/ prefix for display; keep the handle bit.
+  const display = value.replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0];
+  return (
+    <span
+      style={{
+        padding: '2px 8px',
+        fontSize: 11,
+        fontFamily: 'var(--font-pixel), monospace',
+        border: '1px dashed var(--anchor-soft)',
+        color: 'var(--anchor-soft)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+      title="self-declared handle, not verified"
+    >
+      @{display || value} (unverified)
+    </span>
+  );
+}
+
 function MiniLink({ href, label }: { href: string; label: string }) {
   return (
     <a
@@ -954,6 +1062,156 @@ function MiniLink({ href, label }: { href: string; label: string }) {
   );
 }
 
+function ConnectXButton({
+  wallet,
+  xVerifiedHandle,
+  onDisconnect,
+}: {
+  wallet: Address;
+  xVerifiedHandle: string | undefined;
+  onDisconnect: () => void;
+}) {
+  const { address: connected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [busy, setBusy] = useState<'connect' | 'disconnect' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const connectedMatches = !!connected && connected.toLowerCase() === wallet.toLowerCase();
+
+  const startConnect = async () => {
+    if (busy) return;
+    if (!connected) { setError('connect ur wallet first'); return; }
+    if (!connectedMatches) { setError('connect the wallet that owns this profile'); return; }
+    setError(null);
+    setBusy('connect');
+    try {
+      const nonce = _randomNonce();
+      // 10-minute window — matches the cookie TTL enforced in /start route.
+      const expires = Date.now() + 10 * 60 * 1000;
+      const message = [
+        'Link my X account to urufulabs.xyz',
+        `wallet: ${connected.toLowerCase()}`,
+        `nonce: ${nonce}`,
+        `expires: ${Math.floor(expires / 1000)}`,
+      ].join('\n');
+      const signature = await signMessageAsync({ message });
+      const res = await fetch('/api/auth/x/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: connected, signature, nonce, expires }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { code?: string };
+        throw new Error(body.code ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { url?: string };
+      if (!j.url) throw new Error('no url');
+      window.location.href = j.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'connect failed');
+      setBusy(null);
+    }
+  };
+
+  const startDisconnect = async () => {
+    if (busy) return;
+    if (!connected || !connectedMatches) { setError('connect the wallet that owns this profile'); return; }
+    setError(null);
+    setBusy('disconnect');
+    try {
+      const timestamp = Date.now();
+      // Canonical shape matches compile-service auth.ts (sorted empty object).
+      const message = `urufu:x:disconnect:${JSON.stringify({})}:${timestamp}`;
+      const signature = await signMessageAsync({ message });
+      const res = await fetch('/api/auth/x/disconnect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet: connected, signature, timestamp }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { code?: string };
+        throw new Error(body.code ?? `HTTP ${res.status}`);
+      }
+      onDisconnect();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'disconnect failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!connected) {
+    return (
+      <div>
+        <button type="button" className="uru-btn" disabled style={{ fontSize: 12, padding: '6px 12px' }}>
+          connect wallet to link X
+        </button>
+      </div>
+    );
+  }
+
+  if (xVerifiedHandle) {
+    return (
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span
+          style={{
+            padding: '4px 10px',
+            background: 'var(--mint)',
+            border: '1.5px solid var(--anchor)',
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 12,
+            color: 'var(--mint-hot,#2b8a3e)',
+          }}
+        >
+          @{xVerifiedHandle} ✓ verified
+        </span>
+        <button
+          type="button"
+          onClick={startDisconnect}
+          disabled={busy !== null}
+          className="uru-btn"
+          style={{ fontSize: 11, padding: '5px 10px' }}
+        >
+          {busy === 'disconnect' ? 'disconnecting…' : 'disconnect'}
+        </button>
+        {error && (
+          <span style={{ fontSize: 11, color: 'var(--pink-hot)' }}>~~ {error}</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={startConnect}
+        disabled={busy !== null || !connectedMatches}
+        className="uru-btn uru-btn-primary"
+        style={{ fontSize: 12, padding: '6px 12px' }}
+      >
+        {busy === 'connect' ? 'opening X…' : 'connect X'}
+      </button>
+      {!connectedMatches && (
+        <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--anchor-soft)' }}>
+          connect {wallet.slice(0, 6)}…{wallet.slice(-4)} to link X
+        </div>
+      )}
+      {error && (
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--pink-hot)' }}>~~ {error}</div>
+      )}
+    </div>
+  );
+}
+
+function _randomNonce(): string {
+  // 128 bits of entropy is plenty for a single-use nonce; base36 keeps it URL-safe
+  // and printable. Uses crypto.getRandomValues so it works on the browser.
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function EditProfileModal({
   initial,
   onClose,
@@ -965,7 +1223,11 @@ function EditProfileModal({
 }) {
   const [username, setUsername] = useState(initial.username ?? '');
   const [bio, setBio] = useState(initial.bio ?? '');
-  const [twitter, setTwitter] = useState(initial.twitter ?? '');
+  // `twitter` is retained ONLY for hydrating legacy self-declared handles
+  // stored before the OAuth flow shipped. It is NOT edited from the modal;
+  // the sole way to set a Twitter handle now is the Connect X button below,
+  // which routes through /api/auth/x/start and populates xVerified* server-side.
+  const twitter = initial.twitter ?? '';
   const [telegram, setTelegram] = useState(initial.telegram ?? '');
   const [discord, setDiscord] = useState(initial.discord ?? '');
   const [website, setWebsite] = useState(initial.website ?? '');
@@ -995,6 +1257,13 @@ function EditProfileModal({
       discord: discord || undefined,
       website: website || undefined,
       avatarDataUrl: avatarDataUrl || undefined,
+      // Preserve server-authoritative verified X binding across a profile
+      // save — the modal never edits it, but must not accidentally drop it
+      // from the localStorage snapshot either.
+      xVerifiedHandle: initial.xVerifiedHandle,
+      xVerifiedId: initial.xVerifiedId,
+      xVerifiedAt: initial.xVerifiedAt,
+      xAvatarUrl: initial.xAvatarUrl,
       savedAt: Date.now(),
     };
     // Local first — always succeeds, keeps offline UX intact.
@@ -1117,11 +1386,18 @@ function EditProfileModal({
             <textarea className="uru-input" rows={2} maxLength={200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="say something ~" style={{ marginTop: 3 }} />
           </label>
 
+          <div>
+            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>X (twitter)</span>
+            <div style={{ marginTop: 3 }}>
+              <ConnectXButton
+                wallet={initial.address as Address}
+                xVerifiedHandle={initial.xVerifiedHandle}
+                onDisconnect={() => onClose()}
+              />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            <label>
-              <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>twitter</span>
-              <input className="uru-input" value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder="https://x.com/…" style={{ marginTop: 3 }} />
-            </label>
             <label>
               <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>telegram</span>
               <input className="uru-input" value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="https://t.me/…" style={{ marginTop: 3 }} />
@@ -1157,6 +1433,18 @@ function EditProfileModal({
 // ============================================================================
 
 const BASE_LABEL: Record<number, string> = { 0: 'ERC-20', 1: 'ERC-721A', 2: 'ERC-1155' };
+
+/// Human-readable toast copy per xVerified reason code emitted by the callback
+/// route. Keys align with the return values from web/src/app/api/auth/x/callback/route.ts.
+const _X_VERIFIED_TOAST: Record<string, string> = {
+  ok: 'X connected! ur handle is verified now ✿',
+  denied: 'X sign-in cancelled ~ no changes made',
+  expired: 'that link expired, hit connect X again',
+  walletMismatch: 'wallet changed mid-flow, please retry with the same wallet',
+  xUserMismatch: 'that X account is already linked to a different wallet',
+  badRequest: 'something went sideways ~ pls try again',
+  error: 'X sign-in failed ~ try again in a moment',
+};
 
 function formatSignedEth(v: bigint): string {
   const n = Number(formatEther(v < 0n ? -v : v));

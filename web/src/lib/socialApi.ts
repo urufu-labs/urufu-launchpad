@@ -144,6 +144,14 @@ export interface RemoteProfile {
   telegram: string | null;
   discord: string | null;
   website: string | null;
+  /// Verified X (Twitter) binding — written only by the /api/auth/x/callback
+  /// server flow via the compile-service bearer path. The client `saveProfile`
+  /// below CANNOT overwrite these fields; the backend ignores them in the
+  /// signed-write path.
+  xVerifiedHandle: string | null;
+  xVerifiedId: string | null;
+  xVerifiedAt: number | null;
+  xAvatarUrl: string | null;
   updatedAt: string;
 }
 
