@@ -15,6 +15,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 import { useAccount, useSignMessage } from 'wagmi';
 
@@ -296,16 +297,45 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             borderRadius: 12,
             border: '1.5px solid var(--anchor)',
             boxShadow: '2px 2px 0 var(--anchor)',
-            background: safeBackgroundImage(profile.avatarDataUrl),
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: 'var(--font-jp), monospace',
             fontSize: 28,
             color: 'var(--anchor)',
+            backgroundColor: 'var(--cream-deep)',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          {!profile.avatarDataUrl && 'ウ'}
+          {profile.avatarDataUrl ? (
+            // next/image prioritizes above-fold LCP asset + serves WebP/AVIF
+            // via Vercel edge cache (see web/next.config.ts remotePatterns).
+            // Data URLs (uploaded but not yet pinned) fall through to a raw
+            // img since next/image proxy only handles http(s) sources.
+            profile.avatarDataUrl.startsWith('data:') ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatarDataUrl}
+                alt=""
+                width={72}
+                height={72}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <Image
+                src={profile.avatarDataUrl}
+                alt=""
+                fill
+                sizes="72px"
+                priority
+                fetchPriority="high"
+                style={{ objectFit: 'cover' }}
+              />
+            )
+          ) : (
+            'ウ'
+          )}
         </div>
 
         <div style={{ flex: 1, minWidth: 220 }}>

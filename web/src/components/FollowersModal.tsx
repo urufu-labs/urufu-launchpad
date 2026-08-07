@@ -157,7 +157,15 @@ export function FollowersModal({ address, mode, onClose }: Props) {
                       >
                         {u.avatarUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={u.avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img
+                            src={u.avatarUrl}
+                            alt=""
+                            width={32}
+                            height={32}
+                            loading="lazy"
+                            decoding="async"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
                         ) : (
                           label.slice(0, 1).toUpperCase()
                         )}

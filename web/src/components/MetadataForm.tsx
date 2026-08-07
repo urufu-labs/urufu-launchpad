@@ -88,10 +88,16 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
             }}
           >
             {value.logoDataUrl ? (
+              // Local data URL preview (before Pinata pin) — raw img by design;
+              // next/image proxy only handles http(s) sources. width/height +
+              // decoding hint prevents layout shift while the file decodes.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={value.logoDataUrl}
                 alt="Token logo preview"
+                width={64}
+                height={64}
+                decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
