@@ -35,6 +35,7 @@ import {
   loadProfile,
   saveProfile,
   readAvatarFile,
+  shouldHideHoldingsFromView,
   type UserProfile,
 } from '@/lib/profile';
 import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi';
@@ -123,6 +124,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         xVerifiedId: remote.xVerifiedId ?? undefined,
         xVerifiedAt: remote.xVerifiedAt ?? undefined,
         xAvatarUrl: remote.xAvatarUrl ?? undefined,
+        // Privacy preference is server-authoritative too — if another device
+        // flipped it since this browser's last save, the remote value wins.
+        // Backend already normalizes NULL to false, so the shape is stable.
+        hideHoldings: remote.hideHoldings === true,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || prev.savedAt,
       }));
     })();
@@ -785,7 +790,27 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           </section>
         </div>
 
-        {/* RAIL — holdings */}
+        {/* RAIL — holdings
+            ============================================================
+            The privacy gate lives HERE at the render layer, not inside
+            the child components. Rationale:
+              - EcosystemHoldings fetches its OWN balances via wagmi
+                (independent of the page's holdings state), so passing an
+                `isVisible` flag through would still fire the RPC read
+                even when nothing renders. Gating at the render layer
+                skips the mount entirely — no wasted RPC calls.
+              - The launchpad holdings section reads from the page's
+                `holdings` state, which is already fetched for the stats
+                strip / positions math. We keep the fetch (so stats
+                still work) and just swap the render.
+              - CreatorEarnings / TokenOwnerControls / FlywheelRewards
+                are ALREADY isSelf-gated internally — they render
+                nothing when a stranger visits, so the privacy toggle
+                is a no-op for them and they stay in the tree
+                unchanged.
+            When the toggle is on AND a stranger is viewing, we render a
+            single explanatory placeholder card so the absence of data
+            is obvious (never silent). */}
         <aside
           style={{
             display: 'flex',
@@ -795,62 +820,71 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           }}
           className="lg:sticky lg:top-4 lg:h-fit"
         >
-          <EcosystemHoldings visibleFor={address} chain={activeChain} />
+          {isOwn && profile.hideHoldings && <PrivateModeHint />}
 
-          <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ launchpad holdings</div>
-            {holdings === null && !loaded && <LoadingRow tight />}
-            {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
-              <EmptyRow label="no urufu tokens held" tight />
-            )}
-            {holdings && holdings.length > 0 && (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                }}
-              >
-                {holdings
-                  .filter((h) => BigInt(h.balance) > 0n)
-                  .slice(0, 20)
-                  .map((h) => (
-                    <li
-                      key={h.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        padding: '3px 0',
-                        borderBottom: '1px dashed var(--cream-shadow)',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10.5,
-                      }}
-                    >
-                      {(() => {
-                        const lbl = tokenLabel(h.tokenAddress);
-                        return (
-                          <Link
-                            href={`/trade/${h.tokenAddress}`}
-                            title={lbl.full}
-                            style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-                          >
-                            {lbl.display}
-                          </Link>
-                        );
-                      })()}
-                      <span>
-                        {Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </section>
+          {shouldHideHoldingsFromView({ isOwn, hideHoldings: profile.hideHoldings }) ? (
+            <HoldingsHiddenPlaceholder />
+          ) : (
+            <>
+              <EcosystemHoldings visibleFor={address} chain={activeChain} />
 
+              <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
+                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ launchpad holdings</div>
+                {holdings === null && !loaded && <LoadingRow tight />}
+                {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
+                  <EmptyRow label="no urufu tokens held" tight />
+                )}
+                {holdings && holdings.length > 0 && (
+                  <ul
+                    style={{
+                      listStyle: 'none',
+                      padding: 0,
+                      margin: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 3,
+                    }}
+                  >
+                    {holdings
+                      .filter((h) => BigInt(h.balance) > 0n)
+                      .slice(0, 20)
+                      .map((h) => (
+                        <li
+                          key={h.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '3px 0',
+                            borderBottom: '1px dashed var(--cream-shadow)',
+                            fontFamily: 'var(--font-pixel), monospace',
+                            fontSize: 10.5,
+                          }}
+                        >
+                          {(() => {
+                            const lbl = tokenLabel(h.tokenAddress);
+                            return (
+                              <Link
+                                href={`/trade/${h.tokenAddress}`}
+                                title={lbl.full}
+                                style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                              >
+                                {lbl.display}
+                              </Link>
+                            );
+                          })()}
+                          <span>
+                            {Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+
+          {/* isSelf-gated internally — always safe to render. */}
           <CreatorEarnings visibleFor={address} chain={activeChain} />
           <TokenOwnerControls visibleFor={address} chain={activeChain} />
           <FlywheelRewards visibleFor={address} chain={activeChain} />
@@ -978,6 +1012,59 @@ function LoadingRow({ tight }: { tight?: boolean }) {
     >
       loading ~~
     </div>
+  );
+}
+
+/// Shown at the top of the rail on the OWNER's own view when the privacy
+/// toggle is on — a gentle reminder that others can't see what they see.
+/// Never rendered to strangers (they get `HoldingsHiddenPlaceholder` instead).
+function PrivateModeHint() {
+  return (
+    <div
+      className="uru-shell-tight"
+      style={{
+        background: 'var(--mint)',
+        padding: '6px 10px',
+        fontFamily: 'var(--font-pixel), monospace',
+        fontSize: 10.5,
+        color: 'var(--anchor)',
+        lineHeight: 1.35,
+      }}
+    >
+      <span aria-hidden="true">♡ </span>private mode on ~ others cannot see this section
+    </div>
+  );
+}
+
+/// Rendered in place of the holdings + balances rail when a viewer other than
+/// the profile owner lands on a profile whose owner has flipped the privacy
+/// toggle on. Deliberately explicit — silent hiding would leave visitors
+/// guessing whether the wallet is empty vs. hidden.
+function HoldingsHiddenPlaceholder() {
+  return (
+    <section
+      className="uru-shell-tight"
+      style={{
+        background: 'var(--cream)',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div className="uru-eyebrow">✿ holdings + balances hidden</div>
+      <p
+        style={{
+          margin: 0,
+          fontFamily: 'var(--font-round), Klee One, cursive',
+          fontSize: 12,
+          lineHeight: 1.45,
+          color: 'var(--anchor)',
+        }}
+      >
+        this user chose to keep their holdings private.
+      </p>
+    </section>
   );
 }
 
@@ -1232,6 +1319,7 @@ function EditProfileModal({
   const [discord, setDiscord] = useState(initial.discord ?? '');
   const [website, setWebsite] = useState(initial.website ?? '');
   const [avatarDataUrl, setAvatarDataUrl] = useState(initial.avatarDataUrl ?? '');
+  const [hideHoldings, setHideHoldings] = useState(initial.hideHoldings === true);
   const [error, setError] = useState<string | null>(null);
 
   const pickAvatar = async (file: File | undefined) => {
@@ -1264,6 +1352,7 @@ function EditProfileModal({
       xVerifiedId: initial.xVerifiedId,
       xVerifiedAt: initial.xVerifiedAt,
       xAvatarUrl: initial.xAvatarUrl,
+      hideHoldings: hideHoldings === true ? true : undefined,
       savedAt: Date.now(),
     };
     // Local first — always succeeds, keeps offline UX intact.
@@ -1301,6 +1390,11 @@ function EditProfileModal({
           discord: next.discord ?? null,
           website: next.website ?? null,
           avatarUrl,
+          // Always send the boolean so a toggle-off explicitly writes false to
+          // the server instead of leaving the previous true in place. The
+          // signed-message canonicalization sorts keys, so adding this field
+          // does not change the shape older clients relied on.
+          hideHoldings: hideHoldings === true,
         },
         ({ message }) => signMessageAsync({ message }),
       );
@@ -1410,6 +1504,62 @@ function EditProfileModal({
               <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>website</span>
               <input className="uru-input" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" style={{ marginTop: 3 }} />
             </label>
+          </div>
+
+          {/* Privacy toggle — hides the holdings + balances rail from viewers
+              other than the profile owner. Note copy is deliberately honest
+              about the limits of this shield: the indexer is public, so an
+              on-chain lookup by address still returns the same balances.
+              Keep this above the error banner + action buttons so it never
+              gets pushed off a short screen. */}
+          <div
+            style={{
+              borderTop: '1px dashed var(--anchor-soft)',
+              paddingTop: 10,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <div className="uru-eyebrow">✿ privacy</div>
+            <label
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+                fontFamily: 'var(--font-round), Klee One, cursive',
+                fontSize: 12.5,
+                lineHeight: 1.4,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={hideHoldings}
+                onChange={(e) => setHideHoldings(e.target.checked)}
+                style={{
+                  marginTop: 3,
+                  width: 14,
+                  height: 14,
+                  accentColor: 'var(--pink-hot)',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              />
+              <span>hide my holdings + balances from public profile</span>
+            </label>
+            <div
+              style={{
+                marginLeft: 22,
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                color: 'var(--anchor-soft)',
+                lineHeight: 1.5,
+              }}
+            >
+              ~ note: on-chain data is still public, this only hides
+              from your profile page here.
+            </div>
           </div>
 
           {error && (

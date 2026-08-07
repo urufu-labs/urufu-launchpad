@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "cloudflare-ipfs.com" },
       // ipfs:// URLs sometimes get normalized to a subdomain gateway.
       { protocol: "https", hostname: "*.ipfs.dweb.link" },
+      // X (Twitter) profile image host. Populated on user_profile.x_avatar_url
+      // by the /api/auth/x/callback flow after a wallet completes OAuth. The
+      // search modal + verified-badge components render these; adding the host
+      // here lets next/image serve them via the same optimized pipeline as
+      // Pinata avatars instead of falling back to a raw <img>.
+      { protocol: "https", hostname: "pbs.twimg.com" },
     ],
     formats: ["image/avif", "image/webp"],
     // Vercel edge cache TTL for the optimized output. Original URL is not

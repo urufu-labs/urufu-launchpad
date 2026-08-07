@@ -4,8 +4,38 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { isAddress } from 'viem';
 
-import { sql, hasDb } from '../db.ts';
+import { sql as _defaultSql } from '../db.ts';
 import { verifyEnvelope, type AuthEnvelope } from '../auth.ts';
+
+/// Minimal shape of the postgres.js tagged-template client the routes below
+/// need. Widening the type from postgres.Sql lets tests inject a fake without
+/// pulling in the full driver surface (connections, transactions, etc.).
+export type SqlLike = (typeof _defaultSql extends null ? never : NonNullable<typeof _defaultSql>);
+
+/// Optional injection point for the search route's rate cap. Snapshot / proof
+/// use env-configurable caps for the same reason: an operator can tighten the
+/// limit without a redeploy, and tests can widen it out of the way.
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : fallback;
+}
+export function defaultProfileSearchRateMax(): number {
+  return envInt('PROFILE_SEARCH_RATE_MAX', 10);
+}
+
+/// A search term MUST be at least this many characters. A single-character
+/// query would return most of the user_profile table on any real production
+/// dataset — that's an enumeration vector AND a giant payload for a
+/// public unauthenticated endpoint. Two chars keeps the response set small
+/// enough that the LIMIT clause is the actual size bound.
+const MIN_SEARCH_LEN = 2;
+
+/// Hard ceiling on the LIMIT param. A well-behaved UI shows ~20 results per
+/// query; 50 is enough for a "hold shift while scrolling" power user without
+/// letting a hostile caller paginate the table.
+const MAX_SEARCH_LIMIT = 50;
 
 /// Constant-time string equality. Returns false for unequal-length inputs
 /// without leaking the length itself past the initial length check.
@@ -63,16 +93,29 @@ async function launcherForToken(chainId: number, tokenAddress: string): Promise<
 /// Registers the three social/UGC route groups on the compile service:
 ///   - GET/POST /token/:chainId/:address/metadata   (image, socials, description)
 ///   - GET/POST /profile/:address                    (bio, avatar, socials)
+///   - GET     /profile/search                       (user directory search)
 ///   - GET/POST /token/:chainId/:address/chat        (per-token comment strip)
 ///
 /// All writes are wallet-signed; reads are public.
-export async function registerSocialRoutes(app: FastifyInstance): Promise<void> {
+///
+/// `opts.sqlOverride` is used only by the route-level tests to inject a fake
+/// postgres.js client. Production always uses the module-level default.
+export async function registerSocialRoutes(
+  app: FastifyInstance,
+  opts?: { sqlOverride?: SqlLike },
+): Promise<void> {
+  const sql = (opts?.sqlOverride ?? _defaultSql) as SqlLike | null;
+  /// Route-level guard replacing the module-level `hasDb()` call. The two are
+  /// equivalent in production (both read the same module-level client) but
+  /// diverge in tests, where `sqlOverride` supplies a fake sql without setting
+  /// DATABASE_URL. Reading through the local `sql` keeps behavior consistent.
+  const _hasSql = (): boolean => sql !== null;
   // ---------------------------------------------------------------- metadata
 
   app.get<{ Params: { chainId: string; address: string } }>(
     '/token/:chainId/:address/metadata',
     async (req, reply) => {
-      if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+      if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
       const chainId = Number(req.params.chainId);
       const addr = req.params.address.toLowerCase();
       if (!Number.isFinite(chainId) || !isAddress(addr)) {
@@ -118,7 +161,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.post<{ Params: { chainId: string; address: string } }>('/token/:chainId/:address/metadata', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const parsed = MetadataSaveBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ code: 'BAD_BODY', errors: parsed.error.flatten() });
     const { address, signature, timestamp, payload } = parsed.data;
@@ -172,7 +215,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   /// render. This endpoint takes a list and returns whatever exists in one query so we
   /// don't spam GETs.
   app.post<{ Body: { chainId: number; tokens: string[] } }>('/token-metadata/batch', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const body = req.body;
     if (!body || typeof body.chainId !== 'number' || !Array.isArray(body.tokens)) {
       return reply.code(400).send({ code: 'BAD_BODY' });
@@ -194,8 +237,138 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
 
   // ---------------------------------------------------------------- profile
 
+  // ---- GET /profile/search — directory lookup by address / username / X handle.
+  //
+  // Public, unauthenticated. Rate-limited per-IP (default 10/min, tuned via
+  // PROFILE_SEARCH_RATE_MAX) so an attacker cannot rip the whole user_profile
+  // table via pagination. Registered BEFORE `/profile/:address` so Fastify's
+  // find-my-way router prefers the static `/profile/search` over the dynamic
+  // `/profile/:address` pattern on that segment.
+  //
+  // Response payload deliberately omits `bio`, `telegram`, `discord`,
+  // `website`, `xVerifiedId`, and `xVerifiedAt`:
+  //   - the search UI never renders them, and
+  //   - shrinking the row keeps the endpoint from doubling as a scraper.
+  //
+  // The `twitter` (legacy self-declared) field is nulled out when
+  // `xVerifiedHandle` is present — the verified handle is the trustworthy
+  // one and duplicating both on the client would just invite it to render
+  // the wrong one on top.
+  app.get<{ Querystring: { q?: string; limit?: string } }>(
+    '/profile/search',
+    {
+      config: {
+        rateLimit: {
+          max: defaultProfileSearchRateMax(),
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+      const rawQ = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+      // Empty or too-short queries return no results instead of a full-table
+      // dump. NEVER 400 here — an empty search input is a totally normal UI
+      // state; the caller just wants a "no matches yet" render.
+      if (rawQ.length < MIN_SEARCH_LEN) {
+        return reply.send({ results: [] });
+      }
+      // Guard against oversized q values consuming pattern-match CPU on the
+      // db (ILIKE '%…%' is not indexed). 80 characters is more than any
+      // legitimate username / handle.
+      if (rawQ.length > 80) {
+        return reply.send({ results: [] });
+      }
+      const requestedLimit = Number.parseInt(req.query.limit ?? '', 10);
+      const limit = Math.min(
+        MAX_SEARCH_LIMIT,
+        Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 20),
+      );
+
+      // Address-prefix mode kicks in whenever the query looks like the start
+      // of an address (0x + hex). Two branches so we can hit the primary key
+      // index on `address` for the common "paste in a wallet" case instead of
+      // scanning every row's username / x_verified_handle / twitter.
+      const isHexPrefix = /^0x[0-9a-fA-F]{1,40}$/.test(rawQ);
+      let rows: Array<{
+        address: string;
+        username: string | null;
+        avatarUrl: string | null;
+        xVerifiedHandle: string | null;
+        xAvatarUrl: string | null;
+        twitter: string | null;
+        updatedAt: Date;
+      }>;
+      if (isHexPrefix) {
+        const prefix = rawQ.toLowerCase();
+        rows = await sql!<typeof rows>`
+          SELECT address,
+                 username,
+                 avatar_url        AS "avatarUrl",
+                 x_verified_handle AS "xVerifiedHandle",
+                 x_avatar_url      AS "xAvatarUrl",
+                 twitter,
+                 updated_at        AS "updatedAt"
+          FROM app.user_profile
+          WHERE address LIKE ${prefix + '%'}
+          ORDER BY (x_verified_handle IS NOT NULL) DESC,
+                   updated_at DESC
+          LIMIT ${limit}
+        `;
+      } else {
+        // Text-search branch. Ordering priority:
+        //   1. rows with a verified X handle first — verified is trust,
+        //      never show an unverified impostor above a verified user
+        //   2. exact username / verified-handle match next (case-insensitive)
+        //   3. then most recently updated so the freshest profiles surface
+        //
+        // Every `${…}` interpolation is a parameterized value under
+        // postgres.js's tagged-template driver — the `%` wildcards live in
+        // the JS literal we send AS the parameter, so the LIKE pattern is
+        // still not a SQL-injection surface (the whole thing becomes ONE
+        // bound param, not concatenated SQL).
+        const like = `%${rawQ}%`;
+        const exact = rawQ;
+        rows = await sql!<typeof rows>`
+          SELECT address,
+                 username,
+                 avatar_url        AS "avatarUrl",
+                 x_verified_handle AS "xVerifiedHandle",
+                 x_avatar_url      AS "xAvatarUrl",
+                 twitter,
+                 updated_at        AS "updatedAt"
+          FROM app.user_profile
+          WHERE username           ILIKE ${like}
+             OR x_verified_handle  ILIKE ${like}
+             OR twitter            ILIKE ${like}
+          ORDER BY (x_verified_handle IS NOT NULL) DESC,
+                   LOWER(username)          = LOWER(${exact}) DESC,
+                   LOWER(x_verified_handle) = LOWER(${exact}) DESC,
+                   updated_at DESC
+          LIMIT ${limit}
+        `;
+      }
+
+      return reply.send({
+        results: rows.map((r) => ({
+          address: r.address,
+          username: r.username,
+          avatarUrl: r.avatarUrl,
+          xVerifiedHandle: r.xVerifiedHandle,
+          xAvatarUrl: r.xAvatarUrl,
+          // Hide the legacy self-declared handle when a verified one exists.
+          // The UI would only ever want to render one, and rendering the
+          // unverified one alongside would let a wallet claim two handles at
+          // once — one legit, one impersonation.
+          twitter: r.xVerifiedHandle ? null : r.twitter,
+          updatedAt: r.updatedAt.toISOString(),
+        })),
+      });
+    },
+  );
+
   app.get<{ Params: { address: string } }>('/profile/:address', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const addr = req.params.address.toLowerCase();
     if (!isAddress(addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
     const rows = await sql!<
@@ -212,6 +385,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
         xVerifiedId: string | null;
         xVerifiedAt: Date | null;
         xAvatarUrl: string | null;
+        hideHoldings: boolean | null;
         updatedAt: Date;
       }>
     >`
@@ -220,6 +394,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
              x_verified_id     AS "xVerifiedId",
              x_verified_at     AS "xVerifiedAt",
              x_avatar_url      AS "xAvatarUrl",
+             hide_holdings     AS "hideHoldings",
              updated_at AS "updatedAt"
       FROM app.user_profile
       WHERE address = ${addr}
@@ -232,6 +407,9 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       // Serialize timestamps as JSON-friendly types so the client doesn't need
       // to know about the Date instance the postgres driver hydrates.
       xVerifiedAt: row.xVerifiedAt ? row.xVerifiedAt.getTime() : null,
+      // Normalize NULL from a pre-migration row into a concrete false so the
+      // frontend can trust the shape (never null / undefined for this field).
+      hideHoldings: row.hideHoldings ?? false,
       updatedAt: row.updatedAt.toISOString(),
     });
   });
@@ -248,11 +426,17 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
       telegram: z.string().max(80).nullable().optional(),
       discord: z.string().max(80).nullable().optional(),
       website: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
+      /// Privacy toggle: when true the /profile/[addr] page hides the wallet's
+      /// holdings + balances section from viewers OTHER than the owner. UX-only
+      /// shield — the indexer is public and can still be queried by address.
+      /// Optional so pre-migration clients that don't send it don't 400; a
+      /// missing value gets coerced to false at the INSERT.
+      hideHoldings: z.boolean().optional(),
     }),
   });
 
   app.post('/profile/:address', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const paramAddr = (req.params as { address: string }).address.toLowerCase();
     if (!isAddress(paramAddr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
     const parsed = ProfileSaveBody.safeParse(req.body);
@@ -269,9 +453,13 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
     // touch them — only the bearer-authed /profile/:address/x-verified endpoint
     // below writes those. This prevents a wallet from claiming a verified
     // handle it never OAuth-proved ownership of.
+    //
+    // `hide_holdings` IS in the signed-write list — it's a self-service privacy
+    // preference the wallet owner controls, not a verified attestation.
+    const hideHoldings = payload.hideHoldings === true;
     await sql!`
-      INSERT INTO app.user_profile (address, username, avatar_url, bio, twitter, telegram, discord, website, updated_at)
-      VALUES (${auth.address}, ${payload.username ?? null}, ${payload.avatarUrl ?? null}, ${payload.bio ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.website ?? null}, now())
+      INSERT INTO app.user_profile (address, username, avatar_url, bio, twitter, telegram, discord, website, hide_holdings, updated_at)
+      VALUES (${auth.address}, ${payload.username ?? null}, ${payload.avatarUrl ?? null}, ${payload.bio ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.website ?? null}, ${hideHoldings}, now())
       ON CONFLICT (address) DO UPDATE SET
         username = EXCLUDED.username,
         avatar_url = EXCLUDED.avatar_url,
@@ -280,6 +468,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
         telegram = EXCLUDED.telegram,
         discord = EXCLUDED.discord,
         website = EXCLUDED.website,
+        hide_holdings = EXCLUDED.hide_holdings,
         updated_at = now()
     `;
     return reply.send({ ok: true });
@@ -315,7 +504,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   const XVerifiedClearBody = z.object({ clear: z.literal(true) });
 
   app.post<{ Params: { address: string } }>('/profile/:address/x-verified', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const expected = process.env.X_VERIFY_SHARED_SECRET;
     if (!expected || expected.length < 32) {
       // Fail-loud: without a configured secret we can't authenticate the
@@ -398,7 +587,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   app.get<{ Params: { chainId: string; address: string }; Querystring: { limit?: string } }>(
     '/token/:chainId/:address/chat',
     async (req, reply) => {
-      if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+      if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
       const chainId = Number(req.params.chainId);
       const addr = req.params.address.toLowerCase();
       if (!Number.isFinite(chainId) || !isAddress(addr)) return reply.code(400).send({ code: 'BAD_PARAMS' });
@@ -427,7 +616,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   });
 
   app.post('/token/:chainId/:address/chat', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const parsed = ChatPostBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ code: 'BAD_BODY', errors: parsed.error.flatten() });
     const { address, signature, timestamp, payload } = parsed.data;
@@ -463,7 +652,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
 
   /// POST /follows/:target — signer follows target. Idempotent (ON CONFLICT DO NOTHING).
   app.post('/follows/:target', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const paramTarget = (req.params as { target: string }).target.toLowerCase();
     if (!isAddress(paramTarget)) return reply.code(400).send({ code: 'BAD_TARGET' });
     const parsed = FollowActionBody.safeParse(req.body);
@@ -489,7 +678,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   /// consistency (browsers strip DELETE bodies more aggressively; fastify handles
   /// both fine but signed POST is the simpler client path).
   app.post('/follows/:target/unfollow', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const paramTarget = (req.params as { target: string }).target.toLowerCase();
     if (!isAddress(paramTarget)) return reply.code(400).send({ code: 'BAD_TARGET' });
     const parsed = FollowActionBody.safeParse(req.body);
@@ -508,7 +697,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   /// Enriches with each follower's profile so the modal renders avatars without
   /// a per-row fetch. Ordered by most recent follow first, capped at 200.
   app.get<{ Params: { address: string } }>('/followers/:address', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const addr = req.params.address.toLowerCase();
     if (!isAddress(addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
     const rows = await sql!<
@@ -538,7 +727,7 @@ export async function registerSocialRoutes(app: FastifyInstance): Promise<void> 
   /// GET /following/:address — public list of everyone this address follows.
   /// Same shape as /followers for a uniform frontend renderer.
   app.get<{ Params: { address: string } }>('/following/:address', async (req, reply) => {
-    if (!hasDb()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
+    if (!_hasSql()) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
     const addr = req.params.address.toLowerCase();
     if (!isAddress(addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
     const rows = await sql!<

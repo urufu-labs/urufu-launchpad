@@ -13,6 +13,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 import { PriceUnitToggle } from '@/components/PriceUnitToggle';
 import { WelcomeModal } from '@/components/WelcomeModal';
+import { UserSearchLauncher } from '@/components/UserSearchModal';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -238,6 +239,13 @@ export default function RootLayout({
                 <ThemeToggle />
                 <AudioToggle />
               </div>
+              {/* Directory search — opens a modal keyed to GET /profile/search
+                  on the compile service. `/` global shortcut is wired inside
+                  the component so a bare-page keyboard user can jump in
+                  without going through the header. Rendered before the chain
+                  switcher so it sits with the utility toggles rather than
+                  the wallet stack. */}
+              <UserSearchLauncher />
               <ChainSwitcher />
               <WalletButton />
             </nav>

@@ -75,6 +75,13 @@ export async function migrate(): Promise<void> {
   // rows where the binding was cleared (x_verified_id IS NULL).
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_x_verified_id_uq
             ON app.user_profile (x_verified_id) WHERE x_verified_id IS NOT NULL`;
+  // "Hide holdings" privacy toggle. UX-only shield: it hides the holdings +
+  // balances section on the /profile/[addr] page when someone OTHER than the
+  // owner is viewing. It does NOT hide anything on-chain — the indexer is
+  // public and anyone querying it by address can still see balances. The
+  // frontend surfaces this caveat in the toggle copy. Default false so every
+  // pre-existing profile keeps its current visibility.
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS hide_holdings BOOLEAN NOT NULL DEFAULT false`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.token_chat (

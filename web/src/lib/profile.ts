@@ -32,8 +32,27 @@ export interface UserProfile {
   xVerifiedAt?: number;
   /// X profile avatar URL — cached for search results / hover cards.
   xAvatarUrl?: string;
+  /// When true, viewers OTHER than the owner do not see the holdings +
+  /// balances section on this profile. UX-only shield — the indexer is public
+  /// and anyone querying it by address can still see balances. Default false
+  /// so every pre-existing profile keeps its current visibility.
+  hideHoldings?: boolean;
   /// ms since epoch — last save.
   savedAt: number;
+}
+
+/// Small pure helper — kept next to the type so any surface that renders
+/// holdings on a profile page can share the same rule. Own profile always
+/// wins: even with the toggle ON, the owner sees their own holdings so they
+/// can act on them. Only viewers OTHER than the owner get the placeholder.
+export function shouldHideHoldingsFromView({
+  isOwn,
+  hideHoldings,
+}: {
+  isOwn: boolean;
+  hideHoldings: boolean | undefined;
+}): boolean {
+  return !isOwn && hideHoldings === true;
 }
 
 const KEY_PREFIX = 'uru-profile-';
@@ -80,6 +99,9 @@ export function saveProfile(profile: UserProfile): { ok: true } | { ok: false; e
     xVerifiedId: profile.xVerifiedId,
     xVerifiedAt: profile.xVerifiedAt,
     xAvatarUrl: profile.xAvatarUrl,
+    // Coerce to a strict boolean or drop the key entirely so we don't
+    // persist `false` verbosely in every localStorage snapshot.
+    hideHoldings: profile.hideHoldings === true ? true : undefined,
     savedAt: Date.now(),
   };
   const json = JSON.stringify(trimmed);
