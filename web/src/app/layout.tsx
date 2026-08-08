@@ -211,6 +211,7 @@ export default function RootLayout({
             <nav
               className="flex items-center gap-2 sm:gap-3 text-[12px] sm:text-[13px] flex-wrap justify-end"
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
+              aria-label="primary navigation"
             >
               <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ shop</Link>
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>

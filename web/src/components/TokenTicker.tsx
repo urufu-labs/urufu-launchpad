@@ -72,13 +72,13 @@ export function TokenTicker() {
         ),
       };
     });
-  }, [source, chainLabel]);
+  }, [source, chainLabel, unit, ethUsd]);
 
   // Duplicate so translateX(-50%) wraps seamlessly.
   const loop = [...entries, ...entries];
 
   return (
-    <div className="uru-marquee-wrap" aria-hidden>
+    <div className="uru-marquee-wrap" aria-label="Urufu token ticker">
       <div className="uru-marquee">
         <div className="uru-marquee-track">
           {loop.map((e, i) => (
@@ -89,4 +89,3 @@ export function TokenTicker() {
     </div>
   );
 }
-

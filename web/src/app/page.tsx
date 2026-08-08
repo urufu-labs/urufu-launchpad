@@ -16,6 +16,7 @@ import {
   launchKind,
   tradeCountOf,
   type MockLaunch,
+  type MockTrade,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
@@ -35,6 +36,13 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 // but NFT bases aren't live yet and legacy direct tokens are hidden. Dropped
 // the tab to declutter the bar.
 type Tab = 'trending' | 'new' | 'near' | 'graduated';
+type HomeTrade = { l: MockLaunch; t: MockTrade };
+
+// Preview data is for local reviews by default. A staging deployment must opt in with
+// NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
+// someone deliberately supplies that flag.
+const HOME_PREVIEW_AVAILABLE =
+  process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_HOME_PREVIEW === 'true';
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -59,25 +67,37 @@ function HomePageContent() {
   const chainId = CHAIN_KEY_TO_ID[activeChain];
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  const [previewRun, setPreviewRun] = useState(0);
+  const [previewTrades, setPreviewTrades] = useState<HomeTrade[]>([]);
 
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
+  const previewLaunches = useMemo(
+    () =>
+      MOCK_LAUNCHES.filter(
+        (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
+      ).slice(0, 3),
+    [],
+  );
+  const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
+  const sourceLabel = previewEnabled ? 'preview' : CHAIN_LABELS[activeChain];
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
   const stats = useMemo(() => {
-    const total = chainMocks.length;
-    const graduated = chainMocks.filter((l) => l.graduated).length;
-    const totalEth = chainMocks.reduce((acc, l) => acc + l.ethReserve, 0n);
-    const totalTrades = chainMocks.reduce((acc, l) => acc + tradeCountOf(l), 0);
+    const total = sourceLaunches.length;
+    const graduated = sourceLaunches.filter((l) => l.graduated).length;
+    const totalEth = sourceLaunches.reduce((acc, l) => acc + l.ethReserve, 0n);
+    const totalTrades = sourceLaunches.reduce((acc, l) => acc + tradeCountOf(l), 0);
     return { total, graduated, totalEth, totalTrades };
-  }, [chainMocks]);
+  }, [sourceLaunches]);
 
   const filtered = useMemo(() => {
     // All tabs are curve-only after the direct-mint tab drop; non-curve tokens
     // (legacy pre-rename direct launches + any NFT bases) never surface here.
-    let list = chainMocks.filter((l) => launchKind(l) === 'curve');
+    let list = sourceLaunches.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -101,7 +121,7 @@ function HomePageContent() {
         break;
     }
     return list;
-  }, [chainMocks, query, tab]);
+  }, [sourceLaunches, query, tab]);
 
   // Right-rail "live activity", real trades from the indexer on chains with deployed
   // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
@@ -111,7 +131,7 @@ function HomePageContent() {
   const [liveV4Real, setLiveV4Real] = useState<IndexerV4Swap[] | null>(null);
   const liveIsRealChain = CONTRACTS[activeChain] !== null;
   useEffect(() => {
-    if (!liveIsRealChain) return;
+    if (previewEnabled || !liveIsRealChain) return;
     let cancelled = false;
     const load = async () => {
       const [curveRows, v4Rows] = await Promise.all([
@@ -139,13 +159,13 @@ function HomePageContent() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [liveIsRealChain, chainId]);
+  }, [liveIsRealChain, chainId, previewEnabled]);
 
   // Normalize both curve trades and v4 swaps to the shape the JSX rail expects: { l, t }.
   // v4 swap direction is derived from the sign of amount0 (currency0 = ETH): amount0 < 0
   // means the pool paid out ETH (user bought token), amount0 > 0 means the pool received
   // ETH (user sold token). Amounts are absolute values of the pool-side delta.
-  const liveTrades = useMemo(() => {
+  const liveTrades = useMemo<HomeTrade[]>(() => {
     if (liveIsRealChain) {
       const byToken = new Map(chainMocks.map((l) => [l.address.toLowerCase(), l] as const));
       const curveRows = (liveTradesReal ?? [])
@@ -196,10 +216,64 @@ function HomePageContent() {
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
+  const previewTradeSeeds = useMemo<HomeTrade[]>(() => {
+    return previewLaunches
+      .flatMap((launch) =>
+        launch.trades
+          .slice(-2)
+          .reverse()
+          .map((trade) => ({ l: launch, t: trade })),
+      )
+      .slice(0, 6)
+      .map((row) => ({ ...row }));
+  }, [previewLaunches]);
+
+  // The rail deliberately animates preview events one at a time. It is never started
+  // on the live data path, so production activity continues to come only from the indexer.
+  useEffect(() => {
+    if (!previewEnabled || previewTradeSeeds.length === 0) {
+      setPreviewTrades([]);
+      return;
+    }
+    let next = 0;
+    const addTrade = () => {
+      const source = previewTradeSeeds[next % previewTradeSeeds.length]!;
+      const row: HomeTrade = {
+        ...source,
+        // This happens in an effect, not during render. The preview is visibly labeled
+        // and fresh timestamps make the arrival animation legible during review.
+        t: { ...source.t, timestamp: Math.floor(Date.now() / 1000) },
+      };
+      next += 1;
+      setPreviewTrades((current) =>
+        [row, ...current.filter((item) => homeTradeKey(item) !== homeTradeKey(row))].slice(0, 5),
+      );
+    };
+    addTrade();
+    const starters = [window.setTimeout(addTrade, 360), window.setTimeout(addTrade, 720)];
+    const interval = window.setInterval(addTrade, 2_200);
+    return () => {
+      starters.forEach((timer) => window.clearTimeout(timer));
+      window.clearInterval(interval);
+    };
+  }, [previewEnabled, previewRun, previewTradeSeeds]);
+
+  const displayedTrades = previewEnabled ? previewTrades : liveTrades;
+
   return (
     <main className="uru-home-shell">
       <section className="uru-home-hero-frame" aria-labelledby="hero-title">
         <span className="uru-home-tape uru-home-tape-top" aria-hidden="true" />
+        {HOME_PREVIEW_AVAILABLE && (
+          <button
+            type="button"
+            className="uru-home-preview-toggle"
+            aria-pressed={previewEnabled}
+            onClick={() => setPreviewEnabled((enabled) => !enabled)}
+          >
+            ✦ {previewEnabled ? 'preview data on' : 'show preview data'}
+          </button>
+        )}
         <div className="uru-home-hero">
           <div className="uru-home-hero-copy">
             <p className="uru-home-eyebrow">✿ urufu labs launchpad</p>
@@ -238,7 +312,7 @@ function HomePageContent() {
             accent="pink"
           />
           <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
-          <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
+          <StatTile label="chain" jp="鎖" value={sourceLabel} accent="mizuiro" />
         </section>
       </section>
 
@@ -251,6 +325,8 @@ function HomePageContent() {
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
+                  role="tab"
+                  aria-selected={tab === t.id}
                   className="uru-chip"
                   data-active={tab === t.id}
                 >
@@ -261,6 +337,7 @@ function HomePageContent() {
             </div>
             <input
               className="uru-input uru-home-search"
+              type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="search name / ticker"
@@ -274,14 +351,14 @@ function HomePageContent() {
           {filtered.length > 0 ? (
             <div className="uru-home-launch-grid">
               {filtered.slice(0, 12).map((l) => (
-                <LaunchTile key={l.address} launch={l} />
+                <LaunchTile key={l.address} launch={l} preview={previewEnabled} />
               ))}
             </div>
           ) : (
             <div className="uru-home-empty">
               <div>
                 <Mascot size={52} mood="confused" />
-                <p>no launches on {CHAIN_LABELS[activeChain]} yet ~~</p>
+                <p>no launches on {sourceLabel} yet ~~</p>
                 <Link href="/create">launch the first one »</Link>
               </div>
             </div>
@@ -289,15 +366,30 @@ function HomePageContent() {
         </section>
 
         <aside className="uru-home-side-rail">
-          <section className="uru-home-sidebar-card" aria-label="Live trades">
+          <section
+            className="uru-home-sidebar-card"
+            aria-label={previewEnabled ? 'Preview trades' : 'Live trades'}
+          >
             <div className="uru-home-sidebar-title">
-              <span>✦ live trades</span>
-              <span className="uru-home-live-dot" aria-hidden="true" />
+              <span>✦ {previewEnabled ? 'preview trades' : 'live trades'}</span>
+              <span
+                className="uru-home-live-dot"
+                aria-label={previewEnabled ? 'Preview activity' : 'Live activity'}
+              />
             </div>
-            {liveTrades.length > 0 ? (
+            {previewEnabled && (
+              <button
+                type="button"
+                className="uru-home-trade-replay"
+                onClick={() => setPreviewRun((run) => run + 1)}
+              >
+                ↻ replay
+              </button>
+            )}
+            {displayedTrades.length > 0 ? (
               <ul className="uru-home-trade-list">
-                {liveTrades.map((row, i) => (
-                  <li key={`${row.l.address}-${row.t.timestamp}-${i}`}>
+                {displayedTrades.map((row) => (
+                  <li key={homeTradeKey(row)} className="uru-home-trade-incoming">
                     <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
                       {row.t.isBuy ? 'BUY' : 'SELL'}
                     </span>
@@ -381,6 +473,10 @@ function HomePageContent() {
 // small components
 // ============================================================================
 
+function homeTradeKey(row: HomeTrade) {
+  return `${row.l.address}-${row.t.trader}-${row.t.ethAmount}-${row.t.timestamp}`;
+}
+
 function StatTile({
   label,
   jp,
@@ -425,7 +521,7 @@ function StatTile({
   );
 }
 
-function LaunchTile({ launch }: { launch: MockLaunch }) {
+function LaunchTile({ launch, preview = false }: { launch: MockLaunch; preview?: boolean }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
@@ -441,6 +537,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
     <Link
       href={`/trade/${launch.address}`}
       className="uru-shell-tight uru-launch-card"
+      data-preview={preview || undefined}
       style={{
         display: 'block',
         textDecoration: 'none',
@@ -450,6 +547,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
     >
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <div
+          className="uru-launch-card-mark"
           style={{
             width: 40,
             height: 40,
@@ -488,6 +586,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
             >
               ${launch.ticker}
             </div>
+            {preview && <span className="uru-launch-preview-label">preview</span>}
           </div>
           <div
             style={{
@@ -515,7 +614,7 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
           }}
         >
           <div
-            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
+            className={`uru-launch-progress-fill ${progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}`}
             style={{
               width: `${progress}%`,
               height: '100%',
