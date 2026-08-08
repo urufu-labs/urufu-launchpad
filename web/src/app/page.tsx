@@ -15,6 +15,7 @@ import {
   launchKind,
   tradeCountOf,
   type MockLaunch,
+  type MockTrade,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
@@ -29,6 +30,23 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 // but NFT bases aren't live yet and legacy direct tokens are hidden. Dropped
 // the tab to declutter the bar.
 type Tab = 'trending' | 'new' | 'near' | 'graduated';
+type HomeTrade = { l: MockLaunch; t: MockTrade };
+
+// This switch is deliberately build-time only. It is used for the standalone PR1
+// comparison deployment, where the current Robinhood feed has no indexer rows to
+// compare against the overhaul. The fixtures are the exact three Sepolia launches
+// used by the overhaul's home preview, not a second hand-authored data set.
+const PR1_COMPARISON_MOCKS_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_PR1_COMPARISON_MOCKS === 'true';
+const PR1_COMPARISON_LAUNCHES = MOCK_LAUNCHES.filter(
+  (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
+).slice(0, 3);
+const PR1_COMPARISON_TRADES: HomeTrade[] = PR1_COMPARISON_LAUNCHES.flatMap((launch) =>
+  launch.trades
+    .slice(-2)
+    .reverse()
+    .map((trade) => ({ l: launch, t: trade })),
+).slice(0, 6);
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -57,21 +75,27 @@ function HomePageContent() {
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
+  const sourceLaunches = PR1_COMPARISON_MOCKS_ENABLED
+    ? PR1_COMPARISON_LAUNCHES
+    : chainMocks;
+  const sourceLabel = PR1_COMPARISON_MOCKS_ENABLED
+    ? 'mock preview'
+    : CHAIN_LABELS[activeChain];
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
   const stats = useMemo(() => {
-    const total = chainMocks.length;
-    const graduated = chainMocks.filter((l) => l.graduated).length;
-    const totalEth = chainMocks.reduce((acc, l) => acc + l.ethReserve, 0n);
-    const totalTrades = chainMocks.reduce((acc, l) => acc + tradeCountOf(l), 0);
+    const total = sourceLaunches.length;
+    const graduated = sourceLaunches.filter((l) => l.graduated).length;
+    const totalEth = sourceLaunches.reduce((acc, l) => acc + l.ethReserve, 0n);
+    const totalTrades = sourceLaunches.reduce((acc, l) => acc + tradeCountOf(l), 0);
     return { total, graduated, totalEth, totalTrades };
-  }, [chainMocks]);
+  }, [sourceLaunches]);
 
   const filtered = useMemo(() => {
     // All tabs are curve-only after the direct-mint tab drop; non-curve tokens
     // (legacy pre-rename direct launches + any NFT bases) never surface here.
-    let list = chainMocks.filter((l) => launchKind(l) === 'curve');
+    let list = sourceLaunches.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -93,7 +117,7 @@ function HomePageContent() {
         break;
     }
     return list;
-  }, [chainMocks, query, tab]);
+  }, [sourceLaunches, query, tab]);
 
   // Right-rail "live activity", real trades from the indexer on chains with deployed
   // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
@@ -101,7 +125,7 @@ function HomePageContent() {
   // render the empty-state placeholder in the rail).
   const [liveTradesReal, setLiveTradesReal] = useState<IndexerTrade[] | null>(null);
   const [liveV4Real, setLiveV4Real] = useState<IndexerV4Swap[] | null>(null);
-  const liveIsRealChain = CONTRACTS[activeChain] !== null;
+  const liveIsRealChain = !PR1_COMPARISON_MOCKS_ENABLED && CONTRACTS[activeChain] !== null;
   useEffect(() => {
     if (!liveIsRealChain) return;
     let cancelled = false;
@@ -181,6 +205,7 @@ function HomePageContent() {
         .sort((a, b) => b.t.timestamp - a.t.timestamp)
         .slice(0, 14);
     }
+    if (PR1_COMPARISON_MOCKS_ENABLED) return PR1_COMPARISON_TRADES;
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
     return MOCK_LAUNCHES
       .flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
@@ -240,7 +265,7 @@ function HomePageContent() {
           accent="pink"
         />
         <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
-        <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
+        <StatTile label="source" jp="源" value={sourceLabel} accent="mizuiro" />
       </section>
 
       {/* ===================================================================
@@ -326,7 +351,7 @@ function HomePageContent() {
                       color: 'var(--anchor-soft)',
                     }}
                   >
-                    no launches on {CHAIN_LABELS[activeChain]} yet ~~
+                    no launches in {sourceLabel} yet ~~
                   </div>
                   <Link
                     href="/create"
