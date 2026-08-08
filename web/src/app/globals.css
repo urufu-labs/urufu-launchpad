@@ -600,6 +600,562 @@ body {
 .uru-chip:active { transform: translate(1.5px, 1.5px); box-shadow: 0 0 0 var(--anchor); }
 .uru-chip[data-active='true'] { background: var(--pink-hot); color: #fff; }
 
+/* Culture-first home, adapted from the approved static mockup while keeping live data. */
+.uru-home-shell {
+  width: min(100% - 32px, 1420px);
+  margin: 22px auto 48px;
+}
+
+.uru-home-hero-frame,
+.uru-home-gallery-main,
+.uru-home-sidebar-card {
+  position: relative;
+  border: 3px double var(--anchor);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  color: var(--anchor);
+  box-shadow:
+    7px 7px 0 rgba(255,136,179,0.32),
+    0 24px 60px rgba(0,0,0,0.18);
+}
+.uru-home-hero-frame::before,
+.uru-home-gallery-main::before,
+.uru-home-sidebar-card::before {
+  position: absolute;
+  inset: 8px;
+  z-index: 0;
+  border: 1px dashed color-mix(in srgb, var(--anchor) 24%, transparent);
+  content: '';
+  pointer-events: none;
+}
+.uru-home-hero-frame > *,
+.uru-home-gallery-main > *,
+.uru-home-sidebar-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.uru-home-tape {
+  position: absolute;
+  z-index: 4;
+  width: 132px;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, var(--anchor) 20%, transparent);
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 4px, transparent 4px 7px),
+    color-mix(in srgb, var(--pink-hot) 70%, transparent);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  pointer-events: none;
+}
+.uru-home-tape-top {
+  top: -10px;
+  left: 16%;
+  transform: rotate(-7deg);
+}
+
+.uru-home-hero {
+  display: grid;
+  min-height: 590px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+}
+.uru-home-hero-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(42px, 7vw, 108px) clamp(26px, 6vw, 92px);
+}
+.uru-home-eyebrow {
+  margin: 0 0 12px;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.uru-home-title {
+  max-width: 740px;
+  margin: 0 0 18px;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: clamp(44px, 5.5vw, 86px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.97;
+  text-shadow:
+    3px 3px 0 var(--cream-shadow),
+    6px 6px 0 color-mix(in srgb, var(--pink-hot) 26%, transparent);
+}
+.uru-home-title span {
+  color: var(--yolk);
+  text-shadow: 2px 2px 0 var(--anchor);
+}
+.uru-home-subtitle {
+  max-width: 590px;
+  margin: 0 0 23px;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: clamp(16px, 1.5vw, 20px);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.uru-home-flags,
+.uru-home-actions,
+.uru-home-tabs,
+.uru-home-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.uru-home-flags { margin: 0 0 24px; }
+.uru-home-flags span {
+  border: 1px solid color-mix(in srgb, var(--anchor) 62%, transparent);
+  background: color-mix(in srgb, var(--cream-deep) 54%, transparent);
+  padding: 4px 8px;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.uru-home-flags span[data-tone='mint'] {
+  border-color: var(--mint-hot);
+  color: var(--mint-hot);
+}
+.uru-home-flags span[data-tone='pink'] {
+  border-color: var(--pink-hot);
+  color: var(--pink-hot);
+}
+
+.uru-home-hero-art {
+  position: relative;
+  display: flex;
+  min-height: 390px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-left: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
+  background:
+    radial-gradient(circle at 50% 57%, rgba(255,79,163,0.65), transparent 16%),
+    radial-gradient(circle at 50% 48%, rgba(255,136,179,0.22) 0 31%, transparent 32%),
+    linear-gradient(145deg, var(--paper-base), var(--card) 55%, var(--paper-base-2));
+}
+.uru-home-hero-art::before {
+  position: absolute;
+  inset: 7%;
+  border: 1px solid rgba(255,136,179,0.34);
+  border-radius: 48% 52% 51% 49%;
+  box-shadow:
+    0 0 0 20px rgba(255,136,179,0.05),
+    0 0 0 46px rgba(189,224,254,0.04);
+  content: '';
+  animation: uru-home-breathe 5.8s ease-in-out infinite;
+}
+.uru-home-hero-art::after {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(189,224,254,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(189,224,254,0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  content: '';
+  mask-image: radial-gradient(circle at 50% 50%, black 0 42%, transparent 82%);
+}
+@keyframes uru-home-breathe { 50% { transform: scale(1.045) rotate(2deg); } }
+
+.uru-home-moon {
+  position: absolute;
+  z-index: 1;
+  width: 106px;
+  height: 106px;
+  border: 7px solid var(--pink-warm);
+  border-radius: 50%;
+  box-shadow: 15px 0 0 var(--anchor);
+}
+.uru-home-moon-one { top: 22%; left: 21%; transform: rotate(-18deg); }
+.uru-home-moon-two { top: 27%; right: 21%; transform: scale(0.85) rotate(20deg); }
+.uru-home-wolf {
+  position: absolute;
+  z-index: 2;
+  bottom: 20%;
+  width: 0;
+  height: 0;
+  border-right: 45px solid transparent;
+  border-bottom: 84px solid var(--anchor);
+  border-left: 45px solid transparent;
+  filter: drop-shadow(5px 5px 0 rgba(255,136,179,0.37));
+}
+.uru-home-wolf::before {
+  position: absolute;
+  top: 61px;
+  left: -54px;
+  width: 112px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--anchor);
+  content: '';
+}
+.uru-home-wolf::after {
+  position: absolute;
+  top: -26px;
+  left: -34px;
+  border-right: 14px solid transparent;
+  border-bottom: 32px solid var(--anchor);
+  border-left: 14px solid transparent;
+  content: '';
+}
+.uru-home-sheep {
+  position: absolute;
+  z-index: 2;
+  bottom: 13%;
+  left: 15%;
+  color: var(--cream-deep);
+  font-size: 30px;
+  filter: drop-shadow(2px 2px 0 var(--anchor));
+  transform: rotate(-10deg);
+}
+.uru-home-sheep-two {
+  right: 13%;
+  bottom: 18%;
+  left: auto;
+  font-size: 21px;
+  transform: rotate(12deg);
+}
+.uru-home-petal {
+  position: absolute;
+  z-index: 3;
+  width: 10px;
+  height: 17px;
+  border-radius: 70% 0 70% 0;
+  background: var(--pink-hot);
+  opacity: 0.9;
+  animation: uru-home-drift 6s ease-in-out infinite;
+}
+.uru-home-petal:nth-of-type(6) { top: 18%; left: 16%; transform: rotate(25deg); }
+.uru-home-petal:nth-of-type(7) { top: 28%; right: 18%; transform: rotate(-47deg); animation-delay: -2s; }
+.uru-home-petal:nth-of-type(8) { right: 30%; bottom: 21%; transform: rotate(74deg); animation-delay: -4s; }
+.uru-home-petal:nth-of-type(9) { top: 45%; left: 32%; transform: rotate(-20deg); animation-delay: -1s; }
+@keyframes uru-home-drift {
+  50% {
+    translate: 12px -18px;
+    rotate: 17deg;
+  }
+}
+.uru-home-art-label {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 4;
+  border: 1px solid color-mix(in srgb, var(--anchor) 40%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 76%, transparent);
+  padding: 7px 9px;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  transform: rotate(2deg);
+}
+.uru-home-art-label b { color: var(--pink-hot); }
+
+.uru-home-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px dashed color-mix(in srgb, var(--anchor) 34%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 54%, transparent);
+}
+.uru-home-stat {
+  min-width: 0;
+  min-height: 100px;
+  border-right: 1px dashed color-mix(in srgb, var(--anchor) 26%, transparent);
+  padding: 17px;
+}
+.uru-home-stat:last-child { border-right: 0; }
+.uru-home-stat[data-accent='mint'] .uru-eyebrow { color: var(--mint-hot); }
+.uru-home-stat[data-accent='pink'] .uru-eyebrow { color: var(--pink-hot); }
+.uru-home-stat[data-accent='mizuiro'] .uru-eyebrow { color: var(--mizuiro-deep); }
+
+.uru-home-gallery-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 16px;
+  margin-top: 16px;
+}
+.uru-home-gallery-main {
+  min-height: 420px;
+  padding: 22px;
+}
+.uru-home-feed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.uru-home-tabs .uru-chip {
+  border-radius: 0;
+  padding: 5px 9px;
+  background: transparent;
+  color: var(--anchor-soft);
+  box-shadow: none;
+}
+.uru-home-tabs .uru-chip[data-active='true'] {
+  background: var(--pink-warm);
+  color: var(--anchor);
+  box-shadow: 2px 2px 0 var(--anchor);
+}
+.uru-home-tabs .uru-chip span {
+  margin-left: 5px;
+  font-family: var(--font-jp), monospace;
+  font-size: 10px;
+  opacity: 0.75;
+}
+.uru-home-search {
+  max-width: 210px;
+  margin-left: auto;
+}
+.uru-home-feed-link,
+.uru-home-empty a {
+  color: var(--link-blue);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.uru-home-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.uru-home-empty {
+  display: grid;
+  min-height: 290px;
+  place-items: center;
+  border: 1px dashed color-mix(in srgb, var(--anchor) 42%, transparent);
+  background:
+    radial-gradient(circle at 52% 43%, rgba(255,136,179,0.18), transparent 23%),
+    linear-gradient(135deg, rgba(255,255,255,0.04), transparent 40%);
+  text-align: center;
+}
+.uru-home-empty p {
+  margin: 6px 0 10px;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 15px;
+}
+
+.uru-home-side-rail {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+.uru-home-sidebar-card { padding: 15px; }
+.uru-home-sidebar-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+.uru-home-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mint-hot);
+  box-shadow: 0 0 8px var(--mint-hot);
+}
+.uru-home-trade-list,
+.uru-home-flywheel-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.uru-home-trade-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: baseline;
+  border-top: 1px dashed color-mix(in srgb, var(--anchor) 22%, transparent);
+  padding-top: 8px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+}
+.uru-home-trade-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.uru-home-trade-list span[data-side='buy'] {
+  color: var(--mint-hot);
+  font-weight: 700;
+}
+.uru-home-trade-list span[data-side='sell'] {
+  color: var(--pink-hot);
+  font-weight: 700;
+}
+.uru-home-trade-list a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--anchor);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uru-home-trade-list time,
+.uru-home-trade-empty { color: var(--anchor-soft); }
+.uru-home-trade-empty {
+  margin: 0;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+}
+.uru-home-flywheel-list {
+  color: var(--anchor-soft);
+  font-size: 12px;
+}
+.uru-home-flywheel-list b {
+  color: var(--pink-hot);
+  font-family: var(--font-mono), monospace;
+}
+.uru-home-flywheel-note {
+  margin: 11px 0 0;
+  border: 1px solid var(--yolk-deep);
+  background: color-mix(in srgb, var(--yolk) 68%, transparent);
+  padding: 7px;
+  color: var(--anchor);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.uru-home-rail-actions { margin-top: 10px; }
+.uru-home-rail-actions .uru-btn {
+  flex: 1 1 120px;
+  justify-content: center;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.uru-home-how {
+  display: grid;
+  grid-template-columns: 0.8fr repeat(3, 1fr);
+  margin-top: 16px;
+  border: 2px double var(--anchor);
+  background: var(--card);
+  color: var(--anchor);
+  box-shadow: 5px 5px 0 rgba(255,136,179,0.34);
+}
+.uru-home-how-title,
+.uru-home-how-step {
+  min-height: 132px;
+  padding: 18px;
+  border-right: 1px dashed var(--anchor-soft);
+}
+.uru-home-how-step:last-child { border-right: 0; }
+.uru-home-how-title {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 23px;
+  line-height: 1;
+}
+.uru-home-how-title small {
+  display: block;
+  margin-top: 7px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+}
+.uru-home-how-step span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 12px;
+}
+.uru-home-how-step b {
+  display: block;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 20px;
+  font-weight: 400;
+}
+.uru-home-how-step p {
+  margin: 3px 0 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .uru-home-launch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 950px) {
+  .uru-home-hero { grid-template-columns: 1fr 0.78fr; }
+  .uru-home-gallery-layout { grid-template-columns: 1fr; }
+  .uru-home-side-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .uru-home-how { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .uru-home-how-title {
+    grid-column: 1 / -1;
+    min-height: auto;
+    padding-bottom: 8px;
+  }
+}
+
+@media (max-width: 680px) {
+  .uru-home-shell {
+    width: min(100% - 18px, 1420px);
+    margin-top: 15px;
+  }
+  .uru-home-hero { grid-template-columns: 1fr; }
+  .uru-home-hero-copy {
+    min-height: 440px;
+    padding: 64px 22px 38px;
+  }
+  .uru-home-title { font-size: clamp(38px, 13vw, 62px); }
+  .uru-home-subtitle { font-size: 16px; }
+  .uru-home-hero-art {
+    min-height: 330px;
+    border-top: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
+    border-left: 0;
+  }
+  .uru-home-moon {
+    width: 82px;
+    height: 82px;
+    border-width: 6px;
+  }
+  .uru-home-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .uru-home-stat {
+    min-height: 84px;
+    border-bottom: 1px dashed color-mix(in srgb, var(--anchor) 26%, transparent);
+    padding: 13px;
+  }
+  .uru-home-stat:nth-child(2n) { border-right: 0; }
+  .uru-home-stat:last-child {
+    grid-column: 1 / -1;
+    border-bottom: 0;
+  }
+  .uru-home-gallery-main {
+    min-height: 390px;
+    padding: 14px;
+  }
+  .uru-home-launch-grid,
+  .uru-home-side-rail,
+  .uru-home-how { grid-template-columns: 1fr; }
+  .uru-home-search {
+    order: 3;
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+  .uru-home-feed-link { margin-left: auto; }
+  .uru-home-how-title,
+  .uru-home-how-step {
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px dashed var(--anchor-soft);
+  }
+  .uru-home-how-step:last-child { border-bottom: 0; }
+}
+
 /* Launch card hover cue — nudges up + pinks the shadow so cards clearly read as clickable */
 .uru-launch-card {
   cursor: pointer;

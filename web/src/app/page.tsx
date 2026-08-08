@@ -18,9 +18,14 @@ import {
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
-import { fetchRecentTrades, fetchRecentV4Swaps, type IndexerTrade, type IndexerV4Swap } from '@/lib/indexer';
+import {
+  fetchRecentTrades,
+  fetchRecentV4Swaps,
+  type IndexerTrade,
+  type IndexerV4Swap,
+} from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
-import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
+import { CONTRACTS, CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
 // All tabs are curve-only now; the create page only launches curves (quick +
@@ -86,7 +91,9 @@ function HomePageContent() {
         list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
       case 'near':
-        list = list.filter((l) => !l.graduated).sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
+        list = list
+          .filter((l) => !l.graduated)
+          .sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
         break;
       case 'graduated':
         list = list.filter((l) => l.graduated);
@@ -127,7 +134,10 @@ function HomePageContent() {
     // 5s poll, Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
     // should surface in ≤10s from confirm to render (indexer processing lag + one poll).
     const id = setInterval(load, 5_000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [liveIsRealChain, chainId]);
 
   // Normalize both curve trades and v4 swaps to the shape the JSX rail expects: { l, t }.
@@ -177,331 +187,192 @@ function HomePageContent() {
           };
         })
         .filter(<T,>(x: T | null): x is T => x !== null);
-      return [...curveRows, ...v4Rows]
-        .sort((a, b) => b.t.timestamp - a.t.timestamp)
-        .slice(0, 14);
+      return [...curveRows, ...v4Rows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
     }
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
-    return MOCK_LAUNCHES
-      .flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
+    return MOCK_LAUNCHES.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
   return (
-    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
-      {/* ===================================================================
-          COMPACT HERO, one row, mascot inline, CTA on the right
-          =================================================================== */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '14px 20px',
-          marginBottom: 12,
-          display: 'flex',
-          gap: 16,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Mascot size={64} mood="happy" className="uru-idle-bob" />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 3 }}>✿ urufu labs launchpad</div>
-          <div className="uru-h1" style={{ fontSize: 'clamp(22px, 3vw, 30px)', lineHeight: 1.05 }}>
-            a launchpad <span style={{ color: 'var(--pink-hot)' }}>u</span> can compose
+    <main className="uru-home-shell">
+      <section className="uru-home-hero-frame" aria-labelledby="hero-title">
+        <span className="uru-home-tape uru-home-tape-top" aria-hidden="true" />
+        <div className="uru-home-hero">
+          <div className="uru-home-hero-copy">
+            <p className="uru-home-eyebrow">✿ urufu labs launchpad</p>
+            <h1 id="hero-title" className="uru-home-title">
+              The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
+            </h1>
+            <p className="uru-home-subtitle">
+              Artist-first ERC-20 releases with v4 hooks for permanent liquidity, creator fees, and
+              a safe launch.
+            </p>
+            <div className="uru-home-flags" aria-label="Launch properties">
+              <span>erc-20</span>
+              <span data-tone="mint">uniswap v4</span>
+              <span data-tone="pink">LP locked forever</span>
+            </div>
+            <div className="uru-home-actions">
+              <Link href="/create" className="uru-btn uru-btn-primary">
+                launch a token <span className="uru-arrow">→</span>
+              </Link>
+              <Link href="/catalog" className="uru-btn uru-btn-cream">
+                shelf
+              </Link>
+            </div>
           </div>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--anchor-soft)' }}>
-            compose a token, ship real solidity, LP locked + earn creator fees forever ✿
-          </div>
+
+          <HeroArt />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link href="/create" className="uru-btn uru-btn-primary">
-            launch a token <span className="uru-arrow">→</span>
-          </Link>
-          <Link href="/catalog" className="uru-btn uru-btn-mint">
-            shelf
-          </Link>
-        </div>
+
+        <section className="uru-home-stat-strip" aria-label="Launchpad statistics">
+          <StatTile label="tokens" jp="数" value={String(stats.total)} />
+          <StatTile label="graduated" jp="卒業" value={String(stats.graduated)} accent="mint" />
+          <StatTile
+            label="eth raised"
+            jp="集金"
+            value={`${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`}
+            accent="pink"
+          />
+          <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
+          <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
+        </section>
       </section>
 
-      {/* ===================================================================
-          STATS STRIP, data-forward, pixel-font values
-          =================================================================== */}
-      <section
-        className="grid gap-2 mb-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
-      >
-        <StatTile label="tokens" jp="数" value={String(stats.total)} />
-        <StatTile label="graduated" jp="卒業" value={String(stats.graduated)} accent="mint" />
-        <StatTile
-          label="eth raised"
-          jp="集金"
-          value={`${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`}
-          accent="pink"
-        />
-        <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
-        <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
-      </section>
-
-      {/* ===================================================================
-          MAIN GRID, dense feed on the left, live-activity rail on the right
-          =================================================================== */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-            {/* -------------- feed column -------------- */}
-            <section style={{ minWidth: 0 }}>
-              {/* Tabs + search */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  alignItems: 'center',
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  {TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTab(t.id)}
-                      className="uru-chip"
-                      data-active={tab === t.id}
-                      style={{ padding: '5px 12px' }}
-                    >
-                      {t.label}
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-jp), monospace',
-                          fontSize: 10,
-                          marginLeft: 4,
-                          opacity: 0.7,
-                        }}
-                      >
-                        {t.jp}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div style={{ flex: 1 }} />
-                <input
-                  className="uru-input"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="search name / ticker"
-                  style={{ maxWidth: 200, fontSize: 12 }}
-                />
-                <Link
-                  href="/discover"
-                  style={{
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 11,
-                    color: 'var(--link-blue)',
-                    textDecoration: 'underline',
-                    whiteSpace: 'nowrap',
-                  }}
+      <div className="uru-home-gallery-layout" id="launches">
+        <section className="uru-home-gallery-main" aria-label="Launches">
+          <div className="uru-home-feed-bar">
+            <div className="uru-home-tabs" role="tablist" aria-label="Launch filters">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  className="uru-chip"
+                  data-active={tab === t.id}
                 >
-                  see all »
-                </Link>
-              </div>
+                  {t.label}
+                  <span>{t.jp}</span>
+                </button>
+              ))}
+            </div>
+            <input
+              className="uru-input uru-home-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="search name / ticker"
+              aria-label="Search name or ticker"
+            />
+            <Link href="/discover" className="uru-home-feed-link">
+              see all »
+            </Link>
+          </div>
 
-              {/* Dense card grid, 3-col at lg, 2-col at sm, 1-col mobile */}
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.slice(0, 12).map((l) => (
-                  <LaunchTile key={l.address} launch={l} />
+          {filtered.length > 0 ? (
+            <div className="uru-home-launch-grid">
+              {filtered.slice(0, 12).map((l) => (
+                <LaunchTile key={l.address} launch={l} />
+              ))}
+            </div>
+          ) : (
+            <div className="uru-home-empty">
+              <div>
+                <Mascot size={52} mood="confused" />
+                <p>no launches on {CHAIN_LABELS[activeChain]} yet ~~</p>
+                <Link href="/create">launch the first one »</Link>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <aside className="uru-home-side-rail">
+          <section className="uru-home-sidebar-card" aria-label="Live trades">
+            <div className="uru-home-sidebar-title">
+              <span>✦ live trades</span>
+              <span className="uru-home-live-dot" aria-hidden="true" />
+            </div>
+            {liveTrades.length > 0 ? (
+              <ul className="uru-home-trade-list">
+                {liveTrades.map((row, i) => (
+                  <li key={`${row.l.address}-${row.t.timestamp}-${i}`}>
+                    <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
+                      {row.t.isBuy ? 'BUY' : 'SELL'}
+                    </span>
+                    <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
+                    <span>{Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ</span>
+                    <time>
+                      <AgoLabel ts={row.t.timestamp} />
+                    </time>
+                  </li>
                 ))}
-              </div>
+              </ul>
+            ) : (
+              <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+            )}
+          </section>
 
-              {filtered.length === 0 && (
-                <div
-                  className="uru-shell"
-                  style={{ padding: 22, textAlign: 'center' }}
-                >
-                  <Mascot size={44} mood="confused" />
-                  <div
-                    style={{
-                      marginTop: 6,
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                      color: 'var(--anchor-soft)',
-                    }}
-                  >
-                    no launches on {CHAIN_LABELS[activeChain]} yet ~~
-                  </div>
-                  <Link
-                    href="/create"
-                    style={{
-                      display: 'inline-block',
-                      marginTop: 10,
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                      color: 'var(--link-blue)',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    launch the first one »
-                  </Link>
-                </div>
-              )}
-            </section>
-
-            {/* -------------- live-activity + flywheel rail -------------- */}
-            <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: 6,
-                  }}
-                >
-                  <div className="uru-eyebrow">✦ live trades</div>
-                  <span
-                    aria-hidden
-                    title="preview data"
-                    style={{
-                      display: 'inline-block',
-                      width: 7,
-                      height: 7,
-                      borderRadius: '50%',
-                      background: 'var(--mint-hot)',
-                      boxShadow: '0 0 6px var(--mint-hot)',
-                    }}
-                  />
-                </div>
-                <ul
-                  style={{
-                    listStyle: 'none',
-                    margin: 0,
-                    padding: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                  }}
-                >
-                  {liveTrades.map((row, i) => (
-                    <li
-                      key={`${row.l.address}-${row.t.timestamp}-${i}`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: 6,
-                        padding: '3px 0',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        borderBottom: '1px dashed var(--cream-shadow)',
-                      }}
-                    >
-                      <span
-                        style={{
-                          color: row.t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)',
-                          fontWeight: 700,
-                          width: 30,
-                        }}
-                      >
-                        {row.t.isBuy ? 'BUY' : 'SELL'}
-                      </span>
-                      <Link
-                        href={`/trade/${row.l.address}`}
-                        style={{
-                          color: 'var(--anchor)',
-                          flex: 1,
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        ${row.l.ticker}
-                      </Link>
-                      <span style={{ color: 'var(--anchor-soft)' }}>
-                        {Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ
-                      </span>
-                      <span style={{ color: 'var(--anchor-soft)', width: 24, textAlign: 'right' }}>
-                        <AgoLabel ts={row.t.timestamp} />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ the flywheel</div>
-                <ul
-                  className="uru-list-flower"
-                  style={{ margin: 0, fontSize: 11, lineHeight: 1.55 }}
-                >
-                  <li><b style={{ color: 'var(--pink-hot)' }}>40%</b> URU buyback</li>
-                  <li><b style={{ color: 'var(--pink-hot)' }}>35%</b> urufu gemu nft holders</li>
-                  <li><b style={{ color: 'var(--pink-hot)' }}>25%</b> treasury</li>
-                </ul>
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: 6,
-                    background: 'var(--yolk)',
-                    border: '1px solid var(--anchor)',
-                    fontSize: 10,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
-                </div>
-                {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
-                    URU link opens Uniswap on Robinhood with the pre-selected outputCurrency
-                    so the swap widget is pre-filled, no chain-picker fumbling. NFT link
-                    goes to the collection page on OpenSea where the cheapest listing is one
-                    tap away. */}
-                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                  <a
-                    href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="uru-btn uru-btn-mint"
-                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
-                  >
-                    ✿ buy URU
-                  </a>
-                  <a
-                    href="https://opensea.io/collection/urufugemu"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="uru-btn uru-btn-primary"
-                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
-                  >
-                    ✿ buy gemu nft
-                  </a>
-                </div>
-              </div>
-            </aside>
+          <section className="uru-home-sidebar-card" aria-label="The flywheel">
+            <div className="uru-home-sidebar-title">
+              <span>❀ the flywheel</span>
+            </div>
+            <ul className="uru-home-flywheel-list">
+              <li>
+                <b>40%</b> URU buyback
+              </li>
+              <li>
+                <b>35%</b> urufu gemu nft holders
+              </li>
+              <li>
+                <b>25%</b> treasury
+              </li>
+            </ul>
+            <p className="uru-home-flywheel-note">
+              hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
+            </p>
+            {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility. */}
+            <div className="uru-home-rail-actions">
+              <a
+                href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="uru-btn uru-btn-mint"
+              >
+                ✿ buy URU
+              </a>
+              <a
+                href="https://opensea.io/collection/urufugemu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="uru-btn uru-btn-primary"
+              >
+                ✿ buy gemu nft
+              </a>
+            </div>
+          </section>
+        </aside>
       </div>
 
-      {/* ===================================================================
-          HOW IT WORKS, demoted below the feed, compact 3-tile strip
-          =================================================================== */}
-      <section style={{ marginTop: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-          <span className="uru-h1" style={{ fontSize: 18 }}>how it works</span>
-          <span
-            style={{
-              fontFamily: 'var(--font-jp), monospace',
-              fontSize: 14,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            流れ
-          </span>
+      <section className="uru-home-how" aria-labelledby="how-title">
+        <div className="uru-home-how-title">
+          <div id="how-title">
+            how it works<small>流れ</small>
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StepTile n="01" title="pick a base" body="erc-20 · 721a · 1155" tape="pink" />
-          <StepTile n="02" title="drag modules" body="audited fragments in ur cart" tape="mint" />
-          <StepTile n="03" title="launch" body="one tx · address on etherscan" tape="mizuiro" />
-        </div>
+        <StepTile n="01" title="define your coin" body="name · ticker · art · socials" />
+        <StepTile
+          n="02"
+          title="customize contract"
+          body="add v4 hooks & custom security modules to your token contract"
+        />
+        <StepTile
+          n="03"
+          title="launch"
+          body="a smooth guided flow deploys your bonding curve securely"
+        />
       </section>
-
-    </div>
+    </main>
   );
 }
 
@@ -520,16 +391,8 @@ function StatTile({
   value: string;
   accent?: 'pink' | 'mint' | 'mizuiro';
 }) {
-  const bg =
-    accent === 'pink' ? 'var(--pink-warm)' :
-    accent === 'mint' ? 'var(--mint)' :
-    accent === 'mizuiro' ? 'var(--mizuiro)' :
-    'var(--cream)';
   return (
-    <div
-      className="uru-shell-tight"
-      style={{ background: bg, padding: '8px 12px', minWidth: 0 }}
-    >
+    <div className="uru-home-stat" data-accent={accent}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span className="uru-eyebrow">{label}</span>
         <span
@@ -564,7 +427,6 @@ function StatTile({
 function LaunchTile({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
-  const kind = launchKind(launch);
   // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
   // for the seconds right after launch before the metadata POST completes.
   const [localImage, setLocalImage] = useState<string | undefined>();
@@ -671,7 +533,9 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
           }}
         >
           <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(0)}% → v4`}</span>
-          <span><AgoLabel ts={launch.launchedAt} /> ago</span>
+          <span>
+            <AgoLabel ts={launch.launchedAt} /> ago
+          </span>
         </div>
       </div>
     </Link>
@@ -683,43 +547,35 @@ function AgoLabel({ ts }: { ts: number }) {
   return <>{label ?? '~'}</>;
 }
 
-function StepTile({
-  n,
-  title,
-  body,
-  tape,
-}: {
-  n: string;
-  title: string;
-  body: string;
-  tape: 'pink' | 'mint' | 'mizuiro';
-}) {
-  const tapeClass = tape === 'mint' ? 'uru-tape-mint' : tape === 'mizuiro' ? 'uru-tape-mizuiro' : '';
+function HeroArt() {
   return (
-    <div
-      className="uru-shell-tight relative"
-      style={{ padding: 14, textAlign: 'center' }}
-    >
-      <span
-        className={`uru-tape ${tapeClass}`}
-        style={{ width: 56, height: 12, top: -5, left: '50%', marginLeft: -28 }}
-      />
-      <div className="uru-h1" style={{ fontSize: 26, color: 'var(--pink-hot)', lineHeight: 1 }}>
-        {n}
-      </div>
-      <div className="uru-h2" style={{ fontSize: 13, marginTop: 5 }}>
-        {title}
-      </div>
-      <div
-        style={{
-          marginTop: 2,
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 11,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        {body}
-      </div>
+    <div className="uru-home-hero-art" aria-label="Urufu gemu inspired gallery panel" role="img">
+      <span className="uru-home-moon uru-home-moon-one" aria-hidden="true" />
+      <span className="uru-home-moon uru-home-moon-two" aria-hidden="true" />
+      <span className="uru-home-wolf" aria-hidden="true" />
+      <span className="uru-home-sheep" aria-hidden="true">
+        ●●ᴗ
+      </span>
+      <span className="uru-home-sheep uru-home-sheep-two" aria-hidden="true">
+        ●●ᴗ
+      </span>
+      <span className="uru-home-petal" aria-hidden="true" />
+      <span className="uru-home-petal" aria-hidden="true" />
+      <span className="uru-home-petal" aria-hidden="true" />
+      <span className="uru-home-petal" aria-hidden="true" />
+      <span className="uru-home-art-label">
+        <b>❋ urufu gemu</b> / soft + sharp
+      </span>
+    </div>
+  );
+}
+
+function StepTile({ n, title, body }: { n: string; title: string; body: string }) {
+  return (
+    <div className="uru-home-how-step">
+      <span>{n}</span>
+      <b>{title}</b>
+      <p>{body}</p>
     </div>
   );
 }
