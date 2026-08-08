@@ -125,6 +125,15 @@ import {RhConfigManifest} from "./manifest/RhConfigManifest.sol";
 ///           SPLITTER_BPS_URU             FeeSplitter URU-buyback share (default 4000)
 ///           SPLITTER_BPS_NFT             FeeSplitter NFT-revenue share (default 3500)
 ///           SPLITTER_BPS_TREASURY        FeeSplitter treasury share (default 2500)
+///           ERC20_FEE_WEI                Router ERC20 launch fee (default 0.05 ETH)
+///           NFT_FEE_WEI                  fallback ERC721A/ERC1155 launch fee (default 0.05 ETH)
+///           ERC721A_FEE_WEI              Router ERC721A launch fee (default NFT_FEE_WEI)
+///           ERC1155_FEE_WEI              Router ERC1155 launch fee (default NFT_FEE_WEI)
+///           MODULE_ADDON_WEI             Router module add-on fee (default 0.01 ETH)
+///           HOOK_ADDON_WEI               Router hook add-on fee (default 0.01 ETH)
+///           GOV_ADDON_WEI                Router governance add-on fee (default 0.01 ETH)
+///           ALLOW_MAINNET_TINY_FEES      required on Ethereum mainnet when any fee is
+///                                        lower than the production default above
 ///           PLATFORM_BPS                 MultiHookHost platform slice (default 100)
 ///           CREATOR_BPS                  MultiHookHost creator slice (default 100)
 ///           ROYALTY_PLATFORM_BPS         RoyaltyRouterFactory platform slice (default 500)
@@ -167,6 +176,7 @@ contract DeployFreshLocal is Script {
     /// match the canonical live PoolManager for `block.chainid`. See
     /// project_graduator_v8_rotation for the incident that motivated this.
     error DeployFresh__StaleEnvForChain(uint256 chainId, address expected, address actual);
+    error DeployFresh__MainnetTinyFeesRequireAck();
 
     /// Test-context flag flipped by runForTest(). vm.startBroadcast can't be
     /// used inside a forge test — the setter calls between constructor + owner
@@ -290,6 +300,24 @@ contract DeployFreshLocal is Script {
         uint16 platformBps = uint16(vm.envOr("PLATFORM_BPS", uint256(100)));
         uint16 creatorBps = uint16(vm.envOr("CREATOR_BPS", uint256(100)));
         uint256 royaltyPlatformBps = vm.envOr("ROYALTY_PLATFORM_BPS", uint256(500));
+        uint256 erc20Fee = vm.envOr("ERC20_FEE_WEI", uint256(0.05 ether));
+        uint256 nftFee = vm.envOr("NFT_FEE_WEI", uint256(0.05 ether));
+        uint256 erc721Fee = vm.envOr("ERC721A_FEE_WEI", nftFee);
+        uint256 erc1155Fee = vm.envOr("ERC1155_FEE_WEI", nftFee);
+        uint256 moduleAddOn = vm.envOr("MODULE_ADDON_WEI", uint256(0.01 ether));
+        uint256 hookAddOn = vm.envOr("HOOK_ADDON_WEI", uint256(0.01 ether));
+        uint256 govAddOn = vm.envOr("GOV_ADDON_WEI", uint256(0.01 ether));
+        if (
+            block.chainid == 1
+                && (erc20Fee < 0.05 ether
+                    || erc721Fee < 0.05 ether
+                    || erc1155Fee < 0.05 ether
+                    || moduleAddOn < 0.01 ether
+                    || hookAddOn < 0.01 ether
+                    || govAddOn < 0.01 ether) && vm.envOr("ALLOW_MAINNET_TINY_FEES", uint256(0)) != 1
+        ) {
+            revert DeployFresh__MainnetTinyFeesRequireAck();
+        }
 
         s.poolManager = poolManager;
         s.uruToken = uruToken;
@@ -303,6 +331,12 @@ contract DeployFreshLocal is Script {
         console2.log("  URU token   :", uruToken);
         console2.log("  gemu NFT    :", gemuNft);
         console2.log("  minUruFee   :", minUruFee);
+        console2.log("  ERC20 fee   :", erc20Fee);
+        console2.log("  ERC721A fee :", erc721Fee);
+        console2.log("  ERC1155 fee :", erc1155Fee);
+        console2.log("  module fee  :", moduleAddOn);
+        console2.log("  hook fee    :", hookAddOn);
+        console2.log("  gov fee     :", govAddOn);
 
         // ---------------- Phase 1: flywheel infra (deploy order matters, chicken/egg) --
         _startBroadcastOrPrank();
@@ -361,12 +395,12 @@ contract DeployFreshLocal is Script {
             admin,
             registry,
             IFeeReceiver(address(splitter)),
-            0.05 ether, // ERC20 launch fee
-            0.05 ether, // ERC721A launch fee
-            0.05 ether, // ERC1155 launch fee
-            0.01 ether, // module add-on
-            0.01 ether, // hook add-on
-            0.01 ether // governance add-on
+            erc20Fee,
+            erc721Fee,
+            erc1155Fee,
+            moduleAddOn,
+            hookAddOn,
+            govAddOn
         );
         s.router = address(router);
 

@@ -15,9 +15,9 @@
 #   robinhood | robinhood-testnet | mainnet | sepolia | base | base-sepolia
 #
 # Available scripts (see case block below for the target mapping):
-#   NameRegistry, V4SwapRouter, RouterV2, Flywheel, ConfigureFlywheel,
+#   Fresh, NameRegistry, V4SwapRouter, RouterV2, Flywheel, ConfigureFlywheel,
 #   HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix,
-#   PublishFirstEpoch, VerifyWiring
+#   PublishFirstEpoch, VerifyWiring, LowerGradTarget, PostDeploySmoke
 #
 # Post-broadcast: manually update .env with the new address(es), then bump
 # the pinned constants in test/audit/RhLiveStackSnapshot.t.sol so the
@@ -86,7 +86,9 @@ case "$SCRIPT" in
   V9StackFix)         TARGET="script/DeployV9StackFix.s.sol:DeployV9StackFix" ;;
   PublishFirstEpoch)  TARGET="script/PublishFirstEpoch.s.sol:PublishFirstEpoch" ;;
   VerifyWiring)       TARGET="script/VerifyWiring.s.sol:VerifyWiring" ;;
-  *)                  echo "Unknown script: $SCRIPT. Available: NameRegistry, V4SwapRouter, RouterV2, ActivateRouter, Flywheel, ConfigureFlywheel, HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix, PublishFirstEpoch, VerifyWiring"; exit 1 ;;
+  LowerGradTarget)    TARGET="script/LowerGradTarget.s.sol:LowerGradTarget" ;;
+  PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
+  *)                  echo "Unknown script: $SCRIPT. Available: Fresh, NameRegistry, V4SwapRouter, RouterV2, ActivateRouter, Flywheel, ConfigureFlywheel, HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix, PublishFirstEpoch, VerifyWiring, LowerGradTarget, PostDeploySmoke"; exit 1 ;;
 esac
 
 if [[ "$NO_BROADCAST" != "1" && -z "${DEV_PRIVATE_KEY:-}" ]]; then
@@ -99,7 +101,7 @@ fi
 VERIFY_ARGS=()
 if [[ "${SKIP_VERIFY:-0}" == "1" ]]; then
   echo ">>> SKIP_VERIFY=1 → skipping inline verification. Run explorer verify manually later."
-elif [[ "$NO_BROADCAST" == "1" || "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "SetChunkyDefaults" || "$SCRIPT" == "VerifyWiring" ]]; then
+elif [[ "$NO_BROADCAST" == "1" || "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "SetChunkyDefaults" || "$SCRIPT" == "VerifyWiring" || "$SCRIPT" == "LowerGradTarget" || "$SCRIPT" == "PostDeploySmoke" ]]; then
   : # no new contracts to verify
 elif [[ "$EXPLORER_KIND" == "etherscan" ]]; then
   if [[ -z "$EXPLORER_KEY" ]]; then
