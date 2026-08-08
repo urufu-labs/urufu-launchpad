@@ -1232,9 +1232,9 @@ body {
   .uru-home-how-step:last-child { border-bottom: 0; }
 }
 
-/* Fidelity pass: the live home keeps its real feed and controls, but uses the
-   dark-plum gallery surface approved in the static launchpad mockup. */
-body:has(.uru-home-shell) {
+/* Dark fidelity pass: the altar-like mock presentation is dark-mode specific.
+   Light mode intentionally falls back to the shared paper/scrapbook tokens above. */
+:root[data-theme='dark'] body:has(.uru-home-shell) {
   background-color: #120e1c;
   background-image:
     radial-gradient(circle at 6px 6px, rgba(255,248,231,0.06) 1px, transparent 2px),
@@ -1243,20 +1243,20 @@ body:has(.uru-home-shell) {
     radial-gradient(circle at 55% 43%, rgba(200,247,197,0.06), transparent 36%);
   background-size: 24px 24px, auto, auto, auto;
 }
-body:has(.uru-home-shell) .uru-marquee {
+:root[data-theme='dark'] body:has(.uru-home-shell) .uru-marquee {
   border-color: #3a2c3a;
   background: #241c30;
 }
-body:has(.uru-home-shell) .uru-marquee-track { color: #fff8e7; }
-body:has(.uru-home-shell) footer {
+:root[data-theme='dark'] body:has(.uru-home-shell) .uru-marquee-track { color: #fff8e7; }
+:root[data-theme='dark'] body:has(.uru-home-shell) footer {
   border-color: rgba(255,248,231,0.34) !important;
   background: #100c18 !important;
   color: #fff8e7 !important;
 }
-body:has(.uru-home-shell) footer a { color: #fff8e7 !important; }
-body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !important; }
+:root[data-theme='dark'] body:has(.uru-home-shell) footer a { color: #fff8e7 !important; }
+:root[data-theme='dark'] body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !important; }
 
-.uru-home-shell {
+:root[data-theme='dark'] .uru-home-shell {
   --anchor: #fff8e7;
   --anchor-soft: #f4e0b3;
   --cream: #241c30;
@@ -1275,59 +1275,59 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   --yolk-deep: #ffefad;
   --link-blue: #bde0fe;
 }
-.uru-home-hero-frame,
-.uru-home-gallery-main,
-.uru-home-sidebar-card {
+:root[data-theme='dark'] .uru-home-hero-frame,
+:root[data-theme='dark'] .uru-home-gallery-main,
+:root[data-theme='dark'] .uru-home-sidebar-card {
   border-color: #fff8e7;
   background: rgba(36,28,48,0.88);
   box-shadow:
     7px 7px 0 rgba(255,136,179,0.38),
     0 24px 60px rgba(0,0,0,0.34);
 }
-.uru-home-hero-frame::before,
-.uru-home-gallery-main::before,
-.uru-home-sidebar-card::before { border-color: rgba(255,248,231,0.24); }
-.uru-home-tape {
+:root[data-theme='dark'] .uru-home-hero-frame::before,
+:root[data-theme='dark'] .uru-home-gallery-main::before,
+:root[data-theme='dark'] .uru-home-sidebar-card::before { border-color: rgba(255,248,231,0.24); }
+:root[data-theme='dark'] .uru-home-tape {
   border-color: rgba(255,248,231,0.3);
   background:
     repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 4px, transparent 4px 7px),
     rgba(255,136,179,0.66);
 }
-.uru-home-eyebrow { color: #ffd1dc; }
-.uru-home-title {
+:root[data-theme='dark'] .uru-home-eyebrow { color: #ffd1dc; }
+:root[data-theme='dark'] .uru-home-title {
   color: #fff8e7;
   text-shadow:
     3px 3px 0 #3a2c3a,
     6px 6px 0 rgba(255,136,179,0.26);
 }
-.uru-home-title span {
+:root[data-theme='dark'] .uru-home-title span {
   color: #ffefad;
   text-shadow: 2px 2px 0 #3a2c3a;
 }
-.uru-home-subtitle { color: #f4e0b3; }
-.uru-home-flags span {
+:root[data-theme='dark'] .uru-home-subtitle { color: #f4e0b3; }
+:root[data-theme='dark'] .uru-home-flags span {
   border-color: rgba(255,248,231,0.62);
   background: rgba(18,14,28,0.42);
   color: #fff8e7;
 }
-.uru-home-flags span[data-tone='mint'] { border-color: #4bd07d; color: #c8f7c5; }
-.uru-home-flags span[data-tone='pink'] { border-color: #ff88b3; color: #ffd1dc; }
-.uru-home-shell .uru-btn {
+:root[data-theme='dark'] .uru-home-flags span[data-tone='mint'] { border-color: #4bd07d; color: #c8f7c5; }
+:root[data-theme='dark'] .uru-home-flags span[data-tone='pink'] { border-color: #ff88b3; color: #ffd1dc; }
+:root[data-theme='dark'] .uru-home-shell .uru-btn {
   border-color: #fff8e7;
   background: rgba(255,248,231,0.06);
   color: #fff8e7;
   box-shadow: 2px 2px 0 #fff8e7;
 }
-.uru-home-shell .uru-btn-primary {
+:root[data-theme='dark'] .uru-home-shell .uru-btn-primary {
   border-color: #ff88b3;
   background: #ff88b3;
   color: #3a2c3a;
   box-shadow: 2px 2px 0 #fff8e7, 0 0 24px rgba(255,136,179,0.35);
 }
-.uru-home-shell .uru-btn-mint { background: #c8f7c5; color: #3a2c3a; border-color: #c8f7c5; }
-.uru-home-shell .uru-btn:hover { background: #ff88b3; color: #3a2c3a; }
+:root[data-theme='dark'] .uru-home-shell .uru-btn-mint { background: #c8f7c5; color: #3a2c3a; border-color: #c8f7c5; }
+:root[data-theme='dark'] .uru-home-shell .uru-btn:hover { background: #ff88b3; color: #3a2c3a; }
 
-.uru-home-hero-art {
+:root[data-theme='dark'] .uru-home-hero-art {
   background: #1a1024;
   border-left-color: rgba(255,248,231,0.35);
 }
@@ -1335,51 +1335,51 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   object-fit: cover;
   object-position: center;
 }
-.uru-home-art-label {
+:root[data-theme='dark'] .uru-home-art-label {
   border-color: rgba(255,248,231,0.4);
   background: rgba(18,14,28,0.76);
   color: #fff8e7;
 }
-.uru-home-art-label b { color: #ff88b3; }
-.uru-home-stat-strip {
+:root[data-theme='dark'] .uru-home-art-label b { color: #ff88b3; }
+:root[data-theme='dark'] .uru-home-stat-strip {
   border-top-color: rgba(255,248,231,0.34);
   background: rgba(18,14,28,0.54);
 }
-.uru-home-stat { border-right-color: rgba(255,248,231,0.26); }
-.uru-home-stat[data-accent='mizuiro'] .uru-eyebrow { color: #bde0fe; }
+:root[data-theme='dark'] .uru-home-stat { border-right-color: rgba(255,248,231,0.26); }
+:root[data-theme='dark'] .uru-home-stat[data-accent='mizuiro'] .uru-eyebrow { color: #bde0fe; }
 
-.uru-home-tabs .uru-chip { color: #f4e0b3; }
-.uru-home-tabs .uru-chip[data-active='true'] {
+:root[data-theme='dark'] .uru-home-tabs .uru-chip { color: #f4e0b3; }
+:root[data-theme='dark'] .uru-home-tabs .uru-chip[data-active='true'] {
   background: #ffd1dc;
   color: #3a2c3a;
   box-shadow: 2px 2px 0 #fff8e7;
 }
-.uru-home-search {
+:root[data-theme='dark'] .uru-home-search {
   border-color: #fff8e7;
   background: rgba(18,14,28,0.72);
   color: #fff8e7;
 }
-.uru-home-feed-link,
-.uru-home-empty a { color: #bde0fe; }
-.uru-home-empty {
+:root[data-theme='dark'] .uru-home-feed-link,
+:root[data-theme='dark'] .uru-home-empty a { color: #bde0fe; }
+:root[data-theme='dark'] .uru-home-empty {
   border-color: rgba(255,248,231,0.42);
   background:
     radial-gradient(circle at 52% 43%, rgba(255,136,179,0.18), transparent 23%),
     linear-gradient(135deg, rgba(255,255,255,0.04), transparent 40%);
 }
-.uru-home-empty p { color: #f4e0b3; }
+:root[data-theme='dark'] .uru-home-empty p { color: #f4e0b3; }
 .uru-launch-ticket {
   position: relative;
   display: flex;
   min-height: 290px;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #fff8e7;
+  border: 1px solid var(--anchor);
   background:
     linear-gradient(135deg, rgba(255,136,179,0.12), transparent 56%),
-    rgba(18,14,28,0.52);
+    color-mix(in srgb, var(--paper-base) 52%, transparent);
   padding: 14px;
-  color: #fff8e7;
+  color: var(--anchor);
   cursor: pointer;
   text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease;
@@ -1387,19 +1387,19 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
 .uru-launch-ticket::before {
   position: absolute;
   inset: 6px;
-  border: 1px dashed rgba(255,248,231,0.22);
+  border: 1px dashed color-mix(in srgb, var(--anchor) 22%, transparent);
   content: '';
   pointer-events: none;
 }
 .uru-launch-ticket[data-tone='sky'] {
   background:
     linear-gradient(135deg, rgba(189,224,254,0.2), transparent 56%),
-    rgba(18,14,28,0.52);
+    color-mix(in srgb, var(--paper-base) 52%, transparent);
 }
 .uru-launch-ticket[data-tone='mint'] {
   background:
     linear-gradient(135deg, rgba(200,247,197,0.19), transparent 56%),
-    rgba(18,14,28,0.52);
+    color-mix(in srgb, var(--paper-base) 52%, transparent);
 }
 .uru-launch-ticket:hover {
   transform: translate(-3px, -3px) rotate(-0.5deg);
@@ -1423,11 +1423,11 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid #fff8e7;
+  border: 1px solid var(--anchor);
   border-radius: 50%;
   background: #ff88b3;
-  box-shadow: 2px 2px 0 #3a2c3a;
-  color: #3a2c3a;
+  box-shadow: 2px 2px 0 var(--anchor);
+  color: var(--anchor);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 20px;
   animation: uru-home-card-bob 2.35s ease-in-out infinite;
@@ -1442,10 +1442,10 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   50% { transform: translateY(-6px) rotate(3deg) scale(1.05); }
 }
 .uru-launch-ticket-tag {
-  border: 1px solid rgba(255,248,231,0.58);
-  background: rgba(18,14,28,0.42);
+  border: 1px solid color-mix(in srgb, var(--anchor) 58%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 42%, transparent);
   padding: 3px 5px;
-  color: #f4e0b3;
+  color: var(--anchor-soft);
   font-family: var(--font-pixel), monospace;
   font-size: 9px;
   text-transform: uppercase;
@@ -1455,7 +1455,7 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   z-index: 1;
   display: block;
   margin-top: 20px;
-  color: #fff8e7;
+  color: var(--anchor);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 24px;
   font-weight: 400;
@@ -1466,7 +1466,7 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   z-index: 1;
   display: block;
   margin-top: 4px;
-  color: #ffd1dc;
+  color: var(--pink-hot);
   font-family: var(--font-pixel), monospace;
   font-size: 11px;
 }
@@ -1475,9 +1475,9 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 20px;
-  border-top: 1px dashed rgba(255,248,231,0.36);
+  border-top: 1px dashed color-mix(in srgb, var(--anchor) 36%, transparent);
   padding-top: 11px;
-  color: #f4e0b3;
+  color: var(--anchor-soft);
   font-family: var(--font-pixel), monospace;
   font-size: 9px;
   text-transform: uppercase;
@@ -1485,7 +1485,7 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
 .uru-launch-ticket-meta b {
   display: block;
   margin-top: 2px;
-  color: #fff8e7;
+  color: var(--anchor);
   font-family: var(--font-mono), monospace;
   font-size: 13px;
   font-weight: 500;
@@ -1493,8 +1493,8 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
 .uru-launch-ticket-progress {
   height: 8px;
   margin-top: 14px;
-  border: 1px solid rgba(255,248,231,0.64);
-  background: rgba(18,14,28,0.48);
+  border: 1px solid color-mix(in srgb, var(--anchor) 64%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 48%, transparent);
 }
 .uru-launch-progress-fill {
   display: block;
@@ -1508,36 +1508,36 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
 .uru-launch-ticket[data-tone='mint'] .uru-launch-progress-fill { background: #c8f7c5; }
 .uru-launch-ticket-foot {
   margin: auto 0 0;
-  color: #f4e0b3;
+  color: var(--anchor-soft);
   font-family: var(--font-round), "Klee One", cursive;
   font-size: 11px;
 }
-.uru-home-trade-list li { border-color: rgba(255,248,231,0.22); color: #f4e0b3; }
-.uru-home-trade-list a { color: #fff8e7; }
-.uru-home-trade-list time,
-.uru-home-trade-empty,
-.uru-home-flywheel-list { color: #f4e0b3; }
-.uru-home-flywheel-list b { color: #ff88b3; }
-.uru-home-flywheel-note {
+:root[data-theme='dark'] .uru-home-trade-list li { border-color: rgba(255,248,231,0.22); color: #f4e0b3; }
+:root[data-theme='dark'] .uru-home-trade-list a { color: #fff8e7; }
+:root[data-theme='dark'] .uru-home-trade-list time,
+:root[data-theme='dark'] .uru-home-trade-empty,
+:root[data-theme='dark'] .uru-home-flywheel-list { color: #f4e0b3; }
+:root[data-theme='dark'] .uru-home-flywheel-list b { color: #ff88b3; }
+:root[data-theme='dark'] .uru-home-flywheel-note {
   border-color: #ffefad;
   background: rgba(255,239,173,0.12);
   color: #fff8e7;
 }
-.uru-home-how {
+:root[data-theme='dark'] .uru-home-how {
   border-color: #fff8e7;
   background: #fff8e7;
   color: #3a2c3a;
   box-shadow: 5px 5px 0 rgba(255,136,179,0.56);
 }
-.uru-home-how-title,
-.uru-home-how-step { border-color: rgba(58,44,58,0.62); }
-.uru-home-how-title small,
-.uru-home-how-step p { color: #6b4d6b; }
-.uru-home-how-step span { color: #ff88b3; }
+:root[data-theme='dark'] .uru-home-how-title,
+:root[data-theme='dark'] .uru-home-how-step { border-color: rgba(58,44,58,0.62); }
+:root[data-theme='dark'] .uru-home-how-title small,
+:root[data-theme='dark'] .uru-home-how-step p { color: #6b4d6b; }
+:root[data-theme='dark'] .uru-home-how-step span { color: #ff88b3; }
 
 @media (max-width: 680px) {
-  .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
-  .uru-home-stat { border-bottom-color: rgba(255,248,231,0.26); }
+  :root[data-theme='dark'] .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
+  :root[data-theme='dark'] .uru-home-stat { border-bottom-color: rgba(255,248,231,0.26); }
   .uru-launch-ticket { min-height: 232px; }
 }
 
