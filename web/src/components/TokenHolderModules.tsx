@@ -32,6 +32,7 @@ import { formatUnits, isAddress, parseUnits, type Address } from 'viem';
 
 import { tokenHolderModulesAbi } from '@/lib/abis';
 import type { WagmiChainId } from '@/lib/wagmi';
+import { decideVisibleModules, type MarkerResult } from './TokenHolderModules.logic';
 
 interface Props {
   /// The launched token address to probe + interact with.
@@ -65,28 +66,20 @@ export function TokenHolderModules({ token, chainId, decimals = 18 }: Props) {
     query: { staleTime: 30_000 },
   });
 
-  const hasStaking = markers.data?.[0]?.status === 'success';
-  const hasVesting = markers.data?.[1]?.status === 'success';
-  const vestingBene = markers.data?.[1]?.result as Address | undefined;
-  const hasVotes = markers.data?.[2]?.status === 'success';
-  const hasPausable = markers.data?.[3]?.status === 'success';
-  const hasAntiBot = markers.data?.[4]?.status === 'success';
-  const hasAntiWhale = markers.data?.[5]?.status === 'success';
-  const tokenOwner = markers.data?.[6]?.result as Address | undefined;
-  const ownerRenounced =
-    !tokenOwner || tokenOwner === '0x0000000000000000000000000000000000000000';
+  // All render decisions moved into a pure helper (decideVisibleModules) so
+  // the branch matrix can be unit-tested without a browser / wallet / RPC.
+  // Adapts wagmi's per-call result shape into the helper's neutral type.
+  const raw: MarkerResult[] = (markers.data ?? []).map((r) => {
+    if (!r || r.status !== 'success') return { ok: false };
+    return { ok: true, value: r.result };
+  });
+  const decision = decideVisibleModules({ markers: raw, wallet: wallet ?? null });
+  const { hasStaking, hasVesting, hasVotes, hasPausable, hasAntiBot, hasAntiWhale } = decision;
+  const isBene = decision.vestingIsBeneficiary;
+  const showAdminRisk = decision.showAdminBanner;
+  const tokenOwner = decision.tokenOwner;
 
-  const isBene =
-    !!wallet && !!vestingBene && wallet.toLowerCase() === vestingBene.toLowerCase();
-
-  // Owner-restrictable modules only pose a risk while there's still an owner
-  // to call the setters. Curve-launched tokens renounce at launch so the
-  // owner check drops the banner to zero for the vast majority of launches.
-  const showAdminRisk = !ownerRenounced && (hasPausable || hasAntiBot || hasAntiWhale);
-
-  const anythingToRender =
-    hasStaking || (hasVesting && isBene) || hasVotes || showAdminRisk;
-  if (markers.isPending || !anythingToRender) return null;
+  if (markers.isPending || !decision.anythingToRender) return null;
 
   return (
     <section
