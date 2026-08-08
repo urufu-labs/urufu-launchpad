@@ -132,8 +132,11 @@ import {RhConfigManifest} from "./manifest/RhConfigManifest.sol";
 ///           MODULE_ADDON_WEI             Router module add-on fee (default 0.01 ETH)
 ///           HOOK_ADDON_WEI               Router hook add-on fee (default 0.01 ETH)
 ///           GOV_ADDON_WEI                Router governance add-on fee (default 0.01 ETH)
-///           ALLOW_MAINNET_TINY_FEES      required on Ethereum mainnet when any fee is
+///           ALLOW_ROBINHOOD_MAINNET_TINY_FEES
+///                                        required on Robinhood mainnet when any fee is
 ///                                        lower than the production default above
+///           ALLOW_ETHEREUM_MAINNET_TINY_FEES
+///                                        same guard for chain id 1 rehearsal use
 ///           PLATFORM_BPS                 MultiHookHost platform slice (default 100)
 ///           CREATOR_BPS                  MultiHookHost creator slice (default 100)
 ///           ROYALTY_PLATFORM_BPS         RoyaltyRouterFactory platform slice (default 500)
@@ -307,15 +310,12 @@ contract DeployFreshLocal is Script {
         uint256 moduleAddOn = vm.envOr("MODULE_ADDON_WEI", uint256(0.01 ether));
         uint256 hookAddOn = vm.envOr("HOOK_ADDON_WEI", uint256(0.01 ether));
         uint256 govAddOn = vm.envOr("GOV_ADDON_WEI", uint256(0.01 ether));
-        if (
-            block.chainid == 1
-                && (erc20Fee < 0.05 ether
-                    || erc721Fee < 0.05 ether
-                    || erc1155Fee < 0.05 ether
-                    || moduleAddOn < 0.01 ether
-                    || hookAddOn < 0.01 ether
-                    || govAddOn < 0.01 ether) && vm.envOr("ALLOW_MAINNET_TINY_FEES", uint256(0)) != 1
-        ) {
+        bool tinyFees = erc20Fee < 0.05 ether || erc721Fee < 0.05 ether || erc1155Fee < 0.05 ether
+            || moduleAddOn < 0.01 ether || hookAddOn < 0.01 ether || govAddOn < 0.01 ether;
+        if (tinyFees && block.chainid == 1 && vm.envOr("ALLOW_ETHEREUM_MAINNET_TINY_FEES", uint256(0)) != 1) {
+            revert DeployFresh__MainnetTinyFeesRequireAck();
+        }
+        if (tinyFees && block.chainid == 4663 && vm.envOr("ALLOW_ROBINHOOD_MAINNET_TINY_FEES", uint256(0)) != 1) {
             revert DeployFresh__MainnetTinyFeesRequireAck();
         }
 

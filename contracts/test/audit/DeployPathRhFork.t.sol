@@ -74,9 +74,10 @@ contract DeployPathRhForkTest is Test {
     address internal constant RH_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant RH_URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
     address internal constant RH_GEMU = 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17;
-    uint256 internal constant MIN_URU_FEE = 1000e18;
+    uint256 internal constant DEFAULT_MIN_URU_FEE = 1000e18;
 
     DeployFreshLocal internal deployScript;
+    uint256 internal effectiveMinUruFee;
 
     function setUp() public {
         string memory rpc;
@@ -96,7 +97,8 @@ contract DeployPathRhForkTest is Test {
         vm.setEnv("V4_POOL_MANAGER", vm.toString(RH_POOL_MANAGER));
         vm.setEnv("URU_TOKEN_ADDRESS", vm.toString(RH_URU));
         vm.setEnv("GEMU_NFT_ADDRESS", vm.toString(RH_GEMU));
-        vm.setEnv("MIN_URU_FEE", vm.toString(MIN_URU_FEE));
+        effectiveMinUruFee = vm.envOr("MIN_URU_FEE", DEFAULT_MIN_URU_FEE);
+        vm.setEnv("MIN_URU_FEE", vm.toString(effectiveMinUruFee));
 
         deployScript = new DeployFreshLocal();
     }
@@ -148,7 +150,7 @@ contract DeployPathRhForkTest is Test {
     /// tripped correctly onto the fresh Router.
     function test_FreshDeploy_MinUruFeeNonZeroAndCorrect() public {
         DeployFreshLocal.Stack memory s = _runDeployment();
-        assertEq(Router(payable(s.router)).minUruFee(), MIN_URU_FEE, "minUruFee mismatch after fresh deploy");
+        assertEq(Router(payable(s.router)).minUruFee(), effectiveMinUruFee, "minUruFee mismatch after fresh deploy");
     }
 
     /// setUruConfig hardening (auditor medium #4): sink code check + sink.uru
@@ -495,16 +497,16 @@ contract DeployPathRhForkTest is Test {
     }
 
     /// Auditor sub-item: URU-paid launch. Fresh Router's minUruFee is
-    /// MIN_URU_FEE (1000e18) from env — NOT the live-mainnet type(uint256).max
-    /// poison, since each test deploys a FRESH Router locally. Deals URU to
-    /// a launcher, approves, launches. Verifies token created + URU landed
-    /// in UruDepositSink.
+    /// effectiveMinUruFee from env — NOT the live-mainnet type(uint256).max
+    /// poison, since each test deploys a FRESH Router locally. Deals URU to a
+    /// launcher, approves, launches. Verifies token created + URU landed in
+    /// UruDepositSink.
     function test_FreshDeploy_UruPaidLaunchWorks() public {
         DeployFreshLocal.Stack memory s = _runDeployment();
         address launcher = makeAddr("uru-launcher");
         vm.deal(launcher, 5 ether);
 
-        uint256 uruAmount = MIN_URU_FEE * 2;
+        uint256 uruAmount = effectiveMinUruFee * 2;
         deal(RH_URU, launcher, uruAmount);
         assertEq(IERC20Like(RH_URU).balanceOf(launcher), uruAmount, "URU deal failed");
 

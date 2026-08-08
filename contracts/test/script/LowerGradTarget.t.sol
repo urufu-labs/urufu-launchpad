@@ -9,18 +9,17 @@ import {DeployFreshLocal} from "script/DeployFreshLocal.s.sol";
 import {LowerGradTarget} from "script/LowerGradTarget.s.sol";
 
 contract LowerGradTargetTest is Test {
-    function test_MainnetRequiresExplicitAckBeforeBroadcast() public {
-        vm.chainId(1);
+    function test_RobinhoodMainnetRequiresExplicitAckBeforeBroadcast() public {
+        vm.chainId(4663);
         CurveFactory cf = _deployCurveFactory();
         cf.setDefaults(cf.defaultCurveSupply(), cf.defaultVirtualTokenReserve(), 1_000_000 ether, 4 ether, 100);
         _writeDeploymentBook(cf);
-        vm.setEnv("TARGET_ETH", "1000000000000000");
         LowerGradTarget script = new LowerGradTarget();
 
         vm.expectRevert(LowerGradTarget.LowerGradTarget__MainnetRequiresAck.selector);
         script.run();
 
-        vm.removeFile("deployment.1.json");
+        vm.removeFile("deployment.4663.json");
     }
 
     function test_TargetMustStayBelowSafeCurveExhaustionPoint() public {
@@ -40,9 +39,9 @@ contract LowerGradTargetTest is Test {
         vm.removeFile("deployment.31337.json");
     }
 
-    function test_DeployFreshMainnetTinyFeesRequireExplicitAck() public {
-        vm.chainId(1);
-        address poolManager = makeAddr("poolManager");
+    function test_DeployFreshRobinhoodMainnetTinyFeesRequireExplicitAck() public {
+        vm.chainId(4663);
+        address poolManager = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
         vm.etch(poolManager, hex"00");
         vm.setEnv("V4_POOL_MANAGER", vm.toString(poolManager));
         vm.setEnv("URU_TOKEN_ADDRESS", vm.toString(makeAddr("uru")));

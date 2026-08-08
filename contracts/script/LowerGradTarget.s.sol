@@ -36,7 +36,10 @@ contract LowerGradTarget is Script {
         if (newTarget >= maxSafeTarget) {
             revert LowerGradTarget__TargetExhaustsCurve(newTarget, maxSafeTarget);
         }
-        if (block.chainid == 1 && vm.envOr("ALLOW_MAINNET_TINY_TARGET", uint256(0)) != 1) {
+        if (block.chainid == 1 && vm.envOr("ALLOW_ETHEREUM_MAINNET_TINY_TARGET", uint256(0)) != 1) {
+            revert LowerGradTarget__MainnetRequiresAck();
+        }
+        if (block.chainid == 4663 && vm.envOr("ALLOW_ROBINHOOD_MAINNET_TINY_TARGET", uint256(0)) != 1) {
             revert LowerGradTarget__MainnetRequiresAck();
         }
 

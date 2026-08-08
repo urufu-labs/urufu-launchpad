@@ -27,7 +27,7 @@ contracts/slither-summary.md
 .env
 .env.*
 !.env.example
-!.env.mainnet-rehearsal.example
+!.env.robinhood-mainnet-rehearsal.example
 *.key
 *.pem
 keystore/
