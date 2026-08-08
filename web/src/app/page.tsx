@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
@@ -728,15 +727,11 @@ function AgoLabel({ ts }: { ts: number }) {
 
 function HeroArt() {
   return (
-    <div className="uru-home-hero-art">
-      <Image
-        src="/culture-first-altar-v2.png"
-        alt="An Urufu wolf creator tending a glowing token-launch altar"
-        className="uru-home-hero-art-image"
-        fill
-        priority
-        sizes="(max-width: 680px) 100vw, 45vw"
-      />
+    <div
+      className="uru-home-hero-art"
+      role="img"
+      aria-label="An Urufu creator tending a glowing token-launch altar"
+    >
       <span className="uru-home-art-label">
         <b>❋ urufu gēmu</b> / soft + cruel
       </span>

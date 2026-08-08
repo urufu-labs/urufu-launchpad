@@ -799,6 +799,7 @@ body {
   justify-content: center;
   overflow: hidden;
   border-left: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
+  background: #fff8e7 url('/culture-first-altar-light-sheep-v1.png') center / cover no-repeat;
 }
 .uru-home-art-label {
   position: absolute;
@@ -1560,12 +1561,8 @@ body {
 :root[data-theme='dark'] .uru-home-shell .uru-btn:hover { background: #ff88b3; color: #3a2c3a; }
 
 :root[data-theme='dark'] .uru-home-hero-art {
-  background: #1a1024;
+  background: #1a1024 url('/culture-first-altar-v2.png') center / cover no-repeat;
   border-left-color: rgba(255,248,231,0.35);
-}
-.uru-home-hero-art-image {
-  object-fit: cover;
-  object-position: center;
 }
 :root[data-theme='dark'] .uru-home-art-label {
   border-color: rgba(255,248,231,0.4);
