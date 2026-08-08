@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { formatEther } from 'viem';
@@ -11,7 +11,6 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
   MOCK_LAUNCHES,
-  mockMarketCapEth,
   mockProgressPct,
   launchKind,
   tradeCountOf,
@@ -37,16 +36,76 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 // the tab to declutter the bar.
 type Tab = 'trending' | 'new' | 'near' | 'graduated';
 type HomeTrade = { l: MockLaunch; t: MockTrade };
+type PreviewTicket = {
+  address: string;
+  name: string;
+  ticker: string;
+  creator: string;
+  mark: string;
+  tone: 'pink' | 'sky' | 'mint';
+  progress: number;
+  raised: string;
+  trades: number;
+};
+type PreviewTrade = {
+  id: string;
+  wallet: string;
+  ticker: string;
+  amount: string;
+};
 
 const PREVIEW_LAUNCHES = MOCK_LAUNCHES.filter(
   (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
 ).slice(0, 3);
-const PREVIEW_TRADE_SEEDS: HomeTrade[] = PREVIEW_LAUNCHES.flatMap((launch) =>
-  launch.trades
-    .slice(-2)
-    .reverse()
-    .map((trade) => ({ l: launch, t: trade })),
-).slice(0, 6);
+const PREVIEW_TICKETS: PreviewTicket[] = [
+  {
+    address: PREVIEW_LAUNCHES[0]!.address,
+    name: 'soft wolf',
+    ticker: 'SOFT',
+    creator: 'studio 02',
+    mark: '✦',
+    tone: 'pink',
+    progress: 82,
+    raised: '3.48 Ξ',
+    trades: 19,
+  },
+  {
+    address: PREVIEW_LAUNCHES[1]!.address,
+    name: 'paper moon',
+    ticker: 'MOON',
+    creator: 'momo press',
+    mark: '☾',
+    tone: 'sky',
+    progress: 56,
+    raised: '1.87 Ξ',
+    trades: 12,
+  },
+  {
+    address: PREVIEW_LAUNCHES[2]!.address,
+    name: 'gem club',
+    ticker: 'GEMU',
+    creator: 'pink unit',
+    mark: '❀',
+    tone: 'mint',
+    progress: 29,
+    raised: '0.74 Ξ',
+    trades: 7,
+  },
+];
+const PREVIEW_TRADE_SEEDS: PreviewTrade[] = [
+  { id: 'momo-moon', wallet: 'momo.eth', ticker: '$MOON', amount: '0.42 Ξ' },
+  { id: 'wallet-soft', wallet: '0x7b··f3', ticker: '$SOFT', amount: '0.18 Ξ' },
+  { id: 'pink-gemu', wallet: 'pinkunit', ticker: '$GEMU', amount: '0.09 Ξ' },
+  { id: 'studio-soft', wallet: 'studio02', ticker: '$SOFT', amount: '0.64 Ξ' },
+  { id: 'lilypad-moon', wallet: 'lilypad.eth', ticker: '$MOON', amount: '0.26 Ξ' },
+];
+const PREVIEW_STATS = {
+  tokens: '27',
+  graduated: '6',
+  ethRaised: '18.42 Ξ',
+  trades: '163',
+  chain: 'Robinhood',
+};
 
 // Preview data is for local reviews by default. A staging deployment must opt in with
 // NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
@@ -82,16 +141,19 @@ function HomePageContent() {
   // production unless that environment deliberately supplies the staging flag.
   const [previewEnabled, setPreviewEnabled] = useState(HOME_PREVIEW_AVAILABLE);
   const [previewRun, setPreviewRun] = useState(0);
-  const [previewTrades, setPreviewTrades] = useState<HomeTrade[]>(() =>
-    HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3) : [],
+  const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
+    HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
   );
+  const [previewIncomingTradeId, setPreviewIncomingTradeId] = useState<string | null>(null);
+  const previewTradeListRef = useRef<HTMLUListElement>(null);
+  const previewTradePositions = useRef(new Map<string, DOMRect>());
 
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
   const previewLaunches = PREVIEW_LAUNCHES;
   const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
-  const sourceLabel = previewEnabled ? 'preview' : CHAIN_LABELS[activeChain];
+  const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
@@ -225,39 +287,98 @@ function HomePageContent() {
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
-  const previewTradeSeeds = PREVIEW_TRADE_SEEDS;
-
-  // The rail deliberately animates preview events one at a time. It is never started
-  // on the live data path, so production activity continues to come only from the indexer.
+  // The static review's rail tells a small, readable story: three creator-first rows,
+  // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
+  // production activity below still comes exclusively from the indexer.
   useEffect(() => {
-    if (!previewEnabled || previewTradeSeeds.length === 0) {
+    if (!previewEnabled || PREVIEW_TRADE_SEEDS.length === 0) {
       setPreviewTrades([]);
       return;
     }
-    let next = 0;
+    const initialReviewState = previewRun === 0;
+    let next = initialReviewState ? 3 : 0;
+    const timers: number[] = [];
+    let interval: number | undefined;
     const addTrade = () => {
-      const source = previewTradeSeeds[next % previewTradeSeeds.length]!;
-      const row: HomeTrade = {
-        ...source,
-        // This happens in an effect, not during render. The preview is visibly labeled
-        // and fresh timestamps make the arrival animation legible during review.
-        t: { ...source.t, timestamp: Math.floor(Date.now() / 1000) },
-      };
+      const row = PREVIEW_TRADE_SEEDS[next % PREVIEW_TRADE_SEEDS.length]!;
       next += 1;
-      setPreviewTrades((current) =>
-        [row, ...current.filter((item) => homeTradeKey(item) !== homeTradeKey(row))].slice(0, 5),
+      previewTradePositions.current = new Map(
+        [...(previewTradeListRef.current?.children ?? [])].map((entry) => [
+          entry.getAttribute('data-trade-id') ?? '',
+          entry.getBoundingClientRect(),
+        ]),
       );
+      setPreviewIncomingTradeId(row.id);
+      setPreviewTrades((current) => [row, ...current.filter((item) => item.id !== row.id)].slice(0, 3));
     };
-    addTrade();
-    const starters = [window.setTimeout(addTrade, 360), window.setTimeout(addTrade, 720)];
-    const interval = window.setInterval(addTrade, 2_200);
-    return () => {
-      starters.forEach((timer) => window.clearTimeout(timer));
-      window.clearInterval(interval);
-    };
-  }, [previewEnabled, previewRun, previewTradeSeeds]);
 
-  const displayedTrades = previewEnabled ? previewTrades : liveTrades;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      setPreviewTrades(PREVIEW_TRADE_SEEDS.slice(0, 3).reverse());
+      next = 3;
+    } else if (initialReviewState) {
+      // Local review opens on the settled static-mock arrangement. New activity begins
+      // after the same pause as the original mock instead of briefly flashing empty.
+      timers.push(
+        window.setTimeout(() => {
+          addTrade();
+          interval = window.setInterval(addTrade, 2_200);
+        }, 1_900),
+      );
+    } else {
+      setPreviewTrades([]);
+      [0, 280, 560].forEach((delay) => timers.push(window.setTimeout(addTrade, delay)));
+      timers.push(
+        window.setTimeout(() => {
+          addTrade();
+          interval = window.setInterval(addTrade, 2_200);
+        }, 1_900),
+      );
+    }
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      if (interval) window.clearInterval(interval);
+    };
+  }, [previewEnabled, previewRun]);
+
+  // Keep the existing three rows moving when a new review trade arrives. This is the
+  // same FLIP idea as the static mock, expressed with the Web Animations API so React
+  // can still own the list order and keep the production rail entirely separate.
+  useLayoutEffect(() => {
+    const previous = previewTradePositions.current;
+    const list = previewTradeListRef.current;
+    if (
+      !previewEnabled ||
+      previous.size === 0 ||
+      !list ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      previewTradePositions.current = new Map();
+      return;
+    }
+    [...list.children].forEach((entry) => {
+      const oldPosition = previous.get(entry.getAttribute('data-trade-id') ?? '');
+      if (!oldPosition || entry.getAttribute('data-trade-id') === previewIncomingTradeId) return;
+      const deltaY = oldPosition.top - entry.getBoundingClientRect().top;
+      if (Math.abs(deltaY) < 1 || typeof entry.animate !== 'function') return;
+      const animation = entry.animate(
+        [{ transform: `translateY(${deltaY}px)` }, { transform: 'translateY(0)' }],
+        { duration: 680, easing: 'cubic-bezier(0.22, 0.85, 0.32, 1)', fill: 'both' },
+      );
+      animation.onfinish = () => animation.cancel();
+    });
+    previewTradePositions.current = new Map();
+  }, [previewEnabled, previewIncomingTradeId, previewTrades]);
+
+  const displayedStats = previewEnabled
+    ? PREVIEW_STATS
+    : {
+        tokens: String(stats.total),
+        graduated: String(stats.graduated),
+        ethRaised: `${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`,
+        trades: String(stats.totalTrades),
+        chain: sourceLabel,
+      };
 
   return (
     <main className="uru-home-shell">
@@ -268,9 +389,16 @@ function HomePageContent() {
             type="button"
             className="uru-home-preview-toggle"
             aria-pressed={previewEnabled}
-            onClick={() => setPreviewEnabled((enabled) => !enabled)}
+            onClick={() =>
+              setPreviewEnabled((enabled) => {
+                const next = !enabled;
+                if (next) setPreviewRun((run) => run + 1);
+                return next;
+              })
+            }
           >
-            ✦ {previewEnabled ? 'preview data on' : 'show preview data'}
+            <span className="uru-home-preview-dot" aria-hidden="true" />
+            mock data: {previewEnabled ? 'on' : 'off'}
           </button>
         )}
         <div className="uru-home-hero">
@@ -302,16 +430,11 @@ function HomePageContent() {
         </div>
 
         <section className="uru-home-stat-strip" aria-label="Launchpad statistics">
-          <StatTile label="tokens" jp="数" value={String(stats.total)} />
-          <StatTile label="graduated" jp="卒業" value={String(stats.graduated)} accent="mint" />
-          <StatTile
-            label="eth raised"
-            jp="集金"
-            value={`${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`}
-            accent="pink"
-          />
-          <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
-          <StatTile label="chain" jp="鎖" value={sourceLabel} accent="mizuiro" />
+          <StatTile label="tokens" jp="数" value={displayedStats.tokens} />
+          <StatTile label="graduated" jp="卒業" value={displayedStats.graduated} accent="mint" />
+          <StatTile label="eth raised" jp="集金" value={displayedStats.ethRaised} accent="pink" />
+          <StatTile label="trades" jp="取引" value={displayedStats.trades} />
+          <StatTile label="chain" jp="鎖" value={displayedStats.chain} accent="mizuiro" />
         </section>
       </section>
 
@@ -342,6 +465,7 @@ function HomePageContent() {
               placeholder="search name / ticker"
               aria-label="Search name or ticker"
             />
+            {previewEnabled && <span className="uru-home-feed-preview">preview data</span>}
             <Link href="/discover" className="uru-home-feed-link">
               see all »
             </Link>
@@ -350,7 +474,11 @@ function HomePageContent() {
           {filtered.length > 0 ? (
             <div className="uru-home-launch-grid">
               {filtered.slice(0, 12).map((l) => (
-                <LaunchTile key={l.address} launch={l} preview={previewEnabled} />
+                <LaunchTile
+                  key={l.address}
+                  launch={l}
+                  preview={PREVIEW_TICKETS.find((ticket) => ticket.address === l.address)}
+                />
               ))}
             </div>
           ) : (
@@ -370,24 +498,51 @@ function HomePageContent() {
             aria-label={previewEnabled ? 'Preview trades' : 'Live trades'}
           >
             <div className="uru-home-sidebar-title">
-              <span>✦ {previewEnabled ? 'preview trades' : 'live trades'}</span>
-              <span
-                className="uru-home-live-dot"
-                aria-label={previewEnabled ? 'Preview activity' : 'Live activity'}
-              />
+              <span>
+                ✦ live trades{' '}
+                <span
+                  className="uru-home-live-dot"
+                  aria-label={previewEnabled ? 'Preview activity' : 'Live activity'}
+                />
+              </span>
+              {previewEnabled && (
+                <button
+                  type="button"
+                  className="uru-home-trade-replay"
+                  onClick={() => setPreviewRun((run) => run + 1)}
+                >
+                  replay ↻
+                </button>
+              )}
             </div>
-            {previewEnabled && (
-              <button
-                type="button"
-                className="uru-home-trade-replay"
-                onClick={() => setPreviewRun((run) => run + 1)}
-              >
-                ↻ replay
-              </button>
-            )}
-            {displayedTrades.length > 0 ? (
+            {previewEnabled ? (
+              previewTrades.length > 0 ? (
+                <ul
+                  ref={previewTradeListRef}
+                  className="uru-home-trade-list uru-home-trade-list-preview"
+                  aria-label="Mock live trades"
+                >
+                  {previewTrades.map((row) => (
+                    <li
+                      key={row.id}
+                      data-trade-id={row.id}
+                      className={row.id === previewIncomingTradeId ? 'uru-home-trade-incoming' : undefined}
+                    >
+                      <span>
+                        {row.wallet} bought <b>{row.ticker}</b>
+                      </span>
+                      <span className="uru-home-trade-value">
+                        {row.amount}<small>now</small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+              )
+            ) : liveTrades.length > 0 ? (
               <ul className="uru-home-trade-list">
-                {displayedTrades.map((row) => (
+                {liveTrades.map((row) => (
                   <li key={homeTradeKey(row)} className="uru-home-trade-incoming">
                     <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
                       {row.t.isBuy ? 'BUY' : 'SELL'}
@@ -520,9 +675,8 @@ function StatTile({
   );
 }
 
-function LaunchTile({ launch, preview = false }: { launch: MockLaunch; preview?: boolean }) {
-  const progress = mockProgressPct(launch);
-  const mcap = mockMarketCapEth(launch);
+function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: PreviewTicket }) {
+  const progress = preview?.progress ?? mockProgressPct(launch);
   // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
   // for the seconds right after launch before the metadata POST completes.
   const [localImage, setLocalImage] = useState<string | undefined>();
@@ -532,111 +686,51 @@ function LaunchTile({ launch, preview = false }: { launch: MockLaunch; preview?:
     if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
   }, [launch.imageUrl, launch.chainId, launch.address]);
   const logoDataUrl = launch.imageUrl ?? localImage;
+  const name = preview?.name ?? launch.name;
+  const ticker = preview?.ticker ?? launch.ticker;
+  const raised = preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`;
+  const creator = preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`;
+  const tradeCount = preview?.trades ?? tradeCountOf(launch);
+  const tone = preview?.tone ?? (launch.graduated ? 'mint' : 'pink');
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell-tight uru-launch-card"
-      data-preview={preview || undefined}
-      style={{
-        display: 'block',
-        textDecoration: 'none',
-        color: 'inherit',
-        padding: 10,
-      }}
+      className="uru-launch-ticket"
+      data-tone={tone}
+      data-preview={preview ? 'true' : undefined}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <div className="uru-launch-ticket-top">
         <div
-          className="uru-launch-card-mark"
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 8,
-            border: '1.5px solid var(--anchor)',
-            background: safeBackgroundImage(logoDataUrl, launch.logoBg),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-            flexShrink: 0,
-          }}
+          className="uru-launch-ticket-mark"
+          style={
+            preview
+              ? undefined
+              : { background: safeBackgroundImage(logoDataUrl, launch.logoBg) }
+          }
         >
-          {!logoDataUrl && launch.logoEmoji}
+          {preview?.mark ?? (!logoDataUrl && launch.logoEmoji)}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-            <div
-              className="uru-h2"
-              style={{
-                fontSize: 13,
-                lineHeight: 1.1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {launch.name}
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: 'var(--anchor-soft)',
-              }}
-            >
-              ${launch.ticker}
-            </div>
-            {preview && <span className="uru-launch-preview-label">preview</span>}
-          </div>
-          <div
-            style={{
-              marginTop: 2,
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            <span>
-              mcap <b style={{ color: 'var(--anchor)' }}>{Number(formatEther(mcap)).toFixed(3)}</b>Ξ
-            </span>
-            <span>{tradeCountOf(launch)} tx</span>
-          </div>
-        </div>
+        <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
       </div>
-      <div style={{ marginTop: 6 }}>
-        <div
-          style={{
-            height: 6,
-            background: 'var(--cream-deep)',
-            border: '1.5px solid var(--anchor)',
-          }}
-        >
-          <div
-            className={`uru-launch-progress-fill ${progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}`}
-            style={{
-              width: `${progress}%`,
-              height: '100%',
-              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
-            }}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 3,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(0)}% → v4`}</span>
-          <span>
-            <AgoLabel ts={launch.launchedAt} /> ago
-          </span>
-        </div>
+      <span className="uru-launch-ticket-name">{name}</span>
+      <span className="uru-launch-ticket-symbol">${ticker}</span>
+      <div className="uru-launch-ticket-meta">
+        <span>
+          curve<b>{launch.graduated ? '100%' : `${progress.toFixed(0)}%`}</b>
+        </span>
+        <span>
+          raised<b>{raised}</b>
+        </span>
       </div>
+      <div className="uru-launch-ticket-progress" aria-label={`${progress.toFixed(0)} percent of the bonding curve`}>
+        <span
+          className={`uru-launch-progress-fill ${progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="uru-launch-ticket-foot">
+        {creator} · {tradeCount} trades
+      </p>
     </Link>
   );
 }

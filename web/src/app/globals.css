@@ -680,24 +680,43 @@ body {
   top: 17px;
   right: 18px;
   z-index: 5;
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
   border: 1px solid var(--anchor);
   background: color-mix(in srgb, var(--paper-base) 82%, transparent);
   color: var(--anchor);
   box-shadow: 2px 2px 0 var(--anchor);
-  padding: 5px 7px;
+  padding: 6px 9px;
   cursor: pointer;
   font-family: var(--font-pixel), monospace;
-  font-size: 9px;
-  letter-spacing: 0.03em;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
+.uru-home-preview-toggle:hover { transform: translate(-2px, -2px); background: var(--pink-hot); color: var(--paper-base); }
 .uru-home-preview-toggle[aria-pressed='true'] {
+  border-color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 16%, transparent);
+  color: var(--mint);
+}
+.uru-home-preview-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pink-hot);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pink-hot) 20%, transparent);
+}
+.uru-home-preview-toggle[aria-pressed='true'] .uru-home-preview-dot {
   background: var(--mint-hot);
-  color: #120e1c;
+  box-shadow: 0 0 9px var(--mint-hot);
 }
 
 .uru-home-hero {
   display: grid;
-  min-height: 590px;
+  min-height: 600px;
   grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
 }
 .uru-home-hero-copy {
@@ -723,7 +742,7 @@ body {
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: clamp(44px, 5.5vw, 86px);
   font-weight: 400;
-  letter-spacing: 0;
+  letter-spacing: -0.075em;
   line-height: 0.97;
   text-shadow:
     3px 3px 0 var(--cream-shadow),
@@ -857,6 +876,16 @@ body {
   text-decoration: underline;
   white-space: nowrap;
 }
+.uru-home-feed-preview {
+  border: 1px solid color-mix(in srgb, var(--mint) 72%, transparent);
+  background: color-mix(in srgb, var(--mint) 10%, transparent);
+  padding: 4px 6px;
+  color: var(--mint);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .uru-home-launch-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -895,8 +924,10 @@ body {
   font-size: 11px;
 }
 .uru-home-live-dot {
+  display: inline-block;
   width: 7px;
   height: 7px;
+  margin-left: 5px;
   border-radius: 50%;
   background: var(--mint-hot);
   box-shadow: 0 0 8px var(--mint-hot);
@@ -907,16 +938,27 @@ body {
   50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--mint-hot) 0%, transparent); transform: scale(1.12); }
 }
 .uru-home-trade-replay {
-  display: block;
-  margin: -5px 0 8px auto;
-  border: 0;
-  border-bottom: 1px dashed currentColor;
-  background: transparent;
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--anchor) 55%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 38%, transparent);
   color: var(--link-blue);
   cursor: pointer;
   font-family: var(--font-pixel), monospace;
   font-size: 9px;
-  padding: 0 0 2px;
+  padding: 3px 5px;
+  text-transform: uppercase;
+}
+.uru-home-trade-replay:hover {
+  border-color: var(--link-blue);
+  background: color-mix(in srgb, var(--link-blue) 14%, transparent);
+  color: var(--anchor);
+  animation: uru-home-replay-wiggle 560ms ease-in-out both;
+}
+@keyframes uru-home-replay-wiggle {
+  0%, 100% { transform: rotate(0); }
+  24% { transform: rotate(-5deg) translateY(-1px); }
+  52% { transform: rotate(5deg) translateY(-2px); }
+  78% { transform: rotate(-2deg); }
 }
 .uru-home-trade-list,
 .uru-home-flywheel-list {
@@ -940,6 +982,50 @@ body {
 }
 .uru-home-trade-list li.uru-home-trade-incoming {
   animation: uru-home-trade-incoming 460ms cubic-bezier(.18,.88,.25,1.35) both;
+}
+.uru-home-trade-list-preview {
+  min-height: 96px;
+}
+.uru-home-trade-list-preview li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 11px;
+}
+.uru-home-trade-list-preview li.uru-home-trade-incoming {
+  animation: uru-home-trade-glisten 680ms ease-out both;
+}
+.uru-home-trade-list-preview li.uru-home-trade-incoming::after {
+  right: auto;
+  left: -5px;
+  color: var(--yolk);
+}
+.uru-home-trade-list-preview li.uru-home-trade-incoming::before {
+  top: -7px;
+  left: 13px;
+}
+@keyframes uru-home-trade-glisten {
+  from { background: color-mix(in srgb, var(--pink-hot) 23%, transparent); }
+  54% { background: color-mix(in srgb, var(--mint) 10%, transparent); }
+  to { background: transparent; }
+}
+.uru-home-trade-list-preview b {
+  color: var(--mint);
+  font-family: var(--font-mono), monospace;
+  font-weight: 500;
+}
+.uru-home-trade-value {
+  display: grid;
+  justify-items: end;
+  color: var(--pink-warm);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+}
+.uru-home-trade-value small {
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--anchor) 52%, transparent);
+  font-size: 8px;
 }
 .uru-home-trade-list li.uru-home-trade-incoming::after {
   position: absolute;
@@ -1282,39 +1368,149 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
     linear-gradient(135deg, rgba(255,255,255,0.04), transparent 40%);
 }
 .uru-home-empty p { color: #f4e0b3; }
-.uru-launch-card {
-  border-color: #fff8e7;
-  background: rgba(51,38,63,0.9);
+.uru-launch-ticket {
+  position: relative;
+  display: flex;
+  min-height: 290px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #fff8e7;
+  background:
+    linear-gradient(135deg, rgba(255,136,179,0.12), transparent 56%),
+    rgba(18,14,28,0.52);
+  padding: 14px;
   color: #fff8e7;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 160ms ease, box-shadow 160ms ease;
 }
-.uru-launch-card-mark {
-  animation: uru-home-card-bob 3.4s ease-in-out infinite;
+.uru-launch-ticket::before {
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(255,248,231,0.22);
+  content: '';
+  pointer-events: none;
+}
+.uru-launch-ticket[data-tone='sky'] {
+  background:
+    linear-gradient(135deg, rgba(189,224,254,0.2), transparent 56%),
+    rgba(18,14,28,0.52);
+}
+.uru-launch-ticket[data-tone='mint'] {
+  background:
+    linear-gradient(135deg, rgba(200,247,197,0.19), transparent 56%),
+    rgba(18,14,28,0.52);
+}
+.uru-launch-ticket:hover {
+  transform: translate(-3px, -3px) rotate(-0.5deg);
+  box-shadow: 5px 5px 0 rgba(255,136,179,0.45);
+}
+.uru-launch-ticket-top,
+.uru-launch-ticket-meta,
+.uru-launch-ticket-progress,
+.uru-launch-ticket-foot {
+  position: relative;
+  z-index: 1;
+}
+.uru-launch-ticket-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.uru-launch-ticket-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid #fff8e7;
+  border-radius: 50%;
+  background: #ff88b3;
+  box-shadow: 2px 2px 0 #3a2c3a;
+  color: #3a2c3a;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 20px;
+  animation: uru-home-card-bob 2.35s ease-in-out infinite;
   transform-origin: center bottom;
 }
-.uru-home-launch-grid > :nth-child(2n) .uru-launch-card-mark { animation-delay: -1.1s; }
-.uru-home-launch-grid > :nth-child(3n) .uru-launch-card-mark { animation-delay: -2.2s; }
+.uru-launch-ticket[data-tone='sky'] .uru-launch-ticket-mark { background: #bde0fe; }
+.uru-launch-ticket[data-tone='mint'] .uru-launch-ticket-mark { background: #c8f7c5; }
+.uru-home-launch-grid > :nth-child(2n) .uru-launch-ticket-mark { animation-delay: -0.7s; }
+.uru-home-launch-grid > :nth-child(3n) .uru-launch-ticket-mark { animation-delay: -1.35s; }
 @keyframes uru-home-card-bob {
-  0%, 100% { transform: translateY(0) rotate(0); }
-  50% { transform: translateY(-3px) rotate(-2deg); }
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-6px) rotate(3deg) scale(1.05); }
+}
+.uru-launch-ticket-tag {
+  border: 1px solid rgba(255,248,231,0.58);
+  background: rgba(18,14,28,0.42);
+  padding: 3px 5px;
+  color: #f4e0b3;
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.uru-launch-ticket-name {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 20px;
+  color: #fff8e7;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+}
+.uru-launch-ticket-symbol {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 4px;
+  color: #ffd1dc;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+.uru-launch-ticket-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 20px;
+  border-top: 1px dashed rgba(255,248,231,0.36);
+  padding-top: 11px;
+  color: #f4e0b3;
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.uru-launch-ticket-meta b {
+  display: block;
+  margin-top: 2px;
+  color: #fff8e7;
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  font-weight: 500;
+}
+.uru-launch-ticket-progress {
+  height: 8px;
+  margin-top: 14px;
+  border: 1px solid rgba(255,248,231,0.64);
+  background: rgba(18,14,28,0.48);
 }
 .uru-launch-progress-fill {
+  display: block;
   transform-origin: left center;
   animation: uru-home-curve-draw 720ms cubic-bezier(.18,.82,.28,1) both;
+  height: 100%;
+  background: #ff88b3;
 }
 @keyframes uru-home-curve-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.uru-launch-preview-label {
-  border: 1px solid #4bd07d;
-  color: #c8f7c5;
-  font-family: var(--font-pixel), monospace;
-  font-size: 7px;
-  line-height: 1;
-  padding: 2px 3px;
-}
-.uru-launch-card:hover {
-  box-shadow:
-    0 0 0 1.5px #241c30,
-    0 0 0 3px #fff8e7,
-    5px 5px 0 #ff88b3;
+.uru-launch-ticket[data-tone='sky'] .uru-launch-progress-fill { background: #bde0fe; }
+.uru-launch-ticket[data-tone='mint'] .uru-launch-progress-fill { background: #c8f7c5; }
+.uru-launch-ticket-foot {
+  margin: auto 0 0;
+  color: #f4e0b3;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 11px;
 }
 .uru-home-trade-list li { border-color: rgba(255,248,231,0.22); color: #f4e0b3; }
 .uru-home-trade-list a { color: #fff8e7; }
@@ -1342,18 +1538,7 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
 @media (max-width: 680px) {
   .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
   .uru-home-stat { border-bottom-color: rgba(255,248,231,0.26); }
-}
-
-/* Launch card hover cue — nudges up + pinks the shadow so cards clearly read as clickable */
-.uru-launch-card {
-  cursor: pointer;
-}
-.uru-launch-card:hover {
-  transform: translate(-2px, -2px) rotate(-0.45deg);
-  box-shadow:
-    0 0 0 1.5px var(--cream),
-    0 0 0 3px var(--anchor),
-    5px 5px 0 var(--pink-hot);
+  .uru-launch-ticket { min-height: 232px; }
 }
 
 /* Chart-flash overlay — fades from ~55% opacity to 0 over 600ms */
@@ -1389,7 +1574,7 @@ body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !importan
   .uru-marquee-track, .uru-ticker-track, .uru-idle-bob, .uru-blink, .uru-arrow,
   .uru-cursor-sparkle, .uru-home-live-dot, .uru-home-trade-incoming,
   .uru-home-trade-incoming::before, .uru-home-trade-incoming::after,
-  .uru-launch-card-mark, .uru-launch-progress-fill { animation: none !important; }
+  .uru-launch-ticket-mark, .uru-launch-progress-fill { animation: none !important; }
   .uru-pop, .uru-slide-in, .uru-punch { animation: none; opacity: 1; transform: none; }
   .uru-shimmer { animation: none; background-image: none; background-color: var(--pink-hot); }
   .uru-chart-flash { animation: none; opacity: 0; }
