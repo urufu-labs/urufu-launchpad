@@ -43,5 +43,23 @@
   "devDependencies": {
     "prettier": "^3.3.0",
     "prettier-plugin-solidity": "^1.4.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "brace-expansion@1": "^1.1.18",
+      "brace-expansion@2": "^2.1.4",
+      "brace-expansion@5": "^5.0.9",
+      "axios": ">=1.18.0",
+      "postcss": ">=8.5.23",
+      "ws@>=8 <9": ">=8.21.0",
+      "sharp": ">=0.35.0",
+      "fast-uri": ">=4.1.2",
+      "find-my-way": ">=9.7.0",
+      "bn.js@>=5 <6": ">=5.2.3",
+      "esbuild@>=0.25 <0.26": ">=0.25.0",
+      "socket.io-parser": ">=4.2.7",
+      "uuid@8": ">=8.3.2",
+      "uuid@9": ">=9.0.1"
+    }
   }
 }
