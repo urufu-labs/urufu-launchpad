@@ -16,6 +16,7 @@ import {
   encodeAbiParameters,
   formatEther,
   isAddress,
+  parseEther,
   parseUnits,
   zeroAddress,
   type Address,
@@ -131,6 +132,11 @@ function CreatePageContent() {
   const [multisigTarget, setMultisigTarget] = useState('');
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [moduleParams, setModuleParams] = useState<Record<string, Record<string, unknown>>>({});
+  // Atomic first-buy at launch — deployer takes the very first curve trade so
+  // no mempool bot can front-run them. Empty string = disabled (plain launch).
+  // Parsed to bigint at simulate time via parseEther; a bad string just leaves
+  // initialBuyEthWei === 0n and the flow falls back to plain launch.
+  const [initialBuyEthInput, setInitialBuyEthInput] = useState('');
   const [metadata, setMetadata] = useState<TokenMetadata>({ savedAt: 0 });
   const [logoError, setLogoError] = useState<string | null>(null);
   const [dragMod, setDragMod] = useState<ModuleSpec | null>(null);
@@ -808,29 +814,68 @@ function CreatePageContent() {
     // allowance already approved. The approve button unlocks first, then launch.
     && (payToken === 'ETH' || (typeof uruAmount === 'bigint' && !needsUruApprove));
 
-  // Simulate branches over both the pay token (ETH vs URU) and the WL-enabled flag.
-  // Four possible entrypoints on RouterV2: launch, launchWithURU, launchWithWhitelist,
-  // launchWithURUAndWhitelist. Args + value are assembled below to match each.
-  const simulateFn: 'launch' | 'launchWithURU' | 'launchWithWhitelist' | 'launchWithURUAndWhitelist' =
-    wlStruct
-      ? (payToken === 'URU' ? 'launchWithURUAndWhitelist' : 'launchWithWhitelist')
-      : (payToken === 'URU' ? 'launchWithURU' : 'launch');
+  // Parse the initial-buy input to a bigint. Only meaningful on the plain
+  // ETH-paid non-WL curve launch — the URU + WL variants don't have a
+  // *_AndBuy Router entrypoint (would need Router redeploy to add), so
+  // gate the whole feature behind that combo.
+  const initialBuyEthWei = useMemo<bigint>(() => {
+    if (!useCurve || payToken !== 'ETH' || wlStruct) return 0n;
+    const trimmed = initialBuyEthInput.trim();
+    if (!trimmed) return 0n;
+    try {
+      const v = parseEther(trimmed);
+      return v > 0n ? v : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [initialBuyEthInput, useCurve, payToken, wlStruct]);
+  const initialBuyEnabled = initialBuyEthWei > 0n;
+
+  // Simulate branches over the pay token, the WL flag, AND (for plain ETH
+  // curve launches) whether the user asked for an atomic first buy. Five
+  // possible entrypoints today: launch, launchAndBuy, launchWithURU,
+  // launchWithWhitelist, launchWithURUAndWhitelist. Args + value assembled
+  // below to match each.
+  const simulateFn:
+    | 'launch'
+    | 'launchAndBuy'
+    | 'launchWithURU'
+    | 'launchWithWhitelist'
+    | 'launchWithURUAndWhitelist' = wlStruct
+    ? payToken === 'URU'
+      ? 'launchWithURUAndWhitelist'
+      : 'launchWithWhitelist'
+    : payToken === 'URU'
+      ? 'launchWithURU'
+      : initialBuyEnabled
+        ? 'launchAndBuy'
+        : 'launch';
   const simulateArgs = (() => {
     const uAmt = typeof uruAmount === 'bigint' ? uruAmount : 0n;
     if (wlStruct && payToken === 'URU') return [params, uAmt, wlStruct] as const;
     if (wlStruct) return [params, wlStruct] as const;
     if (payToken === 'URU') return [params, uAmt] as const;
+    if (initialBuyEnabled && address) {
+      // minTokensOut = 0 because launch + first buy are atomic — no other
+      // trade can wedge in between to shift the curve pricing. Slippage
+      // only matters relative to other in-flight trades. Recipient is the
+      // launcher's own wallet so they hold the initial position directly.
+      return [params, initialBuyEthWei, 0n, address] as const;
+    }
     return [params] as const;
   })();
   const simulate = useSimulateContract({
     abi: routerAbi,
     address: contracts?.Router,
     functionName: simulateFn,
-    // wagmi's typed args don't unify across four different function shapes — the
+    // wagmi's typed args don't unify across five different function shapes — the
     // cast is safe because we branch on simulateFn to match args to signature.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: simulateArgs as any,
-    value: payToken === 'URU' ? 0n : ((quote.data as bigint | undefined) ?? 0n),
+    value:
+      payToken === 'URU'
+        ? 0n
+        : ((quote.data as bigint | undefined) ?? 0n) + initialBuyEthWei,
     account: address,
     query: { enabled: canLaunch },
   });
@@ -1762,7 +1807,47 @@ function CreatePageContent() {
                     ✿ URU quoted from RH pool spot; approves + charges the shown amount
                   </li>
                 )}
+                {initialBuyEnabled && (
+                  <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
+                    ✿ first buy: {initialBuyEthInput} ETH (atomic — you get the very first curve tokens)
+                  </li>
+                )}
               </ul>
+
+              {/* First-buy at launch — atomic launch+buy so no bot can front-run your
+                  first trade. Only exposed on the plain ETH curve path (no URU, no WL)
+                  because Router doesn't have *_AndBuy variants for those. Empty input
+                  keeps the flow on plain launch. */}
+              {useCurve && payToken === 'ETH' && !wlStruct && (
+                <div style={{ marginBottom: 10 }}>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: 10,
+                      color: 'var(--anchor-soft)',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      marginBottom: 4,
+                    }}
+                  >
+                    first buy (optional)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.0"
+                    value={initialBuyEthInput}
+                    onChange={(e) => setInitialBuyEthInput(e.target.value)}
+                    disabled={launchPending || receipt.isLoading}
+                    className="uru-input"
+                    style={{ width: '100%', fontFamily: 'var(--font-pixel), monospace' }}
+                    title="ETH added to the launch tx to buy your first tokens atomically — bots can't front-run"
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 4 }}>
+                    add ETH to buy your own token first in the same tx no one can front-run
+                  </div>
+                </div>
+              )}
 
               {/* URU approve step — shown only when URU is picked and allowance is short.
                   Renders in place of the launch button; after approve confirms, allowance

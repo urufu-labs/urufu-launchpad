@@ -70,6 +70,13 @@ export const routerAbi = parseAbi([
   `function launchWithWhitelist(LaunchParams params, WhitelistInit wl) payable returns (address token)`,
   `function launchWithURUAndWhitelist(LaunchParams params, uint256 uruAmount, WhitelistInit wl) returns (address token)`,
   `event LaunchedWithWhitelist(address indexed token, address indexed launchedBy, bytes32 whitelistRoot, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId)`,
+  /// GH-8: atomic launch + first buy. Router deploys the token, opens the
+  /// curve, then IMMEDIATELY calls BondingCurve.buyFor(recipient, minTokensOut)
+  /// with `initialBuyEth` — all in one tx so no mempool bot can front-run the
+  /// launcher's first purchase. msg.value must equal fee + initialBuyEth.
+  /// Only exists on the plain ETH-paid non-WL path.
+  `function launchAndBuy(LaunchParams params, uint256 initialBuyEth, uint256 minTokensOut, address recipient) payable returns (address token)`,
+  `event LaunchedWithInitialBuy(address indexed token, address indexed launchedBy, address recipient, uint256 initialBuyEth, uint256 tokensOut)`,
 ] as const);
 
 export const erc20FactoryAbi = parseAbi([
