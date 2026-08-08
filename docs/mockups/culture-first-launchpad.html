@@ -417,144 +417,16 @@
         justify-content: center;
         overflow: hidden;
         border-left: 1px dashed rgba(255, 248, 231, 0.35);
-        background:
-          radial-gradient(circle at 50% 57%, rgba(255, 79, 163, 0.86), transparent 16%),
-          radial-gradient(circle at 50% 48%, rgba(255, 136, 179, 0.24) 0 31%, transparent 32%),
-          linear-gradient(145deg, #1a1024, #321231 55%, #160d22);
+        background: #1a1024;
       }
 
-      .hero-art::before {
-        position: absolute;
-        inset: 7%;
-        border: 1px solid rgba(255, 136, 179, 0.34);
-        border-radius: 48% 52% 51% 49%;
-        box-shadow:
-          0 0 0 20px rgba(255, 136, 179, 0.05),
-          0 0 0 46px rgba(189, 224, 254, 0.035);
-        content: '';
-        animation: breathe 5.8s ease-in-out infinite;
-      }
-
-      .hero-art::after {
+      .hero-art__image {
         position: absolute;
         inset: 0;
-        background-image:
-          linear-gradient(rgba(189, 224, 254, 0.09) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(189, 224, 254, 0.09) 1px, transparent 1px);
-        background-size: 24px 24px;
-        content: '';
-        mask-image: radial-gradient(circle at 50% 50%, black 0 42%, transparent 82%);
-      }
-
-      @keyframes breathe {
-        50% {
-          transform: scale(1.045) rotate(2deg);
-        }
-      }
-
-      .moon {
-        position: absolute;
-        z-index: 1;
-        width: 106px;
-        height: 106px;
-        border: 7px solid var(--pink-soft);
-        border-radius: 50%;
-        box-shadow: 15px 0 0 #371535;
-      }
-      .moon--one {
-        top: 22%;
-        left: 21%;
-        transform: rotate(-18deg);
-      }
-      .moon--two {
-        top: 27%;
-        right: 21%;
-        transform: scale(0.85) rotate(20deg);
-      }
-      .wolf {
-        position: absolute;
-        z-index: 2;
-        bottom: 20%;
-        width: 0;
-        height: 0;
-        border-right: 45px solid transparent;
-        border-bottom: 84px solid var(--plum-deep);
-        border-left: 45px solid transparent;
-        filter: drop-shadow(5px 5px 0 rgba(255, 136, 179, 0.37));
-      }
-      .wolf::before {
-        position: absolute;
-        top: 61px;
-        left: -54px;
-        width: 112px;
-        height: 26px;
-        border-radius: 50%;
-        background: var(--plum-deep);
-        content: '';
-      }
-      .wolf::after {
-        position: absolute;
-        top: -26px;
-        left: -34px;
-        border-right: 14px solid transparent;
-        border-bottom: 32px solid var(--plum-deep);
-        border-left: 14px solid transparent;
-        content: '';
-      }
-      .sheep {
-        position: absolute;
-        z-index: 2;
-        bottom: 13%;
-        left: 15%;
-        font-size: 30px;
-        filter: drop-shadow(2px 2px 0 var(--ink));
-        transform: rotate(-10deg);
-      }
-      .sheep--two {
-        right: 13%;
-        bottom: 18%;
-        left: auto;
-        font-size: 21px;
-        transform: rotate(12deg);
-      }
-      .petal {
-        position: absolute;
-        z-index: 3;
-        width: 10px;
-        height: 17px;
-        border-radius: 70% 0 70% 0;
-        background: var(--pink);
-        opacity: 0.9;
-        animation: drift 6s ease-in-out infinite;
-      }
-      .petal:nth-of-type(6) {
-        top: 18%;
-        left: 16%;
-        transform: rotate(25deg);
-      }
-      .petal:nth-of-type(7) {
-        top: 28%;
-        right: 18%;
-        transform: rotate(-47deg);
-        animation-delay: -2s;
-      }
-      .petal:nth-of-type(8) {
-        bottom: 21%;
-        right: 30%;
-        transform: rotate(74deg);
-        animation-delay: -4s;
-      }
-      .petal:nth-of-type(9) {
-        top: 45%;
-        left: 32%;
-        transform: rotate(-20deg);
-        animation-delay: -1s;
-      }
-      @keyframes drift {
-        50% {
-          translate: 12px -18px;
-          rotate: 17deg;
-        }
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
       }
 
       .art-label {
@@ -1318,16 +1190,12 @@
             </div>
           </div>
 
-          <div class="hero-art" aria-label="Urufu gēmu inspired gallery panel" role="img">
-            <span class="moon moon--one" aria-hidden="true"></span>
-            <span class="moon moon--two" aria-hidden="true"></span>
-            <span class="wolf" aria-hidden="true"></span>
-            <span class="sheep" aria-hidden="true">●●ᴗ</span>
-            <span class="sheep sheep--two" aria-hidden="true">●●ᴗ</span>
-            <span class="petal" aria-hidden="true"></span>
-            <span class="petal" aria-hidden="true"></span>
-            <span class="petal" aria-hidden="true"></span>
-            <span class="petal" aria-hidden="true"></span>
+          <div class="hero-art">
+            <img
+              class="hero-art__image"
+              src="./assets/culture-first-altar-v1.png"
+              alt="A chibi wolf creator tending a glowing token-launch altar"
+            />
             <span class="art-label"><b>❋ urufu gēmu</b> / soft + cruel</span>
           </div>
         </div>
