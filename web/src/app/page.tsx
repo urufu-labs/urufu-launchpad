@@ -206,7 +206,7 @@ function HomePageContent() {
               The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
             </h1>
             <p className="uru-home-subtitle">
-              Artist-first ERC-20 releases with v4 hooks for permanent liquidity, creator fees, and
+              Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
               a safe launch.
             </p>
             <div className="uru-home-flags" aria-label="Launch properties">
