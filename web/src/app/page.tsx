@@ -38,10 +38,7 @@ type Tab = 'trending' | 'new' | 'near' | 'graduated';
 type HomeTrade = { l: MockLaunch; t: MockTrade };
 type PreviewTicket = {
   address: string;
-  name: string;
-  ticker: string;
   creator: string;
-  mark: string;
   tone: 'pink' | 'sky' | 'mint';
   progress: number;
   raised: string;
@@ -60,10 +57,7 @@ const PREVIEW_LAUNCHES = MOCK_LAUNCHES.filter(
 const PREVIEW_TICKETS: PreviewTicket[] = [
   {
     address: PREVIEW_LAUNCHES[0]!.address,
-    name: 'soft wolf',
-    ticker: 'SOFT',
     creator: 'studio 02',
-    mark: '✦',
     tone: 'pink',
     progress: 82,
     raised: '3.48 Ξ',
@@ -71,10 +65,7 @@ const PREVIEW_TICKETS: PreviewTicket[] = [
   },
   {
     address: PREVIEW_LAUNCHES[1]!.address,
-    name: 'paper moon',
-    ticker: 'MOON',
     creator: 'momo press',
-    mark: '☾',
     tone: 'sky',
     progress: 56,
     raised: '1.87 Ξ',
@@ -82,10 +73,7 @@ const PREVIEW_TICKETS: PreviewTicket[] = [
   },
   {
     address: PREVIEW_LAUNCHES[2]!.address,
-    name: 'gem club',
-    ticker: 'GEMU',
     creator: 'pink unit',
-    mark: '❀',
     tone: 'mint',
     progress: 29,
     raised: '0.74 Ξ',
@@ -93,11 +81,11 @@ const PREVIEW_TICKETS: PreviewTicket[] = [
   },
 ];
 const PREVIEW_TRADE_SEEDS: PreviewTrade[] = [
-  { id: 'momo-moon', wallet: 'momo.eth', ticker: '$MOON', amount: '0.42 Ξ' },
-  { id: 'wallet-soft', wallet: '0x7b··f3', ticker: '$SOFT', amount: '0.18 Ξ' },
-  { id: 'pink-gemu', wallet: 'pinkunit', ticker: '$GEMU', amount: '0.09 Ξ' },
-  { id: 'studio-soft', wallet: 'studio02', ticker: '$SOFT', amount: '0.64 Ξ' },
-  { id: 'lilypad-moon', wallet: 'lilypad.eth', ticker: '$MOON', amount: '0.26 Ξ' },
+  { id: 'momo-mochi', wallet: 'momo.eth', ticker: '$MOCHI', amount: '0.42 Ξ' },
+  { id: 'wallet-kawaii', wallet: '0x7b··f3', ticker: '$KAWAII', amount: '0.18 Ξ' },
+  { id: 'pink-ramen', wallet: 'pinkunit', ticker: '$RAMEN', amount: '0.09 Ξ' },
+  { id: 'studio-kawaii', wallet: 'studio02', ticker: '$KAWAII', amount: '0.64 Ξ' },
+  { id: 'lilypad-mochi', wallet: 'lilypad.eth', ticker: '$MOCHI', amount: '0.26 Ξ' },
 ];
 const PREVIEW_STATS = {
   tokens: '27',
@@ -686,8 +674,8 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
     if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
   }, [launch.imageUrl, launch.chainId, launch.address]);
   const logoDataUrl = launch.imageUrl ?? localImage;
-  const name = preview?.name ?? launch.name;
-  const ticker = preview?.ticker ?? launch.ticker;
+  const name = launch.name;
+  const ticker = launch.ticker;
   const raised = preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`;
   const creator = preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`;
   const tradeCount = preview?.trades ?? tradeCountOf(launch);
@@ -701,14 +689,12 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
     >
       <div className="uru-launch-ticket-top">
         <div
-          className="uru-launch-ticket-mark"
-          style={
-            preview
-              ? undefined
-              : { background: safeBackgroundImage(logoDataUrl, launch.logoBg) }
-          }
+          className="uru-launch-ticket-art"
+          role="img"
+          aria-label={logoDataUrl ? `${name} token artwork` : undefined}
+          style={{ background: safeBackgroundImage(logoDataUrl, launch.logoBg) }}
         >
-          {preview?.mark ?? (!logoDataUrl && launch.logoEmoji)}
+          {!logoDataUrl && launch.logoEmoji}
         </div>
         <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
       </div>

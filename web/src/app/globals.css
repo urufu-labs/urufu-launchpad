@@ -1418,29 +1418,21 @@ body {
   justify-content: space-between;
   gap: 8px;
 }
-.uru-launch-ticket-mark {
+.uru-launch-ticket-art {
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 72px;
+  height: 72px;
   place-items: center;
   border: 1px solid var(--anchor);
-  border-radius: 50%;
+  border-radius: 2px;
   background: #ff88b3;
   box-shadow: 2px 2px 0 var(--anchor);
   color: var(--anchor);
   font-family: var(--font-display), "Yusei Magic", cursive;
-  font-size: 20px;
-  animation: uru-home-card-bob 2.35s ease-in-out infinite;
-  transform-origin: center bottom;
+  font-size: 30px;
 }
-.uru-launch-ticket[data-tone='sky'] .uru-launch-ticket-mark { background: #bde0fe; }
-.uru-launch-ticket[data-tone='mint'] .uru-launch-ticket-mark { background: #c8f7c5; }
-.uru-home-launch-grid > :nth-child(2n) .uru-launch-ticket-mark { animation-delay: -0.7s; }
-.uru-home-launch-grid > :nth-child(3n) .uru-launch-ticket-mark { animation-delay: -1.35s; }
-@keyframes uru-home-card-bob {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-6px) rotate(3deg) scale(1.05); }
-}
+.uru-launch-ticket[data-tone='sky'] .uru-launch-ticket-art { background: #bde0fe; }
+.uru-launch-ticket[data-tone='mint'] .uru-launch-ticket-art { background: #c8f7c5; }
 .uru-launch-ticket-tag {
   border: 1px solid color-mix(in srgb, var(--anchor) 58%, transparent);
   background: color-mix(in srgb, var(--paper-base) 42%, transparent);
@@ -1574,7 +1566,7 @@ body {
   .uru-marquee-track, .uru-ticker-track, .uru-idle-bob, .uru-blink, .uru-arrow,
   .uru-cursor-sparkle, .uru-home-live-dot, .uru-home-trade-incoming,
   .uru-home-trade-incoming::before, .uru-home-trade-incoming::after,
-  .uru-launch-ticket-mark, .uru-launch-progress-fill { animation: none !important; }
+  .uru-launch-ticket-art, .uru-launch-progress-fill { animation: none !important; }
   .uru-pop, .uru-slide-in, .uru-punch { animation: none; opacity: 1; transform: none; }
   .uru-shimmer { animation: none; background-image: none; background-color: var(--pink-hot); }
   .uru-chart-flash { animation: none; opacity: 0; }

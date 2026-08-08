@@ -179,6 +179,7 @@ function build(opts: {
   description: string;
   logoBg: string;
   logoEmoji: string;
+  imageUrl?: string;
   creator: Address;
   launchedAtHoursAgo: number;
   website?: string;
@@ -209,6 +210,7 @@ function build(opts: {
     description: opts.description,
     logoBg: opts.logoBg,
     logoEmoji: opts.logoEmoji,
+    imageUrl: opts.imageUrl,
     creator: opts.creator,
     launchedAt,
     website: opts.website,
@@ -236,6 +238,9 @@ export const MOCK_LAUNCHES: MockLaunch[] = [
     description: 'the fluffiest doge on the curve ~ ✿ join before graduation (◕‿◕✿)',
     logoBg: '#ffb3d1',
     logoEmoji: '🐕',
+    // Local Urufu collection portrait exercises the same imageUrl media path
+    // that production cards receive from token metadata.
+    imageUrl: '/launch-preview/urufu-gemu-07.png',
     creator: '0x1111222233334444555566667777888899990000',
     launchedAtHoursAgo: 2,
     twitter: 'https://x.com/kawaii_inu',
@@ -267,6 +272,7 @@ export const MOCK_LAUNCHES: MockLaunch[] = [
     description: 'squishy vibes. anti-bot gate + fee-on-transfer to holders ✿',
     logoBg: '#fff3b0',
     logoEmoji: '🍡',
+    imageUrl: '/launch-preview/urufu-gemu-00.png',
     creator: '0xfacefeed1234facefeed5678facefeed9abcfeed',
     launchedAtHoursAgo: 12,
     twitter: 'https://x.com/mochichain',
@@ -296,6 +302,7 @@ export const MOCK_LAUNCHES: MockLaunch[] = [
     description: 'a bowl of hot yield. staking rewards, deflationary buyback ~~',
     logoBg: '#ffb997',
     logoEmoji: '🍜',
+    imageUrl: '/launch-preview/urufu-gemu-14.png',
     creator: '0x3333444455556666777788889999000011112222',
     launchedAtHoursAgo: 4,
     targetEthRaised: parseEther('0.6'),
