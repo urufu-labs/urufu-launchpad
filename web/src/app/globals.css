@@ -1371,7 +1371,7 @@ body {
 .uru-launch-ticket {
   position: relative;
   display: flex;
-  min-height: 290px;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--anchor);
@@ -1413,15 +1413,12 @@ body {
   z-index: 1;
 }
 .uru-launch-ticket-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  position: relative;
 }
 .uru-launch-ticket-art {
   display: grid;
-  width: 72px;
-  height: 72px;
+  width: 100%;
+  height: clamp(128px, 16vw, 180px);
   place-items: center;
   border: 1px solid var(--anchor);
   border-radius: 2px;
@@ -1434,8 +1431,12 @@ body {
 .uru-launch-ticket[data-tone='sky'] .uru-launch-ticket-art { background: #bde0fe; }
 .uru-launch-ticket[data-tone='mint'] .uru-launch-ticket-art { background: #c8f7c5; }
 .uru-launch-ticket-tag {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 1;
   border: 1px solid color-mix(in srgb, var(--anchor) 58%, transparent);
-  background: color-mix(in srgb, var(--paper-base) 42%, transparent);
+  background: color-mix(in srgb, var(--paper-base) 82%, transparent);
   padding: 3px 5px;
   color: var(--anchor-soft);
   font-family: var(--font-pixel), monospace;
@@ -1446,7 +1447,7 @@ body {
   position: relative;
   z-index: 1;
   display: block;
-  margin-top: 20px;
+  margin-top: 14px;
   color: var(--anchor);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 24px;
@@ -1499,7 +1500,7 @@ body {
 .uru-launch-ticket[data-tone='sky'] .uru-launch-progress-fill { background: #bde0fe; }
 .uru-launch-ticket[data-tone='mint'] .uru-launch-progress-fill { background: #c8f7c5; }
 .uru-launch-ticket-foot {
-  margin: auto 0 0;
+  margin: 16px 0 0;
   color: var(--anchor-soft);
   font-family: var(--font-round), "Klee One", cursive;
   font-size: 11px;
@@ -1530,7 +1531,7 @@ body {
 @media (max-width: 680px) {
   :root[data-theme='dark'] .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
   :root[data-theme='dark'] .uru-home-stat { border-bottom-color: rgba(255,248,231,0.26); }
-  .uru-launch-ticket { min-height: 232px; }
+  .uru-launch-ticket { min-height: 0; }
 }
 
 /* Chart-flash overlay — fades from ~55% opacity to 0 over 600ms */
