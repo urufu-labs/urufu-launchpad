@@ -18,7 +18,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10.7.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Node 22+ needed for --experimental-strip-types (TypeScript sources
           # loaded directly by the test runner). Local dev is on Node 22+ too.
