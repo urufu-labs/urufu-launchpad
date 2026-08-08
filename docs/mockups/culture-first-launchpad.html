@@ -828,11 +828,26 @@
         font-size: 11px;
       }
       .live-dot {
+        display: inline-block;
         width: 7px;
         height: 7px;
+        margin-left: 5px;
         border-radius: 50%;
         background: var(--mint-hot);
         box-shadow: 0 0 8px var(--mint-hot);
+      }
+
+      body[data-mock='on'] .live-dot {
+        animation: live-dot-pulse 1.35s ease-in-out infinite;
+      }
+
+      @keyframes live-dot-pulse {
+        50% {
+          box-shadow:
+            0 0 0 4px rgba(75, 208, 125, 0.13),
+            0 0 13px var(--mint-hot);
+          transform: scale(1.18);
+        }
       }
       .trade-empty {
         position: relative;
@@ -868,16 +883,64 @@
         font-size: 11px;
       }
 
+      .trade-entry--incoming {
+        animation: trade-arrive 520ms cubic-bezier(0.22, 0.85, 0.32, 1) both;
+      }
+
+      @keyframes trade-arrive {
+        from {
+          opacity: 0;
+          transform: translateX(14px);
+        }
+        65% {
+          background: rgba(200, 247, 197, 0.1);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
       .trade-list b {
         color: var(--mint);
         font-family: var(--font-mono);
         font-weight: 500;
       }
 
-      .trade-list time {
+      .trade-value {
+        display: grid;
+        justify-items: end;
         color: var(--pink-soft);
         font-family: var(--font-pixel);
         font-size: 9px;
+      }
+
+      .trade-value small {
+        margin-top: 1px;
+        color: rgba(255, 248, 231, 0.52);
+        font-size: 8px;
+      }
+
+      .trade-replay {
+        display: none;
+        border: 1px solid rgba(255, 248, 231, 0.55);
+        background: rgba(18, 14, 28, 0.38);
+        padding: 3px 5px;
+        color: var(--sky);
+        cursor: pointer;
+        font-family: var(--font-pixel);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+
+      .trade-replay:hover {
+        border-color: var(--sky);
+        background: rgba(189, 224, 254, 0.14);
+        color: var(--cream);
+      }
+
+      body[data-mock='on'] .trade-replay {
+        display: inline-flex;
       }
       .flywheel-list {
         position: relative;
@@ -1300,23 +1363,11 @@
         <aside class="side-rail">
           <section class="sidebar-card" id="trade" aria-label="Live trades">
             <div class="sidebar-title">
-              <span>✦ live trades</span><span class="live-dot" aria-label="Preview data"></span>
+              <span>✦ live trades <span class="live-dot" aria-label="Preview data"></span></span>
+              <button class="trade-replay" type="button" data-mock-replay>replay ↻</button>
             </div>
             <p class="trade-empty">waiting on the first launch ~~</p>
-            <ul class="trade-list mock-only" aria-label="Mock live trades">
-              <li>
-                <span>momo.eth bought <b>$MOON</b></span
-                ><time>now</time>
-              </li>
-              <li>
-                <span>0x7b…f3 bought <b>$SOFT</b></span
-                ><time>2m</time>
-              </li>
-              <li>
-                <span>pinkunit bought <b>$GEMU</b></span
-                ><time>5m</time>
-              </li>
-            </ul>
+            <ul class="trade-list mock-only" aria-label="Mock live trades" data-mock-trades></ul>
           </section>
 
           <section class="sidebar-card" aria-label="The flywheel">
@@ -1361,16 +1412,87 @@
       (() => {
         const toggle = document.querySelector('[data-mock-toggle]');
         const label = document.querySelector('[data-mock-toggle-label]');
-        if (!toggle || !label) return;
+        const replay = document.querySelector('[data-mock-replay]');
+        const tradeList = document.querySelector('[data-mock-trades]');
+        if (!toggle || !label || !tradeList) return;
+
+        const mockTrades = [
+          { wallet: 'momo.eth', verb: 'bought', token: '$MOON', amount: '0.42 Ξ' },
+          { wallet: '0x7b…f3', verb: 'bought', token: '$SOFT', amount: '0.18 Ξ' },
+          { wallet: 'pinkunit', verb: 'bought', token: '$GEMU', amount: '0.09 Ξ' },
+          { wallet: 'studio02', verb: 'bought', token: '$SOFT', amount: '0.64 Ξ' },
+          { wallet: 'lilypad.eth', verb: 'bought', token: '$MOON', amount: '0.26 Ξ' },
+        ];
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let tradeIndex = 0;
+        let tradeInterval;
+        let tradeTimeout;
+        const tradeDelays = [];
+
+        const clearTradeReplay = () => {
+          window.clearInterval(tradeInterval);
+          window.clearTimeout(tradeTimeout);
+          tradeDelays.splice(0).forEach((delay) => window.clearTimeout(delay));
+        };
+
+        const addMockTrade = (trade, animate) => {
+          const entry = document.createElement('li');
+          if (animate) entry.className = 'trade-entry--incoming';
+
+          const copy = document.createElement('span');
+          copy.append(`${trade.wallet} ${trade.verb} `);
+          const token = document.createElement('b');
+          token.textContent = trade.token;
+          copy.append(token);
+
+          const value = document.createElement('span');
+          value.className = 'trade-value';
+          value.append(trade.amount);
+          const age = document.createElement('small');
+          age.textContent = 'now';
+          value.append(age);
+
+          entry.append(copy, value);
+          tradeList.prepend(entry);
+          while (tradeList.children.length > 3) tradeList.lastElementChild.remove();
+        };
+
+        const playNextTrade = (animate) => {
+          addMockTrade(mockTrades[tradeIndex], animate);
+          tradeIndex = (tradeIndex + 1) % mockTrades.length;
+        };
+
+        const replayMockTrades = () => {
+          clearTradeReplay();
+          tradeList.replaceChildren();
+          tradeIndex = 0;
+
+          if (reduceMotion) {
+            [2, 1, 0].forEach((index) => addMockTrade(mockTrades[index], false));
+            tradeIndex = 3;
+            return;
+          }
+
+          [0, 320, 640].forEach((delay) => {
+            tradeDelays.push(window.setTimeout(() => playNextTrade(true), delay));
+          });
+          tradeTimeout = window.setTimeout(() => {
+            playNextTrade(true);
+            tradeInterval = window.setInterval(() => playNextTrade(true), 2600);
+          }, 2500);
+        };
 
         const setMockMode = (enabled) => {
           document.body.dataset.mock = enabled ? 'on' : 'off';
           toggle.setAttribute('aria-pressed', String(enabled));
           label.textContent = `mock data: ${enabled ? 'on' : 'off'}`;
+          if (enabled) replayMockTrades();
+          else clearTradeReplay();
         };
 
         setMockMode(false);
         toggle.addEventListener('click', () => setMockMode(document.body.dataset.mock !== 'on'));
+        replay?.addEventListener('click', replayMockTrades);
       })();
 
       (() => {
