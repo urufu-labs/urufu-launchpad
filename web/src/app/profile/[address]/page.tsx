@@ -66,6 +66,11 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  // Bumped after the X OAuth callback returns to this page so we re-fetch the
+  // remote profile and pick up the freshly-persisted xVerified* fields.
+  const [xVerifiedRefreshTick, setXVerifiedRefreshTick] = useState(0);
+  const [xVerifiedToast, setXVerifiedToast] = useState<string | null>(null);
+
   // Post-OAuth callback landing: /api/auth/x/callback always redirects here
   // with ?xVerified=<code>. Surface a toast, refetch the profile so the
   // freshly-persisted verified fields appear, and strip the query param so
@@ -91,10 +96,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const isOwn = mounted && !!wallet && wallet.toLowerCase() === address.toLowerCase();
 
   const [profile, setProfile] = useState<UserProfile>(() => ({ address: address.toLowerCase(), savedAt: 0 }));
-  // Bumped after the X OAuth callback returns to this page so we re-fetch the
-  // remote profile and pick up the freshly-persisted xVerified* fields.
-  const [xVerifiedRefreshTick, setXVerifiedRefreshTick] = useState(0);
-  const [xVerifiedToast, setXVerifiedToast] = useState<string | null>(null);
   useEffect(() => {
     if (!isValid) return;
     // Local snapshot first (instant paint, offline-friendly), then hydrate from the
