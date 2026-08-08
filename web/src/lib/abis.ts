@@ -244,6 +244,13 @@ export const tokenHolderModulesAbi = parseAbi([
   `function getVotes(address account) view returns (uint256)`,
   `function delegates(address account) view returns (address)`,
   `function delegate(address delegatee)`,
+  // Owner-restrictable module markers — surfaced by the risk banner so
+  // buyers know the deployer still holds a lever. Not user actions; the
+  // matching owner-writes live in tokenOwnerAbi and TokenOwnerControls.
+  `function owner() view returns (address)`,
+  `function pausablePaused() view returns (bool)`,
+  `function antiBotIsGated() view returns (bool)`,
+  `function antiWhaleIsActive() view returns (bool)`,
 ] as const);
 
 /// Subset of `MultiHookHost` — the read + claim path the profile "creator

@@ -49,13 +49,18 @@ interface Props {
 export function TokenHolderModules({ token, chainId, decimals = 18 }: Props) {
   const { address: wallet } = useAccount();
 
-  // Marker probe: three view calls, allowFailure lets missing modules just
-  // return an errored entry we treat as "not installed."
+  // Marker probe: three holder-facing modules + three owner-restrictable
+  // modules + owner(). allowFailure lets missing modules just return an
+  // errored entry we treat as "not installed."
   const markers = useReadContracts({
     contracts: [
       { abi: tokenHolderModulesAbi, address: token, functionName: 'stakingRewardRate', chainId },
       { abi: tokenHolderModulesAbi, address: token, functionName: 'vestingBeneficiary', chainId },
       { abi: tokenHolderModulesAbi, address: token, functionName: 'getVotes', args: [wallet ?? ZERO], chainId },
+      { abi: tokenHolderModulesAbi, address: token, functionName: 'pausablePaused', chainId },
+      { abi: tokenHolderModulesAbi, address: token, functionName: 'antiBotIsGated', chainId },
+      { abi: tokenHolderModulesAbi, address: token, functionName: 'antiWhaleIsActive', chainId },
+      { abi: tokenHolderModulesAbi, address: token, functionName: 'owner', chainId },
     ],
     query: { staleTime: 30_000 },
   });
@@ -64,31 +69,108 @@ export function TokenHolderModules({ token, chainId, decimals = 18 }: Props) {
   const hasVesting = markers.data?.[1]?.status === 'success';
   const vestingBene = markers.data?.[1]?.result as Address | undefined;
   const hasVotes = markers.data?.[2]?.status === 'success';
+  const hasPausable = markers.data?.[3]?.status === 'success';
+  const hasAntiBot = markers.data?.[4]?.status === 'success';
+  const hasAntiWhale = markers.data?.[5]?.status === 'success';
+  const tokenOwner = markers.data?.[6]?.result as Address | undefined;
+  const ownerRenounced =
+    !tokenOwner || tokenOwner === '0x0000000000000000000000000000000000000000';
+
   const isBene =
     !!wallet && !!vestingBene && wallet.toLowerCase() === vestingBene.toLowerCase();
 
-  const nothingInstalled = !hasStaking && !hasVesting && !hasVotes;
-  if (markers.isPending || nothingInstalled) return null;
+  // Owner-restrictable modules only pose a risk while there's still an owner
+  // to call the setters. Curve-launched tokens renounce at launch so the
+  // owner check drops the banner to zero for the vast majority of launches.
+  const showAdminRisk = !ownerRenounced && (hasPausable || hasAntiBot || hasAntiWhale);
+
+  const anythingToRender =
+    hasStaking || (hasVesting && isBene) || hasVotes || showAdminRisk;
+  if (markers.isPending || !anythingToRender) return null;
 
   return (
     <section
       className="uru-shell"
       style={{ marginTop: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}
     >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span aria-hidden style={{ fontSize: 18 }}>✿</span>
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
-          holder actions
-        </h3>
-        <span style={{ color: 'var(--anchor-soft)', fontSize: 12 }}>
-          modules the deployer picked at launch
-        </span>
-      </header>
+      {showAdminRisk && (
+        <AdminRiskBanner
+          hasPausable={hasPausable}
+          hasAntiBot={hasAntiBot}
+          hasAntiWhale={hasAntiWhale}
+          owner={tokenOwner!}
+        />
+      )}
 
-      {hasStaking && <StakingPanel token={token} chainId={chainId} decimals={decimals} />}
-      {hasVesting && isBene && <VestingPanel token={token} chainId={chainId} decimals={decimals} />}
-      {hasVotes && <VotesPanel token={token} chainId={chainId} decimals={decimals} />}
+      {(hasStaking || (hasVesting && isBene) || hasVotes) && (
+        <>
+          <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span aria-hidden style={{ fontSize: 18 }}>✿</span>
+            <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
+              holder actions
+            </h3>
+            <span style={{ color: 'var(--anchor-soft)', fontSize: 12 }}>
+              modules the deployer picked at launch
+            </span>
+          </header>
+
+          {hasStaking && <StakingPanel token={token} chainId={chainId} decimals={decimals} />}
+          {hasVesting && isBene && <VestingPanel token={token} chainId={chainId} decimals={decimals} />}
+          {hasVotes && <VotesPanel token={token} chainId={chainId} decimals={decimals} />}
+        </>
+      )}
     </section>
+  );
+}
+
+// ============================================================================
+// Admin-risk banner — surfaces owner-controlled transfer levers so buyers
+// know the deployer can still restrict trading. Rendered ONLY when owner is
+// non-zero AND at least one owner-restrictable module is present.
+// ============================================================================
+
+function AdminRiskBanner({
+  hasPausable,
+  hasAntiBot,
+  hasAntiWhale,
+  owner,
+}: {
+  hasPausable: boolean;
+  hasAntiBot: boolean;
+  hasAntiWhale: boolean;
+  owner: Address;
+}) {
+  const levers: string[] = [];
+  if (hasPausable) levers.push('pause all transfers');
+  if (hasAntiBot) levers.push('restrict who can receive tokens');
+  if (hasAntiWhale) levers.push('cap per-wallet balance + per-tx size');
+
+  return (
+    <div
+      role="alert"
+      style={{
+        padding: 12,
+        borderRadius: 10,
+        border: '1.5px solid var(--anchor)',
+        background: 'var(--yolk)',
+        color: 'var(--anchor)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span aria-hidden style={{ fontSize: 16 }}>⚠</span>
+        <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
+          deployer has admin power over this token
+        </strong>
+      </div>
+      <p style={{ margin: 0, fontSize: 13 }}>
+        the owner ({short(owner)}) can {levers.join(', ')}. curve-launched tokens usually renounce
+        ownership at launch — this one did not, so restrictions on your ability to trade or hold
+        are possible.
+      </p>
+    </div>
   );
 }
 
@@ -387,13 +469,21 @@ function useNowSec(): number {
   return now;
 }
 
+/// Fire a bag of side effects (usually a react-query refetch + wagmi
+/// resetWrite) exactly once when `fired` flips from false to true. Prior
+/// version did the flip conditionally-in-render + called setState during
+/// render, which React tolerates but can loop if refetch triggers another
+/// render mid-transition. This effect variant is boring + correct.
 function useAutoRefetch(fired: boolean, actions: Array<() => void>) {
-  const [seen, setSeen] = useState(false);
-  if (fired && !seen) {
-    setSeen(true);
+  useEffect(() => {
+    if (!fired) return;
     for (const a of actions) a();
-  }
-  if (!fired && seen) setSeen(false);
+    // actions is a fresh array on every render; using JSON identity would
+    // fire in a loop. Depending on `fired` alone is intentional — each
+    // caller passes the tx confirmation flag which flips true exactly once
+    // per successful write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fired]);
 }
 
 function SectionHeading({ label, hint }: { label: string; hint?: string }) {
