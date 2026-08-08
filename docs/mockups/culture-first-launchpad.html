@@ -154,6 +154,56 @@
         font-size: 10px;
       }
 
+      /* Preview-only control. Omit from production routes. */
+      .mock-toggle {
+        position: absolute;
+        z-index: 6;
+        top: 16px;
+        right: 16px;
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--cream);
+        background: rgba(18, 14, 28, 0.88);
+        padding: 6px 9px;
+        color: var(--cream-deep);
+        cursor: pointer;
+        font-family: var(--font-pixel);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        transition:
+          background 160ms ease,
+          color 160ms ease,
+          transform 160ms ease;
+      }
+
+      .mock-toggle:hover {
+        transform: translate(-2px, -2px);
+        background: var(--pink);
+        color: var(--ink);
+      }
+
+      .mock-toggle .mock-toggle-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--pink);
+        box-shadow: 0 0 0 2px rgba(255, 136, 179, 0.2);
+      }
+
+      body[data-mock='on'] .mock-toggle {
+        border-color: var(--mint);
+        background: rgba(200, 247, 197, 0.16);
+        color: var(--mint);
+      }
+
+      body[data-mock='on'] .mock-toggle .mock-toggle-dot {
+        background: var(--mint-hot);
+        box-shadow: 0 0 9px var(--mint-hot);
+      }
+
       .ticker {
         position: relative;
         z-index: 2;
@@ -564,6 +614,22 @@
         color: var(--sky);
       }
 
+      .mock-only {
+        display: none;
+      }
+
+      body[data-mock='on'] .mock-only {
+        display: block;
+      }
+
+      body[data-mock='on'] .mock-off {
+        display: none;
+      }
+
+      body[data-mock='on'] .stat .mock-only {
+        display: inline;
+      }
+
       .gallery-layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 270px;
@@ -685,6 +751,192 @@
         font-size: 12px;
       }
 
+      body[data-mock='on'] .empty-launches,
+      body[data-mock='on'] .trade-empty {
+        display: none;
+      }
+
+      .mock-feed-note {
+        border: 1px solid rgba(200, 247, 197, 0.72);
+        background: rgba(200, 247, 197, 0.1);
+        padding: 4px 6px;
+        color: var(--mint);
+        font-family: var(--font-pixel);
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .launch-shelf {
+        position: relative;
+        z-index: 1;
+        display: none;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        min-height: 290px;
+      }
+
+      body[data-mock='on'] .launch-shelf {
+        display: grid;
+      }
+
+      .launch-ticket {
+        position: relative;
+        display: flex;
+        min-height: 290px;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid rgba(255, 248, 231, 0.72);
+        background:
+          linear-gradient(135deg, rgba(255, 136, 179, 0.12), transparent 56%),
+          rgba(18, 14, 28, 0.52);
+        padding: 14px;
+        color: var(--cream);
+        text-decoration: none;
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      .launch-ticket::before {
+        position: absolute;
+        inset: 6px;
+        border: 1px dashed rgba(255, 248, 231, 0.22);
+        content: '';
+        pointer-events: none;
+      }
+
+      .launch-ticket:hover {
+        transform: translate(-3px, -3px) rotate(-0.5deg);
+        box-shadow: 5px 5px 0 rgba(255, 136, 179, 0.45);
+      }
+
+      .launch-ticket--moon {
+        background:
+          linear-gradient(135deg, rgba(189, 224, 254, 0.2), transparent 56%), rgba(18, 14, 28, 0.52);
+      }
+
+      .launch-ticket--gem {
+        background:
+          linear-gradient(135deg, rgba(200, 247, 197, 0.19), transparent 56%),
+          rgba(18, 14, 28, 0.52);
+      }
+
+      .ticket-top,
+      .ticket-meta,
+      .ticket-progress,
+      .ticket-foot {
+        position: relative;
+        z-index: 1;
+      }
+
+      .ticket-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .ticket-mark {
+        display: grid;
+        width: 44px;
+        height: 44px;
+        place-items: center;
+        border: 1px solid var(--cream);
+        border-radius: 50%;
+        background: var(--pink);
+        box-shadow: 2px 2px 0 var(--ink);
+        color: var(--ink);
+        font-family: var(--font-display);
+        font-size: 20px;
+      }
+
+      .launch-ticket--moon .ticket-mark {
+        background: var(--sky);
+      }
+
+      .launch-ticket--gem .ticket-mark {
+        background: var(--mint);
+      }
+
+      .sample-tag {
+        border: 1px solid rgba(255, 248, 231, 0.58);
+        background: rgba(18, 14, 28, 0.42);
+        padding: 3px 5px;
+        color: var(--cream-deep);
+        font-family: var(--font-pixel);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+
+      .ticket-name {
+        display: block;
+        margin-top: 20px;
+        font-family: var(--font-display);
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1;
+      }
+
+      .ticket-symbol {
+        display: block;
+        margin-top: 4px;
+        color: var(--pink-soft);
+        font-family: var(--font-pixel);
+        font-size: 11px;
+      }
+
+      .ticket-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 20px;
+        border-top: 1px dashed rgba(255, 248, 231, 0.36);
+        padding-top: 11px;
+        color: var(--cream-deep);
+        font-family: var(--font-pixel);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+
+      .ticket-meta b {
+        display: block;
+        margin-top: 2px;
+        color: var(--cream);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .ticket-progress {
+        height: 8px;
+        margin-top: 14px;
+        border: 1px solid rgba(255, 248, 231, 0.64);
+        background: rgba(18, 14, 28, 0.48);
+      }
+
+      .ticket-progress span {
+        display: block;
+        width: var(--curve);
+        height: 100%;
+        background: var(--pink);
+      }
+
+      .launch-ticket--moon .ticket-progress span {
+        background: var(--sky);
+      }
+
+      .launch-ticket--gem .ticket-progress span {
+        background: var(--mint);
+      }
+
+      .ticket-foot {
+        margin: auto 0 0;
+        color: var(--cream-deep);
+        font-family: var(--font-round);
+        font-size: 11px;
+      }
+
       .side-rail {
         display: grid;
         align-content: start;
@@ -717,6 +969,43 @@
         color: var(--cream-deep);
         font-family: var(--font-round);
         font-size: 13px;
+      }
+
+      .trade-list {
+        position: relative;
+        z-index: 1;
+        display: none;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      body[data-mock='on'] .trade-list {
+        display: grid;
+      }
+
+      .trade-list li {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        border-top: 1px dashed rgba(255, 248, 231, 0.22);
+        padding-top: 8px;
+        color: var(--cream-deep);
+        font-family: var(--font-round);
+        font-size: 11px;
+      }
+
+      .trade-list b {
+        color: var(--mint);
+        font-family: var(--font-mono);
+        font-weight: 500;
+      }
+
+      .trade-list time {
+        color: var(--pink-soft);
+        font-family: var(--font-pixel);
+        font-size: 9px;
       }
       .flywheel-list {
         position: relative;
@@ -929,6 +1218,12 @@
           min-height: 390px;
           padding: 14px;
         }
+        .launch-shelf {
+          grid-template-columns: 1fr;
+        }
+        .launch-ticket {
+          min-height: 232px;
+        }
         .feed-search {
           order: 3;
           width: 100%;
@@ -965,7 +1260,7 @@
       }
     </style>
   </head>
-  <body>
+  <body data-mock="off">
     <header class="site-header">
       <a class="brand" href="#top" aria-label="urufu labs home">
         <span class="brand-mark" aria-hidden="true">ウ</span>
@@ -995,11 +1290,16 @@
     <main class="page-shell" id="top">
       <section class="uru-frame" aria-labelledby="hero-title">
         <span class="tape tape--top" aria-hidden="true"></span>
+        <!-- Preview-only control. Omit from production routes. -->
+        <button class="mock-toggle" type="button" aria-pressed="false" data-mock-toggle>
+          <span class="mock-toggle-dot" aria-hidden="true"></span>
+          <span data-mock-toggle-label>mock data: off</span>
+        </button>
         <div class="hero">
           <div class="hero-copy">
             <p class="eyebrow">✿ urufu labs launchpad</p>
             <h1 id="hero-title">
-              The culture-first token launchpad.<span class="sparkle" aria-hidden="true"> ✦</span>
+              The culture-powered launchpad.<span class="sparkle" aria-hidden="true"> ✦</span>
             </h1>
             <p class="hero-subtitle">
               Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
@@ -1033,10 +1333,24 @@
         </div>
 
         <div class="stat-strip" aria-label="Launchpad statistics">
-          <div class="stat"><span>tokens 数</span><strong>0</strong></div>
-          <div class="stat stat--mint"><span>graduated 卒業</span><strong>0</strong></div>
-          <div class="stat"><span>eth raised 集金</span><strong>0.00 Ξ</strong></div>
-          <div class="stat"><span>trades 取引</span><strong>0</strong></div>
+          <div class="stat">
+            <span>tokens 数</span
+            ><strong><span class="mock-off">0</span><span class="mock-only">27</span></strong>
+          </div>
+          <div class="stat stat--mint">
+            <span>graduated 卒業</span
+            ><strong><span class="mock-off">0</span><span class="mock-only">6</span></strong>
+          </div>
+          <div class="stat">
+            <span>eth raised 集金</span
+            ><strong
+              ><span class="mock-off">0.00 Ξ</span><span class="mock-only">18.42 Ξ</span></strong
+            >
+          </div>
+          <div class="stat">
+            <span>trades 取引</span
+            ><strong><span class="mock-off">0</span><span class="mock-only">163</span></strong>
+          </div>
           <div class="stat stat--sky"><span>chain 鎖</span><strong>Robinhood</strong></div>
         </div>
       </section>
@@ -1054,6 +1368,7 @@
               placeholder="search name / ticker"
               aria-label="Search name or ticker"
             />
+            <span class="mock-feed-note mock-only">preview data</span>
             <a class="feed-link" href="#launches">see all »</a>
           </div>
 
@@ -1064,6 +1379,54 @@
               <a href="#shop">launch the first one »</a>
             </div>
           </div>
+
+          <div class="launch-shelf mock-only" aria-label="Mock launch data">
+            <a class="launch-ticket" href="#trade" style="--curve: 82%">
+              <div class="ticket-top">
+                <span class="ticket-mark" aria-hidden="true">✦</span
+                ><span class="sample-tag">mock</span>
+              </div>
+              <span class="ticket-name">soft wolf</span><span class="ticket-symbol">$SOFT</span>
+              <div class="ticket-meta">
+                <span>curve<b>82%</b></span
+                ><span>raised<b>3.48 Ξ</b></span>
+              </div>
+              <div class="ticket-progress" aria-label="82 percent of the bonding curve">
+                <span></span>
+              </div>
+              <p class="ticket-foot">studio 02 · 19 trades</p>
+            </a>
+            <a class="launch-ticket launch-ticket--moon" href="#trade" style="--curve: 56%">
+              <div class="ticket-top">
+                <span class="ticket-mark" aria-hidden="true">☾</span
+                ><span class="sample-tag">mock</span>
+              </div>
+              <span class="ticket-name">paper moon</span><span class="ticket-symbol">$MOON</span>
+              <div class="ticket-meta">
+                <span>curve<b>56%</b></span
+                ><span>raised<b>1.87 Ξ</b></span>
+              </div>
+              <div class="ticket-progress" aria-label="56 percent of the bonding curve">
+                <span></span>
+              </div>
+              <p class="ticket-foot">momo press · 12 trades</p>
+            </a>
+            <a class="launch-ticket launch-ticket--gem" href="#trade" style="--curve: 29%">
+              <div class="ticket-top">
+                <span class="ticket-mark" aria-hidden="true">❀</span
+                ><span class="sample-tag">mock</span>
+              </div>
+              <span class="ticket-name">gem club</span><span class="ticket-symbol">$GEMU</span>
+              <div class="ticket-meta">
+                <span>curve<b>29%</b></span
+                ><span>raised<b>0.74 Ξ</b></span>
+              </div>
+              <div class="ticket-progress" aria-label="29 percent of the bonding curve">
+                <span></span>
+              </div>
+              <p class="ticket-foot">pink unit · 7 trades</p>
+            </a>
+          </div>
         </section>
 
         <aside class="side-rail">
@@ -1072,6 +1435,20 @@
               <span>✦ live trades</span><span class="live-dot" aria-label="Preview data"></span>
             </div>
             <p class="trade-empty">waiting on the first launch ~~</p>
+            <ul class="trade-list mock-only" aria-label="Mock live trades">
+              <li>
+                <span>momo.eth bought <b>$MOON</b></span
+                ><time>now</time>
+              </li>
+              <li>
+                <span>0x7b…f3 bought <b>$SOFT</b></span
+                ><time>2m</time>
+              </li>
+              <li>
+                <span>pinkunit bought <b>$GEMU</b></span
+                ><time>5m</time>
+              </li>
+            </ul>
           </section>
 
           <section class="sidebar-card" aria-label="The flywheel">
@@ -1113,6 +1490,21 @@
     </main>
 
     <script>
+      (() => {
+        const toggle = document.querySelector('[data-mock-toggle]');
+        const label = document.querySelector('[data-mock-toggle-label]');
+        if (!toggle || !label) return;
+
+        const setMockMode = (enabled) => {
+          document.body.dataset.mock = enabled ? 'on' : 'off';
+          toggle.setAttribute('aria-pressed', String(enabled));
+          label.textContent = `mock data: ${enabled ? 'on' : 'off'}`;
+        };
+
+        setMockMode(false);
+        toggle.addEventListener('click', () => setMockMode(document.body.dataset.mock !== 'on'));
+      })();
+
       (() => {
         if (
           window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
