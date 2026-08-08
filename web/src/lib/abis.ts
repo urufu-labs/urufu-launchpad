@@ -213,6 +213,39 @@ export const tokenOwnerAbi = parseAbi([
   `function setAntiWhaleExcluded(address who, bool excluded)`,
 ] as const);
 
+/// Public holder-facing module functions probed by `TokenHolderModules.tsx`.
+/// Every marker view has a matching action write; the panel shows only the
+/// modules whose marker view succeeds (allowFailure: true). Bare-ERC20 tokens
+/// return failure across the board and the panel renders nothing.
+///
+/// Modules covered:
+///   - Staking  → stakingRewardRate marker, stake/withdraw/claim actions
+///   - Vesting  → vestingBeneficiary marker, vestingRelease action (beneficiary-only)
+///   - Votes    → getVotes marker, delegate action
+export const tokenHolderModulesAbi = parseAbi([
+  // Staking module — Synthetix-style reward pool held at address(this).
+  `function stakingRewardRate() view returns (uint256)`,
+  `function stakingBalanceOf(address user) view returns (uint256)`,
+  `function stakingEarned(address user) view returns (uint256)`,
+  `function stakingTotalStaked() view returns (uint256)`,
+  `function stakingPeriodFinish() view returns (uint64)`,
+  `function stake(uint256 amount)`,
+  `function stakingWithdraw(uint256 amount)`,
+  `function stakingClaim()`,
+  // Vesting module — single-beneficiary, linear cliff → end release.
+  `function vestingBeneficiary() view returns (address)`,
+  `function vestingTotal() view returns (uint256)`,
+  `function vestingReleased() view returns (uint256)`,
+  `function vestingReleasable() view returns (uint256)`,
+  `function vestingCliffTimestamp() view returns (uint64)`,
+  `function vestingEndTimestamp() view returns (uint64)`,
+  `function vestingRelease()`,
+  // ERC20Votes module — self-delegation required to activate voting power.
+  `function getVotes(address account) view returns (uint256)`,
+  `function delegates(address account) view returns (address)`,
+  `function delegate(address delegatee)`,
+] as const);
+
 /// Subset of `MultiHookHost` — the read + claim path the profile "creator
 /// earnings" widget needs. `owed(currency, recipient)` is the accumulator the hook
 /// credits during afterSwap; `claim(currency)` pulls msg.sender's whole balance
