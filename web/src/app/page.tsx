@@ -367,6 +367,10 @@ function HomePageContent() {
         trades: String(stats.totalTrades),
         chain: sourceLabel,
       };
+  const bulletinLaunch = previewEnabled ? PREVIEW_LAUNCHES[1] ?? PREVIEW_LAUNCHES[0] : filtered[0];
+  const bulletinTicket = bulletinLaunch
+    ? PREVIEW_TICKETS.find((ticket) => ticket.address === bulletinLaunch.address)
+    : undefined;
 
   return (
     <main className="uru-home-shell">
@@ -589,24 +593,16 @@ function HomePageContent() {
         </aside>
       </div>
 
-      <section className="uru-home-how" aria-labelledby="how-title">
-        <div className="uru-home-how-title">
-          <div id="how-title">
-            how it works<small>流れ</small>
-          </div>
-        </div>
-        <StepTile n="01" title="define your coin" body="name · ticker · art · socials" />
-        <StepTile
-          n="02"
-          title="customize contract"
-          body="add v4 hooks & custom security modules to your token contract"
-        />
-        <StepTile
-          n="03"
-          title="launch"
-          body="a smooth guided flow deploys your bonding curve securely"
-        />
-      </section>
+      <CultureBulletin
+        launch={bulletinLaunch}
+        preview={bulletinTicket}
+        previewLaunches={previewEnabled ? PREVIEW_LAUNCHES : filtered.slice(0, 3)}
+        collectors={
+          previewEnabled
+            ? previewTrades.map((trade) => trade.wallet)
+            : liveTrades.slice(0, 3).map((trade) => shortWallet(trade.t.trader))
+        }
+      />
     </main>
   );
 }
@@ -617,6 +613,10 @@ function HomePageContent() {
 
 function homeTradeKey(row: HomeTrade) {
   return `${row.l.address}-${row.t.trader}-${row.t.ethAmount}-${row.t.timestamp}`;
+}
+
+function shortWallet(wallet: string) {
+  return wallet.length > 12 ? `${wallet.slice(0, 6)}··${wallet.slice(-3)}` : wallet;
 }
 
 function StatTile({
@@ -744,12 +744,124 @@ function HeroArt() {
   );
 }
 
-function StepTile({ n, title, body }: { n: string; title: string; body: string }) {
+function CultureBulletin({
+  launch,
+  preview,
+  previewLaunches,
+  collectors,
+}: {
+  launch?: MockLaunch;
+  preview?: PreviewTicket;
+  previewLaunches: MockLaunch[];
+  collectors: string[];
+}) {
+  const progress = launch ? (preview?.progress ?? mockProgressPct(launch)) : 0;
+  const raised = launch
+    ? (preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`)
+    : '—';
+  const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
+  const creator = launch
+    ? (preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`)
+    : 'waiting for a first release';
+
   return (
-    <div className="uru-home-how-step">
-      <span>{n}</span>
-      <b>{title}</b>
-      <p>{body}</p>
-    </div>
+    <section className="uru-home-bulletin" aria-labelledby="bulletin-title">
+      <div className="uru-home-bulletin-topline">
+        <span id="bulletin-title">culture bulletin</span>
+        <span>artist release desk</span>
+      </div>
+
+      <div className="uru-home-bulletin-art">
+        {launch ? (
+          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} release`}>
+            <div
+              className="uru-home-bulletin-artwork"
+              role="img"
+              aria-label={launch.imageUrl ? `${launch.name} token artwork` : undefined}
+              style={{
+                background: safeBackgroundImage(launch.imageUrl, launch.logoBg),
+                backgroundSize: 'contain',
+              }}
+            />
+          </Link>
+        ) : (
+          <div className="uru-home-bulletin-artwork uru-home-bulletin-artwork-empty" aria-hidden="true" />
+        )}
+      </div>
+
+      <div className="uru-home-bulletin-note">
+        <span className="uru-home-bulletin-kicker">release note</span>
+        {launch ? (
+          <>
+            <h2>{launch.name}</h2>
+            <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
+            <p className="uru-home-bulletin-byline">by {creator}</p>
+            <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
+              open release <span aria-hidden="true">→</span>
+            </Link>
+          </>
+        ) : (
+          <>
+            <h2>the next release</h2>
+            <p className="uru-home-bulletin-byline">the desk is ready when the first artist is.</p>
+            <Link href="/create" className="uru-home-bulletin-link">
+              launch a token <span aria-hidden="true">→</span>
+            </Link>
+          </>
+        )}
+      </div>
+
+      <div className="uru-home-bulletin-signal" aria-label="Launch signal">
+        <span className="uru-home-bulletin-kicker">launch signal</span>
+        <dl>
+          <div>
+            <dt>curve</dt>
+            <dd>{launch ? `${progress.toFixed(0)}%` : '—'}</dd>
+          </div>
+          <div>
+            <dt>raised</dt>
+            <dd>{raised}</dd>
+          </div>
+          <div>
+            <dt>trades</dt>
+            <dd>{launch ? String(trades) : '—'}</dd>
+          </div>
+        </dl>
+        <div className="uru-home-bulletin-collectors">
+          <span>recent collectors</span>
+          {collectors.slice(0, 3).map((collector) => <b key={collector}>{collector}</b>)}
+          {collectors.length === 0 && <b>waiting for the first collector</b>}
+        </div>
+        <div className="uru-home-bulletin-hooks" aria-label="Selected launch protections">
+          <span>selected hooks</span>
+          <ul>
+          <li>LP locked forever</li>
+          <li>creator fees</li>
+          <li>safe launch</li>
+        </ul>
+        </div>
+      </div>
+
+      <div className="uru-home-bulletin-from">
+        <span className="uru-home-bulletin-kicker">from the artists</span>
+        <div className="uru-home-bulletin-artists">
+          {previewLaunches.slice(0, 3).map((item) => {
+            const itemPreview = PREVIEW_TICKETS.find((ticket) => ticket.address === item.address);
+            const itemCreator = itemPreview?.creator ?? `${item.creator.slice(0, 6)}··${item.creator.slice(-3)}`;
+            return (
+              <Link key={item.address} href={`/trade/${item.address}`} className="uru-home-bulletin-artist">
+                <span>${item.ticker}</span>
+                <b>{itemCreator}</b>
+              </Link>
+            );
+          })}
+          {previewLaunches.length === 0 && <span className="uru-home-bulletin-artist-empty">new work will collect here.</span>}
+        </div>
+      </div>
+
+      <Link href="/create" className="uru-home-bulletin-cta">
+        launch a token <span aria-hidden="true">→</span>
+      </Link>
+    </section>
   );
 }

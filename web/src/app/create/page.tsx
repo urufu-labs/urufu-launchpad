@@ -62,18 +62,6 @@ const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
   KeepEOA: 2,
 };
 
-const BASE_LABELS: Record<BaseType, { label: string; jp: string; desc: string }> = {
-  ERC20: { label: 'erc-20', jp: '通貨', desc: 'ur basic token ✿' },
-  ERC721A: { label: 'erc-721a', jp: '絵', desc: 'nft collection ❀' },
-  ERC1155: { label: 'erc-1155', jp: '多品', desc: 'multi items ❁' },
-};
-
-// Phase-1 launch: only ERC-20 is enabled. NFT + multi-item bases are wired
-// end-to-end in contracts + tests, but held back at the UI level so we can
-// prove the flywheel on fungibles first. Set to true here to unlock the cards.
-const NFT_BASES_ENABLED = false;
-const DISABLED_BASES: readonly BaseType[] = NFT_BASES_ENABLED ? [] : ['ERC721A', 'ERC1155'];
-
 // Prime rotations — never multiples of 5 per SKILL.md §rotation
 const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
   'n7', 'p3', 'n4', 'p11', 'p2', 'n11', 'p13', 'n2',
@@ -106,7 +94,10 @@ function CreatePageContent() {
   const contracts = CONTRACTS[targetChain];
   const activeChain = targetChain; // legacy alias — every downstream ref stays valid
 
-  const [base, setBase] = useState<BaseType>('ERC20');
+  // The launch type is fixed while ERC-20 is the only available offering. Keeping
+  // the invariant in code avoids presenting a non-choice to creators; the lower
+  // factory branches remain until the NFT launch work is actually reintroduced.
+  const base = useMemo<BaseType>(() => 'ERC20', []);
   // Two launch mechanics for ERC-20:
   //   'quick'  — pump.fun style, safe defaults baked in (renounce, LP lock,
   //              anti-sniper, no modules). Only inputs are name/ticker/vibes
@@ -1099,6 +1090,25 @@ function CreatePageContent() {
           </div>
         </header>
 
+        <section className="uru-create-flow" aria-labelledby="create-flow-title">
+          <div className="uru-create-flow-title">
+            <div id="create-flow-title">
+              how it works<small>流れ</small>
+            </div>
+          </div>
+          <CreateFlowTile n="01" title="define your coin" body="name · ticker · art · socials" />
+          <CreateFlowTile
+            n="02"
+            title="customize contract"
+            body="add v4 hooks & custom security modules to your token contract"
+          />
+          <CreateFlowTile
+            n="03"
+            title="launch"
+            body="a smooth guided flow deploys your bonding curve securely"
+          />
+        </section>
+
         {mounted && !contracts && (
           <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
             <div className="flex items-start gap-3">
@@ -1139,77 +1149,9 @@ function CreatePageContent() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {/* MAIN — the shop counter */}
           <div className="space-y-3">
-            {/* STEP 1 — base picker with prime-tilt polaroids */}
+            {/* STEP 1 — launch mechanic */}
             <section className="uru-shell">
-              <span className="uru-tape" style={{ width: 74, height: 16, top: -8, left: 42, transform: 'rotate(-7deg)' }} />
-              <span className="uru-tape uru-tape-mizuiro" style={{ width: 62, height: 16, top: -6, right: 60, transform: 'rotate(3deg)' }} />
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1 ✿ pick a base</div>
-
-              <div className="uru-shell-inner">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(['ERC20', 'ERC721A', 'ERC1155'] as const).map((b, i) => {
-                    const info = BASE_LABELS[b];
-                    const active = base === b;
-                    const disabled = DISABLED_BASES.includes(b);
-                    const tilt = TILTS[i]!;
-                    return (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => { if (!disabled) { setBase(b); setSelectedModules([]); } }}
-                        disabled={disabled}
-                        aria-disabled={disabled}
-                        title={disabled ? 'coming soon ✿' : undefined}
-                        className="uru-polaroid text-left relative"
-                        data-tilt={active ? undefined : tilt}
-                        style={{
-                          boxShadow: active ? '4px 4px 0 var(--pink-hot)' : undefined,
-                          background: active ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
-                          opacity: disabled ? 0.45 : 1,
-                          cursor: disabled ? 'not-allowed' : 'pointer',
-                          filter: disabled ? 'grayscale(0.6)' : undefined,
-                        }}
-                      >
-                        {disabled && (
-                          <span
-                            className="uru-tape"
-                            style={{
-                              position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              padding: '2px 6px',
-                              fontFamily: 'var(--font-pixel), monospace',
-                              fontSize: 9,
-                              background: 'var(--anchor)',
-                              color: 'var(--cream)',
-                              transform: 'rotate(6deg)',
-                              width: 'auto',
-                              height: 'auto',
-                              letterSpacing: '0.05em',
-                            }}
-                          >
-                            soon ✧
-                          </span>
-                        )}
-                        <div style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 28, textAlign: 'center', color: 'var(--anchor)' }}>
-                          {info.jp}
-                        </div>
-                        <div className="uru-h2" style={{ fontSize: 14, textAlign: 'center', marginTop: 2 }}>
-                          {info.label}
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, textAlign: 'center', color: 'var(--anchor-soft)', marginTop: 2 }}>
-                          {info.desc}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            {/* STEP 1B — launch mechanic */}
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1.5 ✿ launch mechanic</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1 ✿ launch mechanic</div>
               <div className="uru-shell-inner">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
@@ -2169,6 +2111,17 @@ function CartItem({
 function FieldGrid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>{children}</div>;
 }
+
+function CreateFlowTile({ n, title, body }: { n: string; title: string; body: string }) {
+  return (
+    <div className="uru-create-flow-step">
+      <span>{n}</span>
+      <b>{title}</b>
+      <p>{body}</p>
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>

@@ -632,7 +632,8 @@ body {
 
 .uru-home-hero-frame,
 .uru-home-gallery-main,
-.uru-home-sidebar-card {
+.uru-home-sidebar-card,
+.uru-home-bulletin {
   position: relative;
   border: 3px double var(--anchor);
   background: color-mix(in srgb, var(--card) 88%, transparent);
@@ -643,7 +644,8 @@ body {
 }
 .uru-home-hero-frame::before,
 .uru-home-gallery-main::before,
-.uru-home-sidebar-card::before {
+.uru-home-sidebar-card::before,
+.uru-home-bulletin::before {
   position: absolute;
   inset: 8px;
   z-index: 0;
@@ -653,7 +655,8 @@ body {
 }
 .uru-home-hero-frame > *,
 .uru-home-gallery-main > *,
-.uru-home-sidebar-card > * {
+.uru-home-sidebar-card > *,
+.uru-home-bulletin > * {
   position: relative;
   z-index: 1;
 }
@@ -1115,50 +1118,267 @@ body {
   font-size: 11px;
 }
 
-.uru-home-how {
+.uru-home-bulletin {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.15fr) minmax(190px, 1fr) minmax(180px, 0.75fr);
+  margin-top: 16px;
+  overflow: hidden;
+  background: var(--card);
+  color: var(--anchor);
+  box-shadow: 5px 5px 0 rgba(255,136,179,0.34);
+}
+.uru-home-bulletin-topline {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px dashed var(--anchor-soft);
+  padding: 9px 14px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.uru-home-bulletin-topline span:first-child { color: var(--pink-hot); }
+.uru-home-bulletin-art {
+  min-height: 310px;
+  border-right: 1px dashed var(--anchor-soft);
+  background: color-mix(in srgb, var(--cream-deep) 72%, transparent);
+  padding: 14px;
+}
+.uru-home-bulletin-art a { display: block; height: 100%; }
+.uru-home-bulletin-artwork {
+  min-height: 280px;
+  height: 100%;
+  border: 2px solid var(--anchor);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--pink-hot) 62%, transparent);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.uru-home-bulletin-art a:hover .uru-home-bulletin-artwork,
+.uru-home-bulletin-art a:focus-visible .uru-home-bulletin-artwork {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 var(--pink-hot);
+}
+.uru-home-bulletin-artwork-empty {
+  background: var(--cream-deep);
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--anchor) 22%, transparent);
+}
+.uru-home-bulletin-note,
+.uru-home-bulletin-signal {
+  min-height: 310px;
+  padding: 22px 18px;
+}
+.uru-home-bulletin-note { border-right: 1px dashed var(--anchor-soft); }
+.uru-home-bulletin-kicker {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.uru-home-bulletin-note h2 {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: clamp(28px, 3vw, 42px);
+  font-weight: 400;
+  line-height: 0.95;
+}
+.uru-home-bulletin-symbol {
+  margin: 5px 0 0;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 13px;
+}
+.uru-home-bulletin-byline {
+  margin: 22px 0 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.uru-home-bulletin-link,
+.uru-home-bulletin-cta {
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  text-decoration: none;
+}
+.uru-home-bulletin-link {
+  display: inline-flex;
+  gap: 5px;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--anchor);
+  padding-bottom: 2px;
+}
+.uru-home-bulletin-link:hover,
+.uru-home-bulletin-link:focus-visible { color: var(--pink-hot); }
+.uru-home-bulletin-signal dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.uru-home-bulletin-signal dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--anchor) 38%, transparent);
+  padding-bottom: 7px;
+}
+.uru-home-bulletin-signal dt {
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.uru-home-bulletin-signal dd {
+  margin: 0;
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+}
+.uru-home-bulletin-signal ul {
+  display: grid;
+  gap: 5px;
+  margin: 15px 0 0;
+  padding: 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 11px;
+  list-style: none;
+}
+.uru-home-bulletin-signal li::before { color: var(--mint-hot); content: '✦ '; }
+.uru-home-bulletin-collectors,
+.uru-home-bulletin-hooks { margin-top: 12px; }
+.uru-home-bulletin-collectors > span,
+.uru-home-bulletin-hooks > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+.uru-home-bulletin-collectors {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+.uru-home-bulletin-collectors b {
+  display: block;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-mono), monospace;
+  font-size: 9px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uru-home-bulletin-collectors b::before { color: var(--pink-hot); content: '• '; }
+.uru-home-bulletin-hooks ul { margin-top: 0; }
+.uru-home-bulletin-from {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  gap: 14px;
+  border-top: 1px dashed var(--anchor-soft);
+  padding: 13px 14px;
+}
+.uru-home-bulletin-from .uru-home-bulletin-kicker { margin: 3px 0 0; }
+.uru-home-bulletin-artists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+.uru-home-bulletin-artist {
+  display: grid;
+  gap: 2px;
+  border-left: 2px solid var(--pink-hot);
+  padding-left: 8px;
+  color: var(--anchor);
+  text-decoration: none;
+}
+.uru-home-bulletin-artist:hover,
+.uru-home-bulletin-artist:focus-visible { color: var(--pink-hot); }
+.uru-home-bulletin-artist span {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+}
+.uru-home-bulletin-artist b {
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+  font-weight: 400;
+}
+.uru-home-bulletin-artist-empty {
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+}
+.uru-home-bulletin-cta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  gap: 7px;
+  border-top: 1px dashed var(--anchor-soft);
+  background: var(--pink-warm);
+  transition: background 180ms ease, color 180ms ease;
+}
+.uru-home-bulletin-cta:hover,
+.uru-home-bulletin-cta:focus-visible { background: var(--pink-hot); color: var(--cream); }
+
+.uru-create-flow {
   display: grid;
   grid-template-columns: 0.8fr repeat(3, 1fr);
-  margin-top: 16px;
+  margin: 0 0 12px;
   border: 2px double var(--anchor);
   background: var(--card);
   color: var(--anchor);
   box-shadow: 5px 5px 0 rgba(255,136,179,0.34);
 }
-.uru-home-how-title,
-.uru-home-how-step {
-  min-height: 132px;
-  padding: 18px;
+.uru-create-flow-title,
+.uru-create-flow-step {
+  min-height: 118px;
+  padding: 16px;
   border-right: 1px dashed var(--anchor-soft);
 }
-.uru-home-how-step:last-child { border-right: 0; }
-.uru-home-how-title {
+.uru-create-flow-step:last-child { border-right: 0; }
+.uru-create-flow-title {
   display: flex;
   align-items: center;
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 23px;
   line-height: 1;
 }
-.uru-home-how-title small {
+.uru-create-flow-title small {
   display: block;
   margin-top: 7px;
   color: var(--anchor-soft);
   font-family: var(--font-pixel), monospace;
   font-size: 10px;
 }
-.uru-home-how-step span {
+.uru-create-flow-step span {
   display: block;
   margin-bottom: 8px;
   color: var(--pink-hot);
   font-family: var(--font-pixel), monospace;
   font-size: 12px;
 }
-.uru-home-how-step b {
+.uru-create-flow-step b {
   display: block;
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 20px;
   font-weight: 400;
 }
-.uru-home-how-step p {
+.uru-create-flow-step p {
   margin: 3px 0 0;
   color: var(--anchor-soft);
   font-family: var(--font-round), "Klee One", cursive;
@@ -1173,8 +1393,9 @@ body {
   .uru-home-hero { grid-template-columns: 1fr 0.78fr; }
   .uru-home-gallery-layout { grid-template-columns: 1fr; }
   .uru-home-side-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .uru-home-how { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .uru-home-how-title {
+  .uru-home-bulletin { grid-template-columns: minmax(170px, 1fr) minmax(180px, 1fr) minmax(160px, 0.78fr); }
+  .uru-create-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .uru-create-flow-title {
     grid-column: 1 / -1;
     min-height: auto;
     padding-bottom: 8px;
@@ -1214,8 +1435,17 @@ body {
     padding: 14px;
   }
   .uru-home-launch-grid,
-  .uru-home-side-rail,
-  .uru-home-how { grid-template-columns: 1fr; }
+  .uru-home-side-rail { grid-template-columns: 1fr; }
+  .uru-home-bulletin { grid-template-columns: 1fr; }
+  .uru-home-bulletin-art,
+  .uru-home-bulletin-note { border-right: 0; border-bottom: 1px dashed var(--anchor-soft); }
+  .uru-home-bulletin-art { min-height: 280px; }
+  .uru-home-bulletin-artwork { min-height: 250px; }
+  .uru-home-bulletin-note,
+  .uru-home-bulletin-signal { min-height: auto; }
+  .uru-home-bulletin-from { grid-template-columns: 1fr; }
+  .uru-home-bulletin-artists { grid-template-columns: 1fr; }
+  .uru-create-flow { grid-template-columns: 1fr; }
   .uru-home-search {
     order: 3;
     width: 100%;
@@ -1223,13 +1453,13 @@ body {
     margin-left: 0;
   }
   .uru-home-feed-link { margin-left: auto; }
-  .uru-home-how-title,
-  .uru-home-how-step {
+  .uru-create-flow-title,
+  .uru-create-flow-step {
     min-height: auto;
     border-right: 0;
     border-bottom: 1px dashed var(--anchor-soft);
   }
-  .uru-home-how-step:last-child { border-bottom: 0; }
+  .uru-create-flow-step:last-child { border-bottom: 0; }
 }
 
 /* Dark fidelity pass: the altar-like mock presentation is dark-mode specific.
@@ -1277,7 +1507,8 @@ body {
 }
 :root[data-theme='dark'] .uru-home-hero-frame,
 :root[data-theme='dark'] .uru-home-gallery-main,
-:root[data-theme='dark'] .uru-home-sidebar-card {
+:root[data-theme='dark'] .uru-home-sidebar-card,
+:root[data-theme='dark'] .uru-home-bulletin {
   border-color: #fff8e7;
   background: rgba(36,28,48,0.88);
   box-shadow:
@@ -1286,7 +1517,8 @@ body {
 }
 :root[data-theme='dark'] .uru-home-hero-frame::before,
 :root[data-theme='dark'] .uru-home-gallery-main::before,
-:root[data-theme='dark'] .uru-home-sidebar-card::before { border-color: rgba(255,248,231,0.24); }
+:root[data-theme='dark'] .uru-home-sidebar-card::before,
+:root[data-theme='dark'] .uru-home-bulletin::before { border-color: rgba(255,248,231,0.24); }
 :root[data-theme='dark'] .uru-home-tape {
   border-color: rgba(255,248,231,0.3);
   background:
@@ -1516,17 +1748,17 @@ body {
   background: rgba(255,239,173,0.12);
   color: #fff8e7;
 }
-:root[data-theme='dark'] .uru-home-how {
+:root[data-theme='dark'] .uru-create-flow {
   border-color: #fff8e7;
   background: #fff8e7;
   color: #3a2c3a;
   box-shadow: 5px 5px 0 rgba(255,136,179,0.56);
 }
-:root[data-theme='dark'] .uru-home-how-title,
-:root[data-theme='dark'] .uru-home-how-step { border-color: rgba(58,44,58,0.62); }
-:root[data-theme='dark'] .uru-home-how-title small,
-:root[data-theme='dark'] .uru-home-how-step p { color: #6b4d6b; }
-:root[data-theme='dark'] .uru-home-how-step span { color: #ff88b3; }
+:root[data-theme='dark'] .uru-create-flow-title,
+:root[data-theme='dark'] .uru-create-flow-step { border-color: rgba(58,44,58,0.62); }
+:root[data-theme='dark'] .uru-create-flow-title small,
+:root[data-theme='dark'] .uru-create-flow-step p { color: #6b4d6b; }
+:root[data-theme='dark'] .uru-create-flow-step span { color: #ff88b3; }
 
 @media (max-width: 680px) {
   :root[data-theme='dark'] .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
