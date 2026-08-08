@@ -38,6 +38,16 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 type Tab = 'trending' | 'new' | 'near' | 'graduated';
 type HomeTrade = { l: MockLaunch; t: MockTrade };
 
+const PREVIEW_LAUNCHES = MOCK_LAUNCHES.filter(
+  (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
+).slice(0, 3);
+const PREVIEW_TRADE_SEEDS: HomeTrade[] = PREVIEW_LAUNCHES.flatMap((launch) =>
+  launch.trades
+    .slice(-2)
+    .reverse()
+    .map((trade) => ({ l: launch, t: trade })),
+).slice(0, 6);
+
 // Preview data is for local reviews by default. A staging deployment must opt in with
 // NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
 // someone deliberately supplies that flag.
@@ -67,20 +77,19 @@ function HomePageContent() {
   const chainId = CHAIN_KEY_TO_ID[activeChain];
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
-  const [previewEnabled, setPreviewEnabled] = useState(false);
+  // The local/staging review starts with the expressive fixture state on. The toggle
+  // remains available there to inspect the real empty/live state; it never renders in
+  // production unless that environment deliberately supplies the staging flag.
+  const [previewEnabled, setPreviewEnabled] = useState(HOME_PREVIEW_AVAILABLE);
   const [previewRun, setPreviewRun] = useState(0);
-  const [previewTrades, setPreviewTrades] = useState<HomeTrade[]>([]);
+  const [previewTrades, setPreviewTrades] = useState<HomeTrade[]>(() =>
+    HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3) : [],
+  );
 
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
-  const previewLaunches = useMemo(
-    () =>
-      MOCK_LAUNCHES.filter(
-        (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
-      ).slice(0, 3),
-    [],
-  );
+  const previewLaunches = PREVIEW_LAUNCHES;
   const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
   const sourceLabel = previewEnabled ? 'preview' : CHAIN_LABELS[activeChain];
 
@@ -216,17 +225,7 @@ function HomePageContent() {
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
-  const previewTradeSeeds = useMemo<HomeTrade[]>(() => {
-    return previewLaunches
-      .flatMap((launch) =>
-        launch.trades
-          .slice(-2)
-          .reverse()
-          .map((trade) => ({ l: launch, t: trade })),
-      )
-      .slice(0, 6)
-      .map((row) => ({ ...row }));
-  }, [previewLaunches]);
+  const previewTradeSeeds = PREVIEW_TRADE_SEEDS;
 
   // The rail deliberately animates preview events one at a time. It is never started
   // on the live data path, so production activity continues to come only from the indexer.
