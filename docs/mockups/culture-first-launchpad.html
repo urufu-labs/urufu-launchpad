@@ -913,6 +913,7 @@
 
       body[data-mock='on'] .trade-list {
         display: grid;
+        min-height: 96px;
       }
 
       .trade-list li {
@@ -928,7 +929,7 @@
       }
 
       .trade-entry--incoming {
-        animation: trade-arrive 680ms cubic-bezier(0.22, 0.85, 0.32, 1) both;
+        animation: trade-glisten 680ms ease-out both;
       }
 
       .trade-entry--incoming::before,
@@ -957,18 +958,15 @@
         animation: trade-heart 880ms 90ms ease-out both;
       }
 
-      @keyframes trade-arrive {
+      @keyframes trade-glisten {
         from {
-          opacity: 0;
-          transform: translateY(-16px) rotate(-1.6deg) scale(0.88);
+          background: rgba(255, 136, 179, 0.23);
         }
         54% {
           background: rgba(200, 247, 197, 0.1);
-          transform: translateY(2px) rotate(0.8deg) scale(1.03);
         }
         to {
-          opacity: 1;
-          transform: translateY(0) rotate(0) scale(1);
+          background: transparent;
         }
       }
 
@@ -1553,7 +1551,50 @@
           tradeDelays.splice(0).forEach((delay) => window.clearTimeout(delay));
         };
 
+        const animateTradeLayout = (previousPositions, incoming) => {
+          if (reduceMotion || typeof incoming.animate !== 'function') return;
+
+          const nextFrame =
+            window.requestAnimationFrame ?? ((callback) => window.setTimeout(callback, 0));
+          nextFrame(() => {
+            const motion = {
+              duration: 680,
+              easing: 'cubic-bezier(0.22, 0.85, 0.32, 1)',
+              fill: 'both',
+            };
+            const play = (element, frames) => {
+              const animation = element.animate(frames, motion);
+              animation.onfinish = () => animation.cancel();
+            };
+
+            play(incoming, [
+              { opacity: 0, transform: 'translateY(-16px) rotate(-1.6deg) scale(0.88)' },
+              { opacity: 1, transform: 'translateY(2px) rotate(0.8deg) scale(1.03)', offset: 0.54 },
+              { opacity: 1, transform: 'translateY(0) rotate(0) scale(1)' },
+            ]);
+
+            [...tradeList.children].forEach((entry) => {
+              if (entry === incoming) return;
+              const previous = previousPositions.get(entry);
+              if (!previous) return;
+
+              const next = entry.getBoundingClientRect();
+              const deltaY = previous.top - next.top;
+              if (Math.abs(deltaY) < 1) return;
+              play(entry, [
+                { transform: `translateY(${deltaY}px)` },
+                { transform: 'translateY(0)' },
+              ]);
+            });
+          });
+        };
+
         const addMockTrade = (trade, animate) => {
+          const previousPositions = animate
+            ? new Map(
+                [...tradeList.children].map((entry) => [entry, entry.getBoundingClientRect()]),
+              )
+            : new Map();
           const entry = document.createElement('li');
           if (animate) entry.className = 'trade-entry--incoming';
 
@@ -1573,6 +1614,7 @@
           entry.append(copy, value);
           tradeList.prepend(entry);
           while (tradeList.children.length > 3) tradeList.lastElementChild.remove();
+          if (animate) animateTradeLayout(previousPositions, entry);
         };
 
         const playNextTrade = (animate) => {
