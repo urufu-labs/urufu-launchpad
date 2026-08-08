@@ -317,3 +317,45 @@ test('no-curve launch: card.curve === null, graduation stays pre, policy null', 
   assert.equal(card.hookPolicy, null);
   assert.equal(card.lpLock.locked, true);
 });
+
+// ============================================================================
+// GH-15: launch-card `loyalty` metadata is passed through from the caller.
+// The route handler resolves loyaltyStateForChainId(chainId) and hands it in;
+// the builder itself is pure — its only job is to plumb the field through and
+// fall back to {advertised:false, live:false} when the caller omits it.
+// ============================================================================
+
+test('loyalty omitted → defaults to {advertised:false, live:false} (pre-GH-15 shape)', () => {
+  const card = buildLaunchCard({
+    launch: baseLaunch({ curveAddress: null }),
+    curve: null,
+    graduation: null,
+    policy: null,
+    latestSwap: null,
+  });
+  assert.deepEqual(card.loyalty, { advertised: false, live: false });
+});
+
+test('loyalty advertised but not live is echoed verbatim', () => {
+  const card = buildLaunchCard({
+    launch: baseLaunch({ curveAddress: null }),
+    curve: null,
+    graduation: null,
+    policy: null,
+    latestSwap: null,
+    loyalty: { advertised: true, live: false },
+  });
+  assert.deepEqual(card.loyalty, { advertised: true, live: false });
+});
+
+test('loyalty advertised + live is echoed verbatim', () => {
+  const card = buildLaunchCard({
+    launch: baseLaunch({ curveAddress: null }),
+    curve: null,
+    graduation: null,
+    policy: null,
+    latestSwap: null,
+    loyalty: { advertised: true, live: true },
+  });
+  assert.deepEqual(card.loyalty, { advertised: true, live: true });
+});

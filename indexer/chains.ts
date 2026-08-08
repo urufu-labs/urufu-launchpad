@@ -130,6 +130,11 @@ export const ADDRESS_KEYS = [
   'FEE_SPLITTER',
   'URU_BUYBACK_VAULT',
   'URU_DEPOSIT_SINK',
+  /// GH-15: LoyaltyOracle presence per chain drives the launch-card
+  /// `loyalty.advertised` flag. Set to the deployed LoyaltyOracle address
+  /// (`<PREFIX>_LOYALTY_ORACLE_ADDRESS`) on chains where launches receive
+  /// URU/gemu holder discounts through Router.launch().
+  'LOYALTY_ORACLE',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 
@@ -182,4 +187,34 @@ export function hookHostForChainId(chainId: number): `0x${string}` | undefined {
     if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'MULTI_HOOK_HOST');
   }
   return undefined;
+}
+
+/// GH-15: launch-card loyalty metadata derived from chain env config.
+///
+/// `advertised`: the launch's chain has a LoyaltyOracle address configured
+///   (`<PREFIX>_LOYALTY_ORACLE_ADDRESS`). Semantics: this chain's Router points
+///   at (or is expected to point at) a LoyaltyOracle, so launches on this chain
+///   were eligible for URU/gemu holder discounts at Router.launch() time.
+///
+/// `live`: `advertised` AND the ecosystem token dependencies are configured
+///   for the chain (`<PREFIX>_URU_ADDRESS` + `<PREFIX>_GEMU_NFT_ADDRESS`). The
+///   oracle reads holder balances from those two contracts; without both, it
+///   returns 0 for every caller, so the discount system exists but never fires.
+///
+/// Both are deterministic and derived from the same env config the indexer
+/// already reads to decide what to subscribe to. If on-chain wiring drifts
+/// (owner rotates the oracle, sets it to 0), operators update env vars and the
+/// response reflects new state on the next request — no schema migration or
+/// RPC read at API time.
+export function loyaltyStateForChainId(chainId: number): { advertised: boolean; live: boolean } {
+  const slug = ALL_SLUGS.find((s) => CHAIN_CATALOG[s].id === chainId);
+  if (!slug) return { advertised: false, live: false };
+  const oracle = readAddress(slug, 'LOYALTY_ORACLE');
+  if (!oracle || /^0x0{40}$/.test(oracle)) return { advertised: false, live: false };
+  const prefix = CHAIN_CATALOG[slug].envPrefix;
+  const uru = process.env[`${prefix}_URU_ADDRESS`];
+  const gemu = process.env[`${prefix}_GEMU_NFT_ADDRESS`];
+  const uruOk = !!uru && !/^0x0{40}$/.test(uru);
+  const gemuOk = !!gemu && !/^0x0{40}$/.test(gemu);
+  return { advertised: true, live: uruOk && gemuOk };
 }

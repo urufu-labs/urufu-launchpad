@@ -149,8 +149,14 @@ export function buildLaunchCard(input: {
     sqrtPriceX96: bigint;
     liquidity: bigint;
   } | null;
+  /// GH-15: per-chain loyalty availability. Route handler passes
+  /// `loyaltyStateForChainId(launch.chainId)` from indexer/chains.ts. When
+  /// omitted (e.g. unit tests exercising other fields), defaults to
+  /// `{ advertised: false, live: false }` — the pre-#15 behavior.
+  loyalty?: { advertised: boolean; live: boolean };
 }): LaunchCard {
   const { launch, curve, graduation, policy, latestSwap } = input;
+  const loyalty = input.loyalty ?? { advertised: false, live: false };
   const poolId = graduation?.poolId ?? input.fallbackPoolId ?? null;
   const hookAddress = graduation?.hookAddress ?? input.fallbackHookAddress ?? null;
 
@@ -208,11 +214,13 @@ export function buildLaunchCard(input: {
         }
       : null,
     lpLock: { locked: true, source: LP_LOCK_SOURCE },
-    // Loyalty gate (#10) hasn't landed yet — placeholder shape so aggregators
-    // can plumb the field through today. When #10 ships, wire `advertised`
-    // from the launch's config module list and `live` from the loyalty
-    // oracle publish state.
-    loyalty: { advertised: false, live: false },
+    // GH-15: loyalty metadata derived per-chain from indexer env config.
+    // Route handler resolves this via loyaltyStateForChainId(launch.chainId);
+    // see indexer/chains.ts for the advertised/live definitions. When the
+    // caller omits the field (unit tests exercising other branches), the
+    // pre-#15 default of `{advertised:false, live:false}` is preserved so
+    // existing consumers don't see a semantic change unexpectedly.
+    loyalty,
     meta: {
       requestedHook,
       requestedGovernance,

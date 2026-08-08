@@ -19,7 +19,7 @@ import {
   poolPolicy,
   v4Swaps,
 } from '../../ponder.schema.ts';
-import { hookHostForChainId } from '../../chains.ts';
+import { hookHostForChainId, loyaltyStateForChainId } from '../../chains.ts';
 import { buildLaunchCard, computeV4PoolId } from './launch-card.ts';
 
 // ---- graphql passthrough (see file header) ----
@@ -134,6 +134,8 @@ ponder.get('/api/launches/:token', async (c) => {
           liquidity: latestSwap.liquidity,
         }
       : null,
+    // GH-15: per-chain loyalty metadata derived from indexer env config.
+    loyalty: loyaltyStateForChainId(chainId),
   });
 
   return c.json(card);
