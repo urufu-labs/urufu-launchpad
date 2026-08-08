@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
@@ -549,22 +550,17 @@ function AgoLabel({ ts }: { ts: number }) {
 
 function HeroArt() {
   return (
-    <div className="uru-home-hero-art" aria-label="Urufu gemu inspired gallery panel" role="img">
-      <span className="uru-home-moon uru-home-moon-one" aria-hidden="true" />
-      <span className="uru-home-moon uru-home-moon-two" aria-hidden="true" />
-      <span className="uru-home-wolf" aria-hidden="true" />
-      <span className="uru-home-sheep" aria-hidden="true">
-        ●●ᴗ
-      </span>
-      <span className="uru-home-sheep uru-home-sheep-two" aria-hidden="true">
-        ●●ᴗ
-      </span>
-      <span className="uru-home-petal" aria-hidden="true" />
-      <span className="uru-home-petal" aria-hidden="true" />
-      <span className="uru-home-petal" aria-hidden="true" />
-      <span className="uru-home-petal" aria-hidden="true" />
+    <div className="uru-home-hero-art">
+      <Image
+        src="/culture-first-altar-v2.png"
+        alt="An Urufu wolf creator tending a glowing token-launch altar"
+        className="uru-home-hero-art-image"
+        fill
+        priority
+        sizes="(max-width: 680px) 100vw, 45vw"
+      />
       <span className="uru-home-art-label">
-        <b>❋ urufu gemu</b> / soft + sharp
+        <b>❋ urufu gēmu</b> / soft + cruel
       </span>
     </div>
   );

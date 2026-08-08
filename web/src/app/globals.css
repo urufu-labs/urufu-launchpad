@@ -734,111 +734,6 @@ body {
   justify-content: center;
   overflow: hidden;
   border-left: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
-  background:
-    radial-gradient(circle at 50% 57%, rgba(255,79,163,0.65), transparent 16%),
-    radial-gradient(circle at 50% 48%, rgba(255,136,179,0.22) 0 31%, transparent 32%),
-    linear-gradient(145deg, var(--paper-base), var(--card) 55%, var(--paper-base-2));
-}
-.uru-home-hero-art::before {
-  position: absolute;
-  inset: 7%;
-  border: 1px solid rgba(255,136,179,0.34);
-  border-radius: 48% 52% 51% 49%;
-  box-shadow:
-    0 0 0 20px rgba(255,136,179,0.05),
-    0 0 0 46px rgba(189,224,254,0.04);
-  content: '';
-  animation: uru-home-breathe 5.8s ease-in-out infinite;
-}
-.uru-home-hero-art::after {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(189,224,254,0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(189,224,254,0.08) 1px, transparent 1px);
-  background-size: 24px 24px;
-  content: '';
-  mask-image: radial-gradient(circle at 50% 50%, black 0 42%, transparent 82%);
-}
-@keyframes uru-home-breathe { 50% { transform: scale(1.045) rotate(2deg); } }
-
-.uru-home-moon {
-  position: absolute;
-  z-index: 1;
-  width: 106px;
-  height: 106px;
-  border: 7px solid var(--pink-warm);
-  border-radius: 50%;
-  box-shadow: 15px 0 0 var(--anchor);
-}
-.uru-home-moon-one { top: 22%; left: 21%; transform: rotate(-18deg); }
-.uru-home-moon-two { top: 27%; right: 21%; transform: scale(0.85) rotate(20deg); }
-.uru-home-wolf {
-  position: absolute;
-  z-index: 2;
-  bottom: 20%;
-  width: 0;
-  height: 0;
-  border-right: 45px solid transparent;
-  border-bottom: 84px solid var(--anchor);
-  border-left: 45px solid transparent;
-  filter: drop-shadow(5px 5px 0 rgba(255,136,179,0.37));
-}
-.uru-home-wolf::before {
-  position: absolute;
-  top: 61px;
-  left: -54px;
-  width: 112px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--anchor);
-  content: '';
-}
-.uru-home-wolf::after {
-  position: absolute;
-  top: -26px;
-  left: -34px;
-  border-right: 14px solid transparent;
-  border-bottom: 32px solid var(--anchor);
-  border-left: 14px solid transparent;
-  content: '';
-}
-.uru-home-sheep {
-  position: absolute;
-  z-index: 2;
-  bottom: 13%;
-  left: 15%;
-  color: var(--cream-deep);
-  font-size: 30px;
-  filter: drop-shadow(2px 2px 0 var(--anchor));
-  transform: rotate(-10deg);
-}
-.uru-home-sheep-two {
-  right: 13%;
-  bottom: 18%;
-  left: auto;
-  font-size: 21px;
-  transform: rotate(12deg);
-}
-.uru-home-petal {
-  position: absolute;
-  z-index: 3;
-  width: 10px;
-  height: 17px;
-  border-radius: 70% 0 70% 0;
-  background: var(--pink-hot);
-  opacity: 0.9;
-  animation: uru-home-drift 6s ease-in-out infinite;
-}
-.uru-home-petal:nth-of-type(6) { top: 18%; left: 16%; transform: rotate(25deg); }
-.uru-home-petal:nth-of-type(7) { top: 28%; right: 18%; transform: rotate(-47deg); animation-delay: -2s; }
-.uru-home-petal:nth-of-type(8) { right: 30%; bottom: 21%; transform: rotate(74deg); animation-delay: -4s; }
-.uru-home-petal:nth-of-type(9) { top: 45%; left: 32%; transform: rotate(-20deg); animation-delay: -1s; }
-@keyframes uru-home-drift {
-  50% {
-    translate: 12px -18px;
-    rotate: 17deg;
-  }
 }
 .uru-home-art-label {
   position: absolute;
@@ -1117,11 +1012,6 @@ body {
     border-top: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
     border-left: 0;
   }
-  .uru-home-moon {
-    width: 82px;
-    height: 82px;
-    border-width: 6px;
-  }
   .uru-home-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .uru-home-stat {
     min-height: 84px;
@@ -1154,6 +1044,181 @@ body {
     border-bottom: 1px dashed var(--anchor-soft);
   }
   .uru-home-how-step:last-child { border-bottom: 0; }
+}
+
+/* Fidelity pass: the live home keeps its real feed and controls, but uses the
+   dark-plum gallery surface approved in the static launchpad mockup. */
+body:has(.uru-home-shell) {
+  background-color: #120e1c;
+  background-image:
+    radial-gradient(circle at 6px 6px, rgba(255,248,231,0.06) 1px, transparent 2px),
+    radial-gradient(circle at 15% 8%, rgba(255,136,179,0.15), transparent 28%),
+    radial-gradient(circle at 93% 72%, rgba(189,224,254,0.13), transparent 29%),
+    radial-gradient(circle at 55% 43%, rgba(200,247,197,0.06), transparent 36%);
+  background-size: 24px 24px, auto, auto, auto;
+}
+body:has(.uru-home-shell) .uru-marquee {
+  border-color: #3a2c3a;
+  background: #241c30;
+}
+body:has(.uru-home-shell) .uru-marquee-track { color: #fff8e7; }
+body:has(.uru-home-shell) footer {
+  border-color: rgba(255,248,231,0.34) !important;
+  background: #100c18 !important;
+  color: #fff8e7 !important;
+}
+body:has(.uru-home-shell) footer a { color: #fff8e7 !important; }
+body:has(.uru-home-shell) footer a[href*='urufu.xyz'] { color: #ff88b3 !important; }
+
+.uru-home-shell {
+  --anchor: #fff8e7;
+  --anchor-soft: #f4e0b3;
+  --cream: #241c30;
+  --cream-deep: #33263f;
+  --cream-shadow: #3a2c3a;
+  --card: #241c30;
+  --card-lifted: #33263f;
+  --paper-base: #120e1c;
+  --paper-base-2: #1a1024;
+  --pink-warm: #ffd1dc;
+  --pink-hot: #ff88b3;
+  --mint: #c8f7c5;
+  --mint-hot: #4bd07d;
+  --mizuiro-deep: #bde0fe;
+  --yolk: #ffefad;
+  --yolk-deep: #ffefad;
+  --link-blue: #bde0fe;
+}
+.uru-home-hero-frame,
+.uru-home-gallery-main,
+.uru-home-sidebar-card {
+  border-color: #fff8e7;
+  background: rgba(36,28,48,0.88);
+  box-shadow:
+    7px 7px 0 rgba(255,136,179,0.38),
+    0 24px 60px rgba(0,0,0,0.34);
+}
+.uru-home-hero-frame::before,
+.uru-home-gallery-main::before,
+.uru-home-sidebar-card::before { border-color: rgba(255,248,231,0.24); }
+.uru-home-tape {
+  border-color: rgba(255,248,231,0.3);
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0 4px, transparent 4px 7px),
+    rgba(255,136,179,0.66);
+}
+.uru-home-eyebrow { color: #ffd1dc; }
+.uru-home-title {
+  color: #fff8e7;
+  text-shadow:
+    3px 3px 0 #3a2c3a,
+    6px 6px 0 rgba(255,136,179,0.26);
+}
+.uru-home-title span {
+  color: #ffefad;
+  text-shadow: 2px 2px 0 #3a2c3a;
+}
+.uru-home-subtitle { color: #f4e0b3; }
+.uru-home-flags span {
+  border-color: rgba(255,248,231,0.62);
+  background: rgba(18,14,28,0.42);
+  color: #fff8e7;
+}
+.uru-home-flags span[data-tone='mint'] { border-color: #4bd07d; color: #c8f7c5; }
+.uru-home-flags span[data-tone='pink'] { border-color: #ff88b3; color: #ffd1dc; }
+.uru-home-shell .uru-btn {
+  border-color: #fff8e7;
+  background: rgba(255,248,231,0.06);
+  color: #fff8e7;
+  box-shadow: 2px 2px 0 #fff8e7;
+}
+.uru-home-shell .uru-btn-primary {
+  border-color: #ff88b3;
+  background: #ff88b3;
+  color: #3a2c3a;
+  box-shadow: 2px 2px 0 #fff8e7, 0 0 24px rgba(255,136,179,0.35);
+}
+.uru-home-shell .uru-btn-mint { background: #c8f7c5; color: #3a2c3a; border-color: #c8f7c5; }
+.uru-home-shell .uru-btn:hover { background: #ff88b3; color: #3a2c3a; }
+
+.uru-home-hero-art {
+  background: #1a1024;
+  border-left-color: rgba(255,248,231,0.35);
+}
+.uru-home-hero-art-image {
+  object-fit: cover;
+  object-position: center;
+}
+.uru-home-art-label {
+  border-color: rgba(255,248,231,0.4);
+  background: rgba(18,14,28,0.76);
+  color: #fff8e7;
+}
+.uru-home-art-label b { color: #ff88b3; }
+.uru-home-stat-strip {
+  border-top-color: rgba(255,248,231,0.34);
+  background: rgba(18,14,28,0.54);
+}
+.uru-home-stat { border-right-color: rgba(255,248,231,0.26); }
+.uru-home-stat[data-accent='mizuiro'] .uru-eyebrow { color: #bde0fe; }
+
+.uru-home-tabs .uru-chip { color: #f4e0b3; }
+.uru-home-tabs .uru-chip[data-active='true'] {
+  background: #ffd1dc;
+  color: #3a2c3a;
+  box-shadow: 2px 2px 0 #fff8e7;
+}
+.uru-home-search {
+  border-color: #fff8e7;
+  background: rgba(18,14,28,0.72);
+  color: #fff8e7;
+}
+.uru-home-feed-link,
+.uru-home-empty a { color: #bde0fe; }
+.uru-home-empty {
+  border-color: rgba(255,248,231,0.42);
+  background:
+    radial-gradient(circle at 52% 43%, rgba(255,136,179,0.18), transparent 23%),
+    linear-gradient(135deg, rgba(255,255,255,0.04), transparent 40%);
+}
+.uru-home-empty p { color: #f4e0b3; }
+.uru-launch-card {
+  border-color: #fff8e7;
+  background: rgba(51,38,63,0.9);
+  color: #fff8e7;
+}
+.uru-launch-card:hover {
+  box-shadow:
+    0 0 0 1.5px #241c30,
+    0 0 0 3px #fff8e7,
+    5px 5px 0 #ff88b3;
+}
+.uru-home-trade-list li { border-color: rgba(255,248,231,0.22); color: #f4e0b3; }
+.uru-home-trade-list a { color: #fff8e7; }
+.uru-home-trade-list time,
+.uru-home-trade-empty,
+.uru-home-flywheel-list { color: #f4e0b3; }
+.uru-home-flywheel-list b { color: #ff88b3; }
+.uru-home-flywheel-note {
+  border-color: #ffefad;
+  background: rgba(255,239,173,0.12);
+  color: #fff8e7;
+}
+.uru-home-how {
+  border-color: #fff8e7;
+  background: #fff8e7;
+  color: #3a2c3a;
+  box-shadow: 5px 5px 0 rgba(255,136,179,0.56);
+}
+.uru-home-how-title,
+.uru-home-how-step { border-color: rgba(58,44,58,0.62); }
+.uru-home-how-title small,
+.uru-home-how-step p { color: #6b4d6b; }
+.uru-home-how-step span { color: #ff88b3; }
+
+@media (max-width: 680px) {
+  .uru-home-hero-art { border-top-color: rgba(255,248,231,0.35); }
+  .uru-home-stat { border-bottom-color: rgba(255,248,231,0.26); }
 }
 
 /* Launch card hover cue — nudges up + pinks the shadow so cards clearly read as clickable */
