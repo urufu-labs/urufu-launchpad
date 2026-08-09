@@ -15,6 +15,7 @@ import { runForgeTests } from './test-runner.ts';
 import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
+import { registerNftAvatarRoutes } from './routes/nft-avatar.ts';
 import { registerRewardsRoutes } from './routes/rewards.ts';
 import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
@@ -168,6 +169,11 @@ if (hasDb()) {
 // Pinata proxy — server-side so the JWT stays out of the client bundle. Skipped when
 // PINATA_JWT isn't set; the client falls back to the local-only metadata path.
 await registerPinRoutes(app);
+
+// Cross-chain NFT inventory for profile-avatar selection. This deliberately lives
+// outside the social/Postgres gate: inventory is public read data and only needs the
+// provider key, while the final profile choice remains signature-gated below.
+await registerNftAvatarRoutes(app);
 
 // Whitelisted-curve snapshot endpoints — POST /wl/snapshot + GET /wl/proof. No
 // Postgres dep (in-memory cache), no external API keys — works out of the box
