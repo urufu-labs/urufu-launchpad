@@ -206,16 +206,18 @@ body {
   will-change: transform;
 }
 @media (hover: none) { .uru-cursor { display: none; } }
+.uru-cursor-mascot { display: block; }
 .uru-cursor-sparkle {
   position: fixed;
   z-index: 9998;
   color: var(--pink-hot);
   font-family: var(--font-pixel), monospace;
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1;
   pointer-events: none;
   text-shadow: 1px 1px 0 var(--cream-shadow);
   animation: uru-cursor-sparkle 620ms ease-out both;
+  will-change: opacity, transform;
 }
 @keyframes uru-cursor-sparkle {
   from { opacity: 0.95; transform: translate(-50%, -50%) scale(0.75) rotate(-8deg); }
@@ -1656,6 +1658,14 @@ body {
   color: var(--anchor);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 30px;
+  transform-origin: center bottom;
+  animation: uru-launch-ticket-bob 3.4s ease-in-out infinite;
+}
+.uru-home-launch-grid > :nth-child(2n) .uru-launch-ticket-art { animation-delay: -1.1s; }
+.uru-home-launch-grid > :nth-child(3n) .uru-launch-ticket-art { animation-delay: -2.2s; }
+@keyframes uru-launch-ticket-bob {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-5px) rotate(1.5deg); }
 }
 .uru-launch-ticket[data-tone='sky'] .uru-launch-ticket-art { background: #bde0fe; }
 .uru-launch-ticket[data-tone='mint'] .uru-launch-ticket-art { background: #c8f7c5; }

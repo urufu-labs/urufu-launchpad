@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 import { Mascot } from './Mascot';
 
+const SPARKLE_GLYPHS = ['✦', '✧', '♡', '★'] as const;
+
 /// Mascot follows the cursor with a small lag. Auto-hides if user prefers reduced motion,
 /// on touch, or when tab hidden.
 export function CursorMascot() {
@@ -29,16 +31,16 @@ export function CursorMascot() {
       target.current.x = e.clientX;
       target.current.y = e.clientY;
       const now = performance.now();
-      if (now - lastSparkleAt.current < 72) return;
+      if (now - lastSparkleAt.current < 65) return;
       lastSparkleAt.current = now;
       const id = nextSparkleId.current++;
       const sparkle = {
         id,
-        glyph: id % 3 === 0 ? '✦' : id % 3 === 1 ? '·' : '♡',
+        glyph: SPARKLE_GLYPHS[id % SPARKLE_GLYPHS.length]!,
         x: e.clientX,
         y: e.clientY,
         driftX: ((id % 5) - 2) * 7,
-        driftY: -12 - (id % 3) * 6,
+        driftY: -16 - (id % 3) * 8,
       };
       setSparkles((current) => [...current.slice(-14), sparkle]);
       const timer = window.setTimeout(() => {
@@ -86,10 +88,13 @@ export function CursorMascot() {
       ))}
       <div
         ref={ref}
-        className="uru-cursor uru-idle-bob"
+        className="uru-cursor"
         style={{ position: 'fixed', left: 0, top: 0, pointerEvents: 'none', zIndex: 9999 }}
+        aria-hidden="true"
       >
-        <Mascot size={26} />
+        <div className="uru-cursor-mascot uru-idle-bob">
+          <Mascot size={26} />
+        </div>
       </div>
     </>
   );
