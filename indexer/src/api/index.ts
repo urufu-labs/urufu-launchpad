@@ -18,6 +18,9 @@ import {
   graduations,
   poolPolicy,
   v4Swaps,
+  flywheelDistributions,
+  uruBuybacks,
+  uruSinkConversions,
 } from '../../ponder.schema.ts';
 import { hookHostForChainId, loyaltyStateForChainId } from '../../chains.ts';
 import { buildLaunchCard, computeV4PoolId } from './launch-card.ts';
@@ -139,6 +142,116 @@ ponder.get('/api/launches/:token', async (c) => {
   });
 
   return c.json(card);
+});
+
+// ---- GET /api/flywheel/activity ----
+//
+// Merged event feed for the public /flywheel dashboard: FeeSplitter
+// distributions, UruBuybackVault buybacks, UruDepositSink URU→ETH
+// conversions. Rows are combined + sorted by blockNumber DESC, capped at
+// ?limit= (default 20, max 100). Optional ?chainId= narrows to one chain;
+// omit to fold every chain's activity into one stream.
+//
+// Response shape (JSON):
+//   { activity: Array<{
+//       kind: 'distribution' | 'buyback' | 'conversion',
+//       chainId, txHash, blockNumber, blockTimestamp,
+//       // per-kind fields, all bigints serialized as strings:
+//       total?, toBuyback?, toNft?, toTreasury?,  // distribution
+//       ethIn?, uruOut?,                          // buyback
+//       uruIn?, ethOut?,                          // conversion
+//     }> }
+//
+// Serialization: every bigint gets `.toString()` because JSON can't carry
+// them natively and clients parse back to bigint where needed. Same
+// pattern the launch-card endpoint uses.
+ponder.get('/api/flywheel/activity', async (c) => {
+  const limitRaw = c.req.query('limit');
+  const limit = Math.max(1, Math.min(100, limitRaw ? Number(limitRaw) : 20));
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return c.json({ error: 'limit must be a positive integer' }, 400);
+  }
+  const chainIdRaw = c.req.query('chainId');
+  const chainIdFilter = chainIdRaw ? Number(chainIdRaw) : undefined;
+  if (chainIdFilter !== undefined && (!Number.isInteger(chainIdFilter) || chainIdFilter <= 0)) {
+    return c.json({ error: 'chainId must be a positive integer' }, 400);
+  }
+
+  // Query each table with the (optional) chain filter + newest-first + limit.
+  // Do all three in parallel — Postgres can service them concurrently.
+  const [dRows, bRows, cRows] = await Promise.all([
+    (async () => {
+      const q = c.db.select().from(flywheelDistributions);
+      const scoped = chainIdFilter ? q.where(eq(flywheelDistributions.chainId, chainIdFilter)) : q;
+      return scoped.orderBy(desc(flywheelDistributions.blockNumber)).limit(limit);
+    })(),
+    (async () => {
+      const q = c.db.select().from(uruBuybacks);
+      const scoped = chainIdFilter ? q.where(eq(uruBuybacks.chainId, chainIdFilter)) : q;
+      return scoped.orderBy(desc(uruBuybacks.blockNumber)).limit(limit);
+    })(),
+    (async () => {
+      const q = c.db.select().from(uruSinkConversions);
+      const scoped = chainIdFilter ? q.where(eq(uruSinkConversions.chainId, chainIdFilter)) : q;
+      return scoped.orderBy(desc(uruSinkConversions.blockNumber)).limit(limit);
+    })(),
+  ]);
+
+  // Merge into a single stream, tagged by kind, bigints as strings.
+  interface Row {
+    kind: 'distribution' | 'buyback' | 'conversion';
+    chainId: number;
+    txHash: Hex;
+    blockNumber: bigint;
+    blockTimestamp: bigint;
+    [k: string]: unknown;
+  }
+  const merged: Row[] = [
+    ...dRows.map((r): Row => ({
+      kind: 'distribution',
+      chainId: r.chainId,
+      txHash: r.txHash as Hex,
+      blockNumber: r.blockNumber,
+      blockTimestamp: r.blockTimestamp,
+      total: r.total,
+      toBuyback: r.toBuyback,
+      toNft: r.toNft,
+      toTreasury: r.toTreasury,
+    })),
+    ...bRows.map((r): Row => ({
+      kind: 'buyback',
+      chainId: r.chainId,
+      txHash: r.txHash as Hex,
+      blockNumber: r.blockNumber,
+      blockTimestamp: r.blockTimestamp,
+      ethIn: r.ethIn,
+      uruOut: r.uruOut,
+    })),
+    ...cRows.map((r): Row => ({
+      kind: 'conversion',
+      chainId: r.chainId,
+      txHash: r.txHash as Hex,
+      blockNumber: r.blockNumber,
+      blockTimestamp: r.blockTimestamp,
+      uruIn: r.uruIn,
+      ethOut: r.ethOut,
+    })),
+  ]
+    // Newest first. Sub-block ordering falls back to insertion order which is
+    // fine — the exact intra-block ordering matters for reorg replay but not
+    // for a dashboard.
+    .sort((a, b) => (a.blockNumber < b.blockNumber ? 1 : a.blockNumber > b.blockNumber ? -1 : 0))
+    .slice(0, limit);
+
+  const serialised = merged.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(r)) {
+      out[k] = typeof v === 'bigint' ? v.toString() : v;
+    }
+    return out;
+  });
+
+  return c.json({ activity: serialised });
 });
 
 export { buildLaunchCard, computeV4PoolId } from './launch-card.ts';

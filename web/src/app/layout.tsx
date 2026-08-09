@@ -216,6 +216,7 @@ export default function RootLayout({
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
+              <Link href="/flywheel" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/profile" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
               <a
                 href="https://www.urufu.xyz"
@@ -271,6 +272,7 @@ export default function RootLayout({
             >
               <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
               <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
+              <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>
               <a
                 href="https://x.com/urugemu"

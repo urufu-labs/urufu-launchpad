@@ -14,13 +14,17 @@
 /// dashboard renders "activity feed loading" — the status card above still
 /// works fine.
 
-import { useMemo } from 'react';
-import type { Address } from 'viem';
+import { useEffect, useMemo, useState } from 'react';
+import { formatEther, type Address } from 'viem';
 import { useReadContracts } from 'wagmi';
 
 import { feeSplitterAbi } from '@/lib/abis';
 import { FLYWHEEL, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
+import {
+  fetchFlywheelActivity,
+  type FlywheelActivityRow,
+} from '@/lib/indexer';
 
 const CHAIN: ChainKey = 'robinhood';
 const CHAIN_ID = CHAIN_KEY_TO_ID[CHAIN] as WagmiChainId;
@@ -162,25 +166,146 @@ export default function FlywheelPage() {
         </>
       )}
 
-      {/* Activity feed placeholder — the indexer has to subscribe to
-          FeeSplitter.Distributed + UruBuybackVault.BuybackExecuted +
-          UruDepositSink.ConversionExecuted before this section can render
-          historical rows. Those subscriptions can land in a follow-up PR
-          (add the ABIs to ponder.config.ts + handlers to src/index.ts). */}
-      <section
-        className="uru-shell"
-        style={{ padding: 12, color: 'var(--anchor-soft)', fontSize: 12, marginBottom: 8 }}
-      >
-        <div style={{ marginBottom: 4 }}>
-          <b>recent activity</b>
-        </div>
-        <p style={{ margin: 0 }}>
-          buyback + distribution event feed lands once the indexer subscribes to the
-          FeeSplitter + UruBuybackVault events. until then, this stays quiet ~
-        </p>
-      </section>
+      <ActivityFeed />
     </div>
   );
+}
+
+/// Fetches the merged event stream from the indexer's /api/flywheel/activity
+/// endpoint and renders it as a compact list. RH-scoped for now (single
+/// chain). Renders a small skeleton while loading, an honest empty state when
+/// there's nothing to show (fresh contracts on a chain that hasn't graduated
+/// anything yet), and an error state when the indexer is unreachable.
+function ActivityFeed() {
+  const [rows, setRows] = useState<FlywheelActivityRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchFlywheelActivity(CHAIN_ID, 20);
+        if (cancelled) return;
+        setRows(data);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'indexer unreachable');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <section className="uru-shell" style={{ padding: 12, marginBottom: 8 }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span aria-hidden style={{ fontSize: 15 }}>✦</span>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
+          recent activity
+        </h3>
+      </header>
+
+      {error && (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
+          could not reach indexer: {error}
+        </p>
+      )}
+
+      {!error && rows === null && (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>loading ~</p>
+      )}
+
+      {!error && rows?.length === 0 && (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
+          no fee splits, buybacks, or URU conversions on RH yet — the flywheel starts turning
+          the first time someone launches a token here ~
+        </p>
+      )}
+
+      {!error && rows && rows.length > 0 && (
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.map((r) => (
+            <ActivityRow key={`${r.kind}-${r.txHash}-${r.blockNumber}`} row={r} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ActivityRow({ row }: { row: FlywheelActivityRow }) {
+  const when = new Date(Number(row.blockTimestamp) * 1000).toLocaleString();
+  let summary: React.ReactNode;
+  if (row.kind === 'distribution') {
+    summary = (
+      <>
+        distributed <b className="uru-num">{formatEth(row.total)}</b> ETH →{' '}
+        <span className="uru-num">{formatEth(row.toBuyback)}</span> buyback ·{' '}
+        <span className="uru-num">{formatEth(row.toNft)}</span> nft ·{' '}
+        <span className="uru-num">{formatEth(row.toTreasury)}</span> treasury
+      </>
+    );
+  } else if (row.kind === 'buyback') {
+    summary = (
+      <>
+        bought back <b className="uru-num">{formatEth(row.uruOut)}</b> URU for{' '}
+        <span className="uru-num">{formatEth(row.ethIn)}</span> ETH
+      </>
+    );
+  } else {
+    summary = (
+      <>
+        converted <b className="uru-num">{formatEth(row.uruIn)}</b> URU →{' '}
+        <span className="uru-num">{formatEth(row.ethOut)}</span> ETH
+      </>
+    );
+  }
+  const badge =
+    row.kind === 'distribution'
+      ? { text: 'split', bg: 'var(--yolk-deep)' }
+      : row.kind === 'buyback'
+        ? { text: 'buyback', bg: 'var(--pink-hot)' }
+        : { text: 'convert', bg: 'var(--mint-hot)' };
+
+  return (
+    <li
+      style={{
+        padding: 8,
+        border: '1px solid var(--anchor-soft)',
+        borderRadius: 8,
+        fontSize: 12,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span
+          style={{
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            padding: '1px 6px',
+            borderRadius: 4,
+            background: badge.bg,
+            color: 'var(--anchor)',
+            fontFamily: 'var(--font-round), cursive',
+          }}
+        >
+          {badge.text}
+        </span>
+        <span style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>{when}</span>
+      </div>
+      <div>{summary}</div>
+    </li>
+  );
+}
+
+function formatEth(v: string | undefined): string {
+  if (!v) return '0';
+  const s = formatEther(BigInt(v));
+  const [whole, frac = ''] = s.split('.');
+  const trimmed = frac.slice(0, 4).replace(/0+$/, '');
+  return trimmed ? `${whole}.${trimmed}` : (whole ?? '0');
 }
 
 function SplitBar({ parts }: { parts: Array<{ label: string; bps: number; color: string }> }) {

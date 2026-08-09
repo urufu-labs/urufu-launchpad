@@ -600,3 +600,50 @@ export async function fetchHoldingsByAddress(holder: Address, limit = 100): Prom
   // Hide test-token balances from the profile "holdings" strip.
   return (data?.holderss.items ?? []).filter(notHidden);
 }
+
+// ---------------------------------------------------------------------------
+// Flywheel activity — /api/flywheel/activity REST endpoint on the indexer.
+// Merges FeeSplitter distributions + UruBuybackVault buybacks + UruDepositSink
+// URU→ETH conversions into one newest-first stream for the /flywheel page.
+// Server does the merging + sorting; frontend just renders.
+// ---------------------------------------------------------------------------
+
+export type FlywheelActivityKind = 'distribution' | 'buyback' | 'conversion';
+
+export interface FlywheelActivityRow {
+  kind: FlywheelActivityKind;
+  chainId: number;
+  txHash: string;
+  blockNumber: string; // bigint serialized
+  blockTimestamp: string; // unix seconds
+  /// distribution fields (all bigint-strings)
+  total?: string;
+  toBuyback?: string;
+  toNft?: string;
+  toTreasury?: string;
+  /// buyback fields
+  ethIn?: string;
+  uruOut?: string;
+  /// conversion fields
+  uruIn?: string;
+  ethOut?: string;
+}
+
+export async function fetchFlywheelActivity(
+  chainId: number | undefined,
+  limit = 20,
+): Promise<FlywheelActivityRow[]> {
+  const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+  if (!base) return [];
+  const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/activity`);
+  url.searchParams.set('limit', String(limit));
+  if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
+  try {
+    const resp = await fetch(url.toString(), { cache: 'no-store' });
+    if (!resp.ok) return [];
+    const body = (await resp.json()) as { activity?: FlywheelActivityRow[] };
+    return body.activity ?? [];
+  } catch {
+    return [];
+  }
+}
