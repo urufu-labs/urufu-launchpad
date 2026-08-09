@@ -1919,13 +1919,13 @@ The whole story in one place. Every source of value movement in the system, from
 
 ### 18.1 Source: ETH launch fee
 
-Example: user calls `Router.launch{value: 0.05 ETH}(params)` where `quoteFor(params, user) = 0.001 ETH`.
+Example: user calls `Router.launch{value: 0.002 ETH}(params)` where `quoteFor(params, user) = 0.001 ETH`.
 
 ```
-User wallet: -0.05 ETH
+User wallet: -0.002 ETH
   ↓
-Router receives 0.05 ETH
-  → refunds 0.049 ETH to user   (excess above fee)
+Router receives 0.002 ETH
+  → refunds 0.001 ETH to user   (excess above fee)
   → forwards 0.001 ETH via feeReceiver.receiveFee{value:0.001}(user, ERC20)
     ↓
 FeeSplitter._distribute(0.001 ETH):

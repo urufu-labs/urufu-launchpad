@@ -211,7 +211,7 @@ The stack-too-deep in factory `deploy()` under coverage (which turns off `via_ir
 **What we can now actually do on Sepolia:**
 - Deploy this whole stack (NameRegistry + FeeReceiver + Router + ERC20Factory + one ERC20Template impl).
 - Call `factory.registerImpl(BARE_CONFIG, implAddress)` from the registrar key.
-- From a launcher wallet, call `router.launch{value: 0.05 ETH}(params)` with `params.configHash = BARE_CONFIG` and `params.initData = abi.encode(supply, recipient, "")`.
+- From a launcher wallet, call `router.launch{value: 0.001 ETH}(params)` with `params.configHash = BARE_CONFIG` and `params.initData = abi.encode(supply, recipient, "")`.
 - Get back a real ERC-20 with the name reserved in registry, deployed at a predictable CREATE2 address, ownership set per launcher's choice. Fee sitting in FeeReceiver ready for `sweep(treasury)`.
 
 This is the smallest launchable unit of VM. Everything from here is additive:

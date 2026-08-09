@@ -206,7 +206,7 @@ A launchpad where every launch is configured from a **mix-and-match menu of audi
 ### Money in (projections — conservative)
 | Source | Assumption | Monthly |
 |---|---|---|
-| Phase 1 launch fees | 5 launches/day @ 0.05 ETH avg (mainnet) | ~7.5 ETH ≈ $22k |
+| Phase 1 launch fees | (obsolete: original assumed 0.05 ETH/launch — live fee is 0.001 ETH on Robinhood; see `docs/SPEC-router.md` for current schedule) | |
 | Phase 3 curve fees | 5 curves/day, $5k avg volume × 1% × 0.7 | ~$5k |
 | Phase 4 hook fees (post-graduation) | 10 graduated tokens, $200k avg pool, 3% daily turnover × 0.7% × 0.29 | ~$3.5k |
 | **Total by month 6** | | **~$30k/month** |
