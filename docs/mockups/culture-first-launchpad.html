@@ -423,10 +423,39 @@
       .hero-art__image {
         position: absolute;
         inset: 0;
+        z-index: 2;
         width: 100%;
         height: 100%;
         object-fit: cover;
         object-position: center;
+        opacity: 1;
+        transition: opacity 360ms ease-out;
+      }
+
+      .hero-art__video {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        opacity: 0;
+        transition: opacity 360ms ease-out;
+      }
+
+      .hero-art[data-animation-state='ready'] .hero-art__image {
+        opacity: 0;
+      }
+
+      .hero-art[data-animation-state='ready'] .hero-art__video {
+        opacity: 1;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hero-art__video {
+          display: none;
+        }
       }
 
       .art-label {
@@ -1350,7 +1379,7 @@
           <div class="hero-copy">
             <p class="eyebrow">✿ urufu labs launchpad</p>
             <h1 id="hero-title">
-              The culture-powered launchpad.<span class="sparkle" aria-hidden="true"> ✦</span>
+              Tokens with soul<span class="sparkle" aria-hidden="true"> ✦</span>
             </h1>
             <p class="hero-subtitle">
               Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
@@ -1369,12 +1398,23 @@
             </div>
           </div>
 
-          <div class="hero-art">
+          <div class="hero-art" data-hero-animation data-animation-state="static">
             <img
               class="hero-art__image"
-              src="./assets/culture-first-altar-v2.png"
+              src="./assets/urufu-altar-ring-braid-poster-v1.png"
               alt="An Urufu wolf creator tending a glowing token-launch altar"
+              fetchpriority="high"
             />
+            <video
+              class="hero-art__video"
+              muted
+              loop
+              playsinline
+              preload="none"
+              aria-hidden="true"
+              data-src="./assets/urufu-altar-ring-braid-loop-v1.mp4"
+              poster="./assets/urufu-altar-ring-braid-poster-v1.png"
+            ></video>
             <span class="art-label"><b>❋ urufu gēmu</b> / soft + cruel</span>
           </div>
         </div>
@@ -1525,6 +1565,41 @@
     </main>
 
     <script>
+      (() => {
+        const hero = document.querySelector('[data-hero-animation]');
+        const video = hero?.querySelector('video[data-src]');
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!hero || !video || reducedMotion) return;
+
+        const startVideo = () => {
+          const source = video.dataset.src;
+          if (!source) return;
+
+          video.src = source;
+          video.addEventListener(
+            'canplay',
+            () => {
+              video
+                .play()
+                .then(() => {
+                  hero.dataset.animationState = 'ready';
+                })
+                .catch(() => {
+                  // The static poster stays visible if autoplay is unavailable.
+                });
+            },
+            { once: true },
+          );
+          video.load();
+        };
+
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(startVideo, { timeout: 1200 });
+        } else {
+          window.setTimeout(startVideo, 0);
+        }
+      })();
+
       (() => {
         const toggle = document.querySelector('[data-mock-toggle]');
         const label = document.querySelector('[data-mock-toggle-label]');
