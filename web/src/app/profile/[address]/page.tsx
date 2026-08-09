@@ -41,6 +41,12 @@ import {
 import { fetchProfile, saveProfile as saveProfileRemote } from '@/lib/socialApi';
 import { safeBackgroundImage } from '@/lib/metadata';
 import { uploadImageToIpfs } from '@/lib/ipfs';
+import {
+  assertProfileAvatarFile,
+  isProfileAvatarBlobConfigured,
+  uploadProfileAvatar,
+} from '@/lib/profileAvatarUpload';
+import type { NftAvatarSource, WalletNftAvatar } from '@/lib/nftAvatarApi';
 import { playSfx } from '@/lib/audio/sfx';
 import { getFollowing, isFollowing, onFollowsChange, toggleFollow, toggleFollowRemote } from '@/lib/follows';
 import { fetchFollowers, fetchFollowing } from '@/lib/socialApi';
@@ -52,6 +58,7 @@ import { FlywheelRewards } from '@/components/FlywheelRewards';
 import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
+import { NftAvatarPicker } from '@/components/NftAvatarPicker';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
@@ -114,7 +121,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         telegram: remote.telegram ?? prev.telegram,
         discord: remote.discord ?? prev.discord,
         website: remote.website ?? prev.website,
-        // Prefer the remote avatar URL (pinned to IPFS) — shared across every browser.
+        // Prefer the remote avatar URL — shared across every browser.
         // Fall back to whatever local snapshot this browser has so first-visit users
         // see something immediately while the API is in flight.
         avatarDataUrl: remote.avatarUrl ?? prev.avatarDataUrl,
@@ -129,6 +136,16 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         // flipped it since this browser's last save, the remote value wins.
         // Backend already normalizes NULL to false, so the shape is stable.
         hideHoldings: remote.hideHoldings === true,
+        avatarNft: remote.avatarNftChainId && remote.avatarNftChain && remote.avatarNftContractAddress && remote.avatarNftTokenId
+          ? {
+              chainId: remote.avatarNftChainId,
+              chain: remote.avatarNftChain,
+              contractAddress: remote.avatarNftContractAddress,
+              tokenId: remote.avatarNftTokenId,
+              collectionName: remote.avatarNftCollectionName ?? null,
+              tokenName: remote.avatarNftTokenName ?? null,
+            }
+          : remote.avatarUrl ? prev.avatarNft : undefined,
         savedAt: Number(new Date(remote.updatedAt).getTime()) || prev.savedAt,
       }));
     })();
@@ -1321,22 +1338,52 @@ function EditProfileModal({
   const [website, setWebsite] = useState(initial.website ?? '');
   const [avatarDataUrl, setAvatarDataUrl] = useState(initial.avatarDataUrl ?? '');
   const [hideHoldings, setHideHoldings] = useState(initial.hideHoldings === true);
+  const [avatarNft, setAvatarNft] = useState<NftAvatarSource | undefined>(initial.avatarNft);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pickAvatar = async (file: File | undefined) => {
+  useEffect(() => () => {
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+  }, [avatarPreviewUrl]);
+
+  const pickAvatar = (file: File | undefined) => {
     setError(null);
     if (!file) return;
     try {
-      const url = await readAvatarFile(file);
-      setAvatarDataUrl(url);
+      // The browser-object preview lets Vercel Blob accept a real File rather than
+      // inflating it to base64 before upload. A legacy IPFS fallback is kept below
+      // until the Blob store is provisioned in the deployed Vercel project.
+      assertProfileAvatarFile(file);
+      setAvatarFile(file);
+      setAvatarNft(undefined);
+      setAvatarPreviewUrl(URL.createObjectURL(file));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'could not read file');
+      setError(err instanceof Error ? err.message : 'could not select file');
     }
   };
 
   const [saving, setSaving] = useState(false);
   const { signMessageAsync } = useSignMessage();
   const save = async () => {
+    let resolvedAvatar = avatarDataUrl || undefined;
+    let resolvedAvatarNft = avatarNft;
+    if (avatarFile) {
+      try {
+        if (await isProfileAvatarBlobConfigured()) {
+          resolvedAvatar = await uploadProfileAvatar(avatarFile, initial.address, ({ message }) => signMessageAsync({ message }));
+        } else {
+          // Compatibility for local development / a deployment that has not yet
+          // linked Blob. This path retains the existing small-IPFS behavior only.
+          resolvedAvatar = await readAvatarFile(avatarFile);
+        }
+        resolvedAvatarNft = undefined;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'could not upload avatar');
+        playSfx('error');
+        return;
+      }
+    }
     const next: UserProfile = {
       address: initial.address,
       username: username || undefined,
@@ -1345,7 +1392,8 @@ function EditProfileModal({
       telegram: telegram || undefined,
       discord: discord || undefined,
       website: website || undefined,
-      avatarDataUrl: avatarDataUrl || undefined,
+      avatarDataUrl: resolvedAvatar,
+      avatarNft: resolvedAvatarNft,
       // Preserve server-authoritative verified X binding across a profile
       // save — the modal never edits it, but must not accidentally drop it
       // from the localStorage snapshot either.
@@ -1396,6 +1444,7 @@ function EditProfileModal({
           // signed-message canonicalization sorts keys, so adding this field
           // does not change the shape older clients relied on.
           hideHoldings: hideHoldings === true,
+          avatarNft: next.avatarNft ?? null,
         },
         ({ message }) => signMessageAsync({ message }),
       );
@@ -1446,30 +1495,54 @@ function EditProfileModal({
                 style={{
                   width: 72, height: 72, borderRadius: 12,
                   border: '1.5px solid var(--anchor)', boxShadow: '2px 2px 0 var(--anchor)',
-                  background: safeBackgroundImage(avatarDataUrl),
+                  background: safeBackgroundImage(avatarPreviewUrl ?? avatarDataUrl),
                   flexShrink: 0,
                 }}
               />
               <div>
                 <label className="uru-btn uru-btn-mint" style={{ cursor: 'pointer', fontSize: 12, padding: '6px 12px' }}>
-                  {avatarDataUrl ? 'change' : 'upload'}
+                  {avatarPreviewUrl || avatarDataUrl ? 'change' : 'upload'}
                   <input type="file" accept="image/*" onChange={(e) => pickAvatar(e.target.files?.[0])} style={{ display: 'none' }} />
                 </label>
-                {avatarDataUrl && (
+                {(avatarPreviewUrl || avatarDataUrl) && (
                   <button
                     type="button"
-                    onClick={() => setAvatarDataUrl('')}
+                    onClick={() => {
+                      setAvatarDataUrl('');
+                      setAvatarNft(undefined);
+                      setAvatarFile(null);
+                      setAvatarPreviewUrl(null);
+                    }}
                     style={{ marginLeft: 6, background: 'transparent', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, padding: '5px 10px', cursor: 'pointer' }}
                   >
                     remove
                   </button>
                 )}
                 <div style={{ marginTop: 4, fontSize: 10, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
-                  png / jpg / svg / gif ~ max ~400KB
+                  png / jpg / webp / gif / avif · up to 10MB with Vercel Blob
                 </div>
               </div>
             </div>
           </label>
+
+          <NftAvatarPicker
+            address={initial.address}
+            selected={avatarNft}
+            onSelect={(nft: WalletNftAvatar) => {
+              setAvatarDataUrl(nft.imageUrl);
+              setAvatarNft({
+                chainId: nft.chainId,
+                chain: nft.chain,
+                contractAddress: nft.contractAddress,
+                tokenId: nft.tokenId,
+                collectionName: nft.collectionName,
+                tokenName: nft.tokenName,
+              });
+              setAvatarFile(null);
+              setAvatarPreviewUrl(null);
+              setError(null);
+            }}
+          />
 
           <label style={{ display: 'block' }}>
             <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>username (max 24)</span>
