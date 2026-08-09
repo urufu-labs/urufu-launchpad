@@ -53,6 +53,9 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // Graduator pair.
   '4663:0x4b44ecc4d83b50495b641bff8cc04a7fa99b754d',
   '4663:0xdaad3893f3a12eacd2809b8da37ad6b8715f1ef3',
+  // PROOF (AllowlistProof) — V9 production-MHH graduation proof for Uniswap
+  // Labs hook allowlist submission. Not a real launch; do not surface.
+  '4663:0xab353c75f1025fb5a38900976f1927cd21516673',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
