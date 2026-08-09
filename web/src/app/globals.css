@@ -1561,7 +1561,7 @@ body {
 :root[data-theme='dark'] .uru-home-shell .uru-btn:hover { background: #ff88b3; color: #3a2c3a; }
 
 :root[data-theme='dark'] .uru-home-hero-art {
-  background: #1a1024 url('/culture-first-altar-v2.png') center / cover no-repeat;
+  background: #1a1024 url('/culture-first-altar-v3-light-skin.png') center / cover no-repeat;
   border-left-color: rgba(255,248,231,0.35);
 }
 :root[data-theme='dark'] .uru-home-art-label {
