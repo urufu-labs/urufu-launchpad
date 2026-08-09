@@ -1107,8 +1107,13 @@ export async function vaultSummary(chainSlug: string): Promise<{
   ]);
   let publishedEpochs = 0;
   if (sql) {
+    // Filter by vault_addr so a vault rotation (V8 -> V9 etc.) doesn't
+    // surface epochs published against the old vault. Every insert path
+    // writes vault_addr = cfg.vaultAddress.toLowerCase() (see rewards.ts
+    // line 565 / 700) so the equality here is exact.
     const row = await sql<Array<{ n: string }>>`
-      SELECT count(*)::text AS n FROM app.rewards_epochs WHERE chain_id = ${cfg.chainId}
+      SELECT count(*)::text AS n FROM app.rewards_epochs
+      WHERE chain_id = ${cfg.chainId} AND vault_addr = ${cfg.vaultAddress.toLowerCase()}
     `;
     publishedEpochs = Number(row[0]?.n ?? 0);
   }
@@ -1147,11 +1152,20 @@ export async function proofFor(
 ): Promise<{ amount: string; proof: Hex[] } | null> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg || !sql) return null;
+  // JOIN through rewards_epochs so we only serve proofs whose epoch was
+  // published against the CURRENT vault. Without this filter, a rotation
+  // (V8 -> V9 etc.) leaves stale leaves visible to the claim UI even though
+  // the new vault has no matching Merkle root -- the claim tx would then
+  // revert on chain.
   const rows = await sql<Array<{ amount: string; proof_json: Hex[] | string }>>`
-    SELECT amount, proof_json FROM app.rewards_leaves
-    WHERE chain_id = ${cfg.chainId}
-      AND epoch_id = ${epochId}
-      AND holder = ${address.toLowerCase()}
+    SELECT l.amount, l.proof_json
+    FROM app.rewards_leaves l
+    JOIN app.rewards_epochs e
+      ON e.chain_id = l.chain_id AND e.epoch_id = l.epoch_id
+    WHERE l.chain_id = ${cfg.chainId}
+      AND l.epoch_id = ${epochId}
+      AND l.holder = ${address.toLowerCase()}
+      AND e.vault_addr = ${cfg.vaultAddress.toLowerCase()}
     LIMIT 1
   `;
   const row = rows[0];
@@ -1168,10 +1182,18 @@ export async function epochsForHolder(
 ): Promise<Array<{ epochId: number; amount: string; proof: Hex[] }>> {
   const cfg = chainConfigFor(chainSlug);
   if (!cfg || !sql) return [];
+  // Same JOIN as proofFor -- only serve leaves whose epoch was published
+  // against the CURRENT vault. Prevents ghost-rewards from an old vault
+  // showing up on the profile page after a NftRevenueVault rotation.
   const rows = await sql<Array<{ epoch_id: number; amount: string; proof_json: Hex[] | string }>>`
-    SELECT epoch_id, amount, proof_json FROM app.rewards_leaves
-    WHERE chain_id = ${cfg.chainId} AND holder = ${address.toLowerCase()}
-    ORDER BY epoch_id DESC
+    SELECT l.epoch_id, l.amount, l.proof_json
+    FROM app.rewards_leaves l
+    JOIN app.rewards_epochs e
+      ON e.chain_id = l.chain_id AND e.epoch_id = l.epoch_id
+    WHERE l.chain_id = ${cfg.chainId}
+      AND l.holder = ${address.toLowerCase()}
+      AND e.vault_addr = ${cfg.vaultAddress.toLowerCase()}
+    ORDER BY l.epoch_id DESC
   `;
   return rows.map((r) => ({ epochId: r.epoch_id, amount: r.amount, proof: normalizeProof(r.proof_json) }));
 }
