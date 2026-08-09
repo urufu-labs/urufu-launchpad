@@ -47,6 +47,7 @@ import { fetchFollowers, fetchFollowing } from '@/lib/socialApi';
 import { FollowersModal, type FollowsMode } from '@/components/FollowersModal';
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
+import { GraduatorRefund } from '@/components/GraduatorRefund';
 import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
 import { TokenOwnerControls } from '@/components/TokenOwnerControls';
@@ -889,6 +890,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           <CreatorEarnings visibleFor={address} chain={activeChain} />
           <TokenOwnerControls visibleFor={address} chain={activeChain} />
           <FlywheelRewards visibleFor={address} chain={activeChain} />
+          <GraduatorRefund visibleFor={address} chain={activeChain} />
         </aside>
       </div>
 

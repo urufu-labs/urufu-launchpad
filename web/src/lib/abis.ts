@@ -260,6 +260,51 @@ export const tokenHolderModulesAbi = parseAbi([
   `function antiWhaleIsActive() view returns (bool)`,
 ] as const);
 
+/// GraduatorV2 — pull-based refund path. Every graduation credits any LP
+/// residual to `claimableRefunds[launcher]`. Launchers pull with
+/// `claimRefund()` (delivers to msg.sender) or `claimRefundTo(recipient)`
+/// (for Safe-owned launchers that can't receive ETH directly). See the
+/// `GraduatorRefund.tsx` panel on the profile page.
+export const graduatorAbi = parseAbi([
+  `function claimableRefunds(address launcher) view returns (uint256)`,
+  `function totalClaimable() view returns (uint256)`,
+  `function claimRefund()`,
+  `function claimRefundTo(address recipient)`,
+  `event RefundCredited(address indexed token, address indexed launcher, uint256 amount)`,
+  `event RefundClaimed(address indexed launcher, address indexed recipient, uint256 amount)`,
+] as const);
+
+/// FeeSplitter — public status reads for the /flywheel dashboard. Sinks +
+/// bps show where every launch fee goes; pendingConfig surfaces owner
+/// proposals still in the URU-A11 2-day timelock. No write path (activation
+/// is a multisig op via the safe UI, not urufulabs.xyz).
+export const feeSplitterAbi = parseAbi([
+  `function uruBuybackSink() view returns (address)`,
+  `function nftRevenueSink() view returns (address)`,
+  `function treasurySink() view returns (address)`,
+  `function uruBuybackBps() view returns (uint16)`,
+  `function nftRevenueBps() view returns (uint16)`,
+  `function treasuryBps() view returns (uint16)`,
+  `function minConfigDelay() view returns (uint256)`,
+  `function pendingConfig() view returns (address uruBuybackSink, address nftRevenueSink, address treasurySink, uint16 uruBuybackBps, uint16 nftRevenueBps, uint16 treasuryBps, uint64 readyAt)`,
+  `event Distributed(uint256 total, uint256 toBuyback, uint256 toNft, uint256 toTreasury)`,
+] as const);
+
+/// UruBuybackVault — public activity read for the flywheel dashboard.
+/// `BuybackExecuted(ethIn, uruOut)` fires when the keeper routes accumulated
+/// buyback ETH through the Universal Router into URU; totals prove the
+/// flywheel is actually turning.
+export const uruBuybackVaultAbi = parseAbi([
+  `event BuybackExecuted(uint256 ethIn, uint256 uruOut)`,
+] as const);
+
+/// UruDepositSink — accumulates URU paid via launchWithURU + converts to
+/// ETH periodically. Same dashboard read pattern as the buyback vault.
+export const uruDepositSinkAbi = parseAbi([
+  `event Deposited(address indexed from, uint256 amount)`,
+  `event ConversionExecuted(uint256 uruIn, uint256 ethOut)`,
+] as const);
+
 /// Subset of `MultiHookHost` — the read + claim path the profile "creator
 /// earnings" widget needs. `owed(currency, recipient)` is the accumulator the hook
 /// credits during afterSwap; `claim(currency)` pulls msg.sender's whole balance
@@ -270,4 +315,9 @@ export const multiHookHostAbi = parseAbi([
   `function claim(address currency)`,
   `function platform() view returns (address)`,
   `function creator() view returns (address)`,
+  /// GH-9 canonical per-pool rules. Populated at graduation-time
+  /// `beforeInitialize`; `immutableAfterLaunch = true` freezes further
+  /// writes. Read on the trade page to disclose creator fee %, anti-sniper
+  /// remaining, and buyback-burn bps to post-graduation buyers.
+  `function poolPolicy(bytes32 poolId) view returns (uint16 antiSniperBlocks, uint16 buybackBurnBps, uint16 platformFeeBps, uint16 creatorFeeBps, address creatorRecipient, uint64 launchBlock, bool immutableAfterLaunch)`,
 ] as const);

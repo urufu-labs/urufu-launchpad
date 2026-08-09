@@ -47,6 +47,7 @@ import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUni
 import { Mascot } from '@/components/Mascot';
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
 import { TokenHolderModules } from '@/components/TokenHolderModules';
+import { PoolPolicyCard } from '@/components/PoolPolicyCard';
 import type { WagmiChainId } from '@/lib/wagmi';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
 import { MockTradeView } from './MockTradeView';
@@ -1150,6 +1151,17 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               fall back to the current wallet chain to avoid mount thrash. */}
           <TokenHolderModules
             token={tokenAddress}
+            chainId={(readChainId ?? chainId) as WagmiChainId}
+          />
+
+          {/* Post-graduation pool rules — creator fee %, anti-sniper remaining,
+              buyback-burn %. Renders nothing pre-graduation (poolPolicy tuple
+              is all zeros). poolId + hookAddr are computed above from the
+              indexer's graduation row (or derived from the wired hook for
+              pre-graduation launches — those get filtered out server-side). */}
+          <PoolPolicyCard
+            poolId={poolId as Hex | null}
+            hookAddress={hookAddr as Address | null}
             chainId={(readChainId ?? chainId) as WagmiChainId}
           />
 
