@@ -6,6 +6,7 @@ import { formatEther } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
+import { CultureHeroArt } from '@/components/CultureHeroArt';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
@@ -726,17 +727,7 @@ function AgoLabel({ ts }: { ts: number }) {
 }
 
 function HeroArt() {
-  return (
-    <div
-      className="uru-home-hero-art"
-      role="img"
-      aria-label="An Urufu creator tending a glowing token-launch altar"
-    >
-      <span className="uru-home-art-label">
-        <b>❋ urufu gēmu</b> / soft + cruel
-      </span>
-    </div>
-  );
+  return <CultureHeroArt />;
 }
 
 function CultureBulletin({
