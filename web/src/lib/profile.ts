@@ -1,18 +1,22 @@
 /// Local-first user profile store. Keyed by lowercase wallet address in localStorage.
 ///
-/// This is the phase-1 MVP: each browser has its own view of profiles. Cross-user visibility
-/// waits for either IPFS pinning (phase 2) or a backend / onchain registry (phase 3). The
-/// PROFILE_MAX_BYTES cap keeps a large avatar from blowing localStorage quota.
+/// A local snapshot makes edits paint immediately, while the signed social API makes saved
+/// profiles visible to other browsers. The cap only protects the legacy data-URL fallback.
 
 import type { Address } from 'viem';
+import type { NftAvatarSource } from './nftAvatarApi';
 
 export interface UserProfile {
   /// Wallet address (lowercase hex) — the primary key.
   address: string;
   /// Display name shown on profile + hover cards. 1–24 chars.
   username?: string;
-  /// Base64 data URL for the avatar image. Kept inline until an IPFS pipeline lands.
+  /// Local fallback or durable remote URL for the avatar image. New file uploads go
+  /// to Vercel Blob; NFT avatars retain the asset's existing media URL.
   avatarDataUrl?: string;
+  /// Provenance for an NFT avatar. The image URL above still points at the NFT's
+  /// original media — these fields only explain which asset the user selected.
+  avatarNft?: NftAvatarSource;
   /// Free-form bio, 0–200 chars.
   bio?: string;
   /// Social links.
@@ -25,7 +29,8 @@ export interface UserProfile {
 }
 
 const KEY_PREFIX = 'uru-profile-';
-const PROFILE_MAX_BYTES = 512_000; // 500 KB — avatars up to ~400 KB safely fit
+const PROFILE_MAX_BYTES = 512_000; // localStorage safeguard for the legacy data-URL fallback
+const LEGACY_AVATAR_MAX_BYTES = 350 * 1024;
 const USERNAME_MAX = 24;
 const BIO_MAX = 200;
 
@@ -55,6 +60,14 @@ export function saveProfile(profile: UserProfile): { ok: true } | { ok: false; e
     address: profile.address.toLowerCase(),
     username: profile.username?.trim().slice(0, USERNAME_MAX) || undefined,
     avatarDataUrl: profile.avatarDataUrl?.trim() || undefined,
+    avatarNft: profile.avatarNft ? {
+      chainId: profile.avatarNft.chainId,
+      chain: profile.avatarNft.chain.trim().slice(0, 40),
+      contractAddress: profile.avatarNft.contractAddress.toLowerCase(),
+      tokenId: profile.avatarNft.tokenId.slice(0, 100),
+      collectionName: profile.avatarNft.collectionName?.slice(0, 120) ?? null,
+      tokenName: profile.avatarNft.tokenName?.slice(0, 120) ?? null,
+    } : undefined,
     bio: profile.bio?.trim().slice(0, BIO_MAX) || undefined,
     twitter: profile.twitter?.trim() || undefined,
     telegram: profile.telegram?.trim() || undefined,
@@ -74,9 +87,13 @@ export function saveProfile(profile: UserProfile): { ok: true } | { ok: false; e
   }
 }
 
-/// Read a file input as a data URL for use as the avatar. Errors on non-image files.
+/// Read a small file input as a data URL for the legacy IPFS fallback. Normal uploads go
+/// directly to Vercel Blob and therefore never need this base64 expansion.
 export async function readAvatarFile(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('avatar must be an image file');
+  if (file.size > LEGACY_AVATAR_MAX_BYTES) {
+    throw new Error('Vercel Blob is not configured; legacy avatar uploads are limited to 350KB');
+  }
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

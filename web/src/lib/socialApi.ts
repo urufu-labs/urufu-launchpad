@@ -139,6 +139,12 @@ export interface RemoteProfile {
   address: Address;
   username: string | null;
   avatarUrl: string | null;
+  avatarNftChainId?: number | null;
+  avatarNftChain?: string | null;
+  avatarNftContractAddress?: string | null;
+  avatarNftTokenId?: string | null;
+  avatarNftCollectionName?: string | null;
+  avatarNftTokenName?: string | null;
   bio: string | null;
   twitter: string | null;
   telegram: string | null;
@@ -156,6 +162,14 @@ export async function saveProfile(
   payload: {
     username?: string | null;
     avatarUrl?: string | null;
+    avatarNft?: {
+      chainId: number;
+      chain: string;
+      contractAddress: string;
+      tokenId: string;
+      collectionName: string | null;
+      tokenName: string | null;
+    } | null;
     bio?: string | null;
     twitter?: string | null;
     telegram?: string | null;

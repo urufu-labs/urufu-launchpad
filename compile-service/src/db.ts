@@ -53,6 +53,12 @@ export async function migrate(): Promise<void> {
       address        text        PRIMARY KEY,
       username       text,
       avatar_url     text,
+      avatar_nft_chain_id integer,
+      avatar_nft_chain text,
+      avatar_nft_contract_address text,
+      avatar_nft_token_id text,
+      avatar_nft_collection_name text,
+      avatar_nft_token_name text,
       bio            text,
       twitter        text,
       telegram       text,
@@ -62,6 +68,12 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS tiktok text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_chain_id integer`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_chain text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_contract_address text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_token_id text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_collection_name text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_token_name text`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.token_chat (
