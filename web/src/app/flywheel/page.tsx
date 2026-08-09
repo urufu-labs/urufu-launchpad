@@ -76,16 +76,17 @@ export default function FlywheelPage() {
           className="uru-h1"
           style={{ fontSize: 26, fontFamily: 'var(--font-round), cursive' }}
         >
-          ✿ flywheel status
+          ✿ where launch fees go
         </h1>
         <p style={{ color: 'var(--anchor-soft)', fontSize: 13, margin: '4px 0 0 0' }}>
-          public read-only view of where every launch fee goes on Robinhood.
+          every fee paid to launch a token gets split three ways. this page shows the
+          current split live from the contracts.
         </p>
       </header>
 
       {!feeSplitter && (
         <div className="uru-shell" style={{ padding: 12, marginBottom: 16 }}>
-          fee splitter not configured for {CHAIN} yet — check back after the next deploy.
+          fee split isn&apos;t live yet. check back after the next deploy ~
         </div>
       )}
 
@@ -99,22 +100,34 @@ export default function FlywheelPage() {
             <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span aria-hidden style={{ fontSize: 18 }}>♡</span>
               <h2 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
-                current split
+                the split right now
               </h2>
             </header>
 
             <SplitBar
               parts={[
                 { label: 'URU buyback', bps: parsed.uruBps, color: 'var(--pink-hot)' },
-                { label: 'NFT revenue', bps: parsed.nftBps, color: 'var(--mint-hot)' },
-                { label: 'treasury', bps: parsed.treasuryBps, color: 'var(--yolk-deep)' },
+                { label: 'gemu rewards', bps: parsed.nftBps, color: 'var(--mint-hot)' },
+                { label: 'team + ops', bps: parsed.treasuryBps, color: 'var(--yolk-deep)' },
               ]}
             />
 
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: 12 }}>
-              <SinkRow label="URU buyback" bps={parsed.uruBps} sink={parsed.uruSink} note="ETH → URU on the market → burn" />
-              <SinkRow label="NFT revenue" bps={parsed.nftBps} sink={parsed.nftSink} note="drops to gemu holders via Merkle epochs" />
-              <SinkRow label="treasury" bps={parsed.treasuryBps} sink={parsed.treasurySink} note="operational + long-term reserves" />
+              <SinkRow
+                label="URU buyback"
+                bps={parsed.uruBps}
+                note="buys URU on the open market and burns it (shrinks supply, benefits URU holders)"
+              />
+              <SinkRow
+                label="gemu holder rewards"
+                bps={parsed.nftBps}
+                note="paid out to urufu gemu NFT holders as ETH rewards"
+              />
+              <SinkRow
+                label="team + operations"
+                bps={parsed.treasuryBps}
+                note="funds the team + long-term reserves"
+              />
             </ul>
           </section>
 
@@ -134,34 +147,35 @@ export default function FlywheelPage() {
               <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span aria-hidden style={{ fontSize: 16 }}>⏳</span>
                 <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
-                  config change queued
+                  update coming soon
                 </strong>
               </header>
               <p style={{ margin: 0, fontSize: 12 }}>
-                a new split is in the URU-A11 timelock, activates{' '}
-                <b>{new Date(Number(parsed.pending![6]) * 1000).toLocaleString()}</b>. proposed:
-                {' '}{parsed.pending![3] / 100}% URU buyback / {parsed.pending![4] / 100}% NFT rev /
-                {' '}{parsed.pending![5] / 100}% treasury.
+                a new split takes effect{' '}
+                <b>{new Date(Number(parsed.pending![6]) * 1000).toLocaleString()}</b>. after that:{' '}
+                <b>{parsed.pending![3] / 100}%</b> to URU buyback,{' '}
+                <b>{parsed.pending![4] / 100}%</b> to gemu holder rewards,{' '}
+                <b>{parsed.pending![5] / 100}%</b> to team + operations.
               </p>
             </section>
           )}
 
-          {/* Sink addresses */}
+          {/* Small print — contract addresses for anyone who wants to verify on chain. */}
           <section
             className="uru-shell"
             style={{ padding: 12, marginBottom: 16, fontSize: 11, color: 'var(--anchor-soft)' }}
           >
             <div style={{ marginBottom: 4 }}>
-              contracts: FeeSplitter {short(feeSplitter)}
+              on-chain contracts (verify anything): FeeSplitter {short(feeSplitter)}
               {uruBuybackVault && <>, UruBuybackVault {short(uruBuybackVault)}</>}
               {nftRevenueVault && <>, NftRevenueVault {short(nftRevenueVault)}</>}
             </div>
-            <div>
-              min config delay:{' '}
-              {parsed.minDelay > 0n
-                ? `${Number(parsed.minDelay) / 86_400} days (URU-A11)`
-                : 'none'}
-            </div>
+            {parsed.minDelay > 0n && (
+              <div>
+                any change to the split waits {Number(parsed.minDelay) / 86_400} days before it
+                takes effect (safety rule from audit).
+              </div>
+            )}
           </section>
         </>
       )}
@@ -200,13 +214,13 @@ function ActivityFeed() {
       <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span aria-hidden style={{ fontSize: 15 }}>✦</span>
         <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
-          recent activity
+          what&apos;s been happening
         </h3>
       </header>
 
       {error && (
         <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
-          could not reach indexer: {error}
+          can&apos;t reach the data feed right now, try again in a bit ~
         </p>
       )}
 
@@ -216,8 +230,7 @@ function ActivityFeed() {
 
       {!error && rows?.length === 0 && (
         <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
-          no fee splits, buybacks, or URU conversions on RH yet — the flywheel starts turning
-          the first time someone launches a token here ~
+          nothing yet. the flywheel starts turning the first time a token launches on here ~
         </p>
       )}
 
@@ -238,23 +251,23 @@ function ActivityRow({ row }: { row: FlywheelActivityRow }) {
   if (row.kind === 'distribution') {
     summary = (
       <>
-        distributed <b className="uru-num">{formatEth(row.total)}</b> ETH →{' '}
-        <span className="uru-num">{formatEth(row.toBuyback)}</span> buyback ·{' '}
-        <span className="uru-num">{formatEth(row.toNft)}</span> nft ·{' '}
-        <span className="uru-num">{formatEth(row.toTreasury)}</span> treasury
+        split <b className="uru-num">{formatEth(row.total)}</b> ETH:{' '}
+        <span className="uru-num">{formatEth(row.toBuyback)}</span> for URU buyback,{' '}
+        <span className="uru-num">{formatEth(row.toNft)}</span> to gemu holders,{' '}
+        <span className="uru-num">{formatEth(row.toTreasury)}</span> to team + ops
       </>
     );
   } else if (row.kind === 'buyback') {
     summary = (
       <>
-        bought back <b className="uru-num">{formatEth(row.uruOut)}</b> URU for{' '}
-        <span className="uru-num">{formatEth(row.ethIn)}</span> ETH
+        bought back <b className="uru-num">{formatEth(row.uruOut)}</b> URU (spent{' '}
+        <span className="uru-num">{formatEth(row.ethIn)}</span> ETH)
       </>
     );
   } else {
     summary = (
       <>
-        converted <b className="uru-num">{formatEth(row.uruIn)}</b> URU →{' '}
+        traded <b className="uru-num">{formatEth(row.uruIn)}</b> URU for{' '}
         <span className="uru-num">{formatEth(row.ethOut)}</span> ETH
       </>
     );
@@ -264,7 +277,7 @@ function ActivityRow({ row }: { row: FlywheelActivityRow }) {
       ? { text: 'split', bg: 'var(--yolk-deep)' }
       : row.kind === 'buyback'
         ? { text: 'buyback', bg: 'var(--pink-hot)' }
-        : { text: 'convert', bg: 'var(--mint-hot)' };
+        : { text: 'trade', bg: 'var(--mint-hot)' };
 
   return (
     <li
@@ -339,12 +352,10 @@ function SplitBar({ parts }: { parts: Array<{ label: string; bps: number; color:
 function SinkRow({
   label,
   bps,
-  sink,
   note,
 }: {
   label: string;
   bps: number;
-  sink: Address | undefined;
   note: string;
 }) {
   return (
@@ -353,9 +364,7 @@ function SinkRow({
         <b>{label}</b>
         <span className="uru-num">{(bps / 100).toFixed(0)}%</span>
       </div>
-      <div style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>
-        {note} → {sink ? short(sink) : '—'}
-      </div>
+      <div style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>{note}</div>
     </li>
   );
 }
