@@ -149,9 +149,9 @@ export default function TradeIndex() {
           <li>
             <b>launch a token</b> in the{' '}
             <Link href="/create" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-              shop
+              token creation page
             </Link>{' '}
-            with any base + modules stack.
+            with a base token type and selected modules.
           </li>
           <li>
             <b>create the curve:</b> once the CurveFactory is deployed, call{' '}

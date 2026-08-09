@@ -207,8 +207,7 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
           }}
         >
           no owned tokens on {chain}. every ERC-20 curve auto-renounces ownership at
-          launch, so this shelf only fills up if you ship an NFT base with an owner
-          you keep ~~
+          launch, so this list only shows tokens where you keep the owner role.
         </div>
       )}
 

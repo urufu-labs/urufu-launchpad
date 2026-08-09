@@ -203,11 +203,11 @@ function CreatePageContent() {
     const labelOf = (id: string) => moduleById(id)?.label ?? id;
     for (const mod of available) {
       if (mod.status !== 'shipped') { map[mod.id] = 'not shipped yet ~~'; continue; }
-      if (selectedModules.includes(mod.id)) { map[mod.id] = 'already in basket ✿'; continue; }
+      if (selectedModules.includes(mod.id)) { map[mod.id] = 'already selected'; continue; }
       const blocker = selectedModules.find((sid) => moduleById(sid)?.incompatibleWith.includes(mod.id));
-      if (blocker) { map[mod.id] = `wont stack with ${labelOf(blocker)}`; continue; }
+      if (blocker) { map[mod.id] = `cannot be used with ${labelOf(blocker)}`; continue; }
       const conflict = mod.incompatibleWith.find((iid) => selectedModules.includes(iid));
-      if (conflict) { map[mod.id] = `wont stack with ${labelOf(conflict)}`; continue; }
+      if (conflict) { map[mod.id] = `cannot be used with ${labelOf(conflict)}`; continue; }
       // Curve mechanic auto-renounces ownership (Router forces OwnershipMode.Renounce
       // when installBondingCurve is true — see create page's launch payload). That
       // means every `onlyOwner` function on the token becomes dead after launch.
@@ -1176,7 +1176,7 @@ function CreatePageContent() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      safe defaults. name, ticker, vibes, launch.
+                      safe defaults. name, ticker, token details, launch.
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
@@ -1188,8 +1188,8 @@ function CreatePageContent() {
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
                     disabled={base !== 'ERC20'}
-                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
-                    aria-label="customizable curve, module shelf and hook knobs"
+                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper parameters, buyback-burn parameters, whitelist setup, and other settings."
+                    aria-label="customizable curve, modules, and hook settings"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
@@ -1226,7 +1226,7 @@ function CreatePageContent() {
               <span className="uru-tape uru-tape-mint" style={{ width: 82, height: 16, top: -8, right: 30, transform: 'rotate(11deg)' }} />
               <div className="flex items-baseline justify-between mb-2">
                 <div className="uru-eyebrow">
-                  {isQuick ? 'step 2 ✿ whitelist (optional)' : 'step 2 ✿ the shelf'}
+                  {isQuick ? 'step 2 ✿ whitelist (optional)' : 'step 2 ✿ modules'}
                 </div>
                 {!isQuick && (
                   <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
@@ -1240,7 +1240,7 @@ function CreatePageContent() {
                   <div style={{ padding: 20, textAlign: 'center' }}>
                     <Mascot size={40} mood="sleepy" />
                     <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                      no modules on the shelf for this base yet~~
+                      no modules available for this token type yet
                     </div>
                   </div>
                 )}
@@ -1274,7 +1274,7 @@ function CreatePageContent() {
                   >
                     ✿ <b>on graduation</b>, ur curve auto-installs the platform hook:{' '}
                     <b>LP locked forever</b> on Uniswap v4 + <b>1% creator fee</b> on every
-                    swap (claim it anytime from ur profile). opt-in extras from the shelf —{' '}
+                    swap (claim it anytime from ur profile). optional modules —{' '}
                     <b>sniper gate</b> + <b>buy → burn</b> — get wired into the same pool at
                     graduation using the params u picked ~
                   </div>
@@ -1482,7 +1482,7 @@ function CreatePageContent() {
 
             {/* STEP 5 — metadata (tiny) */}
             <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 5 ✿ vibes (metadata)</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 5 ✿ token details (metadata)</div>
               <div className="uru-shell-inner space-y-3">
                 <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
                   optional. images pin to IPFS via our pinata gateway so ur token metadata
@@ -1594,11 +1594,11 @@ function CreatePageContent() {
                 ) : isQuick ? (
                   <>quick launch mode ✿ safe defaults locked in ~</>
                 ) : selectedModules.length === 0 ? (
-                  <>hi hi!! pls drag something into the basket ~ i sorted em by category for u (◕‿◕✿)</>
+                  <>add modules only when this token needs them.</>
                 ) : selectedModules.length === 1 ? (
-                  <>1 module in the basket ★ add more or checkout below</>
+                  <>1 module selected. Add more or launch below.</>
                 ) : (
-                  <>{selectedModules.length} modules stacked!! ✿ splicer will sort alphabetical bc thats the rule</>
+                  <>{selectedModules.length} modules selected. They will be ordered alphabetically.</>
                 )}
               </div>
             </div>
@@ -1629,7 +1629,7 @@ function CreatePageContent() {
               >
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>~~ heads up ✿</div>
                 <span>
-                  ur basket has{' '}
+                  selected modules:{' '}
                   <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
                   {' '}— these have owner-only functions (pause, allowlist, etc). every
                   ERC-20 curve here auto-renounces ownership so those buttons would be dead
@@ -1810,7 +1810,7 @@ function CreatePageContent() {
         {dragMod ? (
           <div className="uru-polaroid" data-tilt="n7" style={{ boxShadow: '8px 8px 0 var(--pink-hot)', width: 240, padding: 10, cursor: 'grabbing' }}>
             <div className="uru-h2" style={{ fontSize: 13 }}>{dragMod.label}</div>
-            <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 2 }}>dropping into basket~</div>
+            <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 2 }}>adding module</div>
           </div>
         ) : null}
       </DragOverlay>
@@ -1926,7 +1926,7 @@ function ShelfItem({
             className="uru-btn uru-btn-mint"
             style={{ width: '100%', marginTop: 8, justifyContent: 'center', fontSize: 11, padding: '4px 8px' }}
           >
-            <span className="uru-arrow">→</span> add to basket
+            <span className="uru-arrow">→</span> add module
           </button>
         ) : blocked && draggable !== false ? (
           <button
@@ -1967,15 +1967,15 @@ function CartDropZone({
   return (
     <div ref={setNodeRef} className="uru-cart" data-active={isOver}>
       <div className="flex items-center justify-between mb-3">
-        <div className="uru-eyebrow">✿ ur basket</div>
+        <div className="uru-eyebrow">selected modules</div>
         <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-          {selectedModules.length} thing{selectedModules.length === 1 ? '' : 's'}
+          {selectedModules.length} module{selectedModules.length === 1 ? '' : 's'}
         </span>
       </div>
       {selectedModules.length === 0 ? (
         <div style={{ padding: 18, textAlign: 'center' }}>
           <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
-            drop stuff here ~~<br />
+            drag or click to add modules<br />
             <span style={{ fontSize: 20 }}>(っ˘ ˘)っ ✿</span>
           </div>
         </div>

@@ -155,7 +155,7 @@ export function FlywheelRewards({ visibleFor }: Props) {
   return (
     <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div className="uru-eyebrow">❋ flywheel rewards</div>
+        <div className="uru-eyebrow">❋ gemu holder rewards</div>
         <span
           style={{
             fontFamily: 'var(--font-jp), monospace',
@@ -177,7 +177,7 @@ export function FlywheelRewards({ visibleFor }: Props) {
         <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)', lineHeight: 1.5 }}>
           no epochs yet ~~
           {summary && summary.publishedEpochs === 0 && (
-            <> vault is <b>{Number(formatEther(BigInt(summary.vaultBalance))).toFixed(4)}Ξ</b> and waiting for the first drop.</>
+            <> rewards pool balance is <b>{Number(formatEther(BigInt(summary.vaultBalance))).toFixed(4)}Ξ</b> and waiting for the first distribution.</>
           )}
           {summary && summary.publishedEpochs > 0 && (
             <> hold a gemu nft during the next snapshot to be eligible.</>

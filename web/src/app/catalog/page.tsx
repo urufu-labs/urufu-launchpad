@@ -102,9 +102,9 @@ export default function CatalogPage() {
       >
         <Mascot size={44} mood="happy" className="uru-idle-bob" />
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>❀ shelf · {CHAIN_LABELS[chainKey]}</div>
+          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>❀ modules · {CHAIN_LABELS[chainKey]}</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <h1 className="uru-h1" style={{ fontSize: 22, lineHeight: 1 }}>the shelf</h1>
+            <h1 className="uru-h1" style={{ fontSize: 22, lineHeight: 1 }}>module catalog</h1>
             <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 14, color: 'var(--anchor-soft)' }}>
               品揃え
             </span>
@@ -177,7 +177,7 @@ export default function CatalogPage() {
       {/* ================================================================
           CORE STACK — tight rows
           ================================================================ */}
-      <SectionHead id="core" title="core stack" jp="骨組み" sub="the plumbing every launch runs through" />
+      <SectionHead id="core" title="core contracts" jp="骨組み" sub="contracts used by every launch" />
       <div className="uru-shell-tight" style={{ padding: 0, marginBottom: 18 }}>
         <StackRow name="NameRegistry" role="reserves names + tickers" chain={chainKey} addr={contracts?.NameRegistry} />
         <StackRow name="Router" role="entry point · fee · dispatch" chain={chainKey} addr={contracts?.Router} />
