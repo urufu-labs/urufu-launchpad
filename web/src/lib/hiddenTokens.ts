@@ -56,6 +56,12 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // PROOF (AllowlistProof) — V9 production-MHH graduation proof for Uniswap
   // Labs hook allowlist submission. Not a real launch; do not surface.
   '4663:0xab353c75f1025fb5a38900976f1927cd21516673',
+  // Post-audit smoke tests of Router entrypoints (2026-08-09). WlTest exercises
+  // launchWithWhitelist, UruPayTest exercises launchWithURU, PlainTest exercises
+  // the plain launch() path. Kept off feeds; not real launches.
+  '4663:0x54a78c6e50ba973f6fca90e1ad26300d6213eb7d', // WlTest / WLT
+  '4663:0x976faed1371f8d023ff9f9196d59525390ee9871', // UruPayTest / URUP
+  '4663:0xa203d536d0dae1af5c849060e29933c9cbd8792a', // PlainTest / PLAIN
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
