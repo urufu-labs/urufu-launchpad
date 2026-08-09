@@ -397,10 +397,16 @@ function CreatePageContent() {
   });
   const curveSupplyWei = (curveDefaultSupplyQuery.data as bigint | undefined) ?? 800_000_000n * 10n ** 18n;
   const useCurve = base === 'ERC20';
-  /// Quick-launch defaults, evaluated once. Sniper gate is hardcoded to 5
-  /// blocks; buyback-burn is intentionally 0 per product decision (users can
-  /// still opt in via customizable curve).
+  /// Quick-launch defaults, evaluated once. Sniper gate hardcoded to 5 L1
+  /// blocks (~60 sec on RH — one Ethereum block cadence); buyback-burn is
+  /// intentionally 0 per product decision (users can still opt in via
+  /// customizable curve).
   const QUICK_ANTI_SNIPER_BLOCKS = 5;
+  /// L1 block cadence used to translate the launcher's seconds input into
+  /// the blocks-based `params.antiSniperBlocks` the MHH gate uses. RH is on
+  /// Arbitrum stack: `block.number` inside a contract returns the L1 block
+  /// number, not the L2 fast block. Verified 2026-08-09 across ~275 blocks.
+  const SEC_PER_L1_BLOCK = 12;
   const isQuick = mechanic === 'quick' && base === 'ERC20';
 
   const initialSupplyWei = useMemo(() => {
@@ -443,17 +449,19 @@ function CreatePageContent() {
   // Per-launch hook config — read straight out of the ModulePicker's param state.
   // Only meaningful when useCurve is true (Router revert-guards on non-bonding-curve
   // launches too, but the frontend should send zeros to keep the invariant obvious).
+  //
+  // Unit conversion: the UI accepts SECONDS (what a launcher understands) but the
+  // MHH gate compares against `block.number`, which on Robinhood (an Arbitrum-stack
+  // chain) returns the Ethereum L1 block number — ~12 sec cadence, verified
+  // empirically. Convert seconds → blocks by ceil(seconds / SEC_PER_L1_BLOCK).
   const antiSniperBlocks = useMemo<number>(() => {
     if (!useCurve) return 0;
-    // Quick launch bakes in a 5-block sniper gate — the pump.fun-style default
-    // that keeps snipers from consuming the first swap. The shelf is hidden so
-    // the AntiSniper module is never selected here, but we hardcode the value
-    // regardless of module basket contents in quick mode.
     if (isQuick) return QUICK_ANTI_SNIPER_BLOCKS;
     if (!selectedModules.includes('AntiSniper')) return 0;
     const raw = moduleParams['AntiSniper']?.gateBlocks;
-    const n = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    const seconds = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+    return Math.ceil(seconds / SEC_PER_L1_BLOCK);
   }, [useCurve, isQuick, selectedModules, moduleParams]);
 
   const buybackBurnBps = useMemo<number>(() => {
@@ -1293,7 +1301,7 @@ function CreatePageContent() {
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 10 ETH · anti-sniper 5 blocks
+                        + supply auto = 800M · fee 1% · target 10 ETH · anti-sniper 60 sec
                       </div>
                     )}
                   </button>

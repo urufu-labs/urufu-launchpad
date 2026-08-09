@@ -73,6 +73,7 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   '4663:0xa363f7613ac1f26620416cd87b62e819cb8fc581', // AntiSniperTest / AST (buybackBurn=500)
   '4663:0x4d265f95c736901236414aae0fa732033a72d353', // SniperGate / SGATE (antiSniperBlocks=200)
   '4663:0xf3da40a10af1d16d9bc0686c86cbb6c6bfae2334', // SniperOne / SGONE (antiSniperBlocks=1)
+  '4663:0x75320e4b9811054c07baf24e368097d9e4c2517c', // Sniper60 / S60 (antiSniperBlocks=5 = ~60s gate, verified 49-64s empirical)
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {

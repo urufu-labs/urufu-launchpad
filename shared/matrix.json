@@ -730,7 +730,7 @@
         "label": "✿ sniper gate",
         "category": "hook",
         "status": "shipped",
-        "description": "blocks trades on uniswap for the first N blocks after the pool opens. adds + minting still work — only swapping is gated. auto-expires ~"
+        "description": "blocks trades on uniswap for the first N seconds after the pool opens. adds + minting still work — only swapping is gated. auto-expires ~"
       },
       "params": {
         "type": "object",
@@ -738,15 +738,15 @@
         "properties": {
           "gateBlocks": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 100000,
+            "minimum": 30,
+            "maximum": 600,
             "ui": {
-              "label": "how many blocks?",
+              "label": "how many seconds?",
               "type": "integer",
-              "min": 1,
-              "max": 100000,
-              "default": 5,
-              "hint": "5 is normal. higher = more day-0 protection from bots ~"
+              "min": 30,
+              "max": 600,
+              "default": 60,
+              "hint": "60 seconds catches bots. rounded up to the next ethereum block (12 sec each) on chain ~"
             }
           }
         }

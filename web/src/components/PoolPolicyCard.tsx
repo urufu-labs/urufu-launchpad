@@ -6,7 +6,8 @@
 ///
 ///   - creator fee bps           (what the token creator earns per trade)
 ///   - platform fee bps          (what the launchpad earns per trade)
-///   - anti-sniper blocks left   (how long the initial trade-freeze runs)
+///   - anti-sniper time left     (how long the initial trade-freeze runs;
+///                                stored as L1 blocks on chain, shown as seconds)
 ///   - buyback-burn bps          (what fraction of trades goes to buyback)
 ///   - launch block              (when the pool opened; anti-sniper window
 ///                                is measured from here)
@@ -76,11 +77,19 @@ export function PoolPolicyCard({ poolId, hookAddress, chainId }: Props) {
 
   if (!parsed) return null;
 
+  // Anti-sniper is expressed in blocks on chain, but MHH reads L1 block numbers
+  // (12 sec cadence) because RH runs on Arbitrum stack. Convert to seconds so
+  // launchers + buyers see a real-time countdown. `blockNumber` here is the L2
+  // block from wagmi — we can't ask the chain for its current L1 block cheaply,
+  // so approximate remaining time as `gateBlocksLeft * 12 sec`, floored at zero.
+  const SEC_PER_L1_BLOCK = 12;
   const gateEndsAt = parsed.launchBlock + BigInt(parsed.antiSniperBlocks);
   const currentBlock = blockNumber ?? parsed.launchBlock;
   const gateBlocksLeft =
     currentBlock < gateEndsAt ? Number(gateEndsAt - currentBlock) : 0;
+  const gateSecondsLeft = gateBlocksLeft * SEC_PER_L1_BLOCK;
   const gateActive = gateBlocksLeft > 0 && parsed.antiSniperBlocks > 0;
+  const totalGateSeconds = parsed.antiSniperBlocks * SEC_PER_L1_BLOCK;
 
   return (
     <section
@@ -119,13 +128,13 @@ export function PoolPolicyCard({ poolId, hookAddress, chainId }: Props) {
             parsed.antiSniperBlocks === 0
               ? 'off'
               : gateActive
-                ? `${gateBlocksLeft} blocks left`
+                ? `~${gateSecondsLeft}s left`
                 : 'complete'
           }
           title={
             parsed.antiSniperBlocks === 0
-              ? 'no launch-block gate on this pool'
-              : `swaps blocked for the first ${parsed.antiSniperBlocks} blocks after graduation`
+              ? 'no post-launch swap gate on this pool'
+              : `swaps blocked for the first ~${totalGateSeconds}s after graduation (${parsed.antiSniperBlocks} L1 blocks)`
           }
         />
       </div>

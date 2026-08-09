@@ -485,8 +485,8 @@ export default function DocsPage() {
           <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ pool-level (automatic on every graduation)</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li>
-              <b>anti-sniper gate</b>: the v4 hook reverts every swap for the first N blocks
-              after graduation. MEV bots that pre-signed a buy at graduation get denied.
+              <b>anti-sniper gate</b>: the v4 hook reverts every swap for the first N seconds
+              after graduation (typically 60 seconds). MEV bots that pre-signed a buy at graduation get denied.
               real humans get in on equal footing.
             </li>
             <li>
