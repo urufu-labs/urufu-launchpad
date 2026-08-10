@@ -138,7 +138,8 @@ function HomePageContent() {
   const [query, setQuery] = useState('');
   const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
-  const [previewLaunches, setPreviewLaunches] = useState<MockLaunch[]>(() => getPreviewLaunches(chainId ?? 11155111));
+  const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
+  const [previewLaunches, setPreviewLaunches] = useState<MockLaunch[]>(PREVIEW_LAUNCHES);
   const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
     HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
   );
@@ -153,12 +154,16 @@ function HomePageContent() {
   const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
 
   useEffect(() => {
-    if (!previewEnabled) return;
+    setMockLaunchesHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!previewEnabled || !mockLaunchesHydrated) return;
     const onChange = () => setPreviewLaunches(getPreviewLaunches(chainId ?? 11155111));
     onChange();
     const unsubscribe = onMockLaunchesChange(onChange);
     return () => unsubscribe();
-  }, [previewEnabled, chainId]);
+  }, [previewEnabled, chainId, mockLaunchesHydrated]);
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.

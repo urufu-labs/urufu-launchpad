@@ -32,7 +32,7 @@ import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagm
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
-import { mockLaunchByAddress } from '@/lib/mockLaunches';
+import { MOCK_LAUNCHES, mockLaunchByAddress } from '@/lib/mockLaunches';
 import { useMockDataMode } from '@/lib/mockDataMode';
 import {
   fetchCurveByToken,
@@ -78,6 +78,11 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
   const mockData = useMockDataMode();
   const resolved = use(params);
   const tokenAddress = (isAddress(resolved.address) ? resolved.address : '0x0000000000000000000000000000000000000000') as Address;
+  const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
+
+  useEffect(() => {
+    setMockLaunchesHydrated(true);
+  }, []);
 
   // Retired-token check: if the address is in the hide list (TEST/BALLS etc.),
   // render a "retired" splash instead of routing to the live trade UI. Bookmarks +
@@ -89,7 +94,11 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
   // page is browsable without any contracts deployed. Dispatch happens via a sibling
   // component so rules-of-hooks stay clean — early-returning before the wagmi hooks below
   // would violate hook ordering.
-  const mock = mockData.enabled ? mockLaunchByAddress(tokenAddress) : null;
+  const mock = mockData.enabled
+    ? (mockLaunchesHydrated
+      ? mockLaunchByAddress(tokenAddress)
+      : MOCK_LAUNCHES.find((launch) => launch.address.toLowerCase() === tokenAddress.toLowerCase()) ?? null)
+    : null;
   if (mock) return <MockTradeView launch={mock} />;
   return <LiveTradeView tokenAddress={tokenAddress} />;
 }

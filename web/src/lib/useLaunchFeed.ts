@@ -5,7 +5,7 @@ import { parseEther } from 'viem';
 
 import type { Address } from 'viem';
 import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
-import { allMockLaunches, mocksForChain, onMockLaunchesChange, type MockLaunch } from './mockLaunches';
+import { allMockLaunches, MOCK_LAUNCHES, mocksForChain, onMockLaunchesChange, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
 import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
@@ -26,11 +26,19 @@ function hasLiveContracts(chainId: number): boolean {
   return key ? CONTRACTS[key] !== null : false;
 }
 
-function previewLaunches(): MockLaunch[] {
+function previewLaunches(hydrated: boolean): MockLaunch[] {
   // Demo mode is deliberately chain-independent: the fixture set illustrates fresh,
   // mid-curve, near-graduation, and graduated tokens even when the selected live chain
-  // has no fixture addresses of its own.
-  return allMockLaunches();
+  // has no fixture addresses of its own. Browser-local launches wait until after
+  // hydration so server and first-client markup remain identical.
+  return (hydrated ? allMockLaunches() : MOCK_LAUNCHES)
+    .filter((launch) => !isHiddenToken(launch.chainId, launch.address));
+}
+
+function mocksForChainAfterHydration(chainId: number, hydrated: boolean): MockLaunch[] {
+  if (hydrated) return mocksForChain(chainId);
+  return MOCK_LAUNCHES.filter((launch) => launch.chainId === chainId)
+    .filter((launch) => !isHiddenToken(launch.chainId, launch.address));
 }
 
 /// Unified launch-feed hook consumed by home / discover / trade-list.
@@ -43,9 +51,10 @@ function previewLaunches(): MockLaunch[] {
 /// or an "indexer offline" fallback without briefly flashing the mock list.
 export function useLaunchFeed(chainId: number): FeedState {
   const mockData = useMockDataMode();
+  const [hydrated, setHydrated] = useState(false);
   const [state, setState] = useState<FeedState>(() => {
     if (mockData.enabled) {
-      return { source: 'mock', launches: previewLaunches(), ready: true };
+      return { source: 'mock', launches: previewLaunches(false), ready: true };
     }
     // First paint: if we already know the chain has no live contracts, render the mock
     // preview immediately (SSR-safe, deterministic). Otherwise start empty and let the
@@ -53,12 +62,16 @@ export function useLaunchFeed(chainId: number): FeedState {
     if (!hasLiveContracts(chainId)) {
       return {
         source: 'mock',
-        launches: mocksForChain(chainId),
+        launches: mocksForChainAfterHydration(chainId, false),
         ready: true,
       };
     }
     return { source: 'indexer', launches: [], ready: false };
   });
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,7 +81,7 @@ export function useLaunchFeed(chainId: number): FeedState {
         if (cancelled) return;
         setState({
           source: 'mock',
-          launches: mockData.enabled ? previewLaunches() : mocksForChain(chainId),
+          launches: mockData.enabled ? previewLaunches(hydrated) : mocksForChainAfterHydration(chainId, hydrated),
           ready: true,
         });
       };
@@ -118,7 +131,7 @@ export function useLaunchFeed(chainId: number): FeedState {
       cancelled = true;
       clearInterval(id);
     };
-  }, [chainId, mockData.enabled]);
+  }, [chainId, hydrated, mockData.enabled]);
 
   return state;
 }
