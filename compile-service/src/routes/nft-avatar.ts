@@ -13,6 +13,11 @@ const MAX_PAGE_SIZE = 100;
 /// NFT index. Keep this explicit rather than treating the currently-selected launch
 /// chain as the inventory scope: a linked EVM address is portable across networks.
 const NFT_CHAINS = [
+  // Robinhood FIRST — urufu gemu NFT (0x60cB7082...) lives here and is the
+  // primary identity NFT for the whole ecosystem. Anything else is nice-to-
+  // have. Scan order matters because we return partial results as chains
+  // resolve; keeping RH at index 0 gets the important match on screen first.
+  { id: 'robinhood', label: 'Robinhood', chainId: 4663, providerChain: '0x1237' },
   { id: 'ethereum', label: 'Ethereum', chainId: 1, providerChain: '0x1' },
   { id: 'base', label: 'Base', chainId: 8453, providerChain: '0x2105' },
   { id: 'arbitrum', label: 'Arbitrum', chainId: 42161, providerChain: '0xa4b1' },
