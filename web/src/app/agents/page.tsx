@@ -40,23 +40,50 @@ const ENDPOINTS: Endpoint[] = [
     returns: '{ name: {available, reason}, ticker: {available, reason}, ok }',
   },
   {
+    method: 'POST',
+    path: '/api/agent/upload-image',
+    jp: '画像',
+    purpose: 'pin the token logo to IPFS before launch. accepts a public URL or a base64 data URL.',
+    example:
+      'curl -X POST https://urufulabs.xyz/api/agent/upload-image -H "content-type: application/json" -d \'{"imageUrl":"https://i.imgur.com/abc123.png"}\'',
+    returns: '{ cid, gatewayUrl } — pass gatewayUrl as imageUrl on /prepare-metadata',
+  },
+  {
     method: 'GET',
     path: '/api/agent/quote',
     jp: '見積り',
-    purpose: 'everything the agent needs to sign: calldata, exact msg.value, entrypoint, warnings.',
+    purpose: 'everything the agent needs to sign the launch tx: calldata, msg.value, entrypoint, errors, warnings.',
     example:
       'curl "https://urufulabs.xyz/api/agent/quote?name=MyCoin&ticker=MYC&launcher=0x...&initialBuyEth=0.01"',
     returns:
-      '{ to, calldata, value, fee, entrypoint, warnings, canBroadcast, params }',
+      '{ to, calldata, value, fee, entrypoint, errors, warnings, canBroadcast, params }',
   },
   {
     method: 'POST',
     path: '/api/agent/verify',
     jp: '確認',
-    purpose: 'agent broadcasts the tx, POSTs the hash here, gets the deployed token + curve address back.',
+    purpose: 'after broadcast, POST the tx hash — returns deployed token + curve address.',
     example:
       'curl -X POST https://urufulabs.xyz/api/agent/verify -H "content-type: application/json" -d \'{"txHash":"0x..."}\'',
     returns: '{ token: {address, curve}, block, gas, links: {trade, blockscout} }',
+  },
+  {
+    method: 'POST',
+    path: '/api/agent/prepare-metadata',
+    jp: '準備',
+    purpose: 'build the canonical envelope for the launcher wallet to sign so description + logo + socials attach to the token on the site.',
+    example:
+      'curl -X POST https://urufulabs.xyz/api/agent/prepare-metadata -H "content-type: application/json" -d \'{"txHash":"0x...","imageUrl":"https://gateway.pinata.cloud/ipfs/Qm..."}\'',
+    returns: '{ message, timestamp, payload, tokenAddress, chainId, launcher } — sign `message` with launcher key',
+  },
+  {
+    method: 'POST',
+    path: '/api/agent/attach-metadata',
+    jp: '公開',
+    purpose: 'submit the signed envelope. write happens iff signer wallet == launcher wallet.',
+    example:
+      'curl -X POST https://urufulabs.xyz/api/agent/attach-metadata -H "content-type: application/json" -d \'{"tokenAddress":"0x...","chainId":4663,"timestamp":...,"payload":{...},"signature":"0x...","address":"0x..."}\'',
+    returns: '{ ok, tokenAddress, links: {trade} } | { code: "INDEXER_PENDING" | "NOT_LAUNCHER" | ... }',
   },
 ];
 
@@ -182,19 +209,23 @@ export default function AgentsPage() {
           WHAT THE AGENT WILL DO
           ================================================================ */}
       <section className="uru-shell" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="uru-eyebrow" style={{ marginBottom: 8 }}>❉ the flow ur agent follows</div>
+        <div className="uru-eyebrow" style={{ marginBottom: 8 }}>❉ the conversation ur agent has with u</div>
         <ol style={{ margin: 0, paddingLeft: 22, fontSize: 13, lineHeight: 1.75 }}>
-          <li>collect: token name, ticker, optional first-buy in ETH, ur wallet address</li>
-          <li>call <code style={codeStyle}>/api/agent/status</code> — chain up?</li>
-          <li>call <code style={codeStyle}>/api/agent/name-check</code> — name + ticker free?</li>
-          <li>call <code style={codeStyle}>/api/agent/quote</code> — get exact tx payload + warnings</li>
+          <li>asks for: <b>token name</b>, <b>ticker</b>, <b>logo</b> (image URL), <b>description</b>, <b>socials</b>, <b>first buy in ETH</b></li>
+          <li>calls <code style={codeStyle}>/status</code> — chain up?</li>
+          <li>calls <code style={codeStyle}>/name-check</code> — asks u for a new name if taken</li>
+          <li>if u gave a logo: calls <code style={codeStyle}>/upload-image</code> — pins it to IPFS</li>
+          <li>calls <code style={codeStyle}>/quote</code> — gets exact tx payload + total ETH cost</li>
           <li>
-            <b>confirm with u</b>: shows name/ticker/first-buy/fee/total. u say yes or the agent
-            aborts. this is a hard rule in the skill — no autonomous spend ✿
+            <b>confirms every number with u</b>: name, ticker, logo, description, socials, first-buy,
+            launch fee, total spend. u say yes or the agent aborts. hard rule in the skill —
+            no autonomous spend ✿
           </li>
-          <li>sign + broadcast the tx from ur wallet</li>
-          <li>POST the tx hash to <code style={codeStyle}>/api/agent/verify</code></li>
-          <li>report back to u: token address, curve address, trade URL</li>
+          <li>signs + broadcasts the launch tx from ur wallet</li>
+          <li>calls <code style={codeStyle}>/verify</code> — confirms landed, gets token address</li>
+          <li>if u gave description/logo/socials: calls <code style={codeStyle}>/prepare-metadata</code>,
+              signs the ownership envelope with the same wallet, calls <code style={codeStyle}>/attach-metadata</code></li>
+          <li>reports back: token address, trade URL, first-buy tokens owned</li>
         </ol>
       </section>
 

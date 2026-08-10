@@ -8,54 +8,159 @@
 
 ## what this is
 
-instructions for an ai agent to launch an erc-20 token on the urufu labs
-launchpad (robinhood chain, chainid 4663). the agent talks to four small
-http apis on `https://urufulabs.xyz/api/agent/*` for everything that needs
-on-chain data. the agent uses ur wallet key locally to sign; the apis never
-see it.
+instructions for an ai agent to walk a human through launching an erc-20
+token on the urufu labs launchpad (robinhood chain, chainid 4663). the
+agent has a real conversation with the human, uploads a logo, attaches
+description + socials, and reports back with the trade page URL.
+
+six small http apis on `https://urufulabs.xyz/api/agent/*` do all the
+on-chain lifting. the agent uses the human's wallet key locally to sign
+two things: the launch tx, and one ownership envelope for metadata. the
+apis never see the key.
 
 only the "quick launch" path is exposed — bonding-curve erc-20, ownership
 renounced at launch, 60-second anti-sniper gate, no modules, no whitelist,
-no uru-pay. that's ~99% of what humans launch anyway, and its scope keeps
-the agent tight enough to trust.
+no uru-pay. that covers ~99% of what humans launch. keeps the agent
+tight enough to trust.
 
 ---
 
 ## AGENT INSTRUCTIONS
 
-when the human asks u to launch a token on urufu labs, follow these steps
-IN ORDER. do NOT skip the confirm step. do NOT change constants. do NOT
-launch on any other chain.
+### what u're doing
 
-### step 0 — collect from the human
+- collect a few fields from the human through natural conversation
+- upload their logo image (if they have one)
+- get an exact ETH quote for the launch
+- confirm every number with the human before signing anything
+- sign + broadcast the launch tx from the human's wallet
+- sign + submit an ownership envelope so their description + logo attach
+  to the token on the site
+- report back with the trade URL
 
-- **token name** (up to 30 chars, on-chain unique, no weird chars)
-- **token ticker** (up to 8 chars, uppercased, on-chain unique)
-- **initial buy in ETH** (optional, defaults to 0 — set to something like
-  `0.01` if the human wants to buy their own token at launch so a bot can't
-  snipe the first swap)
-- **launcher wallet address** — the human's wallet that will sign
+### key management (u must know this)
 
-### step 1 — check the chain is up
+the human's wallet private key stays on the human's device — either in
+env for a CLI agent, or through a wallet extension for a browser agent,
+or through a signing service they chose. **u never send the key to
+anyone**, not urufu labs, not any API, no logs. the key signs two things
+locally: (1) the launch tx, (2) one personal_sign envelope for the
+metadata write. that's it.
+
+### hard rules
+
+- ❌ never launch on any chain other than robinhood (chainid 4663)
+- ❌ never broadcast a tx without an explicit human "yes" containing
+  the final numbers (name, ticker, ETH cost, first-buy)
+- ❌ never pick a name, ticker, or first-buy amount without asking
+- ❌ never launch as part of a multi-step "agent-decides" workflow —
+  always a discrete, confirmed action
+- ❌ never retry a reverted launch without re-running `/quote`
+
+---
+
+## conversational scripts for the agent
+
+use these as templates. adapt phrasing to ur agent's voice, but hit
+every field. NEVER default a field for the human.
+
+### opener
+
+```
+"hi! i can launch an erc-20 token for u on urufu labs (a bonding-curve
+launchpad on robinhood chain). i'll ask u a few things, get u an exact
+price, and confirm before spending anything. what should the token be
+called?"
+```
+
+### collecting fields (ask ONE at a time)
+
+- **name** ("what should the token be called? up to 30 chars, e.g. `Fluffy Kitty` or `BasedCoin`")
+- **ticker** ("cool, and a ticker? up to 8 chars, all caps typically — e.g. `FLUFY` or `BASED`")
+- **logo** ("want to attach a logo? paste a URL to an image (imgur, twitter, arweave, ipfs — anything public), or say `skip`")
+- **description** ("one sentence about the token? or `skip`")
+- **socials** ("any links? — twitter, telegram, discord, website, tiktok — paste what u have, one per line, or `skip`")
+- **first buy** ("do u want to buy some of ur own token at launch? this is optional but common — it prevents bots from being the very first buyer and getting the best price. suggest ~0.01 ETH if u're not sure. or `no` to skip.")
+
+### validation as u collect
+
+- when u get the name + ticker, immediately call `/api/agent/name-check`
+  and if either is taken/invalid, tell the human the specific reason
+  and ask for a different one
+- when u get the logo URL, upload it via `/api/agent/upload-image` right
+  away so u know it's ok. store the returned `gatewayUrl` — that's what
+  gets attached to the token, not the raw URL
+
+### final confirmation card (show BEFORE signing)
+
+```
+launching a token on urufu labs (robinhood chain, chainid 4663):
+
+  name:            <name>
+  ticker:          <ticker>
+  logo:            <gatewayUrl or "none">
+  description:     <description or "none">
+  socials:         twitter=..., telegram=..., discord=..., website=..., tiktok=...
+  launcher:        <human's wallet>
+  first buy:       <initialBuyEth> ETH
+  launch fee:      <fee ETH>
+  total spend:     <total ETH>
+  anti-sniper:     first ~60 sec of trades gated to prevent bot snipes
+  ownership:       renounced at launch (curve requirement)
+
+proceed? (y/n)
+```
+
+if the human says no or anything ambiguous — abort. ask what to change.
+
+---
+
+## the flow (step-by-step)
+
+### step 1 — chain live?
 
 ```
 GET https://urufulabs.xyz/api/agent/status
 ```
 
-confirm: `launchpad.paused === false` and `chain.id === 4663`. if paused,
-tell the human + stop.
+- if `launchpad.paused === true` → stop, tell human
+- if `chain.id !== 4663` → this endpoint is broken, tell human + stop
+- otherwise proceed
 
-### step 2 — check the name + ticker are free
+### step 2 — name + ticker free?
 
 ```
 GET https://urufulabs.xyz/api/agent/name-check?name=<name>&ticker=<ticker>
 ```
 
-if `ok !== true`, tell the human what `name.reason` / `ticker.reason` says
-(`AlreadyTaken`, `Reserved`, `InvalidCharacter`, `TooLong`, `TooShort`) and
-ask for a different one. do NOT proceed.
+- if `ok === false`, look at `name.reason` and `ticker.reason` (values:
+  `Ok` `InvalidCharacter` `TooShort` `TooLong` `AlreadyTaken` `Reserved`)
+  and ask the human for a different one. do NOT proceed.
 
-### step 3 — get the exact launch payload
+### step 3 — pin the logo (if the human provided one)
+
+only if u collected an image URL:
+
+```
+POST https://urufulabs.xyz/api/agent/upload-image
+Content-Type: application/json
+
+{"imageUrl": "<paste_from_human>"}
+```
+
+or, if the human handed u a base64 data URL:
+
+```
+{"dataUrl": "data:image/png;base64,..."}
+```
+
+response gives u `{ cid, gatewayUrl }`. remember `gatewayUrl` — that
+becomes `imageUrl` on `/prepare-metadata` later.
+
+if the upload fails (too big, bad URL, private host), tell the human
+the reason and ask for a different image (or `skip`).
+
+### step 4 — get the exact launch quote
 
 ```
 GET https://urufulabs.xyz/api/agent/quote
@@ -65,68 +170,51 @@ GET https://urufulabs.xyz/api/agent/quote
   &initialBuyEth=<amount>
 ```
 
-response fields u need:
-
-- `entrypoint` — either `launch` or `launchAndBuy`. informational; u don't
-  need to pick, the calldata already targets the right one
+response gives u everything needed to sign:
+- `entrypoint` — either `launch` or `launchAndBuy` (informational — the
+  calldata already targets the right one based on `initialBuyEth`)
 - `to` — router address to send to
-- `calldata` — the fully-encoded tx data. sign as-is
-- `value` — msg.value in wei (fee + initialBuy). sign as-is
-- `warnings` — if this array is non-empty, DO NOT PROCEED. tell the human
-  each warning + stop
-- `feeFormatted`, `valueFormatted` — human-readable strings for confirmation
-- `params.antiSniperSeconds` — freeze window for first trades post-graduation
+- `calldata` — sign this
+- `value` — msg.value in wei (fee + initialBuy)
+- `errors` — HARD blockers. if non-empty, DO NOT PROCEED. show them + stop.
+- `warnings` — informational (e.g., `LAUNCHPAD_LIVE is false`). surface
+  but ok to proceed
+- `feeFormatted`, `valueFormatted`, `initialBuyFormatted` — friendly
+  strings for the confirmation card
 
-### step 4 — ✿ CONFIRM WITH THE HUMAN ✿
+### step 5 — ✿ CONFIRM WITH THE HUMAN ✿
 
-before signing, show the human:
+show the final confirmation card (template above). wait for explicit
+"y" / "yes" / "go" / "launch it". anything else = abort.
 
-```
-launching a token on urufu labs (robinhood chain):
+**hard rule: never broadcast without a fresh confirmation containing
+the actual numbers.** doesn't matter if the human already said "sure
+just launch it" earlier — the specific numbers matter.
 
-  name:            <name>
-  ticker:          <ticker>
-  launcher:        <launcher>
-  first buy:       <initialBuyFormatted>
-  launch fee:      <feeFormatted>
-  total spend:     <valueFormatted>
-  anti-sniper:     first ~60 sec of trades gated to prevent bot snipes
-  ownership:       renounced at launch (curve requirement)
+### step 6 — sign + broadcast the launch tx
 
-proceed? (y/n)
-```
-
-if they say no or anything ambiguous — do NOT sign. abort and ask them
-what they want to change.
-
-**hard rule: NEVER broadcast without an explicit human "yes".** doesn't
-matter if the human said "just launch it" earlier. every launch needs a
-fresh confirmation with the final numbers.
-
-### step 5 — sign + broadcast
-
-with the human's ok, send the tx from their wallet:
+with the human's ok, sign + send from their wallet:
 
 ```js
-// viem example — swap wallet client for whatever ur stack uses
-await walletClient.sendTransaction({
+// viem example
+const txHash = await walletClient.sendTransaction({
   to: quote.to,
   data: quote.calldata,
   value: BigInt(quote.value),
 });
 ```
 
-cast equivalent:
 ```bash
+# cast (using their private key)
 cast send $to $calldata --value ${value}wei \
   --rpc-url https://rpc.mainnet.chain.robinhood.com \
   --private-key $HUMAN_PRIVATE_KEY
 ```
 
-`gasLimit` isn't required — RH estimates well. if u must set it: ~1M for
+no gas limit needed — RH estimates well. if u must set one: ~1M for
 `launch`, ~1.5M for `launchAndBuy`.
 
-### step 6 — verify + report
+### step 7 — verify the launch landed
 
 ```
 POST https://urufulabs.xyz/api/agent/verify
@@ -135,108 +223,135 @@ Content-Type: application/json
 {"txHash": "0x..."}
 ```
 
-response has `token.address` (the deployed erc-20), `token.curve` (the
-bonding curve holding the initial liquidity), `links.trade` (URL to trade
-the token), `links.blockscout` (explorer).
+response includes `token.address`, `token.curve`, `links.trade`,
+`links.blockscout`. if `status === "failed"`, the tx reverted; re-run
+`/quote` with the same params to see what would have caught it.
 
-report all of that back to the human. u're done ~
+### step 8 — attach metadata (if description or logo or socials collected)
+
+if the human skipped ALL of {logo, description, socials}, skip to step 10.
+otherwise, prepare the ownership envelope:
+
+```
+POST https://urufulabs.xyz/api/agent/prepare-metadata
+Content-Type: application/json
+
+{
+  "txHash": "0x...",
+  "imageUrl": "<gatewayUrl from step 3, or omit>",
+  "description": "<text, or omit>",
+  "twitter": "<@handle or URL, or omit>",
+  "telegram": "<@handle or URL, or omit>",
+  "discord": "<invite or URL, or omit>",
+  "website": "<https://..., or omit>",
+  "tiktok": "<@handle or URL, or omit>"
+}
+```
+
+response gives u `{ message, timestamp, payload, tokenAddress, chainId, launcher }`.
+
+### step 9 — sign the envelope + submit
+
+sign the `message` string with launcher's key (EIP-191 personal_sign):
+
+```bash
+# cast
+SIG=$(cast wallet sign "$MESSAGE" --private-key $HUMAN_PRIVATE_KEY)
+```
+
+```js
+// viem
+const signature = await walletClient.signMessage({ message });
+```
+
+then submit:
+
+```
+POST https://urufulabs.xyz/api/agent/attach-metadata
+Content-Type: application/json
+
+{
+  "tokenAddress": "<from prepare-metadata>",
+  "chainId": 4663,
+  "timestamp": <from prepare-metadata>,
+  "payload": <from prepare-metadata — exact object, no edits>,
+  "signature": "0x...",
+  "address": "<launcher, lowercase>"
+}
+```
+
+**do not edit `payload` or `timestamp`.** the signature covers them
+exactly; any drift fails signature recovery.
+
+if u get `code: INDEXER_PENDING` — normal. the indexer needs ~10-20 sec
+to see the new launch. wait, then POST the same body again.
+
+if u get `code: NOT_LAUNCHER` — signer wallet ≠ launcher wallet. the
+launch tx and the metadata envelope must be signed by the same key.
+
+### step 10 — report back to the human
+
+```
+✿ launched!
+
+  name:      <name>
+  ticker:    <ticker>
+  address:   <token.address>
+  logo:      <gatewayUrl or "none">
+  trade it:  <links.trade>
+  explorer:  <links.blockscout>
+
+the curve holds the initial liquidity. it graduates to a uniswap v4 pool
+once ~10 ETH of buys have gone through. anti-sniper freeze lifts ~60 sec
+after graduation.
+
+<if first buy > 0>: u already own <expected tokens> tokens from ur first
+buy. sitting in the curve until graduation.
+```
 
 ---
 
-## api reference (full detail)
+## the six apis (full reference)
 
 ### GET /api/agent/status
 
-no params. returns chain state + fees + curve defaults + address book.
-
-```json
-{
-  "chain": { "id": 4663, "name": "Robinhood Chain", "currentBlock": "32...", "secPerL1Block": 12 },
-  "launchpad": { "live": false, "paused": false, "note": "..." },
-  "fees": { "erc20": "1000000000000000", "erc20Formatted": "0.001 ETH", ... },
-  "curve": { "defaultSupply": "800000000000000000000000000", "graduationTargetEth": "10000000000000000000", "graduationTargetEthFormatted": "10 ETH", "tradeFeeBps": 100 },
-  "quickLaunchDefaults": { "antiSniperBlocks": 5, "antiSniperSecondsApprox": 60, "buybackBurnBps": 0, "ownership": "Renounce" },
-  "addresses": { "Router": "0xb41e...", "NameRegistry": "0x965A...", "CurveFactory": "0x7FeC...", "MultiHookHost": "0xc282...", "Graduator": "0x1DC4...", "V4SwapRouter": "0xDb3D..." }
-}
-```
+no params. returns chain + launchpad state + fees + curve defaults + address book.
 
 ### GET /api/agent/name-check?name=X&ticker=Y
 
-both required. returns availability + specific reason if unavailable.
+both required. returns `{ name: {available, reason}, ticker: {...}, ok }`.
+reasons: `Ok` `InvalidCharacter` `TooShort` `TooLong` `AlreadyTaken` `Reserved`.
 
-```json
-{
-  "name":   { "input": "MyCoin", "available": true, "reason": "Ok" },
-  "ticker": { "input": "MYC",    "available": true, "reason": "Ok" },
-  "ok": true
-}
-```
+### POST /api/agent/upload-image
 
-reasons: `Ok` `InvalidCharacter` `TooShort` `TooLong` `AlreadyTaken` `Reserved`
+body: `{ imageUrl }` (public URL, server fetches) OR `{ dataUrl }`
+(data:image/... base64). returns `{ cid, gatewayUrl }`. 512KB cap.
 
 ### GET /api/agent/quote?name=X&ticker=Y&launcher=0x...&initialBuyEth=Z
 
-all four required (initialBuyEth = `"0"` if no first buy). returns
-everything u need to broadcast + a preflight warnings array.
-
-```json
-{
-  "launcher": "0x...",
-  "name": "MyCoin", "ticker": "MYC",
-  "entrypoint": "launchAndBuy",
-  "to": "0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269",
-  "calldata": "0x...",
-  "value": "10800000000000000",
-  "valueFormatted": "0.0108 ETH",
-  "fee": "800000000000000",
-  "feeFormatted": "0.0008 ETH",
-  "initialBuy": "10000000000000000",
-  "initialBuyFormatted": "0.01 ETH",
-  "warnings": [],
-  "canBroadcast": true,
-  "params": { "antiSniperSeconds": 60, "ownership": "Renounce", ... }
-}
-```
-
-if `warnings` is non-empty:
-- `"Router is currently paused"` → stop, tell human, wait for unpause
-- `"Name ... fails validateName"` → stop, ask for new name
-- `"Ticker ... fails validateTicker"` → stop, ask for new ticker
-- `"Launcher ... has X ETH but needs at least Y"` → stop, tell human to fund
-- `"LAUNCHPAD_LIVE is false"` → informational; launch works on chain but
-  token won't show in site feed yet. usually safe to proceed if human ok
+all four required (`initialBuyEth=0` if no first buy). returns
+`{ to, calldata, value, fee, entrypoint, errors, warnings, canBroadcast, params }`.
+`canBroadcast = errors.length === 0`. warnings are informational.
 
 ### POST /api/agent/verify
 
-body: `{"txHash": "0x..."}`. returns token + curve address + trade URL.
+body: `{ txHash }`. returns `{ token: {address, curve}, block, gas, links }`.
 
-```json
-{
-  "txHash": "0x...",
-  "status": "success",
-  "token": {
-    "address": "0xa204...",
-    "launcher": "0x...",
-    "curve": "0x1e86..."
-  },
-  "block": { "number": "323...", "hash": "0x..." },
-  "gas": { "used": "1346100" },
-  "links": {
-    "blockscout": "https://robinhoodchain.blockscout.com/token/0xa204...",
-    "trade": "https://urufulabs.xyz/trade/0xa204..."
-  }
-}
-```
+### POST /api/agent/prepare-metadata
 
-if `status === "failed"`, the tx reverted on chain. re-run
-`/api/agent/quote` with the same params to see what would have caught it.
+body: `{ txHash, imageUrl?, description?, twitter?, telegram?, discord?, website?, tiktok? }`.
+returns `{ message, timestamp, payload, tokenAddress, chainId, launcher }`.
 
-if `status === "success-but-no-launched-event"`, the tx hash isn't a
-launch tx — check what was signed.
+### POST /api/agent/attach-metadata
+
+body: `{ tokenAddress, chainId, timestamp, payload, signature, address }`.
+returns `{ ok, tokenAddress, links: {trade} }` on success. common non-ok
+codes: `INDEXER_PENDING` (retry after 10s), `NOT_LAUNCHER` (wrong signer),
+`UNAUTHORIZED` (bad signature).
 
 ---
 
-## common on-chain reverts (if u skipped preflight)
+## common revert selectors (if u skipped preflight)
 
 | revert selector | what it means | fix |
 |---|---|---|
@@ -249,36 +364,88 @@ launch tx — check what was signed.
 | `NameRegistry__TickerReserved(bytes32)` | ticker is on the blocklist (e.g. ETH, USDC) | pick a different ticker |
 | `Router__CurveMustRenounce` | tried non-renounce ownership with a curve | shouldn't hit this — quote hardcodes renounce |
 
-if u see any other selector, POST the full revert bytes back to the human
-+ don't retry. weird reverts usually mean the router got rotated or the
-apis got out of sync.
+any other selector → post the full revert bytes back to the human, don't
+retry. weird reverts usually mean the router got rotated or the apis
+went out of sync.
 
 ---
 
-## example: full round-trip with curl
+## worked example — full conversation transcript
 
-```bash
-# 1. is the chain up?
-curl https://urufulabs.xyz/api/agent/status | jq '.launchpad, .fees.erc20Formatted'
+```
+agent: hi! i can launch an erc-20 token for u on urufu labs. i'll ask
+       a few things, get u an exact price, and confirm before spending
+       anything. what should the token be called?
+human: Fluffy Kitty
 
-# 2. is "MyCoin" / "MYC" free?
-curl "https://urufulabs.xyz/api/agent/name-check?name=MyCoin&ticker=MYC" | jq
+agent: cool. ticker? up to 8 chars, all caps typically.
+human: FLUFY
 
-# 3. get the launch payload for me buying 0.01 ETH of my own coin
-curl "https://urufulabs.xyz/api/agent/quote?name=MyCoin&ticker=MYC&launcher=0xMYWALLET&initialBuyEth=0.01" | jq
+[agent calls /api/agent/name-check?name=Fluffy+Kitty&ticker=FLUFY → ok:true]
 
-# 4. show human the numbers, get "yes"
+agent: both available. want to attach a logo? paste an image URL, or
+       say "skip".
+human: https://i.imgur.com/abc123.png
 
-# 5. sign + broadcast
-cast send <to from quote> <calldata from quote> \
-  --value <value from quote>wei \
-  --rpc-url https://rpc.mainnet.chain.robinhood.com \
-  --private-key $HUMAN_PRIVATE_KEY
+[agent calls POST /api/agent/upload-image {imageUrl: "..."}
+ → { cid: "Qm...", gatewayUrl: "https://gateway.pinata.cloud/ipfs/Qm..." }]
 
-# 6. verify — replace $TX with the hash cast printed
-curl -X POST https://urufulabs.xyz/api/agent/verify \
-  -H "content-type: application/json" \
-  -d "{\"txHash\":\"$TX\"}" | jq
+agent: pinned! one sentence about the token, or "skip"?
+human: A very fluffy cat coin for people who like fluffy cats.
+
+agent: any socials? twitter/telegram/discord/website/tiktok — paste
+       what u have, one per line. or "skip".
+human: twitter: @fluffykittyeth
+       website: https://fluffykitty.xyz
+
+agent: last question: do u want to buy some of ur own token at launch?
+       this prevents bots from being the first buyer + getting the best
+       price. common to put in 0.01 ETH. or "no" to skip.
+human: yeah 0.01
+
+[agent calls /api/agent/quote → { calldata, value: "10800000000000000",
+ fee: "800000000000000", errors: [], canBroadcast: true, ... }]
+
+agent: here's the summary:
+
+  name:          Fluffy Kitty
+  ticker:        FLUFY
+  logo:          gateway.pinata.cloud/ipfs/Qm... ✓
+  description:   "A very fluffy cat coin..."
+  twitter:       @fluffykittyeth
+  website:       https://fluffykitty.xyz
+  first buy:     0.01 ETH
+  launch fee:    0.0008 ETH
+  total spend:   0.0108 ETH
+  anti-sniper:   first ~60s of trades gated
+  ownership:     renounced at launch
+
+  proceed? (y/n)
+human: y
+
+[agent signs launch tx with human's key + broadcasts]
+[agent calls POST /api/agent/verify {txHash}
+ → { token: {address: "0x...", curve: "0x..."}, links: {trade, blockscout} }]
+
+[agent calls POST /api/agent/prepare-metadata {txHash, imageUrl, description, twitter, website}
+ → { message, timestamp, payload, tokenAddress, launcher }]
+
+[agent signs `message` with human's key]
+
+[agent calls POST /api/agent/attach-metadata {tokenAddress, chainId, timestamp, payload, signature, address}
+ → { ok: true, links: {trade: "https://urufulabs.xyz/trade/0x..."} }]
+
+agent: ✿ launched!
+
+  name:      Fluffy Kitty
+  ticker:    FLUFY
+  address:   0x...
+  trade it:  https://urufulabs.xyz/trade/0x...
+  explorer:  https://robinhoodchain.blockscout.com/token/0x...
+
+u already own about 8.9M FLUFY from ur 0.01 ETH first buy — sitting in
+the curve until graduation (~10 ETH of buys). anti-sniper freeze lifts
+~60 sec after that.
 ```
 
 ---
@@ -293,25 +460,8 @@ curl -X POST https://urufulabs.xyz/api/agent/verify \
 - ✕ store the human's private key anywhere the agent doesn't need it
 - ✕ launch tokens as part of any multi-step "agent-decides-what-to-do"
   workflow — always a discrete, confirmed action
-
-## what to tell the human on completion
-
-after `/verify` returns success, message the human like this:
-
-```
-✿ launched!
-
-  name:      <name>
-  ticker:    <ticker>
-  address:   <token.address>
-  curve:     <token.curve>
-  trade it:  <links.trade>
-  explorer:  <links.blockscout>
-
-the curve holds the initial liquidity. it graduates to a uniswap v4 pool
-once ~10 ETH of buys have gone through. anti-sniper freeze lifts ~60 sec
-after graduation.
-```
+- ✕ swap the launcher wallet between the launch tx and the metadata
+  envelope — same key must sign both
 
 ---
 
