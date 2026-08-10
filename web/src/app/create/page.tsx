@@ -137,6 +137,7 @@ function CreatePageContent() {
   const [initialBuyEthInput, setInitialBuyEthInput] = useState('');
   const [metadata, setMetadata] = useState<TokenMetadata>({ savedAt: 0 });
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [logoNotice, setLogoNotice] = useState<string | null>(null);
   const [dragMod, setDragMod] = useState<ModuleSpec | null>(null);
   // Center-of-screen reject-stamp shown when the user tries to add a blocked
   // module (already in basket, wont-stack, curve-mode owner-block, etc.). The
@@ -164,14 +165,20 @@ function CreatePageContent() {
 
   async function onPickLogo(file: File | undefined) {
     setLogoError(null);
+    setLogoNotice(null);
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setLogoError('pls pick an image file ~~');
       return;
     }
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setMetadata((prev) => ({ ...prev, logoDataUrl: dataUrl }));
+      const result = await readFileAsDataUrl(file);
+      setMetadata((prev) => ({ ...prev, logoDataUrl: result.dataUrl }));
+      if (result.optimized) {
+        setLogoNotice(
+          `optimized ${Math.ceil(result.originalBytes / 1024)}KB → ${Math.ceil(result.outputBytes / 1024)}KB for launch ~`,
+        );
+      }
     } catch (err) {
       setLogoError(err instanceof Error ? err.message : 'could not read file');
     }
@@ -1684,7 +1691,11 @@ function CreatePageContent() {
                       {metadata.logoDataUrl && (
                         <button
                           type="button"
-                          onClick={() => { setMetadata({ ...metadata, logoDataUrl: undefined }); setLogoError(null); }}
+                          onClick={() => {
+                            setMetadata({ ...metadata, logoDataUrl: undefined });
+                            setLogoError(null);
+                            setLogoNotice(null);
+                          }}
                           style={{
                             marginLeft: 8,
                             background: 'transparent',
@@ -1699,9 +1710,28 @@ function CreatePageContent() {
                           remove
                         </button>
                       )}
-                      <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
-                        png / jpg / svg / gif ~ max 256KB · stored inline til ipfs lands
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: 10,
+                          fontFamily: 'var(--font-pixel), monospace',
+                          color: 'var(--anchor-soft)',
+                        }}
+                      >
+                        png / jpg / webp / svg up to 10MB ~ larger images get resized for launch
                       </div>
+                      {logoNotice && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            fontSize: 10,
+                            fontFamily: 'var(--font-pixel), monospace',
+                            color: 'var(--anchor-soft)',
+                          }}
+                        >
+                          {logoNotice}
+                        </div>
+                      )}
                       {logoError && (
                         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--pink-hot)' }}>~~ {logoError}</div>
                       )}
