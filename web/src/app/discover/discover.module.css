@@ -1,0 +1,607 @@
+.page {
+  width: min(1240px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 14px 0 34px;
+}
+
+.masthead {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.62fr) minmax(360px, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+  padding: 10px;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.12);
+}
+
+.identity {
+  min-width: 0;
+  padding: 8px 10px;
+  border-right: 1px dotted var(--anchor);
+}
+
+.identity p,
+.sourceBar,
+.controlHeader,
+.filterButton,
+.searchBox,
+.sideFacts,
+.boardHeader,
+.readout,
+.badges,
+.metric,
+.progress span,
+.releaseFoot,
+.missingArt,
+.emptyState a {
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+}
+
+.identity p {
+  margin: 0 0 4px;
+  color: var(--pink-hot);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.identity h1 {
+  margin: 0;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 34px;
+  line-height: 0.94;
+  letter-spacing: 0;
+}
+
+.marketReadout {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  border: 1px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.readout {
+  min-width: 0;
+  padding: 7px 9px;
+  border-right: 1px dotted var(--anchor);
+}
+
+.readout:last-child {
+  border-right: 0;
+}
+
+.readout span {
+  display: block;
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.readout b {
+  display: block;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 17px;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceBar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+  padding: 7px 10px;
+  border: 1.5px solid var(--anchor);
+  border-left-width: 6px;
+  color: var(--anchor);
+  font-size: 11px;
+}
+
+.sourceLive {
+  background: var(--mint);
+}
+
+.sourcePreview {
+  background: var(--yolk);
+}
+
+.browser {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.controls {
+  position: sticky;
+  top: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+}
+
+.controlHeader {
+  display: flex;
+  justify-content: space-between;
+  color: var(--anchor-soft);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.controlHeader small {
+  font-family: var(--font-jp), monospace;
+  letter-spacing: 0;
+}
+
+.filterRail {
+  display: grid;
+  gap: 6px;
+}
+
+.filterButton {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1.5px solid var(--anchor);
+  border-radius: 0;
+  background: var(--cream);
+  color: var(--anchor);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.filterButton[data-active="true"] {
+  background: var(--pink-hot);
+  color: #3a2c3a;
+}
+
+.filterButton small {
+  font-family: var(--font-jp), monospace;
+  opacity: 0.72;
+}
+
+.searchBox {
+  display: grid;
+  gap: 5px;
+  color: var(--anchor-soft);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.searchBox input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1.5px solid var(--anchor);
+  border-radius: 0;
+  background: var(--input-bg, var(--cream));
+  color: var(--anchor);
+  font: inherit;
+  text-transform: none;
+}
+
+.sideFacts {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px dotted var(--anchor);
+  color: var(--anchor-soft);
+  font-size: 10px;
+}
+
+.marketBoard {
+  min-width: 0;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+}
+
+.boardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.boardHeader span {
+  display: block;
+  color: var(--pink-hot);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.boardHeader b {
+  display: block;
+  color: var(--anchor);
+  font-size: 15px;
+}
+
+.boardHeader p {
+  margin: 0;
+  color: var(--anchor-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mosaic {
+  display: grid;
+  grid-auto-flow: dense;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+.releaseCard {
+  display: grid;
+  grid-column: span 2;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.releaseCard[data-featured="true"] {
+  grid-column: span 3;
+  grid-row: span 2;
+}
+
+.releaseCard:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 rgba(58, 44, 58, 0.16);
+}
+
+.releaseArtWrap {
+  position: relative;
+  min-width: 0;
+  padding: 8px 8px 0;
+}
+
+.releaseArt,
+.missingArt {
+  aspect-ratio: 1;
+  width: 100%;
+  border: 1.5px solid var(--anchor);
+  background-color: var(--mizuiro);
+}
+
+.releaseCard[data-featured="true"] .releaseArt,
+.releaseCard[data-featured="true"] .missingArt {
+  aspect-ratio: 1.28;
+}
+
+.missingArt {
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--cream-deep) 78%, transparent) 0 8px, transparent 8px 16px),
+    var(--cream);
+  color: var(--anchor-soft);
+  font-size: 10px;
+  text-align: center;
+}
+
+.badges {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.badges span {
+  padding: 2px 5px;
+  border: 1px solid var(--anchor);
+  background: var(--card);
+  color: var(--anchor);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.releaseInfo {
+  min-width: 0;
+  padding: 9px 9px 0;
+}
+
+.nameRow {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.nameRow h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 20px;
+  line-height: 1.05;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameRow span {
+  flex: 0 0 auto;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 11px;
+}
+
+.releaseInfo p {
+  display: -webkit-box;
+  min-height: 34px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  color: var(--anchor-soft);
+  font-size: 11px;
+  line-height: 1.32;
+  -webkit-line-clamp: 2;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 9px;
+}
+
+.metric {
+  min-width: 0;
+  padding: 5px;
+  border: 1px dotted var(--anchor);
+  background: var(--cream-deep);
+}
+
+.metric span {
+  display: block;
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.metric b {
+  display: block;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress {
+  margin: auto 9px 0;
+}
+
+.progress div {
+  overflow: hidden;
+  height: 7px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--pink-hot);
+}
+
+.progress span {
+  display: block;
+  margin-top: 4px;
+  color: var(--anchor-soft);
+  font-size: 9px;
+}
+
+.releaseFoot {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 9px 9px;
+  color: var(--anchor-soft);
+  font-size: 9.5px;
+}
+
+.releaseFoot span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.releaseFoot b {
+  flex: 0 0 auto;
+  color: var(--pink-hot);
+  text-transform: uppercase;
+}
+
+.emptyState {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  margin: 10px;
+  min-height: 310px;
+  padding: 18px;
+  border: 1.5px dashed var(--anchor);
+  background: color-mix(in srgb, var(--cream-deep) 70%, transparent);
+}
+
+.emptyArt {
+  width: 100%;
+  aspect-ratio: 1.18;
+  border: 1.5px solid var(--anchor);
+  object-fit: cover;
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--mizuiro-deep) 42%, transparent);
+}
+
+.emptyState h2 {
+  margin: 0;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.emptyState p {
+  max-width: 520px;
+  margin: 8px 0 12px;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.emptyState a {
+  color: var(--link-blue);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+:root[data-theme="dark"] .masthead,
+:root[data-theme="dark"] .controls,
+:root[data-theme="dark"] .marketBoard {
+  background: var(--cream);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] .releaseCard {
+  background: var(--card);
+}
+
+:root[data-theme="dark"] .releaseCard:hover {
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.28);
+}
+
+@media (max-width: 980px) {
+  .masthead {
+    grid-template-columns: 1fr;
+  }
+
+  .identity {
+    border-right: 0;
+    border-bottom: 1px dotted var(--anchor);
+  }
+
+  .browser {
+    grid-template-columns: 1fr;
+  }
+
+  .controls {
+    position: static;
+  }
+
+  .filterRail {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .filterRail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filterButton {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .mosaic {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    width: min(100vw - 20px, 430px);
+    padding-top: 10px;
+  }
+
+  .identity h1 {
+    font-size: 30px;
+  }
+
+  .marketReadout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .readout:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .readout:nth-child(-n + 2) {
+    border-bottom: 1px dotted var(--anchor);
+  }
+
+  .sourceBar {
+    display: block;
+  }
+
+  .sourceBar span {
+    display: block;
+    margin-top: 2px;
+  }
+
+  .boardHeader {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .mosaic {
+    grid-template-columns: 1fr;
+  }
+
+  .releaseCard,
+  .releaseCard[data-featured="true"] {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .releaseCard[data-featured="true"] .releaseArt,
+  .releaseCard[data-featured="true"] .missingArt {
+    aspect-ratio: 1;
+  }
+
+  .emptyState {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .emptyArt {
+    width: min(260px, 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .releaseCard,
+  .releaseCard:hover {
+    transform: none;
+    transition: none;
+  }
+}

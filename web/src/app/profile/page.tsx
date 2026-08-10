@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useAccount } from 'wagmi';
 
 import { Mascot } from '@/components/Mascot';
+import styles from './profile.module.css';
 
 export default function ProfileMePage() {
   const { address, isConnected } = useAccount();
@@ -25,22 +26,27 @@ export default function ProfileMePage() {
   const showConnected = mounted && isConnected;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-14 text-center">
-      <Mascot size={80} mood={showConnected ? 'happy' : 'confused'} className="uru-idle-bob" />
-      <div className="uru-eyebrow" style={{ marginTop: 8 }}>profile</div>
-      <h1 className="uru-h1" style={{ fontSize: 32 }}>
-        {showConnected ? 'redirecting ~~' : 'connect ur wallet first ✿'}
-      </h1>
-      <p style={{ marginTop: 6, color: 'var(--anchor-soft)', fontFamily: 'var(--font-round), Klee One, cursive' }}>
-        {showConnected
-          ? 'sending u to ur profile page ~'
-          : 'ur profile lives at /profile/<ur wallet>. connect above to see urs, or paste any address in the url to see theirs.'}
-      </p>
-      {!showConnected && (
-        <div style={{ marginTop: 20, display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <Link href="/discover" className="uru-btn">« back to launches</Link>
+    <div className={styles.entryFrame}>
+      <section className={`uru-shell ${styles.entryCard}`} style={{ textAlign: 'center' }}>
+        <div className={styles.entryMascot}>
+          <Mascot size={84} mood={showConnected ? 'happy' : 'confused'} className="uru-idle-bob" />
         </div>
-      )}
+        <div className="uru-eyebrow">creator profile</div>
+        <h1 className="uru-h1" style={{ fontSize: 36, lineHeight: 1.05 }}>
+          {showConnected ? 'opening your profile' : 'connect to open your profile'}
+        </h1>
+        <p className={styles.entryCopy}>
+          {showConnected
+            ? 'sending this wallet to its profile, launched tokens, activity, and holdings.'
+            : 'profiles live at /profile/<wallet>. connect above to see yours, or paste any address in the url to view a public profile.'}
+        </p>
+        {!showConnected && (
+          <div className={styles.entryActions}>
+            <Link href="/discover" className="uru-btn">browse tokens</Link>
+            <Link href="/feed" className="uru-btn uru-btn-mint">open feed</Link>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

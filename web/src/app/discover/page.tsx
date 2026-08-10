@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
-import { Mascot } from '@/components/Mascot';
+import styles from './discover.module.css';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import {
   mockMarketCapEth,
@@ -21,11 +22,6 @@ import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
-// All filters are curve-only now — the create page only launches curves (quick
-// + customizable, both fire installBondingCurve=true). The old 'direct mint'
-// filter selected no-curve tokens (legacy pre-rename direct + NFT bases); NFT
-// launches aren't shipping yet and legacy direct tokens are hidden, so the
-// filter's bucket is empty. Dropped it to keep the bar tight.
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
@@ -38,25 +34,20 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'all', label: 'all', jp: '全部' },
 ];
 
-// Relative-time formatting has moved to `useAgo` — a hook that returns null on SSR to
-// avoid hydration mismatch, then real "12s / 3m / 2h / 5d" strings post-mount, ticking
-// every 30s. Legacy static NOW here caused live launches (post-2026-06) to render as
-// negative time since they happened after the frozen constant.
+function classNames(...names: Array<string | false | null | undefined>) {
+  return names.filter(Boolean).join(' ');
+}
 
 export default function DiscoverPage() {
   const activeChain = useActiveChain();
   const activeChainId = CHAIN_KEY_TO_ID[activeChain];
   const [filter, setFilter] = useState<Filter>('trending');
   const [query, setQuery] = useState('');
-  // Unified feed: indexer-backed for live chains, mocks for preview chains.
   const feed = useLaunchFeed(activeChainId);
-  const indexerChecked = feed.ready;
-  const indexerLaunches = feed.source === 'indexer' ? feed.launches : null;
+  const isIndexer = feed.source === 'indexer';
   const source = feed.launches;
 
   const filtered = useMemo(() => {
-    // Curve-only surface (direct-mint tab was dropped along with the direct-launch
-    // mechanic). Every filter operates on tokens that have a bonding curve installed.
     let list = source.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -85,8 +76,6 @@ export default function DiscoverPage() {
         list = list.filter((l) => l.graduated);
         break;
       case 'whitelist':
-        // WL launches — filter on the indexer-populated flag; sort newest first so
-        // active WL windows (recent launches) surface at the top.
         list = list.filter((l) => l.hasWhitelist === true);
         list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
@@ -98,336 +87,241 @@ export default function DiscoverPage() {
     return list;
   }, [filter, query, source]);
 
+  const graduatedCount = source.filter((l) => l.graduated).length;
+  const whitelistCount = source.filter((l) => l.hasWhitelist).length;
+  const totalTrades = source.reduce((sum, launch) => sum + tradeCountOf(launch), 0);
+  const totalRaised = source.reduce((sum, launch) => sum + launch.ethReserve, 0n);
+
   return (
-    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
-      {/* ================================================================
-          COMPACT HEADER — one row: mascot + title + chain badge + count
-          ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '12px 18px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 14,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Mascot size={44} mood="happy" className="uru-idle-bob" />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>❁ launches · {CHAIN_LABELS[activeChain]}</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <h1 className="uru-h1" style={{ fontSize: 24, lineHeight: 1 }}>the feed</h1>
-            <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 14, color: 'var(--anchor-soft)' }}>
-              新着
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 11,
-                color: 'var(--anchor-soft)',
-                marginLeft: 4,
-              }}
-            >
-              · {source.length} on this chain
-            </span>
-          </div>
+    <main className={styles.page}>
+      <header className={styles.masthead}>
+        <div className={styles.identity}>
+          <p>token market · {CHAIN_LABELS[activeChain]}</p>
+          <h1>Discover</h1>
         </div>
-        <Link href="/create" className="uru-btn uru-btn-primary" style={{ padding: '6px 14px', fontSize: 12 }}>
+        <div className={styles.marketReadout} aria-label="Market status">
+          <Readout label="tokens" value={String(source.length)} />
+          <Readout label="showing" value={String(filtered.length)} />
+          <Readout label="trades" value={String(totalTrades)} />
+          <Readout label="raised" value={`${Number(formatEther(totalRaised)).toFixed(2)}Ξ`} />
+        </div>
+        <Link href="/create" className="uru-btn uru-btn-primary">
           launch a token <span className="uru-arrow">→</span>
         </Link>
-      </section>
+      </header>
 
-      {/* ================================================================
-          DATA-SOURCE STRIP — slim colored bar instead of full shell
-          ================================================================ */}
-      <div
-        style={{
-          padding: '6px 12px',
-          marginBottom: 10,
-          background: indexerLaunches ? 'var(--mint)' : 'var(--yolk)',
-          borderLeft: '4px solid var(--anchor)',
-          border: '1.5px solid var(--anchor)',
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10.5,
-          color: 'var(--anchor)',
-        }}
-      >
-        {indexerLaunches ? (
+      <div className={classNames(styles.sourceBar, isIndexer ? styles.sourceLive : styles.sourcePreview)}>
+        {isIndexer && feed.ready ? (
           <>
-            <b>● live feed</b> ~ {indexerLaunches.length} launch{indexerLaunches.length === 1 ? '' : 'es'} from the indexer ✿
+            <b>● live indexer</b>
+            <span>
+              {source.length} token{source.length === 1 ? '' : 's'} on {CHAIN_LABELS[activeChain]}
+            </span>
           </>
-        ) : indexerChecked ? (
-          <><b>◐ preview</b> ~ indexer reachable but no launches yet; mock feed shown until the first real one lands.</>
+        ) : isIndexer ? (
+          <>
+            <b>◐ live indexer</b>
+            <span>checking deployed-chain tokens before rendering market rows</span>
+          </>
         ) : (
-          <><b>◐ preview</b> ~ mock tokens. broadcast phase 1 + start the indexer for a live feed.</>
+          <>
+            <b>◐ preview chain</b>
+            <span>mock tokens only where contracts are not deployed; live chains stay honest</span>
+          </>
         )}
       </div>
 
-      {/* ================================================================
-          TOOLBAR — tabs + search on one row, hides gracefully on mobile
-          ================================================================ */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 8,
-          alignItems: 'center',
-          marginBottom: 12,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: 5,
-            flexWrap: 'nowrap',
-            overflowX: 'auto',
-            maxWidth: '100%',
-            paddingBottom: 2,
-            scrollbarWidth: 'none',
-          }}
-        >
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFilter(f.id)}
-              className="uru-chip"
-              data-active={filter === f.id}
-              style={{ padding: '5px 12px', flexShrink: 0, whiteSpace: 'nowrap' }}
-            >
-              {f.label}
-              <span
-                style={{
-                  fontFamily: 'var(--font-jp), monospace',
-                  fontSize: 10,
-                  marginLeft: 4,
-                  opacity: 0.7,
-                }}
-              >
-                {f.jp}
-              </span>
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1 }} />
-        <input
-          className="uru-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="search name / ticker / addr"
-          style={{ maxWidth: 260, fontSize: 12 }}
-        />
-      </div>
-
-      {/* ================================================================
-          DENSE CARD GRID — 4-col at lg, 3-col at md, 2-col at sm
-          ================================================================ */}
-      <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {filtered.map((l) => (
-          <LaunchCard key={l.address} launch={l} />
-        ))}
-      </div>
-
-      {filtered.length === 0 && (
-        <div className="uru-shell" style={{ padding: 22, textAlign: 'center', marginTop: 12 }}>
-          <Mascot size={44} mood="confused" />
-          <div
-            style={{
-              marginTop: 6,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 11,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            no launches match ~~
+      <section className={styles.browser} aria-label="Token browser">
+        <aside className={styles.controls} aria-label="Browse controls">
+          <div className={styles.controlHeader}>
+            <span>filters</span>
+            <small>{FILTERS.find((f) => f.id === filter)?.jp}</small>
           </div>
-        </div>
-      )}
+          <div className={styles.filterRail} role="tablist" aria-label="Token filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFilter(f.id)}
+                className={styles.filterButton}
+                data-active={filter === f.id}
+                role="tab"
+                aria-selected={filter === f.id}
+              >
+                <span>{f.label}</span>
+                <small>{f.jp}</small>
+              </button>
+            ))}
+          </div>
+          <label className={styles.searchBox}>
+            <span>search</span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              type="search"
+              placeholder="name / ticker / address"
+              aria-label="Search name, ticker, or token address"
+            />
+          </label>
+          <div className={styles.sideFacts}>
+            <span>{graduatedCount} graduated</span>
+            <span>{whitelistCount} whitelist</span>
+          </div>
+        </aside>
+
+        <section className={styles.marketBoard} aria-label="Token results">
+          <div className={styles.boardHeader}>
+            <div>
+              <span>{filter.replace('-', ' ')}</span>
+              <b>{filtered.length} result{filtered.length === 1 ? '' : 's'}</b>
+            </div>
+            <p>price, market cap, curve progress, age, and trade count stay visible for scanning.</p>
+          </div>
+          {filtered.length > 0 ? (
+            <div className={styles.mosaic}>
+              {filtered.map((launch, index) => (
+                <LaunchCard key={launch.address} launch={launch} index={index} />
+              ))}
+            </div>
+          ) : (
+            <MarketEmpty chainLabel={CHAIN_LABELS[activeChain]} query={query} sourceIsLive={isIndexer} />
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+function Readout({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.readout}>
+      <span>{label}</span>
+      <b>{value}</b>
     </div>
   );
 }
 
-function LaunchCard({ launch }: { launch: MockLaunch }) {
+function MarketEmpty({
+  chainLabel,
+  query,
+  sourceIsLive,
+}: {
+  chainLabel: string;
+  query: string;
+  sourceIsLive: boolean;
+}) {
+  return (
+    <div className={styles.emptyState}>
+      <Image
+        className={styles.emptyArt}
+        src="/culture-first-altar-v2.png"
+        width={420}
+        height={356}
+        alt="Urufu culture-first artwork"
+      />
+      <div>
+        <h2>{query.trim() ? 'No matching tokens' : `No tokens on ${chainLabel} yet`}</h2>
+        <p>
+          {sourceIsLive
+            ? 'The live indexer returned an empty market for this chain. No preview tokens are substituted here.'
+            : 'This preview chain has no matching mock tokens for the current filter.'}
+        </p>
+        <Link href="/create">create a token »</Link>
+      </div>
+    </div>
+  );
+}
+
+function LaunchCard({ launch, index }: { launch: MockLaunch; index: number }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   const spotPriceWei = useMemo(() => mockSpotPriceWei(launch), [launch]);
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
-
-  // Prefer the indexer-supplied imageUrl (shared across every browser). Fall back to
-  // the browser's localStorage snapshot only when the indexer hasn't got one yet —
-  // handles the moment right after a launch when the metadata POST is still in flight.
   const [localImage, setLocalImage] = useState<string | undefined>();
+
   useEffect(() => {
     if (launch.imageUrl) return;
     const m = loadMetadata(launch.chainId, launch.address);
     if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
   }, [launch.imageUrl, launch.chainId, launch.address]);
-  const logoDataUrl = launch.imageUrl ?? localImage;
+
+  const image = launch.imageUrl ?? localImage;
+  const raised = `${Number(formatEther(launch.ethReserve)).toFixed(2)}Ξ`;
+  const target = `${Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ`;
+  const featured = index === 0 || index % 7 === 0;
 
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell-tight uru-launch-card"
-      style={{
-        display: 'block',
-        textDecoration: 'none',
-        color: 'inherit',
-        padding: 10,
-      }}
+      className={styles.releaseCard}
+      data-featured={featured ? 'true' : undefined}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 8,
-            border: '1.5px solid var(--anchor)',
-            background: safeBackgroundImage(logoDataUrl, launch.logoBg),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-            flexShrink: 0,
-          }}
-        >
-          {!logoDataUrl && launch.logoEmoji}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-            <div
-              className="uru-h2"
-              style={{
-                fontSize: 13,
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {launch.name}
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: 'var(--anchor-soft)',
-              }}
-            >
-              ${launch.ticker}
-            </div>
-          </div>
-          {launch.description && (
-            <div
-              style={{
-                fontSize: 10.5,
-                color: 'var(--anchor-soft)',
-                marginTop: 1,
-                lineHeight: 1.3,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {launch.description}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Price + mcap strip */}
-      <div
-        style={{
-          marginTop: 8,
-          padding: '4px 6px',
-          background: 'var(--cream-deep)',
-          border: '1px dashed var(--anchor)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'baseline',
-          gap: 6,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 9.5,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        <span>
-          px{' '}
-          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
-            {formatPrice(spotPriceWei, unit, ethUsd)}
-          </span>
-        </span>
-        <span>
-          mcap{' '}
-          <span style={{ color: 'var(--anchor)', fontWeight: 700, fontSize: 11 }}>
-            {formatMcap(mcap, unit, ethUsd)}
-          </span>
-        </span>
-      </div>
-
-      {/* Progress */}
-      <div style={{ marginTop: 6 }}>
-        <div
-          style={{
-            height: 6,
-            background: 'var(--cream-deep)',
-            border: '1.5px solid var(--anchor)',
-          }}
-        >
+      <div className={styles.releaseArtWrap}>
+        {image ? (
           <div
-            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
-            style={{
-              width: `${progress}%`,
-              height: '100%',
-              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
-            }}
+            className={styles.releaseArt}
+            role="img"
+            aria-label={`${launch.name} token artwork`}
+            style={{ background: safeBackgroundImage(image, launch.logoBg) }}
+          />
+        ) : (
+          <div className={styles.missingArt}>
+            <span>metadata image pending</span>
+          </div>
+        )}
+        <div className={styles.badges}>
+          <span>{launch.graduated ? 'graduated' : 'curve'}</span>
+          {launch.hasWhitelist && <span>whitelist</span>}
+          {launch.payToken === 'URU' && <span>uru paid</span>}
+        </div>
+      </div>
+
+      <div className={styles.releaseInfo}>
+        <div className={styles.nameRow}>
+          <h2>{launch.name}</h2>
+          <span>${launch.ticker}</span>
+        </div>
+        {launch.description && <p>{launch.description}</p>}
+      </div>
+
+      <div className={styles.metrics}>
+        <Metric label="px" value={formatPrice(spotPriceWei, unit, ethUsd)} />
+        <Metric label="mcap" value={formatMcap(mcap, unit, ethUsd)} />
+        <Metric label="raised" value={`${raised}/${target}`} />
+        <Metric label="tx" value={String(tradeCountOf(launch))} />
+      </div>
+
+      <div className={styles.progress}>
+        <div>
+          <i
+            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : undefined}
+            style={{ width: `${progress}%` }}
           />
         </div>
-        <div
-          style={{
-            marginTop: 3,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(1)}% → v4`}</span>
-          <span>{Number(formatEther(launch.ethReserve)).toFixed(2)}/{Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ</span>
-        </div>
+        <span>{launch.graduated ? 'pooled on v4' : `${progress.toFixed(1)}% to v4`}</span>
       </div>
 
-      {/* Trades + time */}
-      <div
-        style={{
-          marginTop: 6,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 9.5,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        <span>{tradeCountOf(launch)} tx · <AgoLabel ts={launch.launchedAt} /></span>
-        <span
-          style={{
-            color: 'var(--pink-hot)',
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-          }}
-        >
-          trade <span className="uru-arrow">→</span>
+      <div className={styles.releaseFoot}>
+        <span>
+          {launch.creator.slice(0, 6)}··{launch.creator.slice(-3)} · <AgoLabel ts={launch.launchedAt} />
         </span>
+        <b>trade <span className="uru-arrow">→</span></b>
       </div>
     </Link>
   );
 }
 
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.metric}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}
+
 function AgoLabel({ ts }: { ts: number }) {
   const label = useAgo(ts);
-  return <>{label ?? '—'}</>;
+  return <>{label ?? '--'}</>;
 }

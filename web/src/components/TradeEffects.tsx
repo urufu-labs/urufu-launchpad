@@ -23,9 +23,9 @@ export function TradeTicker({
   const entries = useMemo(() => {
     if (trades.length === 0) {
       return [
-        { key: 'idle-1', side: 'buy' as const, text: '~~ waiting for the first ape ~~' },
-        { key: 'idle-2', side: 'sell' as const, text: '✿ tap tap launch ~ tap tap launch ✿' },
-        { key: 'idle-3', side: 'buy' as const, text: '好き好き大好き ~ trade something!!' },
+        { key: 'idle-1', side: 'buy' as const, text: 'waiting for the first buy' },
+        { key: 'idle-2', side: 'sell' as const, text: 'curve prints once trading starts' },
+        { key: 'idle-3', side: 'buy' as const, text: 'paste a live token or open a release' },
       ];
     }
     return trades.slice(0, 20).map((t, i) => {
@@ -33,7 +33,7 @@ export function TradeTicker({
       const tok = Number(t.tokens) / 1e18;
       const short = `${t.trader.slice(0, 6)}…${t.trader.slice(-4)}`;
       const arrow = t.isBuy ? '→' : '←';
-      const label = t.isBuy ? 'aped' : 'dumped';
+      const label = t.isBuy ? 'bought' : 'sold';
       const sym = symbol ?? '';
       return {
         key: `trade-${i}-${t.trader}`,

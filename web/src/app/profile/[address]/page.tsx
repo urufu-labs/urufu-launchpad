@@ -5,15 +5,15 @@
 /// Data sources:
 ///  - Ponder indexer: creations (launches), activity (trades), holdings.
 ///    All queries are defensive — if the indexer is down we render empty states.
-///  - localStorage: profile identity (name/avatar/bio/socials). Phase-1 MVP so
-///    identity is per-browser; anyone visiting your profile from another device
-///    still gets the address + indexer stats but not your bio/avatar. Phase 2
-///    will pin identity to IPFS.
+///  - localStorage: instant local profile snapshot (name/avatar/bio/socials).
+///  - social API: shared, signature-gated profile fields. Avatars are either a
+///    Vercel Blob URL or an NFT's existing media URL; no NFT asset bytes are copied.
 ///
 /// If the connected wallet matches the profile address, an "edit" button opens
-/// the modal below. All edits go straight to localStorage (no network).
+/// the modal below. Local state updates first, then a signature-gated API save
+/// shares the profile with other browsers.
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 import { useAccount, useSignMessage } from 'wagmi';
@@ -55,9 +55,11 @@ import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
 import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
-
 import { NftAvatarPicker } from '@/components/NftAvatarPicker';
+import styles from '../profile.module.css';
+
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
+type ProfileSection = 'releases' | 'holdings' | 'activity';
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
   const resolved = use(params);
@@ -273,14 +275,15 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [modalMode, setModalMode] = useState<FollowsMode | null>(null);
 
   const [editing, setEditing] = useState(false);
+  const [profileSection, setProfileSection] = useState<ProfileSection>('releases');
 
   if (!isValid) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-12 text-center">
+      <div className={styles.badAddress}>
         <Mascot size={72} mood="confused" />
-        <div className="uru-h1 mt-3" style={{ fontSize: 26 }}>bad address ~~</div>
+        <div className="uru-h1 mt-3" style={{ fontSize: 30 }}>bad address</div>
         <p style={{ marginTop: 6, color: 'var(--anchor-soft)' }}>
-          the url doesnt look like an ethereum address. try{' '}
+          the url does not look like an ethereum address. try{' '}
           <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>/profile/0x…</code>
         </p>
       </div>
@@ -288,474 +291,232 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   }
 
   const name = displayNameFor(profile, address);
+  const positiveHoldings = (holdings ?? []).filter((h) => BigInt(h.balance) > 0n);
 
   return (
-    <div className="mx-auto max-w-6xl px-3 sm:px-4 py-4">
-      {/* ================================================================
-          IDENTITY HEADER — avatar + name + address + socials + CTA
-          ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '14px 18px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 14,
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div
-          style={{
-            width: 72,
-            height: 72,
-            flexShrink: 0,
-            borderRadius: 12,
-            border: '1.5px solid var(--anchor)',
-            boxShadow: '2px 2px 0 var(--anchor)',
-            background: safeBackgroundImage(profile.avatarDataUrl),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 28,
-            color: 'var(--anchor)',
-          }}
-        >
-          {!profile.avatarDataUrl && 'ウ'}
+    <div className={styles.profileFrame}>
+      <section className={styles.pressKit}>
+        <div className={styles.identityPlate}>
+          <div className={styles.avatarStamp} style={{ background: safeBackgroundImage(profile.avatarDataUrl) }}>
+            {!profile.avatarDataUrl && <span>{name.slice(0, 1).toUpperCase()}</span>}
+          </div>
+          <div className={styles.identityText}>
+            <div className="uru-eyebrow">creator profile</div>
+            <h1 className={`uru-h1 ${styles.profileName}`}>{name}</h1>
+            <div className={styles.addressLine}>{address}</div>
+            {profile.avatarNft && (
+              <div style={{ marginTop: 5, color: 'var(--anchor-soft)', fontFamily: 'var(--font-pixel), monospace', fontSize: 9 }}>
+                NFT PFP · {profile.avatarNft.tokenName ?? profile.avatarNft.collectionName ?? `#${profile.avatarNft.tokenId}`} · {profile.avatarNft.chain}
+              </div>
+            )}
+            {profile.bio && <p className={styles.bio}>{profile.bio}</p>}
+            {(profile.twitter || profile.telegram || profile.discord || profile.website) && (
+              <div className={styles.socials}>
+                {profile.twitter && <MiniLink href={profile.twitter} label="twitter" />}
+                {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
+                {profile.discord && <MiniLink href={profile.discord} label="discord" />}
+                {profile.website && <MiniLink href={profile.website} label="site" />}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow">♡ profile</div>
-          <h1 className="uru-h1" style={{ fontSize: 24, lineHeight: 1.1 }}>
-            {name}
-          </h1>
-          <div
-            style={{
-              marginTop: 2,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-              wordBreak: 'break-all',
-            }}
-          >
-            {address}
+        <aside className={styles.pressFacts}>
+          <div className={styles.actionShelf}>
+            {isOwn ? (
+              <button type="button" onClick={() => setEditing(true)} className="uru-btn uru-btn-primary">
+                edit profile
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  // Optimistic local toggle for the instant button flip, then
+                  // fire the signed backend write so the followee's /followers
+                  // list reflects it. If the wallet isn't connected we fall back
+                  // to local-only (backend needs a signature).
+                  if (wallet) {
+                    const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
+                    playSfx(nowFollowing ? 'coin' : 'flip');
+                    // Backend write completed — bump the tick so the counts
+                    // pill refetches the new server-side state. Without this
+                    // the refetch races the signature and reads stale data.
+                    setRemoteRefreshTick((n) => n + 1);
+                  } else {
+                    const nowFollowing = toggleFollow(address);
+                    playSfx(nowFollowing ? 'coin' : 'flip');
+                  }
+                }}
+                className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
+              >
+                {isFollowingThis ? 'following' : 'follow'}
+              </button>
+            )}
+            {isOwn && <Link href="/feed" className="uru-btn uru-btn-mint">feed ({followingCount})</Link>}
           </div>
-          {profile.bio && (
-            <p style={{ marginTop: 6, fontSize: 12.5, lineHeight: 1.45, maxWidth: 520 }}>
-              {profile.bio}
-            </p>
-          )}
-          {(profile.twitter || profile.telegram || profile.discord || profile.website) && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {profile.twitter && <MiniLink href={profile.twitter} label="twitter" />}
-              {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
-              {profile.discord && <MiniLink href={profile.discord} label="discord" />}
-              {profile.website && <MiniLink href={profile.website} label="site" />}
-            </div>
-          )}
-          {/* Followers / following pills — clickable to open the modal that lists
-              everyone in that bucket. Live on the LEFT side under the profile
-              info so edit/follow + feed stay on the RIGHT as a clean action
-              column. Shown for every profile (own + others). */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              marginTop: 10,
-              fontFamily: 'var(--font-round), Klee One, cursive',
-              fontSize: 12,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setModalMode('followers')}
-              style={{
-                padding: '3px 10px',
-                borderRadius: 999,
-                border: '1.5px solid var(--anchor)',
-                background: 'var(--cream)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                lineHeight: 1.4,
-                color: 'var(--anchor)',
-              }}
-            >
+
+          <div className={styles.followPills}>
+            <button type="button" onClick={() => setModalMode('followers')} className={styles.followPill}>
               <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
             </button>
-            <button
-              type="button"
-              onClick={() => setModalMode('following')}
-              style={{
-                padding: '3px 10px',
-                borderRadius: 999,
-                border: '1.5px solid var(--anchor)',
-                background: 'var(--cream)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                lineHeight: 1.4,
-                color: 'var(--anchor)',
-              }}
-            >
+            <button type="button" onClick={() => setModalMode('following')} className={styles.followPill}>
               <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
             </button>
           </div>
-        </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'flex-start' }}>
-          {isOwn ? (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="uru-btn uru-btn-primary"
-              style={{ padding: '6px 14px', fontSize: 12 }}
-            >
-              ✿ edit profile
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={async () => {
-                // Optimistic local toggle for the instant button flip, then
-                // fire the signed backend write so the followee's /followers
-                // list reflects it. If the wallet isn't connected we fall back
-                // to local-only (backend needs a signature).
-                if (wallet) {
-                  const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
-                  playSfx(nowFollowing ? 'coin' : 'flip');
-                  // Backend write completed — bump the tick so the counts
-                  // pill refetches the new server-side state. Without this
-                  // the refetch races the signature and reads stale data.
-                  setRemoteRefreshTick((n) => n + 1);
-                } else {
-                  const nowFollowing = toggleFollow(address);
-                  playSfx(nowFollowing ? 'coin' : 'flip');
-                }
-              }}
-              className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
-              style={{ padding: '6px 14px', fontSize: 12 }}
-            >
-              {isFollowingThis ? '✿ following' : '+ follow'}
-            </button>
-          )}
-          {isOwn && (
-            <Link
-              href="/feed"
-              className="uru-btn uru-btn-mint"
-              style={{ justifyContent: 'center', fontSize: 11, padding: '5px 10px' }}
-            >
-              ur feed ({followingCount})
-            </Link>
-          )}
-        </div>
+          <dl className={styles.factGrid}>
+            <div><dt>launched</dt><dd>{stats.launched}</dd></div>
+            <div><dt>held</dt><dd>{positiveHoldings.length}</dd></div>
+            <div><dt>trades</dt><dd>{stats.tradeCount}</dd></div>
+            <div><dt>net flow</dt><dd>{formatSignedEth(stats.netFlow)} Ξ</dd></div>
+          </dl>
+        </aside>
       </section>
 
-      {/* ================================================================
-          STATS STRIP — 6 tiles, data-forward
-          ================================================================ */}
-      <section
-        className="grid gap-2 mb-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
-      >
-        <StatTile label="launches" value={stats.launched.toString()} />
-        <StatTile label="trades" value={stats.tradeCount.toString()} />
-        <StatTile label="buys" value={stats.buyCount.toString()} accent="mint" />
-        <StatTile label="sells" value={stats.sellCount.toString()} accent="pink" />
-        <StatTile
-          label="net eth flow"
-          value={`${formatSignedEth(stats.netFlow)} Ξ`}
-          accent={stats.netFlow > 0n ? 'mint' : stats.netFlow < 0n ? 'pink' : undefined}
-        />
-        <StatTile
-          label="realized pnl"
-          value={`${formatSignedEth(realizedTotal)} Ξ`}
-          accent={realizedTotal > 0n ? 'mint' : realizedTotal < 0n ? 'pink' : undefined}
-        />
+      <section className={styles.collectionBoard}>
+        <div className={styles.boardHead}>
+          <SectionHead label="launched tokens" jp="作品" count={launches?.length} />
+          <span className={styles.financeNote}>
+            spent {formatEther(stats.ethSpent)} Ξ · received {formatEther(stats.ethReceived)} Ξ · realized pnl {formatSignedEth(realizedTotal)} Ξ
+          </span>
+        </div>
+        {launches === null && !loaded && <LoadingRow />}
+        {loaded && launches && launches.length === 0 && (
+          <div className={styles.emptySpecimen}>
+            {isOwn ? "u havent launched anything yet ~ head to /create" : 'no launches yet'}
+          </div>
+        )}
+        {launches && launches.length > 0 && (
+          <div className={styles.specimenRow}>
+            {launches.slice(0, 6).map((l) => <ReleaseSpecimen key={l.id} launch={l} />)}
+          </div>
+        )}
       </section>
 
-      <div
-        style={{
-          marginBottom: 12,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        spent {formatEther(stats.ethSpent)} Ξ · received {formatEther(stats.ethReceived)} Ξ ~ realized pnl uses buy-side avg cost basis
-      </div>
+      <nav className={styles.profileTabs} aria-label="profile sections">
+        {([
+          ['releases', 'launched', launches?.length ?? 0],
+          ['holdings', 'holdings', positiveHoldings.length + openPositions.length],
+          ['activity', 'activity', allTrades.length],
+        ] as const).map(([id, label, count]) => (
+          <button
+            key={id}
+            type="button"
+            className={styles.profileTab}
+            data-active={profileSection === id}
+            onClick={() => setProfileSection(id)}
+          >
+            <span>{label}</span>
+            <b>{count}</b>
+          </button>
+        ))}
+      </nav>
 
-      {/* ================================================================
-          MAIN + RAIL
-          ================================================================ */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
-        {/* MAIN */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-          {/* creations */}
-          <section>
-            <SectionHead label="creations" jp="発行" count={launches?.length} />
-            {launches === null && !loaded && <LoadingRow />}
-            {loaded && launches && launches.length === 0 && (
-              <EmptyRow label={isOwn ? "u havent launched anything yet ~ head to /create" : "no launches yet"} />
-            )}
-            {launches && launches.length > 0 && (
-              <div
-                className="grid gap-2"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
-              >
-                {launches.map((l) => (
-                  <Link
-                    key={l.id}
-                    href={`/trade/${l.tokenAddress}`}
-                    className="uru-shell-tight uru-launch-card"
-                    style={{
-                      textDecoration: 'none',
-                      color: 'inherit',
-                      padding: 8,
-                    }}
-                  >
-                    <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.15 }}>
-                      {l.name}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        color: 'var(--anchor-soft)',
-                      }}
-                    >
-                      ${l.ticker} · {BASE_LABEL[l.base] ?? '?'}
-                    </div>
-                    <div style={{ marginTop: 5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {l.installedBondingCurve && <MiniBadge label="curve" tint="mint" />}
-                      {l.installedHook && <MiniBadge label="hook" tint="mizuiro" />}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 5,
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 9,
-                        color: 'var(--anchor-soft)',
-                      }}
-                    >
-                      {formatAgo(Number(l.blockTimestamp) * 1000)} ago
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* positions */}
-          <section>
-            <SectionHead label="positions" jp="持高" count={openPositions.length} />
-            {trades === null && !loaded && <LoadingRow />}
-            {loaded && openPositions.length === 0 && <EmptyRow label="no positions yet" />}
-            {openPositions.length > 0 && (
-              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
-                    gap: 8,
-                    padding: '5px 10px',
-                    background: 'var(--cream-deep)',
-                    borderBottom: '1.5px solid var(--anchor)',
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 9,
-                    letterSpacing: '0.08em',
-                    color: 'var(--anchor-soft)',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  <span>token</span>
-                  <span>trades</span>
-                  <span>held</span>
-                  <span style={{ textAlign: 'right' }}>realized pnl</span>
+      <div className={styles.profileBody}>
+        <main className={styles.dossierPanel}>
+          {profileSection === 'releases' && (
+            <section className={styles.sectionBlock}>
+              <SectionHead label="launched tokens" jp="発行" count={launches?.length} />
+              {launches === null && !loaded && <LoadingRow />}
+              {loaded && launches && launches.length === 0 && (
+                <EmptyRow label={isOwn ? "u havent launched anything yet ~ head to /create" : 'no launches yet'} />
+              )}
+              {launches && launches.length > 0 && (
+                <div className={styles.releaseGrid}>
+                  {launches.map((l) => <ReleaseSpecimen key={l.id} launch={l} compact />)}
                 </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {openPositions.map((p, i) => (
-                    <li
-                      key={p.tokenAddress}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
-                        gap: 8,
-                        alignItems: 'center',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        borderBottom: i === openPositions.length - 1 ? 'none' : '1px dotted var(--anchor)',
-                        borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
-                      }}
-                    >
-                      {(() => {
-                        const lbl = tokenLabel(p.tokenAddress);
-                        return (
-                          <Link
-                            href={`/trade/${p.tokenAddress}`}
-                            title={lbl.full}
-                            style={{
-                              color: 'var(--link-blue)',
-                              textDecoration: 'underline',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {lbl.display}
-                          </Link>
-                        );
-                      })()}
-                      <span title="buys · sells">
-                        <span style={{ color: 'var(--mint-hot,#2b8a3e)' }}>{p.buyCount}b</span>
-                        {' · '}
-                        <span style={{ color: 'var(--pink-hot)' }}>{p.sellCount}s</span>
-                      </span>
-                      <span title="net token balance from trades">
-                        {p.netTokens > 0n
-                          ? Number(formatUnits(p.netTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                          : 'flat'}
-                      </span>
-                      <span
+              )}
+            </section>
+          )}
+
+          {profileSection === 'holdings' && (
+            <section className={styles.sectionBlock}>
+              <SectionHead label="holdings" jp="持高" count={positiveHoldings.length + openPositions.length} />
+              {holdings === null && !loaded && <LoadingRow />}
+              {loaded && positiveHoldings.length === 0 && openPositions.length === 0 && <EmptyRow label="no positions yet" />}
+              {openPositions.length > 0 && (
+                <ProfileTable
+                  headerClass={styles.positionHeader}
+                  headers={['token', 'trades', 'held', 'realized pnl']}
+                >
+                  {openPositions.map((p) => {
+                    const lbl = tokenLabel(p.tokenAddress);
+                    return (
+                      <li
+                        key={p.tokenAddress}
+                        className={`${styles.tableRow} ${styles.positionRow}`}
                         style={{
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: p.realizedPnl > 0n
-                            ? 'var(--mint-hot,#2b8a3e)'
-                            : p.realizedPnl < 0n
-                              ? 'var(--pink-hot)'
-                              : 'var(--anchor)',
+                          borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
                         }}
                       >
-                        {formatSignedEth(p.realizedPnl)} Ξ
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </section>
+                        <Link href={`/trade/${p.tokenAddress}`} title={lbl.full} className={styles.truncate}>
+                          {lbl.display}
+                        </Link>
+                        <span title="buys · sells"><b>{p.buyCount}b</b> · <b>{p.sellCount}s</b></span>
+                        <span title="net token balance from trades">
+                          {p.netTokens > 0n
+                            ? Number(formatUnits(p.netTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                            : 'flat'}
+                        </span>
+                        <span style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {formatSignedEth(p.realizedPnl)} Ξ
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ProfileTable>
+              )}
+            </section>
+          )}
 
-          {/* activity */}
-          <section>
-            <SectionHead label="activity" jp="取引" count={allTrades.length} />
-            {trades === null && !loaded && <LoadingRow />}
-            {loaded && allTrades.length === 0 && (
-              <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : "no trades yet"} />
-            )}
-            {allTrades.length > 0 && (
-              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '42px 1fr 1fr auto',
-                    gap: 8,
-                    padding: '5px 10px',
-                    background: 'var(--cream-deep)',
-                    borderBottom: '1.5px solid var(--anchor)',
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 9,
-                    letterSpacing: '0.08em',
-                    color: 'var(--anchor-soft)',
-                    textTransform: 'uppercase',
-                  }}
+          {profileSection === 'activity' && (
+            <section className={styles.sectionBlock}>
+              <SectionHead label="activity" jp="取引" count={allTrades.length} />
+              {trades === null && !loaded && <LoadingRow />}
+              {loaded && allTrades.length === 0 && (
+                <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : 'no trades yet'} />
+              )}
+              {allTrades.length > 0 && (
+                <ProfileTable
+                  headerClass={styles.activityHeader}
+                  headers={['side', 'eth', 'token', 'ago']}
                 >
-                  <span>side</span>
-                  <span>eth</span>
-                  <span>token</span>
-                  <span style={{ textAlign: 'right' }}>ago</span>
-                </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {allTrades.slice(0, 30).map((t, i) => (
-                    <li
-                      key={t.id}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '42px 1fr 1fr auto',
-                        gap: 8,
-                        alignItems: 'center',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        borderBottom: i === Math.min(29, allTrades.length - 1) ? 'none' : '1px dotted var(--anchor)',
-                      }}
-                    >
-                      <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
-                        {t.isBuy ? 'BUY' : 'SELL'}
-                      </span>
-                      <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} Ξ</span>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {(() => {
-                          const lbl = tokenLabel(t.tokenAddress);
-                          return (
-                            <Link
-                              href={`/trade/${t.tokenAddress}`}
-                              title={lbl.full}
-                              style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-                            >
-                              {lbl.display}
-                            </Link>
-                          );
-                        })()}
-                      </span>
-                      <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
-                        {formatAgo(Number(t.blockTimestamp) * 1000)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </section>
-        </div>
+                  {allTrades.slice(0, 30).map((t) => {
+                    const lbl = tokenLabel(t.tokenAddress);
+                    return (
+                      <li key={t.id} className={`${styles.tableRow} ${styles.activityRow}`}>
+                        <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
+                          {t.isBuy ? 'BUY' : 'SELL'}
+                        </span>
+                        <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} Ξ</span>
+                        <span className={styles.truncate}>
+                          <Link href={`/trade/${t.tokenAddress}`} title={lbl.full}>{lbl.display}</Link>
+                        </span>
+                        <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
+                          {formatAgo(Number(t.blockTimestamp) * 1000)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ProfileTable>
+              )}
+            </section>
+          )}
+        </main>
 
-        {/* RAIL — holdings */}
-        <aside
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            minWidth: 0,
-          }}
-          className="lg:sticky lg:top-4 lg:h-fit"
-        >
+        <aside className={styles.sideStack}>
           <EcosystemHoldings visibleFor={address} chain={activeChain} />
 
-          <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ launchpad holdings</div>
+          <section className={styles.sideCard}>
+            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>launchpad holdings</div>
             {holdings === null && !loaded && <LoadingRow tight />}
-            {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
+            {loaded && positiveHoldings.length === 0 && (
               <EmptyRow label="no urufu tokens held" tight />
             )}
-            {holdings && holdings.length > 0 && (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                }}
-              >
-                {holdings
-                  .filter((h) => BigInt(h.balance) > 0n)
-                  .slice(0, 20)
-                  .map((h) => (
-                    <li
-                      key={h.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        padding: '3px 0',
-                        borderBottom: '1px dashed var(--cream-shadow)',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10.5,
-                      }}
-                    >
+            {positiveHoldings.length > 0 && (
+              <ul className={styles.holdingList}>
+                {positiveHoldings.slice(0, 20).map((h) => (
+                    <li key={h.id} className={styles.holdingRow}>
                       {(() => {
                         const lbl = tokenLabel(h.tokenAddress);
                         return (
@@ -801,71 +562,62 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 // subcomponents
 // ============================================================================
 
-function SectionHead({ label, jp, count }: { label: string; jp: string; count?: number }) {
+function ReleaseSpecimen({ launch, compact }: { launch: IndexerLaunch; compact?: boolean }) {
+  const ticker = (launch.ticker || launch.name || 'URU').slice(0, 5).toUpperCase();
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-      <span className="uru-h1" style={{ fontSize: 16, lineHeight: 1 }}>{label}</span>
-      <span
-        style={{
-          fontFamily: 'var(--font-jp), monospace',
-          fontSize: 12,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        {jp}
-      </span>
-      {typeof count === 'number' && (
-        <span
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-            marginLeft: 2,
-          }}
-        >
-          · {count}
-        </span>
-      )}
+    <Link
+      href={`/trade/${launch.tokenAddress}`}
+      className={`${styles.specimenCard} ${compact ? styles.compactSpecimen : ''}`}
+    >
+      <div className={styles.specimenArt} aria-hidden>
+        <span>{ticker}</span>
+      </div>
+      <div className={styles.specimenCopy}>
+        <div className={`uru-h2 ${styles.releaseTitle}`}>{launch.name}</div>
+        <div className={styles.tokenMeta}>${launch.ticker}</div>
+        <div className={styles.badgeRow}>
+          {launch.installedBondingCurve && <MiniBadge label="curve" tint="mint" />}
+          {launch.installedHook && <MiniBadge label="hook" tint="mizuiro" />}
+        </div>
+        <div className={styles.timeMeta}>{formatAgo(Number(launch.blockTimestamp) * 1000)} ago</div>
+      </div>
+    </Link>
+  );
+}
+
+function ProfileTable({
+  headerClass,
+  headers,
+  children,
+}: {
+  headerClass: string;
+  headers: string[];
+  children: ReactNode;
+}) {
+  return (
+    <div className={styles.tableShell}>
+      <div className={`${styles.tableHeader} ${headerClass}`}>
+        {headers.map((h, i) => (
+          <span key={h} style={i === headers.length - 1 ? { textAlign: 'right' } : undefined}>
+            {h}
+          </span>
+        ))}
+      </div>
+      <ul className={styles.tableList}>{children}</ul>
     </div>
   );
 }
 
-function StatTile({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: 'pink' | 'mint' | 'mizuiro';
-}) {
-  const bg =
-    accent === 'pink' ? 'var(--pink-warm)' :
-    accent === 'mint' ? 'var(--mint)' :
-    accent === 'mizuiro' ? 'var(--mizuiro)' :
-    'var(--cream)';
-  const color =
-    accent === 'pink' ? 'var(--pink-hot)' :
-    accent === 'mint' ? 'var(--mint-hot,#2b8a3e)' :
-    'var(--anchor)';
+function SectionHead({ label, jp, count }: { label: string; jp: string; count?: number }) {
   return (
-    <div className="uru-shell-tight" style={{ background: bg, padding: '8px 12px', minWidth: 0 }}>
-      <div className="uru-eyebrow">{label}</div>
-      <div
-        style={{
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 17,
-          fontWeight: 700,
-          color,
-          lineHeight: 1.05,
-          marginTop: 2,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {value}
-      </div>
+    <div className={styles.sectionHead}>
+      <span className={`uru-h1 ${styles.sectionTitle}`}>{label}</span>
+      <span className={styles.sectionJp}>{jp}</span>
+      {typeof count === 'number' && (
+        <span className={styles.sectionCount}>
+          · {count}
+        </span>
+      )}
     </div>
   );
 }
@@ -929,14 +681,9 @@ function MiniLink({ href, label }: { href: string; label: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="uru-88"
-      style={{
-        padding: '2px 8px',
-        fontSize: 11,
-        fontFamily: 'var(--font-pixel), monospace',
-      }}
+      className={`uru-88 ${styles.miniLink}`}
     >
-      {label} →
+      {label}
     </a>
   );
 }
@@ -1070,26 +817,15 @@ function EditProfileModal({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(58,44,58,0.35)',
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: 20,
-        overflowY: 'auto',
-      }}
+      className={styles.modalBackdrop}
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="uru-shell"
-        style={{ maxWidth: 520, width: '100%', marginTop: 24, background: 'var(--cream)' }}
+        className={`uru-shell ${styles.editModal}`}
       >
         <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-          <div className="uru-eyebrow">✿ edit profile</div>
+          <div className="uru-eyebrow">edit profile</div>
           <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer' }} aria-label="close">✕</button>
         </div>
 
@@ -1181,13 +917,15 @@ function EditProfileModal({
 
           {error && (
             <div style={{ padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontSize: 11, color: 'var(--anchor)' }}>
-              ~~ {error}
+              {error}
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
             <button type="button" onClick={onClose} className="uru-btn" data-sfx="click">cancel</button>
-            <button type="button" onClick={save} className="uru-btn uru-btn-primary">✿ save</button>
+            <button type="button" onClick={save} className="uru-btn uru-btn-primary" disabled={saving}>
+              {saving ? 'saving' : 'save'}
+            </button>
           </div>
         </div>
       </div>
@@ -1198,8 +936,6 @@ function EditProfileModal({
 // ============================================================================
 // helpers
 // ============================================================================
-
-const BASE_LABEL: Record<number, string> = { 0: 'ERC-20', 1: 'ERC-721A', 2: 'ERC-1155' };
 
 function formatSignedEth(v: bigint): string {
   const n = Number(formatEther(v < 0n ? -v : v));

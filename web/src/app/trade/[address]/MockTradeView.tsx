@@ -12,6 +12,7 @@ import { TradeChart, type TradePoint } from '@/components/TradeChart';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
 import { mockMarketCapEth, type MockLaunch } from '@/lib/mockLaunches';
 import { formatGweiPerToken } from '@/lib/priceFmt';
+import styles from './trade-terminal.module.css';
 
 type Side = 'buy' | 'sell';
 
@@ -64,217 +65,134 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
   const chartFlashSide: Side = previewNonce > 0 ? previewSide : (newestMockTrade?.isBuy ? 'buy' : 'sell');
 
   return (
-    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
+    <div className={styles.terminalPage}>
       {/* preview-mode strip — slim colored bar */}
-      <div
-        style={{
-          padding: '6px 12px',
-          marginBottom: 10,
-          background: 'var(--yolk)',
-          borderLeft: '4px solid var(--anchor)',
-          border: '1.5px solid var(--anchor)',
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10.5,
-          color: 'var(--anchor)',
-        }}
-      >
+      <div className={styles.notice}>
         <b>◐ preview mode</b> ~ mock token for UI demo. buy/sell buttons are inert til phase 1 broadcasts.
       </div>
 
       {/* ================================================================
-          COMPACT HEADER — identity + mcap + address + fee, one row
+          TOKEN IDENTITY — compact market header with real art
           ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '10px 14px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 12,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div
-          style={{
-            width: 52,
-            height: 52,
-            borderRadius: 10,
-            border: '1.5px solid var(--anchor)',
-            background: launch.logoBg,
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 30,
-          }}
-        >
-          {launch.logoEmoji}
+      <section className={`uru-shell-tight ${styles.identityBar}`}>
+        <div className={styles.artFrame} aria-label="Token artwork">
+          {launch.imageUrl ? (
+            <div
+              className={styles.artImage}
+              style={{
+                backgroundImage: `url(${launch.imageUrl})`,
+                backgroundPosition: 'center',
+                backgroundSize: 'contain',
+                backgroundRepeat: 'no-repeat',
+              }}
+            />
+          ) : (
+            <div className={styles.artInitials} style={{ background: launch.logoBg }}>{launch.ticker.slice(0, 3)}</div>
+          )}
         </div>
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-            <h1 className="uru-h1" style={{ fontSize: 22, lineHeight: 1.05 }}>{launch.name}</h1>
-            <span style={{ color: 'var(--anchor-soft)', fontFamily: 'var(--font-pixel), monospace', fontSize: 13 }}>
+        <div className={styles.identityCopy}>
+          <div className="uru-eyebrow">token terminal</div>
+          <div className={styles.titleRow}>
+            <h1 className={`uru-h1 ${styles.title}`}>{launch.name}</h1>
+            <span className={styles.symbolPill}>
               ${launch.ticker}
             </span>
+            <span className={styles.statusPill}>{launch.graduated ? 'v4 pool' : 'curve live'}</span>
           </div>
-          <div
-            style={{
-              marginTop: 2,
-              display: 'flex',
-              gap: 10,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10.5,
-              color: 'var(--anchor-soft)',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className={styles.metaLine}>
             <span>{launch.address.slice(0, 6)}…{launch.address.slice(-4)}</span>
+            <Link href={`/profile/${launch.creator}`} style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+              creator {launch.creator.slice(0, 6)}…{launch.creator.slice(-4)}
+            </Link>
             <span>fee: {launch.tradeFeeBps / 100}%</span>
             <span>{launch.trades.length} trades</span>
+            <CopyCA address={launch.address} />
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ textAlign: 'right', paddingRight: 8, borderRight: '1px dashed var(--anchor)' }}>
-            <div className="uru-eyebrow">mkt cap</div>
-            <div
-              style={{
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 16,
-                fontWeight: 700,
-                color: 'var(--anchor)',
-                lineHeight: 1.05,
-              }}
-            >
-              <FlashCell value={marketCap}>
-                {Number(formatEther(marketCap)).toFixed(4)} Ξ
-              </FlashCell>
-            </div>
-          </div>
-          <CopyCA address={launch.address} />
         </div>
       </section>
 
       {/* ================================================================
-          GRADUATION STRIP — slim ribbon
+          MARKET STRIP — compact stats and pool state
           ================================================================ */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '4px 10px',
-          marginBottom: 10,
-          background: 'var(--cream)',
-          border: '1.5px solid var(--anchor)',
-        }}
-      >
-        <span className="uru-eyebrow" style={{ flexShrink: 0 }}>
-          {launch.graduated ? '✿ graduated' : 'grad → v4'}
-        </span>
-        <div style={{ flex: 1, height: 10, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', minWidth: 100 }}>
-          <div
-            className={progressPct > 85 && !launch.graduated ? 'uru-shimmer' : ''}
-            style={{
-              width: `${progressPct}%`,
-              height: '100%',
-              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
-              transition: 'width 0.4s ease',
-            }}
-          />
+      <div className={styles.poolStrip}>
+        <div className={styles.metricCell}>
+          <div className="uru-eyebrow">mkt cap</div>
+          <div className={styles.metricValue}>
+            <FlashCell value={marketCap}>
+              {Number(formatEther(marketCap)).toFixed(4)} Ξ
+            </FlashCell>
+          </div>
         </div>
-        <span
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 11,
-            color: 'var(--anchor)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
-          {' '}<b style={{ color: progressPct > 85 && !launch.graduated ? 'var(--pink-hot)' : 'var(--anchor)' }}>({progressPct.toFixed(1)}%)</b>
-        </span>
+        <div className={styles.metricCell}>
+          <div className="uru-eyebrow">spot</div>
+          <div className={styles.metricValue}>
+            <FlashCell value={spotPrice}>{formatGweiPerToken(spotPrice)} gw</FlashCell>
+          </div>
+        </div>
+        <div className={styles.metricCell}>
+          <div className="uru-eyebrow">route</div>
+          <div className={styles.metricValue}>{launch.graduated ? 'V4' : 'curve'}</div>
+        </div>
+        <div className={`${styles.metricCell} ${styles.progressCell}`}>
+          <div className={styles.progressTop}>
+            <span className="uru-eyebrow">{launch.graduated ? 'graduated' : 'grad -> v4'}</span>
+            <span>
+              {Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
+              {' '}({progressPct.toFixed(1)}%)
+            </span>
+          </div>
+          <div className={styles.progressTrack}>
+            <div
+              className={`${styles.progressFill} ${progressPct > 85 && !launch.graduated ? 'uru-shimmer' : ''}`}
+              style={{
+                width: `${progressPct}%`,
+                background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Live ticker */}
-      <div style={{ marginBottom: 10 }}>
+      <div className={styles.tickerBand}>
         <TradeTicker trades={tickerTrades} symbol={launch.ticker} />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className={styles.terminalGrid}>
         {/* MAIN — chart + recent trades + about + chat */}
-        <div className="space-y-3">
+        <div className={`${styles.mainStack} space-y-3`}>
           <TradeChart points={tradePoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
 
           {/* Recent trades — dense table */}
-          <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '6px 10px',
-                background: 'var(--cream-deep)',
-                borderBottom: '1.5px solid var(--anchor)',
-              }}
-            >
-              <div className="uru-eyebrow">✿ recent trades</div>
-              <span
-                style={{
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--anchor-soft)',
-                }}
-              >
+          <div className={`uru-shell-tight ${styles.tradeCard}`}>
+            <div className={styles.panelHeader}>
+              <div className="uru-eyebrow">recent trades</div>
+              <span className={styles.countText}>
                 {recentTrades.length} shown
               </span>
             </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '52px 1fr 1fr 1fr',
-                gap: 8,
-                padding: '4px 10px',
-                borderBottom: '1px dotted var(--anchor)',
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 9,
-                letterSpacing: '0.08em',
-                color: 'var(--anchor-soft)',
-                textTransform: 'uppercase',
-              }}
-            >
+            <div className={`${styles.tradeGrid} ${styles.tradeHead}`}>
               <span>side</span>
               <span>eth</span>
-              <span style={{ textAlign: 'right' }}>tokens</span>
-              <span style={{ textAlign: 'right' }}>trader</span>
+              <span className={styles.alignRight}>tokens</span>
+              <span className={styles.alignRight}>trader</span>
             </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {recentTrades.map((t, i) => (
                 <li
                   key={i}
-                  className={i === 0 ? 'uru-slide-in' : ''}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '52px 1fr 1fr 1fr',
-                    gap: 8,
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 11,
-                    alignItems: 'baseline',
-                    padding: '4px 10px',
-                    borderBottom: i === recentTrades.length - 1 ? 'none' : '1px dotted var(--anchor)',
-                  }}
+                  className={`${i === 0 ? 'uru-slide-in' : ''} ${styles.tradeGrid} ${styles.tradeRow}`}
                 >
                   <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
                     {t.isBuy ? 'BUY' : 'SELL'}
                   </span>
-                  <span>{Number(formatEther(t.ethAmount)).toFixed(4)}</span>
-                  <span style={{ textAlign: 'right' }}>
+                  <span className={styles.clip}>{Number(formatEther(t.ethAmount)).toFixed(4)}</span>
+                  <span className={`${styles.clip} ${styles.alignRight}`}>
                     {Number(formatUnits(t.tokenAmount, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
                   <Link
                     href={`/profile/${t.trader}`}
+                    className={`${styles.clip} ${styles.alignRight}`}
                     style={{
                       color: 'var(--link-blue)',
                       textDecoration: 'underline',
@@ -292,7 +210,7 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
           <ChatDrawer
             tokenAddress={launch.address}
             seed={[
-              { sender: 'guest_A9F2', text: `just aped in ${launch.ticker} lol`, minutesAgo: 32 },
+              { sender: 'guest_A9F2', text: `just bought ${launch.ticker}`, minutesAgo: 32 },
               { sender: '0x8f31…c0de', text: 'lp locked??', minutesAgo: 21 },
               { sender: 'guest_B8AA', text: 'lp locked forever. read the readme ~', minutesAgo: 20 },
               { sender: 'guest_C1E4', text: `so when does ${launch.ticker} grad`, minutesAgo: 12 },
@@ -313,40 +231,24 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
         </div>
 
         {/* SIDEBAR — buy/sell panel */}
-        <aside className="space-y-3 lg:sticky lg:top-4 lg:h-fit">
-          <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
+        <aside className={`${styles.sideRail} space-y-3 lg:sticky lg:top-4 lg:h-fit`}>
+          <div className={`uru-shell-tight ${styles.tradeCard}`}>
             {/* buy/sell tabs — bolder pump-style */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+            <div className={styles.tabGrid}>
               {(['buy', 'sell'] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => { setSide(s); setInputAmount(''); }}
-                  style={{
-                    padding: '8px 0',
-                    fontFamily: 'var(--font-round), Klee One, cursive',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    border: 'none',
-                    borderBottom: side === s
-                      ? `3px solid ${s === 'buy' ? 'var(--mint-hot,#2b8a3e)' : 'var(--pink-hot)'}`
-                      : '3px solid transparent',
-                    background: side === s
-                      ? (s === 'buy' ? 'var(--mint)' : 'var(--pink-warm)')
-                      : 'var(--cream-deep)',
-                    color: side === s
-                      ? (s === 'buy' ? 'var(--mint-hot,#2b8a3e)' : 'var(--pink-hot)')
-                      : 'var(--anchor-soft)',
-                    cursor: 'pointer',
-                  }}
+                  className={styles.tabButton}
+                  data-active={side === s}
+                  data-side={s}
                 >
-                  {s === 'buy' ? 'buy ✿' : '✦ sell'}
+                  {s}
                 </button>
               ))}
             </div>
-            <div style={{ padding: 12 }}>
+            <div className={styles.tradeCardBody}>
 
             {launch.graduated ? (
               <div
@@ -364,8 +266,8 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
             ) : (
               <>
                 <label style={{ display: 'block' }}>
-                  <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>you pay</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                  <span className={styles.fieldLabel}>you pay</span>
+                  <div className={styles.inputRow}>
                     <input
                       className="uru-input"
                       type="number"
@@ -376,7 +278,7 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
                       placeholder="0.0"
                       style={{ flex: 1 }}
                     />
-                    <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 12, fontWeight: 700 }}>
+                    <span className={styles.assetLabel}>
                       {side === 'buy' ? 'ETH' : launch.ticker}
                     </span>
                   </div>
@@ -394,15 +296,15 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
                   />
                 </div>
 
-                <div style={{ marginTop: 12, padding: 8, background: 'var(--cream-deep)', border: '1.5px dashed var(--anchor)' }}>
-                  <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>you receive</div>
-                  <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 16, fontWeight: 700, color: 'var(--anchor)' }}>
+                <div className={styles.quoteBox}>
+                  <div className={styles.fieldLabel}>you receive</div>
+                  <div className={styles.quoteValue}>
                     — <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>(preview)</span>
                   </div>
                 </div>
 
                 <label style={{ display: 'block', marginTop: 10 }}>
-                  <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>slippage tolerance (%)</span>
+                  <span className={styles.fieldLabel}>slippage tolerance (%)</span>
                   <input
                     className="uru-input"
                     type="number"
@@ -418,10 +320,9 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
                 <button
                   type="button"
                   onClick={() => { setPreviewSide(side); setPreviewNonce((n) => n + 1); }}
-                  className={side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'}
-                  style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
+                  className={`${side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'} ${styles.primaryAction}`}
                 >
-                  ✿ preview {side} (chart flashes) ✿
+                  preview {side} (chart flashes)
                 </button>
               </>
             )}
@@ -431,38 +332,28 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
           {/* Curve stats — tight rows */}
           <div className="uru-shell-tight">
             <div className="uru-eyebrow" style={{ marginBottom: 6 }}>curve stats</div>
-            <ul
-              style={{
-                listStyle: 'none',
-                margin: 0,
-                padding: 0,
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 11,
-                lineHeight: 1.7,
-                color: 'var(--anchor-soft)',
-              }}
-            >
-              <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}>
+            <ul className={styles.statsList}>
+              <li>
                 <span>price</span>
                 <FlashCell value={spotPrice}>
-                  <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>
+                  <span className={styles.statStrong}>
                     {formatGweiPerToken(spotPrice)} gw
                   </span>
                 </FlashCell>
               </li>
-              <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}>
+              <li>
                 <span>tokens sold</span>
-                <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>
+                <span className={styles.statStrong}>
                   {Number(formatUnits(tokensSold, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
               </li>
-              <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px dashed var(--cream-shadow)', padding: '2px 0' }}>
+              <li>
                 <span>total supply</span>
-                <span style={{ color: 'var(--anchor)', fontWeight: 700 }}>
+                <span className={styles.statStrong}>
                   {Number(formatUnits(launch.totalSupply, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>
               </li>
-              <li style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '2px 0' }}>
+              <li>
                 <span>creator</span>
                 <Link
                   href={`/profile/${launch.creator}`}
@@ -473,6 +364,14 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
               </li>
             </ul>
           </div>
+          <details className={`uru-shell-tight ${styles.accordion}`}>
+            <summary>pool truth + risk</summary>
+            <ul className={styles.riskList}>
+              <li>{launch.graduated ? 'Curve trading is closed in preview; the live route would use the graduated V4 pool.' : 'Preview mirrors the bonding-curve phase before the graduation target.'}</li>
+              <li>Live pages use wallet quotes, approvals, slippage, and transaction simulation before sending.</li>
+              <li>Preview data is labeled and does not represent current market state.</li>
+            </ul>
+          </details>
 
           <Link
             href="/discover"

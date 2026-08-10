@@ -1,0 +1,618 @@
+.profileFrame {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 16px 12px 32px;
+}
+
+.entryFrame {
+  min-height: calc(100vh - 140px);
+  display: grid;
+  place-items: center;
+  padding: 32px 12px;
+}
+
+.entryCard {
+  width: min(100%, 680px);
+  position: relative;
+  overflow: hidden;
+  padding: 22px;
+  border: 2px solid var(--anchor);
+  background: var(--cream);
+  box-shadow: 6px 6px 0 var(--cream-shadow);
+}
+
+.entryCard::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  right: -28px;
+  width: 112px;
+  height: 18px;
+  border: 1px solid color-mix(in srgb, var(--anchor) 44%, transparent);
+  background:
+    repeating-linear-gradient(
+      -35deg,
+      color-mix(in srgb, var(--pink-warm) 74%, transparent) 0 8px,
+      color-mix(in srgb, var(--yolk) 70%, transparent) 8px 16px
+    );
+  transform: rotate(12deg);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.entryMascot {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.entryCopy {
+  max-width: 540px;
+  margin: 6px auto 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), Klee One, cursive;
+  line-height: 1.55;
+}
+
+.entryActions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.badAddress {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 56px 16px;
+  text-align: center;
+}
+
+.pressKit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+.identityPlate,
+.pressFacts,
+.collectionBoard,
+.dossierPanel,
+.sideCard {
+  border: 2px solid var(--anchor);
+  background: color-mix(in srgb, var(--cream) 88%, transparent);
+  box-shadow: 4px 4px 0 var(--cream-shadow);
+}
+
+.identityPlate {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.avatarStamp {
+  width: 118px;
+  min-height: 118px;
+  border: 2px solid var(--anchor);
+  background-position: center;
+  background-size: cover;
+  display: grid;
+  place-items: center;
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--pink-hot) 34%, transparent);
+}
+
+.avatarStamp span {
+  color: var(--anchor);
+  font-family: var(--font-jp), monospace;
+  font-size: 40px;
+  font-weight: 800;
+}
+
+.identityText {
+  min-width: 0;
+  align-self: center;
+}
+
+.profileName {
+  max-width: 720px;
+  font-size: 42px;
+  line-height: 0.96;
+}
+
+.addressLine {
+  margin-top: 7px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.bio {
+  max-width: 680px;
+  margin-top: 10px;
+  color: var(--anchor);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.socials,
+.followPills,
+.actionShelf {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.socials {
+  margin-top: 10px;
+}
+
+.miniLink {
+  padding: 3px 8px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+
+.pressFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.actionShelf :global(.uru-btn) {
+  flex: 1 1 120px;
+  justify-content: center;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.followPill {
+  flex: 1 1 120px;
+  padding: 6px 9px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--cream-shadow);
+  color: var(--anchor);
+  cursor: pointer;
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.factGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.factGrid div {
+  min-width: 0;
+  padding: 8px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.factGrid dt {
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.factGrid dd {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 14px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectionBoard {
+  margin-bottom: 10px;
+  padding: 12px;
+}
+
+.boardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.financeNote {
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.specimenRow {
+  display: grid;
+  grid-auto-columns: minmax(160px, 1fr);
+  grid-auto-flow: column;
+  gap: 9px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.releaseGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 9px;
+}
+
+.specimenCard {
+  min-width: 0;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  color: inherit;
+  text-decoration: none;
+  display: grid;
+  grid-template-rows: 104px auto;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.specimenCard:hover,
+.specimenCard:focus-visible {
+  box-shadow: 4px 4px 0 var(--pink-hot);
+  transform: translate(-1px, -1px);
+}
+
+.compactSpecimen {
+  grid-template-rows: 74px auto;
+}
+
+.specimenArt {
+  border-bottom: 1.5px solid var(--anchor);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--pink-warm) 38%, transparent), transparent 42%),
+    linear-gradient(135deg, color-mix(in srgb, var(--mizuiro) 34%, transparent), var(--cream-deep));
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.specimenArt span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 10px;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 18px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+}
+
+.specimenCopy {
+  min-width: 0;
+  padding: 9px;
+}
+
+.releaseTitle {
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.tokenMeta,
+.timeMeta,
+.tableHeader {
+  font-family: var(--font-pixel), monospace;
+}
+
+.tokenMeta {
+  margin-top: 5px;
+  color: var(--anchor-soft);
+  font-size: 10px;
+}
+
+.badgeRow {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.timeMeta {
+  margin-top: 8px;
+  color: var(--anchor-soft);
+  font-size: 9px;
+}
+
+.emptySpecimen {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  border: 1.5px dashed var(--anchor);
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+
+.profileTabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.profileTab {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 2px solid var(--anchor);
+  background: var(--cream);
+  color: var(--anchor);
+  cursor: pointer;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  box-shadow: 2px 2px 0 var(--cream-shadow);
+}
+
+.profileTab[data-active='true'] {
+  background: var(--pink-hot);
+  color: var(--cream);
+}
+
+.profileBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  gap: 12px;
+}
+
+.dossierPanel {
+  min-width: 0;
+  padding: 12px;
+}
+
+.sideStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  position: sticky;
+  top: 16px;
+  height: fit-content;
+}
+
+.sideCard {
+  padding: 10px;
+}
+
+.sectionBlock {
+  min-width: 0;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.sectionJp {
+  color: var(--anchor-soft);
+  font-family: var(--font-jp), monospace;
+  font-size: 12px;
+}
+
+.sectionCount {
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+}
+
+.tableShell {
+  overflow: hidden;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+}
+
+.tableList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.positionHeader,
+.positionRow {
+  display: grid;
+  grid-template-columns: minmax(118px, 1.5fr) 0.8fr 1fr 1.1fr;
+}
+
+.activityHeader,
+.activityRow {
+  display: grid;
+  grid-template-columns: 52px 1fr 1.3fr auto;
+}
+
+.tableHeader {
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--cream-deep);
+  border-bottom: 1.5px solid var(--anchor);
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tableRow {
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px dotted var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+
+.tableRow:last-child {
+  border-bottom: 0;
+}
+
+.tableRow a {
+  color: var(--link-blue);
+  text-decoration: underline;
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.holdingList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.holdingRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--cream-shadow);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10.5px;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+  background: rgba(58, 44, 58, 0.35);
+}
+
+.editModal {
+  width: min(100%, 520px);
+  margin-top: 24px;
+  background: var(--cream);
+}
+
+:global(:root[data-theme='dark']) .identityPlate,
+:global(:root[data-theme='dark']) .pressFacts,
+:global(:root[data-theme='dark']) .collectionBoard,
+:global(:root[data-theme='dark']) .dossierPanel,
+:global(:root[data-theme='dark']) .sideCard,
+:global(:root[data-theme='dark']) .specimenCard,
+:global(:root[data-theme='dark']) .tableShell,
+:global(:root[data-theme='dark']) .profileTab {
+  border-color: color-mix(in srgb, var(--anchor) 82%, var(--cream));
+}
+
+@media (max-width: 980px) {
+  .pressKit,
+  .profileBody {
+    grid-template-columns: 1fr;
+  }
+
+  .pressFacts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .factGrid {
+    grid-column: 1 / -1;
+  }
+
+  .sideStack {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .profileFrame {
+    padding: 12px 8px 24px;
+  }
+
+  .identityPlate {
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .avatarStamp {
+    width: 82px;
+    min-height: 82px;
+  }
+
+  .avatarStamp span {
+    font-size: 30px;
+  }
+
+  .profileName {
+    font-size: 30px;
+  }
+
+  .pressFacts,
+  .factGrid,
+  .profileTabs {
+    grid-template-columns: 1fr;
+  }
+
+  .boardHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .specimenRow {
+    grid-auto-columns: minmax(145px, 78%);
+  }
+
+  .positionHeader,
+  .positionRow {
+    grid-template-columns: minmax(104px, 1.3fr) 0.8fr 1fr;
+  }
+
+  .positionHeader span:nth-child(4),
+  .positionRow span:nth-child(4) {
+    display: none;
+  }
+
+  .activityHeader,
+  .activityRow {
+    grid-template-columns: 48px minmax(76px, 0.8fr) minmax(0, 1fr);
+  }
+
+  .activityHeader span:nth-child(4),
+  .activityRow span:nth-child(4) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .specimenCard {
+    transition: none;
+  }
+
+  .specimenCard:hover,
+  .specimenCard:focus-visible {
+    transform: none;
+  }
+}

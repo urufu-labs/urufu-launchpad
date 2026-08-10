@@ -1,0 +1,563 @@
+.page {
+  width: min(1180px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 14px 0 34px;
+}
+
+.specHeader {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(360px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 10px;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.12);
+}
+
+.specHeader p,
+.headerMeta,
+.notice,
+.indexRail,
+.meta,
+.sectionHead p,
+.inventory,
+.coreTable,
+.specimenCode,
+.specimenTitle span,
+.warnings,
+.recipeTable,
+.address,
+.addressLink,
+.muted {
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+}
+
+.specHeader p {
+  margin: 0 0 4px;
+  color: var(--pink-hot);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.specHeader h1 {
+  margin: 0;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 34px;
+  line-height: 0.94;
+  letter-spacing: 0;
+}
+
+.headerMeta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.meta {
+  min-width: 0;
+  padding: 7px 9px;
+  border-right: 1px dotted var(--anchor);
+}
+
+.meta:last-child {
+  border-right: 0;
+}
+
+.meta span {
+  display: block;
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.meta b {
+  display: block;
+  color: var(--anchor);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+  padding: 7px 10px;
+  border: 1.5px solid var(--anchor);
+  border-left-width: 6px;
+  background: var(--yolk);
+  color: var(--anchor);
+  font-size: 11px;
+}
+
+.referenceLayout {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.indexRail {
+  position: sticky;
+  top: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+}
+
+.indexTitle {
+  display: flex;
+  justify-content: space-between;
+  color: var(--anchor-soft);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.indexTitle small,
+.indexRail nav small {
+  font-family: var(--font-jp), monospace;
+  letter-spacing: 0;
+}
+
+.indexRail nav {
+  display: grid;
+  gap: 6px;
+}
+
+.indexRail nav a {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  color: var(--anchor);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.indexRail nav a:hover {
+  background: var(--pink-warm);
+}
+
+.indexActions {
+  display: grid;
+  gap: 7px;
+  padding-top: 8px;
+  border-top: 1px dotted var(--anchor);
+}
+
+.sheet {
+  min-width: 0;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+}
+
+.sectionHead {
+  padding: 14px 14px 8px;
+  scroll-margin-top: 18px;
+}
+
+.sectionHead div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.sectionHead h2 {
+  margin: 0;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 25px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.sectionHead span {
+  color: var(--anchor-soft);
+  font-family: var(--font-jp), monospace;
+  font-size: 14px;
+}
+
+.sectionHead p {
+  margin: 4px 0 0;
+  color: var(--anchor-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.inventory {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 10px 10px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.inventoryRow {
+  min-width: 0;
+  padding: 9px;
+  border-right: 1px dotted var(--anchor);
+}
+
+.inventoryRow:last-child {
+  border-right: 0;
+}
+
+.inventoryRow span {
+  display: block;
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.inventoryRow b {
+  display: block;
+  margin: 3px 0;
+  color: var(--anchor);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.inventoryRow p {
+  margin: 0;
+  color: var(--anchor-soft);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.coreTable {
+  display: grid;
+  margin: 0 10px 10px;
+  border: 1.5px solid var(--anchor);
+}
+
+.stackRow {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.5fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px dotted var(--anchor);
+  background: var(--cream);
+}
+
+.stackRow:last-child {
+  border-bottom: 0;
+}
+
+.stackRow b {
+  color: var(--anchor);
+  font-size: 12px;
+}
+
+.stackRow span {
+  color: var(--anchor-soft);
+  font-size: 11px;
+}
+
+.specimenList {
+  display: grid;
+  gap: 8px;
+  margin: 0 10px 10px;
+}
+
+.specimen {
+  display: grid;
+  grid-template-columns: minmax(128px, 0.34fr) minmax(0, 1fr);
+  min-width: 0;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+}
+
+.specimen[data-planned="true"] {
+  border-style: dashed;
+  background: var(--cream-deep);
+}
+
+.specimenCode {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border-right: 1px dotted var(--anchor);
+  background: color-mix(in srgb, var(--mint) 28%, var(--cream));
+}
+
+.specimenCode span {
+  overflow: hidden;
+  color: var(--anchor);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.specimenCode code {
+  overflow-wrap: anywhere;
+  color: var(--anchor-soft);
+  font-size: 10px;
+}
+
+.specimenBody {
+  min-width: 0;
+  padding: 10px;
+}
+
+.specimenTitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.specimenTitle h3 {
+  min-width: 0;
+  margin: 0 6px 0 0;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 19px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.specimenTitle span {
+  padding: 2px 5px;
+  border: 1px solid var(--anchor);
+  background: var(--card);
+  color: var(--anchor);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.specimenBody p {
+  margin: 7px 0 0;
+  color: var(--anchor-soft);
+  font-size: 12px;
+  line-height: 1.38;
+}
+
+.warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.warnings li {
+  padding: 4px 6px;
+  border: 1px dashed var(--anchor);
+  background: color-mix(in srgb, var(--yolk) 58%, var(--card));
+  color: var(--anchor);
+  font-size: 10px;
+}
+
+.recipeTable {
+  display: grid;
+  margin: 0 10px 12px;
+  border: 1.5px solid var(--anchor);
+}
+
+.recipeHead,
+.recipeRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.95fr) minmax(95px, 0.55fr) minmax(130px, 0.75fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.recipeHead {
+  padding: 7px 10px;
+  border-bottom: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+  color: var(--anchor-soft);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.recipeRow {
+  padding: 9px 10px;
+  border-bottom: 1px dotted var(--anchor);
+  background: var(--cream);
+}
+
+.recipeRow:last-child {
+  border-bottom: 0;
+}
+
+.recipeRow b {
+  display: block;
+  color: var(--anchor);
+  font-size: 12px;
+}
+
+.recipeRow small {
+  color: var(--anchor-soft);
+  font-family: var(--font-jp), monospace;
+}
+
+.recipeRow p {
+  margin: 3px 0 0;
+  color: var(--anchor-soft);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.recipeRow span,
+.recipeRow code {
+  overflow-wrap: anywhere;
+  color: var(--anchor-soft);
+  font-size: 10px;
+}
+
+.address,
+.addressLink,
+.muted {
+  color: var(--anchor-soft);
+  font-size: 10px;
+}
+
+.addressLink {
+  color: var(--link-blue);
+  text-decoration: underline;
+}
+
+:root[data-theme="dark"] .specHeader,
+:root[data-theme="dark"] .indexRail,
+:root[data-theme="dark"] .sheet {
+  background: var(--cream);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] .specimen,
+:root[data-theme="dark"] .stackRow,
+:root[data-theme="dark"] .recipeRow,
+:root[data-theme="dark"] .indexRail nav a {
+  background: var(--card);
+}
+
+:root[data-theme="dark"] .specimenCode {
+  background: color-mix(in srgb, var(--mint) 20%, var(--card));
+}
+
+@media (max-width: 980px) {
+  .specHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .referenceLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .indexRail {
+    position: static;
+  }
+
+  .indexRail nav {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .indexRail nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .indexRail nav a {
+    flex: 0 0 auto;
+  }
+
+  .inventory {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventoryRow:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .inventoryRow:nth-child(-n + 2) {
+    border-bottom: 1px dotted var(--anchor);
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    width: min(100vw - 20px, 430px);
+    padding-top: 10px;
+  }
+
+  .headerMeta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .meta:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .meta:nth-child(-n + 2) {
+    border-bottom: 1px dotted var(--anchor);
+  }
+
+  .notice {
+    display: block;
+  }
+
+  .notice span {
+    display: block;
+    margin-top: 2px;
+  }
+
+  .inventory {
+    grid-template-columns: 1fr;
+  }
+
+  .inventoryRow,
+  .inventoryRow:nth-child(2n) {
+    border-right: 0;
+    border-bottom: 1px dotted var(--anchor);
+  }
+
+  .inventoryRow:last-child {
+    border-bottom: 0;
+  }
+
+  .stackRow,
+  .specimen,
+  .recipeHead,
+  .recipeRow {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .specimenCode {
+    border-right: 0;
+    border-bottom: 1px dotted var(--anchor);
+  }
+
+  .recipeHead {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indexRail nav a,
+  .indexRail nav a:hover {
+    transition: none;
+  }
+}

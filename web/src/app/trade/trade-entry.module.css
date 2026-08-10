@@ -1,0 +1,176 @@
+.entryPage {
+  box-sizing: border-box;
+  width: min(100%, 1180px);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 12px 28px;
+}
+
+.marketHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-size: 42px;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.marketMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.marketMeta a {
+  color: var(--link-blue);
+  text-decoration: underline;
+}
+
+.lookupPanel {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.34fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.lookupCopy {
+  min-width: 0;
+}
+
+.lookupTitle {
+  color: var(--anchor);
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.subtitle {
+  margin: 3px 0 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.lookupForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.lookupInput {
+  min-width: 0;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+.launchGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.emptyState {
+  margin-bottom: 16px;
+  padding: 16px;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tile {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.tileMark {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--anchor);
+  border-radius: 4px;
+  background: var(--cream-deep);
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tileBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.tileTitle {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.progressTrack {
+  height: 7px;
+  margin-top: 5px;
+  overflow: hidden;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--pink-hot);
+}
+
+.helpPanel {
+  padding: 12px;
+}
+
+@media (max-width: 860px) {
+  .lookupForm,
+  .lookupPanel,
+  .launchGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .marketHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .title {
+    font-size: 40px;
+  }
+}

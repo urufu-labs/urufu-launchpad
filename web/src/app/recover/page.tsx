@@ -20,8 +20,15 @@ import { formatEther, parseEther } from 'viem';
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import { bondingCurveAbi, erc20TokenAbi } from '@/lib/abis';
-import { ORPHAN_CURVES, SWEPT_AT_BLOCK, searchOrphans, type OrphanCurve } from '@/lib/orphanCurves';
+import {
+    ORPHAN_CURVE_ABI,
+    ORPHAN_CURVES,
+    ORPHAN_TOKEN_ABI,
+    SWEPT_AT_BLOCK,
+    searchOrphans,
+    type OrphanCurve,
+} from '@/lib/orphanCurves';
+import styles from './recover-page.module.css';
 
 const RH_CHAIN_ID = CHAIN_KEY_TO_ID.robinhood;
 
@@ -38,121 +45,104 @@ export default function RecoverPage() {
     }, []);
 
     return (
-        <div style={{ maxWidth: 720, margin: '0 auto', padding: '24px 16px' }}>
-            <h1
-                className="uru-h1"
-                style={{ fontSize: 28, marginBottom: 8, color: 'var(--pink-hot)' }}
-            >
-                ✿ recover ur eth
-            </h1>
-            <p style={{ fontSize: 13, color: 'var(--anchor)', marginBottom: 16, lineHeight: 1.5 }}>
-                old curve launches no longer show in the main ui. if u bought one, sell back here
-                and recover the eth still sitting in the curve.
-            </p>
-            <div
-                style={{
-                    fontSize: 12,
-                    background: 'var(--paper-white, #fff)',
-                    border: '1.5px dashed var(--anchor)',
-                    padding: 10,
-                    borderRadius: 6,
-                    marginBottom: 16,
-                    color: 'var(--anchor)',
-                }}
-            >
-                <div>total eth still recoverable: <b>{Number(formatEther(totalStuck)).toFixed(4)} ETH</b> across {ORPHAN_CURVES.length} curves</div>
-                <div style={{ opacity: 0.65, marginTop: 4 }}>snapshot @ RH block {SWEPT_AT_BLOCK}. live balances refetched below.</div>
-            </div>
-
-            <label
-                style={{ display: 'block', fontSize: 12, color: 'var(--anchor)', marginBottom: 4 }}
-            >
-                search by token name, symbol, or address
-            </label>
-            <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g. URUFU, spoobs, 0x522c..."
-                style={{
-                    width: '100%',
-                    padding: 10,
-                    fontSize: 14,
-                    border: '2px solid var(--anchor)',
-                    borderRadius: 6,
-                    background: 'var(--paper-white, #fff)',
-                    color: 'var(--anchor)',
-                    marginBottom: 16,
-                }}
-            />
-
-            {showWalletHint && (
-                <div
-                    style={{
-                        padding: '8px 10px',
-                        background: 'var(--cream-deep)',
-                        border: '1.5px dashed var(--anchor)',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        color: 'var(--anchor-soft)',
-                        marginBottom: 16,
-                    }}
-                >
-                    connect wallet once to check which rows are yours and unlock recovery actions.
+        <main className={styles.page}>
+            <header className={styles.incidentHeader} aria-labelledby="recover-title">
+                <div>
+                    <p className={styles.eyebrow}>historical curve recovery</p>
+                    <h1 id="recover-title" className={styles.title}>
+                        Recovery Console
+                    </h1>
+                    <p className={styles.subtitle}>
+                        This is an exceptional support flow for orphaned Robinhood Chain
+                        bonding curves that no longer appear in the main launchpad UI.
+                        It does not create a new trade, mint, launch, or migration.
+                    </p>
                 </div>
-            )}
+                <aside className={styles.safetyCard} aria-label="Recovery guardrails">
+                    <span className={styles.noteKicker}>read before signing</span>
+                    <b>approve, then sell back to the historical curve.</b>
+                    <p>
+                        The page reads your live token balance, asks for approval only when
+                        needed, then calls <code>sell(tokensIn, 0)</code> on the old curve.
+                        Nothing is broadcast until you confirm in your wallet.
+                    </p>
+                </aside>
+            </header>
+
+            <section className={styles.taskPanel} aria-label="Recovery task input">
+                <div className={styles.reserveSummary}>
+                    <span className={styles.noteKicker}>snapshot reserve hint</span>
+                    <b>{Number(formatEther(totalStuck)).toFixed(4)} ETH</b>
+                    <p>
+                        across {ORPHAN_CURVES.length} orphan curves at RH block{' '}
+                        <span className="uru-num">{SWEPT_AT_BLOCK}</span>. Each card refetches
+                        live reserve and wallet balances.
+                    </p>
+                </div>
+                <form className={styles.searchBlock} onSubmit={(e) => e.preventDefault()}>
+                    <label htmlFor="orphan-search">1. Find historical token</label>
+                    <input
+                        id="orphan-search"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="token name, symbol, token address, or curve address"
+                        className={styles.searchInput}
+                    />
+                    {showWalletHint && (
+                        <div className={styles.walletHint}>
+                            connect wallet once to check which rows are yours and unlock recovery actions.
+                        </div>
+                    )}
+                </form>
+                <ol className={styles.stepList} aria-label="Recovery steps">
+                    <li>
+                        <span>2</span>
+                        <p>Review the matching curve and live reserve.</p>
+                    </li>
+                    <li>
+                        <span>3</span>
+                        <p>Connect wallet on Robinhood Chain to read your balance.</p>
+                    </li>
+                    <li>
+                        <span>4</span>
+                        <p>Approve only the amount you choose, then sell back to the curve.</p>
+                    </li>
+                </ol>
+            </section>
 
             {results.length === 0 ? (
-                <div
-                    style={{
-                        padding: 20,
-                        textAlign: 'center',
-                        color: 'var(--anchor-soft)',
-                        border: '1.5px dashed var(--anchor)',
-                        borderRadius: 6,
-                    }}
-                >
-                    no orphaned curves match &quot;{query}&quot;.
+                <div className={styles.empty}>
+                    <span>no matching orphan curve</span>
+                    <p>no orphaned curves match &quot;{query}&quot;.</p>
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <section className={styles.results} aria-label="Matching orphan curves">
+                    <div className={styles.resultsHeader}>
+                        <span className={styles.noteKicker}>matching curves</span>
+                        <b>{results.length}</b>
+                    </div>
                     {results.map((o) => (
                         <OrphanCard key={o.curve} orphan={o} />
                     ))}
-                </div>
+                </section>
             )}
 
-            <details
-                style={{
-                    marginTop: 24,
-                    fontSize: 11,
-                    color: 'var(--anchor-soft)',
-                    lineHeight: 1.6,
-                }}
-            >
-                <summary
-                    style={{
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font-round), Klee One, cursive',
-                        fontWeight: 700,
-                    }}
-                >
-                    how recovery works + missing token help
-                </summary>
-                <div style={{ marginTop: 8 }}>
-                    connect ur wallet, we read ur token balance from the chain. if u have some,
-                    pick how much to sell. u sign approve, then sell, and the curve sends u eth.
+            <details className={styles.help}>
+                <summary>how recovery works + missing token help</summary>
+                <div>
+                    Connect your wallet and this page reads your token balance from Robinhood
+                    Chain. If you hold one of these orphaned tokens, choose how much to sell.
+                    You sign approve first if allowance is missing, then sign sell, and the
+                    curve sends ETH back to your wallet.
                     <br />
                     <br />
-                    not seeing ur token? we swept every historical curve factory on robinhood.
-                    if urs isn&apos;t listed, either the token graduated or it never launched via our
-                    contracts.{' '}
-                    <Link href="/trade" style={{ color: 'var(--link-blue)' }}>
-                        back to trade
-                    </Link>
-                    .
+                    Not seeing your token? The sweep covered historical Robinhood curve
+                    factories. If your token is not listed, it may have graduated or may not
+                    have launched through these contracts.{' '}
+                    <Link href="/trade">Back to normal trading</Link>.
                 </div>
             </details>
-        </div>
+        </main>
     );
 }
 
@@ -179,13 +169,13 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
 
     // Live curve ETH balance (fetch fresh — snapshot is just a hint).
     const curveEth = useReadContract({
-        abi: bondingCurveAbi,
+        abi: ORPHAN_CURVE_ABI,
         address: orphan.curve,
         functionName: 'ethReserve',
         chainId: RH_CHAIN_ID,
     });
     const isGraduated = useReadContract({
-        abi: bondingCurveAbi,
+        abi: ORPHAN_CURVE_ABI,
         address: orphan.curve,
         functionName: 'graduated',
         chainId: RH_CHAIN_ID,
@@ -193,7 +183,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
 
     // Holder's token balance + current allowance to the curve.
     const balanceQ = useReadContract({
-        abi: erc20TokenAbi,
+        abi: ORPHAN_TOKEN_ABI,
         address: orphan.token,
         functionName: 'balanceOf',
         args: wallet ? [wallet] : undefined,
@@ -201,7 +191,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
         query: { enabled: mounted && !!wallet, refetchInterval: 8000 },
     });
     const allowanceQ = useReadContract({
-        abi: erc20TokenAbi,
+        abi: ORPHAN_TOKEN_ABI,
         address: orphan.token,
         functionName: 'allowance',
         args: wallet ? [wallet, orphan.curve] : undefined,
@@ -243,7 +233,7 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
     async function onApprove() {
         setLastStep('approve');
         await writeContractAsync({
-            abi: erc20TokenAbi,
+            abi: ORPHAN_TOKEN_ABI,
             address: orphan.token,
             functionName: 'approve',
             args: [orphan.curve, parsedAmount],
@@ -254,159 +244,106 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
     async function onSell() {
         setLastStep('sell');
         await writeContractAsync({
-            abi: bondingCurveAbi,
+            abi: ORPHAN_CURVE_ABI,
             address: orphan.curve,
             functionName: 'sell',
-            args: [parsedAmount, 0n], // slippage = 0 (curves are low-liquidity, showing a proper quote would need extra reads; MEV isn't a concern at this scale)
+            args: [parsedAmount, 0n], // minEthOut = 0 keeps legacy recovery permissive; user still confirms wallet tx.
             chainId: RH_CHAIN_ID,
         });
     }
 
     const liveCurveEth = (curveEth.data as bigint | undefined) ?? BigInt(orphan.balanceWeiAtSnapshot);
     const graduated = (isGraduated.data as boolean | undefined) ?? false;
+    const recoveryBlocked = graduated || liveCurveEth === 0n || !effectiveIsConnected || !onRhChain || balanceErrored || !balanceKnown || holderBalance === 0n;
 
     return (
-        <div
-            style={{
-                border: '2px solid var(--anchor)',
-                borderRadius: 8,
-                padding: 16,
-                background: 'var(--paper-white, #fff)',
-                boxShadow: '3px 3px 0 var(--anchor)',
-            }}
-        >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+        <article className={styles.card} data-blocked={recoveryBlocked ? 'true' : undefined}>
+            <div className={styles.cardHeader}>
                 <div>
-                    <div className="uru-h2" style={{ fontSize: 18 }}>
+                    <span className={styles.cardKicker}>orphan curve</span>
+                    <h2>
                         {orphan.tokenName}{' '}
-                        <span style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>
-                            ({orphan.tokenSymbol})
-                        </span>
-                    </div>
-                    <div
-                        style={{
-                            fontFamily: 'var(--font-pixel), monospace',
-                            fontSize: 10,
-                            color: 'var(--anchor-soft)',
-                            marginTop: 2,
-                            wordBreak: 'break-all',
-                        }}
-                    >
-                        token {orphan.token}
-                        <br />
-                        curve {orphan.curve}
-                    </div>
+                        <span>({orphan.tokenSymbol})</span>
+                    </h2>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>eth in curve</div>
-                    <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 16 }}>
-                        {Number(formatEther(liveCurveEth)).toFixed(4)}Ξ
-                    </div>
+                <div className={styles.reserve}>
+                    <span>ETH in curve</span>
+                    <b>{Number(formatEther(liveCurveEth)).toFixed(4)}Ξ</b>
                 </div>
             </div>
 
+            <dl className={styles.addressGrid}>
+                <div>
+                    <dt>token</dt>
+                    <dd>{orphan.token}</dd>
+                </div>
+                <div>
+                    <dt>curve</dt>
+                    <dd>{orphan.curve}</dd>
+                </div>
+                <div>
+                    <dt>factory</dt>
+                    <dd>{orphan.factory}</dd>
+                </div>
+            </dl>
+
             {graduated ? (
-                <div
-                    style={{
-                        marginTop: 12,
-                        padding: 10,
-                        background: 'var(--mint)',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        color: 'var(--anchor)',
-                    }}
-                >
-                    ❋ this curve already graduated to a v4 pool. no recovery needed. head to{' '}
-                    <Link href={`/trade/${orphan.token}`} style={{ color: 'var(--link-blue)' }}>
-                        the trade page
-                    </Link>{' '}
-                    to swap normally.
-                </div>
+                <StateBox tone="mint">
+                    this curve already graduated to a V4 pool. No recovery is needed here.
+                    Use <Link href={`/trade/${orphan.token}`}>the normal trade page</Link> to swap.
+                </StateBox>
             ) : liveCurveEth === 0n ? (
-                <div style={{ marginTop: 12, padding: 10, background: 'var(--cream)', borderRadius: 6, fontSize: 12 }}>
-                    ✓ curve is drained. everyone who wanted their eth back got it.
-                </div>
+                <StateBox tone="paper">
+                    curve is drained. There is no ETH left to recover from this historical curve.
+                </StateBox>
             ) : !effectiveIsConnected ? (
-                null
+                <StateBox tone="yolk">
+                    connect wallet to check your live {orphan.tokenSymbol} balance and allowance.
+                </StateBox>
             ) : !onRhChain ? (
                 <button
                     onClick={() => switchChain({ chainId: RH_CHAIN_ID })}
                     disabled={switching}
-                    style={{
-                        marginTop: 12,
-                        width: '100%',
-                        padding: '10px 12px',
-                        background: 'var(--pink-warm)',
-                        color: 'var(--anchor)',
-                        border: '2px solid var(--anchor)',
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font-round), Klee One, cursive',
-                        fontSize: 14,
-                    }}
+                    className={styles.primaryButton}
                 >
                     {switching ? 'switching...' : 'switch to robinhood chain'}
                 </button>
             ) : balanceErrored ? (
-                <div
-                    style={{
-                        marginTop: 12,
-                        padding: 8,
-                        background: 'var(--pink-warm)',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        color: 'var(--anchor)',
-                        wordBreak: 'break-word',
-                    }}
-                >
-                    ✗ couldn&apos;t read ur {orphan.tokenSymbol} balance:{' '}
-                    <code style={{ fontSize: 11 }}>
+                <StateBox tone="pink">
+                    couldn&apos;t read your {orphan.tokenSymbol} balance:{' '}
+                    <code>
                         {(balanceQ.error as Error | null)?.message?.split('\n')[0]?.slice(0, 220) ?? 'unknown'}
                     </code>
-                    <div style={{ marginTop: 6, fontSize: 10, opacity: 0.7 }}>
-                        token {orphan.token} on robinhood (chain 4663). try a hard refresh, or
-                        check the browser console for the full error.
-                    </div>
-                </div>
+                    <small>
+                        token {orphan.token} on robinhood (chain 4663). Try a hard refresh,
+                        or check the browser console for the full error.
+                    </small>
+                </StateBox>
             ) : !balanceKnown ? (
-                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                    checking ur {orphan.tokenSymbol} balance...
-                </div>
+                <StateBox tone="paper">checking your {orphan.tokenSymbol} balance...</StateBox>
             ) : holderBalance === 0n ? (
-                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                    u don&apos;t hold any {orphan.tokenSymbol}. nothing to recover here.
-                </div>
+                <StateBox tone="paper">
+                    you do not hold any {orphan.tokenSymbol}. Nothing to recover here.
+                </StateBox>
             ) : (
-                <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, color: 'var(--anchor)' }}>
-                        ur balance: <b>{Number(formatEther(holderBalance)).toLocaleString()}</b>{' '}
-                        {orphan.tokenSymbol}
+                <div className={styles.actionPanel}>
+                    <div className={styles.balanceLine}>
+                        <span>your live balance</span>
+                        <b>{Number(formatEther(holderBalance)).toLocaleString()} {orphan.tokenSymbol}</b>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    <div className={styles.amountRow}>
                         <input
                             value={amountInput}
                             onChange={(e) => setAmountInput(e.target.value)}
                             placeholder="tokens to sell"
-                            style={{
-                                flex: 1,
-                                padding: 8,
-                                border: '2px solid var(--anchor)',
-                                borderRadius: 6,
-                                fontFamily: 'var(--font-pixel), monospace',
-                                fontSize: 13,
-                            }}
+                            className={styles.amountInput}
+                            disabled={writing || receipt.isLoading}
                         />
                         <button
+                            type="button"
                             onClick={() => setAmountInput(formatEther(holderBalance))}
-                            style={{
-                                padding: '8px 12px',
-                                background: 'var(--cream)',
-                                border: '2px solid var(--anchor)',
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                fontSize: 12,
-                                fontFamily: 'var(--font-pixel), monospace',
-                            }}
+                            disabled={writing || receipt.isLoading}
+                            className={styles.maxButton}
                         >
                             MAX
                         </button>
@@ -415,62 +352,55 @@ function OrphanCard({ orphan }: { orphan: OrphanCurve }) {
                     <button
                         onClick={needsApprove ? onApprove : onSell}
                         disabled={!hasEnoughTokens || writing || receipt.isLoading}
-                        style={{
-                            marginTop: 10,
-                            width: '100%',
-                            padding: '12px',
-                            background: hasEnoughTokens ? 'var(--pink-hot)' : 'var(--anchor-soft)',
-                            color: 'white',
-                            border: '2px solid var(--anchor)',
-                            borderRadius: 6,
-                            cursor: hasEnoughTokens ? 'pointer' : 'not-allowed',
-                            fontFamily: 'var(--font-round), Klee One, cursive',
-                            fontSize: 15,
-                            boxShadow: hasEnoughTokens ? '3px 3px 0 var(--anchor)' : undefined,
-                        }}
+                        className={styles.primaryButton}
+                        data-ready={hasEnoughTokens ? 'true' : undefined}
                     >
                         {!hasEnoughTokens
                             ? parsedAmount === 0n
                                 ? 'enter amount'
                                 : `not enough ${orphan.tokenSymbol}`
                             : writing
-                            ? 'confirm in wallet...'
-                            : receipt.isLoading
-                            ? `${lastStep === 'approve' ? 'approving' : 'selling'}...`
-                            : needsApprove
-                            ? `1/2 approve ${orphan.tokenSymbol}`
-                            : `2/2 sell for eth`}
+                              ? 'confirm in wallet...'
+                              : receipt.isLoading
+                                ? `${lastStep === 'approve' ? 'approving' : 'selling'}...`
+                                : needsApprove
+                                  ? `1/2 approve ${orphan.tokenSymbol}`
+                                  : '2/2 sell for ETH'}
                     </button>
 
+                    {receipt.isSuccess && lastStep === 'approve' && (
+                        <StateBox tone="mint">
+                            approval confirmed. If the button does not flip to sell yet,
+                            wait for the allowance refresh.
+                        </StateBox>
+                    )}
                     {receipt.isSuccess && lastStep === 'sell' && (
-                        <div
-                            style={{
-                                marginTop: 8,
-                                padding: 8,
-                                background: 'var(--mint)',
-                                borderRadius: 6,
-                                fontSize: 12,
-                            }}
-                        >
-                            ✓ sold! eth landed in ur wallet. sell more or move on.
-                        </div>
+                        <StateBox tone="mint">
+                            sold. ETH landed in your wallet. Sell more or move on.
+                        </StateBox>
                     )}
                     {writeErr && (
-                        <div
-                            style={{
-                                marginTop: 8,
-                                padding: 8,
-                                background: 'var(--pink-warm)',
-                                borderRadius: 6,
-                                fontSize: 12,
-                                color: 'var(--anchor)',
-                            }}
-                        >
-                            ✗ tx failed: {(writeErr as Error).message?.split('\n')[0]?.slice(0, 200) ?? 'unknown error'}
-                        </div>
+                        <StateBox tone="pink">
+                            transaction failed:{' '}
+                            {(writeErr as Error).message?.split('\n')[0]?.slice(0, 200) ?? 'unknown error'}
+                        </StateBox>
                     )}
                 </div>
             )}
+        </article>
+    );
+}
+
+function StateBox({
+    tone,
+    children,
+}: {
+    tone: 'pink' | 'mint' | 'yolk' | 'paper';
+    children: React.ReactNode;
+}) {
+    return (
+        <div className={styles.stateBox} data-tone={tone}>
+            {children}
         </div>
     );
 }

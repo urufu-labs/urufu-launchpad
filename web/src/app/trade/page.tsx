@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { isAddress, formatEther } from 'viem';
 
-import { Mascot } from '@/components/Mascot';
 import { mockProgressPct, launchKind, type MockLaunch } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import styles from './trade-entry.module.css';
 
 /// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
 /// is: paste a launched token's address to jump into its trade page. Once Ponder is wired,
@@ -26,88 +26,62 @@ export default function TradeIndex() {
   const feedLaunches = feed.launches.filter((l) => launchKind(l) === 'curve').slice(0, 6);
 
   return (
-    <div className="mx-auto max-w-5xl px-3 sm:px-4 py-4">
-      {/* ================================================================
-          COMPACT HEADER — mascot + title on one row
-          ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '12px 18px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 14,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Mascot size={44} mood="happy" className="uru-idle-bob" />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>✦ trading floor</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <h1 className="uru-h1" style={{ fontSize: 22, lineHeight: 1 }}>find a token</h1>
-            <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 14, color: 'var(--anchor-soft)' }}>
-              取引
-            </span>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
-              · paste an address or pick from below
-            </span>
-          </div>
+    <div className={styles.entryPage}>
+      <header className={styles.marketHeader}>
+        <div>
+          <div className="uru-eyebrow">trade</div>
+          <h1 className={`uru-h1 ${styles.title}`}>market lookup</h1>
         </div>
-        <Link
-          href="/discover"
-          className="uru-btn"
-          style={{ padding: '5px 12px', fontSize: 12 }}
+        <div className={styles.marketMeta}>
+          <span>{activeChain}</span>
+          <span>{feedLaunches.length} bonding curves</span>
+          <Link href="/discover">all launches »</Link>
+        </div>
+      </header>
+
+      <section className={`uru-shell-tight ${styles.lookupPanel}`}>
+        <div className={styles.lookupCopy}>
+          <div className={styles.lookupTitle}>open token terminal</div>
+          <p className={styles.subtitle}>
+            Paste a launched ERC-20 address, or pick a bonding curve from the market list.
+          </p>
+        </div>
+        <form
+          className={styles.lookupForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) router.push(`/trade/${addr}`);
+          }}
         >
-          browse all
-        </Link>
+          <input
+            className={`uru-input ${styles.lookupInput}`}
+            value={addr}
+            onChange={(e) => setAddr(e.target.value.trim())}
+            placeholder="0x... paste a launched ERC-20 token address"
+            autoFocus
+          />
+          <button
+            type="submit"
+            disabled={!valid}
+            className="uru-btn uru-btn-primary"
+            style={{
+              justifyContent: 'center',
+              opacity: valid ? 1 : 0.5,
+              cursor: valid ? 'pointer' : 'not-allowed',
+              padding: '8px 18px',
+            }}
+          >
+            open terminal <span className="uru-arrow">→</span>
+          </button>
+        </form>
       </section>
 
       {/* ================================================================
-          ADDRESS INPUT — the paste bar
+          PREVIEW LAUNCHES — active chain card grid
           ================================================================ */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (valid) router.push(`/trade/${addr}`);
-        }}
-        style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 14,
-          alignItems: 'stretch',
-          flexWrap: 'wrap',
-        }}
-      >
-        <input
-          className="uru-input"
-          value={addr}
-          onChange={(e) => setAddr(e.target.value.trim())}
-          placeholder="0x… paste a launched token address"
-          style={{ flex: 1, minWidth: 260, fontFamily: 'var(--font-pixel), monospace', fontSize: 12 }}
-          autoFocus
-        />
-        <button
-          type="submit"
-          disabled={!valid}
-          className="uru-btn uru-btn-primary"
-          style={{
-            justifyContent: 'center',
-            opacity: valid ? 1 : 0.5,
-            cursor: valid ? 'pointer' : 'not-allowed',
-            padding: '6px 18px',
-          }}
-        >
-          open trade page <span className="uru-arrow">→</span>
-        </button>
-      </form>
-
-      {/* ================================================================
-          PREVIEW LAUNCHES — dense card grid
-          ================================================================ */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div className={styles.sectionHeader}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span className="uru-h1" style={{ fontSize: 18 }}>preview launches</span>
+          <span className="uru-h1" style={{ fontSize: 18 }}>active bonding curves</span>
           <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 12, color: 'var(--anchor-soft)' }}>
             新着
           </span>
@@ -124,16 +98,21 @@ export default function TradeIndex() {
           all launches »
         </Link>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-4">
+      <div className={styles.launchGrid}>
         {feedLaunches.map((l) => (
           <TradeTile key={l.address} launch={l} />
         ))}
       </div>
+      {feedLaunches.length === 0 && (
+        <div className={`uru-shell-tight ${styles.emptyState}`}>
+          No active bonding curves on this chain yet. Paste a token address above, browse all launches, or create the first ERC-20 token.
+        </div>
+      )}
 
       {/* ================================================================
           HOW IT WORKS — collapsed to a slim strip below the fold
           ================================================================ */}
-      <details className="uru-shell-tight" style={{ padding: 12 }}>
+      <details className={`uru-shell-tight ${styles.helpPanel}`}>
         <summary
           style={{
             cursor: 'pointer',
@@ -143,15 +122,15 @@ export default function TradeIndex() {
             listStyle: 'none',
           }}
         >
-          ❀ how trading works
+          how ERC-20 trading works
         </summary>
         <ol style={{ margin: '8px 0 0 0', paddingLeft: 18, fontSize: 12.5, lineHeight: 1.65 }}>
           <li>
-            <b>launch a token</b> in the{' '}
+            <b>launch an ERC-20</b> in the{' '}
             <Link href="/create" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-              shop
+              token creation page
             </Link>{' '}
-            with any base + modules stack.
+            with art, ticker, socials, and curve settings.
           </li>
           <li>
             <b>create the curve:</b> once the CurveFactory is deployed, call{' '}
@@ -183,34 +162,18 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell-tight uru-launch-card"
-      style={{
-        padding: 10,
-        display: 'flex',
-        gap: 10,
-        textDecoration: 'none',
-        color: 'inherit',
-        alignItems: 'center',
-      }}
+      className={`uru-shell-tight uru-launch-card ${styles.tile}`}
     >
       <div
+        className={styles.tileMark}
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 8,
-          border: '1.5px solid var(--anchor)',
           background: safeBackgroundImage(logoDataUrl, launch.logoBg),
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 22,
-          flexShrink: 0,
         }}
       >
-        {!logoDataUrl && launch.logoEmoji}
+        {!logoDataUrl && launch.ticker.slice(0, 3)}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+      <div className={styles.tileBody}>
+        <div className={styles.tileTitle}>
           <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {launch.name}
           </div>
@@ -218,19 +181,12 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
             ${launch.ticker}
           </div>
         </div>
-        <div
-          style={{
-            marginTop: 3,
-            height: 6,
-            background: 'var(--cream-deep)',
-            border: '1.5px solid var(--anchor)',
-          }}
-        >
+        <div className={styles.progressTrack}>
           <div
+            className={styles.progressFill}
             style={{
               width: `${mockProgressPct(launch)}%`,
-              height: '100%',
-              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
+              background: launch.graduated ? 'var(--mint-hot)' : undefined,
             }}
           />
         </div>

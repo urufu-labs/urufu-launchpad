@@ -187,7 +187,7 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
   return (
     <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div className="uru-eyebrow">⚙ your tokens (owner controls)</div>
+        <div className="uru-eyebrow">your tokens (owner controls)</div>
         <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>管理</span>
       </div>
 
@@ -206,9 +206,9 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
             lineHeight: 1.5,
           }}
         >
-          no owned tokens on {chain}. every ERC-20 curve auto-renounces ownership at
-          launch, so this shelf only fills up if you ship an NFT base with an owner
-          you keep ~~
+          no owned tokens on {chain}. most curve launches auto-renounce ownership at
+          launch, so this list only shows tokens where this wallet still
+          holds the owner role.
         </div>
       )}
 
@@ -335,7 +335,7 @@ function TokenRow({
               })
             }
           >
-            {isPaused ? '✿ unpause' : '⏸ pause all trades'}
+            {isPaused ? 'unpause' : 'pause all trades'}
           </button>
         </div>
       )}
