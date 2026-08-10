@@ -29,10 +29,9 @@
   --paper-base:   #fbeecf;
   --paper-base-2: #f4e0b3;
 
-  /* Links wear body text color, not blue — the underline carries the affordance.
-     Fits kawaiicore better than deep-web navy against the cream palette. */
-  --link-blue:    var(--anchor);
-  --link-visited: var(--anchor-soft);
+  /* Link blue — real pre-2007 personal-site blue */
+  --link-blue:    #0033cc;
+  --link-visited: #7c1fa0;
 
   /* Elevation tokens — shells + cards read as raised surfaces relative to body.
      In light mode, --card == --cream (no delta needed against warm paper base).
@@ -94,9 +93,9 @@
   --paper-base:   #120e1c;
   --paper-base-2: #191423;
 
-  /* links wear the cream text color on dark — underline still carries the affordance */
-  --link-blue:    var(--anchor);
-  --link-visited: var(--anchor-soft);
+  /* links — pastel blue on dark reads better than deep-web navy */
+  --link-blue:    #93bbff;
+  --link-visited: #d4a0ff;
 
   /* Fields + white surfaces need explicit dark values so `color: var(--anchor)` (now cream)
      isn't rendered on a hardcoded white bg. */
