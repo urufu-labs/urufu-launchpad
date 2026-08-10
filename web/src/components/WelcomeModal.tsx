@@ -88,7 +88,7 @@ export function WelcomeModal() {
             background: 'var(--cream-deep)',
           }}
         >
-          <div className="uru-eyebrow" id="welcome-title">✿ welcome to the meadow</div>
+          <div className="uru-eyebrow" id="welcome-title">✿ welcome to urufu labs</div>
           <button
             type="button"
             onClick={dismiss}
@@ -146,7 +146,7 @@ export function WelcomeModal() {
             >
               <li>launches onto a bonding curve so anyone can trade day-1</li>
               <li>graduates to a <b>uniswap v4 pool with a custom hook</b>, LP locked forever</li>
-              <li>the v4 hook routes trade fees to creators + flywheel + on-token buyback-burn</li>
+              <li>the v4 hook routes trade fees to creators, holder rewards, and on-token buyback-burn</li>
               <li>creators earn on every trade for as long as the pool exists ~</li>
             </ul>
           </div>

@@ -214,7 +214,7 @@ export default function RootLayout({
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
               aria-label="primary navigation"
             >
-              <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ shop</Link>
+              <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ create</Link>
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
@@ -230,7 +230,7 @@ export default function RootLayout({
                 ❋ urufu gemu ↗
               </a>
               {/* mobile-only compact menu */}
-              <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="shop">✿</Link>
+              <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="create token">✿</Link>
               <Link href="/trade" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="trade">✦</Link>
               <Link href="/profile" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="profile">♡</Link>
               {/* Theme + audio hide under `sm` — the header runs out of room and both are
@@ -272,7 +272,7 @@ export default function RootLayout({
               style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 12 }}
               aria-label="footer links"
             >
-              <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
+              <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ modules</Link>
               <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
               <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>

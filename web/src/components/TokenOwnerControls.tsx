@@ -208,11 +208,8 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
             lineHeight: 1.5,
           }}
         >
-          no owned tokens on {chain}. curve-launched ERC-20s auto-renounce ownership
-          at launch — this shelf only fills up for tokens where you kept admin. pick
-          <b> quick launch</b> mechanic + <b>keep ownership</b> on /create, and any
-          AntiBot / AntiWhale / Pausable module you add will show controls here after
-          the tx confirms ~~
+          no owned tokens on {chain}. every ERC-20 curve auto-renounces ownership at
+          launch, so this list only shows tokens where you keep the owner role.
         </div>
       )}
 

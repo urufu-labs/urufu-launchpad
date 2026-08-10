@@ -110,16 +110,16 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="what" title="what is urufu labs?" jp="説明">
         <p>
-          a launchpad for <b>customizable ERC-20 tokens</b>. drag features into a cart
+          a launchpad for <b>customizable ERC-20 tokens</b>. add modules
           (anti-bot, staking, voting, royalties, more), hit launch, get a real token
           on-chain in one tx, plus a trade page + chart for anyone to trade.
         </p>
         <Callout tone="pink" label="what makes urufu different">
           <ul className="uru-list-flower" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
             <li><b>every module is real solidity</b>, not a clone with a shared impl. compose voting + staking + anti-bot + royalties + more in one tx.</li>
-            <li><b>graduates onto a uniswap v4 pool with a custom hook</b> that routes trade fees three ways: creator, flywheel, on-token buyback-burn.</li>
+            <li><b>graduates onto a uniswap v4 pool with a custom hook</b> that routes trade fees three ways: creator, holder rewards, and on-token buyback-burn.</li>
             <li><b>LP is math-locked forever</b> post-graduation. no rugs, no vampire attacks, no team-triggered removals.</li>
-            <li><b>urufu flywheel</b>: 35% of every trade fee airdrops to urufu gemu NFT holders as ETH, 40% buys back URU on market.</li>
+            <li><b>trade-fee split</b>: 35% of every trade fee goes to urufu gemu NFT holders as ETH, and 40% buys back URU on market.</li>
             <li><b>snapshot whitelists</b>: point at any existing token, we hash its holders into a merkle root. no CSV uploads, no manual lists.</li>
             {loyaltyReady.ready && (
               <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
@@ -130,7 +130,7 @@ export default function DocsPage() {
         <Callout tone="mint" label="coming later">
           NFT and mixed-item collections (ERC-721/1155) are designed and the contracts
           are on-chain, but the launch flow for them isn&apos;t live yet. we&apos;re proving
-          the flywheel on fungible tokens first. right now the shop is coin-only.
+          the fee-routing model on fungible tokens first. right now token creation is coin-only.
         </Callout>
         <Callout tone="mint" label="powered by uniswap v4 hooks">
           post-graduation tokens live in a{' '}
@@ -142,7 +142,7 @@ export default function DocsPage() {
           >
             uniswap v4 pool
           </a>{' '}
-          with a custom hook that routes trade fees three ways: creators, the flywheel (URU
+          with a custom hook that routes trade fees three ways: creators, holder rewards (URU
           buyback + urufu gemu NFT holders), and an on-token buyback-burn. v4 hooks are what
           make the &quot;LP locked forever + earn fees forever&quot; guarantee possible in
           the first place ~
@@ -157,9 +157,9 @@ export default function DocsPage() {
           <li><b>connect wallet</b> (top-right). fund w/ a little ETH.</li>
           <li><b>pick a chain</b> in the switcher next to the wallet button.</li>
           <li>
-            head to the <Link href="/create" style={linkStyle}>✿ shop</Link> and{' '}
+            open the <Link href="/create" style={linkStyle}>✿ token creation page</Link> and{' '}
             <b>pick a base</b>: coin (like $DOGE) · collectible (like an NFT) ·
-            mixed items (like an in-game shop).
+            mixed items (like in-game items).
           </li>
           <li>
             <b>drag features</b> into ur cart, anti-bot cooldowns, staking, royalties,
@@ -232,7 +232,7 @@ export default function DocsPage() {
         <p>
           the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>{' '}
           or <b>urufu gemu NFT</b>, u can pay the fee in URU instead, and it comes with a
-          discount. this is the loyalty flywheel: holders launch cheaper, and the URU they
+          discount. this is the loyalty discount: holders launch cheaper, and the URU they
           pay goes right back into the buyback vault that supports the URU price.
         </p>
         {loyaltyReady.ready ? (
@@ -346,7 +346,7 @@ export default function DocsPage() {
           just from the pool doing what pools do ~
         </Callout>
         <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
-          exact split (platform / creator / flywheel) is set per launch by the hook config.
+          exact split (platform / creator / holder rewards) is set per launch by the hook config.
           check the trade page for ur token&apos;s configured split.
         </p>
       </Section>
@@ -389,7 +389,7 @@ export default function DocsPage() {
         </div>
 
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ where the trade fee goes (the flywheel)</div>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ where the trade fee goes</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li><b>40%</b> → buys back URU on-market</li>
             <li><b>35%</b> → paid to urufu gemu nft holders as ETH</li>
@@ -403,7 +403,7 @@ export default function DocsPage() {
           ================================================================ */}
       <Section id="chains" title="which chain should i pick?" jp="鎖">
         <p>
-          right now urufu is <b>robinhood-only</b>. the launchpad, flywheel, URU token, and
+          right now urufu is <b>robinhood-only</b>. the launchpad, fee-distribution contracts, URU token, and
           urufu gemu NFT all live on robinhood chain (chain id 4663). other chains are
           grayed out in the chain switcher for now and will re-enable as we expand.
         </p>
@@ -411,7 +411,7 @@ export default function DocsPage() {
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li>
               <b>robinhood chain</b> (live). near-zero gas, home of the urufu ecosystem.
-              every launch, every trade, every flywheel payout happens here.
+              every launch, every trade, and every holder reward distribution happens here.
             </li>
             <li>
               <b>base mainnet</b> (soon). was the original home before the robinhood
@@ -428,7 +428,7 @@ export default function DocsPage() {
           </ul>
         </div>
         <Callout tone="yolk" label="why robinhood first">
-          robinhood is where the URU token and urufu gemu NFT already live, so the flywheel
+          robinhood is where the URU token and urufu gemu NFT already live, so the fee split
           (URU buyback + NFT holder rewards + on-token buyback-burn) loops back to holders
           from day one. adding more chains later is a matter of redeploying, not
           re-architecting.
@@ -445,7 +445,7 @@ export default function DocsPage() {
           in at three levels: the token, the pool, and the registry.
         </p>
         <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ token-level (u pick these in the shop)</div>
+          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ token-level modules</div>
           <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
             <li>
               <b>anti-bot cooldown</b>: per-wallet per-block cooldown on transfers. scripted
@@ -734,4 +734,3 @@ const codeStyle: React.CSSProperties = {
   padding: '1px 4px',
   border: '1px solid var(--anchor)',
 };
-

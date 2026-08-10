@@ -400,7 +400,7 @@ function HomePageContent() {
             </h1>
             <p className="uru-home-subtitle">
               Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
-              a safe launch.
+              a protected opening.
             </p>
             <div className="uru-home-flags" aria-label="Launch properties">
               <span>erc-20</span>
@@ -412,7 +412,7 @@ function HomePageContent() {
                 launch a token <span className="uru-arrow">→</span>
               </Link>
               <Link href="/catalog" className="uru-btn uru-btn-cream">
-                shelf
+                modules
               </Link>
             </div>
           </div>
@@ -551,9 +551,9 @@ function HomePageContent() {
             )}
           </section>
 
-          <section className="uru-home-sidebar-card" aria-label="The flywheel">
+          <section className="uru-home-sidebar-card" aria-label="Launch fee split">
             <div className="uru-home-sidebar-title">
-              <span>❀ the flywheel</span>
+              <span>❀ launch fee split</span>
             </div>
             <ul className="uru-home-flywheel-list">
               <li>
@@ -757,18 +757,18 @@ function CultureBulletin({
   const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
   const creator = launch
     ? (preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`)
-    : 'waiting for a first release';
+    : 'waiting for a first token launch';
 
   return (
     <section className="uru-home-bulletin" aria-labelledby="bulletin-title">
       <div className="uru-home-bulletin-topline">
-        <span id="bulletin-title">culture bulletin</span>
-        <span>artist release desk</span>
+        <span id="bulletin-title">token launches</span>
+        <span>creator token launches</span>
       </div>
 
       <div className="uru-home-bulletin-art">
         {launch ? (
-          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} release`}>
+          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} token`}>
             <div
               className="uru-home-bulletin-artwork"
               role="img"
@@ -785,20 +785,20 @@ function CultureBulletin({
       </div>
 
       <div className="uru-home-bulletin-note">
-        <span className="uru-home-bulletin-kicker">release note</span>
+        <span className="uru-home-bulletin-kicker">token details</span>
         {launch ? (
           <>
             <h2>{launch.name}</h2>
             <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
             <p className="uru-home-bulletin-byline">by {creator}</p>
             <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
-              open release <span aria-hidden="true">→</span>
+              open token <span aria-hidden="true">→</span>
             </Link>
           </>
         ) : (
           <>
-            <h2>the next release</h2>
-            <p className="uru-home-bulletin-byline">the desk is ready when the first artist is.</p>
+            <h2>no token launch yet</h2>
+            <p className="uru-home-bulletin-byline">Launch a token to show it here.</p>
             <Link href="/create" className="uru-home-bulletin-link">
               launch a token <span aria-hidden="true">→</span>
             </Link>
@@ -806,8 +806,8 @@ function CultureBulletin({
         )}
       </div>
 
-      <div className="uru-home-bulletin-signal" aria-label="Launch signal">
-        <span className="uru-home-bulletin-kicker">launch signal</span>
+      <div className="uru-home-bulletin-signal" aria-label="Token metrics">
+        <span className="uru-home-bulletin-kicker">token metrics</span>
         <dl>
           <div>
             <dt>curve</dt>
@@ -823,9 +823,9 @@ function CultureBulletin({
           </div>
         </dl>
         <div className="uru-home-bulletin-collectors">
-          <span>recent collectors</span>
+          <span>recent traders</span>
           {collectors.slice(0, 3).map((collector) => <b key={collector}>{collector}</b>)}
-          {collectors.length === 0 && <b>waiting for the first collector</b>}
+          {collectors.length === 0 && <b>waiting for the first trader</b>}
         </div>
         <div className="uru-home-bulletin-hooks" aria-label="Selected launch protections">
           <span>selected hooks</span>
@@ -838,7 +838,7 @@ function CultureBulletin({
       </div>
 
       <div className="uru-home-bulletin-from">
-        <span className="uru-home-bulletin-kicker">from the artists</span>
+        <span className="uru-home-bulletin-kicker">more token launches</span>
         <div className="uru-home-bulletin-artists">
           {previewLaunches.slice(0, 3).map((item) => {
             const itemPreview = PREVIEW_TICKETS.find((ticket) => ticket.address === item.address);
@@ -850,7 +850,7 @@ function CultureBulletin({
               </Link>
             );
           })}
-          {previewLaunches.length === 0 && <span className="uru-home-bulletin-artist-empty">new work will collect here.</span>}
+          {previewLaunches.length === 0 && <span className="uru-home-bulletin-artist-empty">new token launches will appear here.</span>}
         </div>
       </div>
 
