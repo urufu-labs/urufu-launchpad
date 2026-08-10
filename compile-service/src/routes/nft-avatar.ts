@@ -22,9 +22,8 @@ const MAX_PAGE_SIZE = 100;
 /// Chains Alchemy doesn't index for NFTs (Cronos, Ronin, Moonbeam) are omitted;
 /// no point offering a scan we know will 4xx.
 const NFT_CHAINS = [
-  { id: 'robinhood', label: 'Robinhood', chainId: 4663, providerNetwork: 'rh-mainnet' },
+  { id: 'robinhood', label: 'Robinhood', chainId: 4663, providerNetwork: 'robinhood-mainnet' },
   { id: 'ethereum', label: 'Ethereum', chainId: 1, providerNetwork: 'eth-mainnet' },
-  { id: 'base', label: 'Base', chainId: 8453, providerNetwork: 'base-mainnet' },
   { id: 'arbitrum', label: 'Arbitrum', chainId: 42161, providerNetwork: 'arb-mainnet' },
   { id: 'optimism', label: 'Optimism', chainId: 10, providerNetwork: 'opt-mainnet' },
   { id: 'polygon', label: 'Polygon', chainId: 137, providerNetwork: 'polygon-mainnet' },
