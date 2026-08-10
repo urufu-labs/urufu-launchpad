@@ -15,7 +15,6 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 import { useAccount, useSignMessage } from 'wagmi';
 
@@ -361,22 +360,13 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           ================================================================ */}
       <section className={styles.pressKit}>
         <div className={styles.identityPlate}>
+          {/* Avatar is a CSS background — same approach as 10x's design. We
+              previously used <Image fill> here for LCP tuning, but .avatarStamp
+              lacks position:relative, so fill climbed to the viewport and
+              painted the PFP over the whole page. Background-image sizes
+              itself to the 118px box regardless of source (data URL, IPFS,
+              Vercel Blob) and never escapes the container. */}
           <div className={styles.avatarStamp} style={{ background: safeBackgroundImage(profile.avatarDataUrl) }}>
-            {profile.avatarDataUrl && !profile.avatarDataUrl.startsWith('data:') && (
-              // next/image prioritizes above-fold LCP asset + serves WebP/AVIF
-              // via Vercel edge cache (see web/next.config.ts remotePatterns).
-              // Data URLs (uploaded but not yet pinned) stay as the CSS
-              // background above since next/image proxy only handles http(s).
-              <Image
-                src={profile.avatarDataUrl}
-                alt=""
-                fill
-                sizes="118px"
-                priority
-                fetchPriority="high"
-                style={{ objectFit: 'cover' }}
-              />
-            )}
             {!profile.avatarDataUrl && <span>ウ</span>}
           </div>
 
