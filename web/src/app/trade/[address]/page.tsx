@@ -33,6 +33,7 @@ import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata 
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { mockLaunchByAddress } from '@/lib/mockLaunches';
+import { useMockDataMode } from '@/lib/mockDataMode';
 import {
   fetchCurveByToken,
   fetchGraduationForToken,
@@ -74,6 +75,7 @@ function spotFromReserves(
 }
 
 export default function TradePage({ params }: { params: Promise<{ address: string }> }) {
+  const mockData = useMockDataMode();
   const resolved = use(params);
   const tokenAddress = (isAddress(resolved.address) ? resolved.address : '0x0000000000000000000000000000000000000000') as Address;
 
@@ -87,7 +89,7 @@ export default function TradePage({ params }: { params: Promise<{ address: strin
   // page is browsable without any contracts deployed. Dispatch happens via a sibling
   // component so rules-of-hooks stay clean — early-returning before the wagmi hooks below
   // would violate hook ordering.
-  const mock = mockLaunchByAddress(tokenAddress);
+  const mock = mockData.enabled ? mockLaunchByAddress(tokenAddress) : null;
   if (mock) return <MockTradeView launch={mock} />;
   return <LiveTradeView tokenAddress={tokenAddress} />;
 }

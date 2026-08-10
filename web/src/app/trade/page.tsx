@@ -7,6 +7,7 @@ import { isAddress, formatEther } from 'viem';
 
 import { mockProgressPct, launchKind, type MockLaunch } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
@@ -20,6 +21,7 @@ export default function TradeIndex() {
   const router = useRouter();
   const valid = isAddress(addr);
   const activeChain = useActiveChain();
+  const mockData = useMockDataMode();
   const feed = useLaunchFeed(CHAIN_KEY_TO_ID[activeChain]);
   // /trade is for bonding-curve trading — filter direct-mint tokens out; they show up on
   // home + discover instead.
@@ -33,7 +35,7 @@ export default function TradeIndex() {
           <h1 className={`uru-h1 ${styles.title}`}>market lookup</h1>
         </div>
         <div className={styles.marketMeta}>
-          <span>{activeChain}</span>
+          <span>{mockData.enabled ? 'demo data' : activeChain}</span>
           <span>{feedLaunches.length} bonding curves</span>
           <Link href="/discover">all launches »</Link>
         </div>

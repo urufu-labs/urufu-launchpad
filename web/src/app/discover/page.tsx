@@ -19,6 +19,7 @@ import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 
@@ -43,6 +44,7 @@ export default function DiscoverPage() {
   const activeChainId = CHAIN_KEY_TO_ID[activeChain];
   const [filter, setFilter] = useState<Filter>('trending');
   const [query, setQuery] = useState('');
+  const mockData = useMockDataMode();
   const feed = useLaunchFeed(activeChainId);
   const isIndexer = feed.source === 'indexer';
   const source = feed.launches;
@@ -111,7 +113,12 @@ export default function DiscoverPage() {
       </header>
 
       <div className={classNames(styles.sourceBar, isIndexer ? styles.sourceLive : styles.sourcePreview)}>
-        {isIndexer && feed.ready ? (
+        {mockData.enabled ? (
+          <>
+            <b>◐ demo data</b>
+            <span>fixture launches are enabled across the market, trade list, and ticker</span>
+          </>
+        ) : isIndexer && feed.ready ? (
           <>
             <b>● live indexer</b>
             <span>

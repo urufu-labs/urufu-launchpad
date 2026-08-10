@@ -18,6 +18,7 @@ import {
   type MockTrade,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
 import { useAgo } from '@/lib/useAgo';
 import {
   fetchRecentTrades,
@@ -98,8 +99,7 @@ const PREVIEW_STATS = {
 // Preview data is for local reviews by default. A staging deployment must opt in with
 // NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
 // someone deliberately supplies that flag.
-const HOME_PREVIEW_AVAILABLE =
-  process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_HOME_PREVIEW === 'true';
+const HOME_PREVIEW_AVAILABLE = mockDataAvailable;
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -122,12 +122,10 @@ export default function HomePage() {
 function HomePageContent() {
   const activeChain = useActiveChain();
   const chainId = CHAIN_KEY_TO_ID[activeChain];
+  const mockData = useMockDataMode();
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
-  // The local/staging review starts with the expressive fixture state on. The toggle
-  // remains available there to inspect the real empty/live state; it never renders in
-  // production unless that environment deliberately supplies the staging flag.
-  const [previewEnabled, setPreviewEnabled] = useState(HOME_PREVIEW_AVAILABLE);
+  const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
   const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
     HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
@@ -381,13 +379,11 @@ function HomePageContent() {
             type="button"
             className="uru-home-preview-toggle"
             aria-pressed={previewEnabled}
-            onClick={() =>
-              setPreviewEnabled((enabled) => {
-                const next = !enabled;
-                if (next) setPreviewRun((run) => run + 1);
-                return next;
-              })
-            }
+            onClick={() => {
+              const next = !previewEnabled;
+              if (next) setPreviewRun((run) => run + 1);
+              mockData.setEnabled(next);
+            }}
           >
             <span className="uru-home-preview-dot" aria-hidden="true" />
             mock data: {previewEnabled ? 'on' : 'off'}

@@ -9,6 +9,7 @@ import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
 import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
+import { useMockDataMode } from './mockDataMode';
 
 interface FeedState {
   source: 'indexer' | 'mock';
@@ -26,6 +27,13 @@ function hasLiveContracts(chainId: number): boolean {
   return key ? CONTRACTS[key] !== null : false;
 }
 
+function previewLaunches(): MockLaunch[] {
+  // Demo mode is deliberately chain-independent: the fixture set illustrates fresh,
+  // mid-curve, near-graduation, and graduated tokens even when the selected live chain
+  // has no fixture addresses of its own.
+  return MOCK_LAUNCHES.filter((launch) => !isHiddenToken(launch.chainId, launch.address));
+}
+
 /// Unified launch-feed hook consumed by home / discover / trade-list.
 ///
 /// - On chains with deployed contracts (CONTRACTS[key] !== null) it queries Ponder and
@@ -35,7 +43,11 @@ function hasLiveContracts(chainId: number): boolean {
 /// `ready` flips true once the indexer probe has finished, so pages can render a skeleton
 /// or an "indexer offline" fallback without briefly flashing the mock list.
 export function useLaunchFeed(chainId: number): FeedState {
+  const mockData = useMockDataMode();
   const [state, setState] = useState<FeedState>(() => {
+    if (mockData.enabled) {
+      return { source: 'mock', launches: previewLaunches(), ready: true };
+    }
     // First paint: if we already know the chain has no live contracts, render the mock
     // preview immediately (SSR-safe, deterministic). Otherwise start empty and let the
     // effect fill in from the indexer — avoids a flash of unrelated mock tokens.
@@ -53,6 +65,11 @@ export function useLaunchFeed(chainId: number): FeedState {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (mockData.enabled) {
+      setState({ source: 'mock', launches: previewLaunches(), ready: true });
+      return () => { cancelled = true; };
+    }
 
     if (!hasLiveContracts(chainId)) {
       setState({
@@ -100,7 +117,7 @@ export function useLaunchFeed(chainId: number): FeedState {
     // sub-second so this feels near-real-time without hammering the backend.
     const id = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [chainId]);
+  }, [chainId, mockData.enabled]);
 
   return state;
 }
