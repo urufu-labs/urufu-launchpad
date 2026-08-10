@@ -20,6 +20,7 @@ import { useReadContracts } from 'wagmi';
 
 import { feeSplitterAbi } from '@/lib/abis';
 import { FLYWHEEL, type ChainKey } from '@/lib/config';
+import { FLYWHEEL_HISTORY_START_BLOCK } from '@/lib/launchpadStatus';
 import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
 import {
   fetchFlywheelActivity,
@@ -118,12 +119,21 @@ export default function FlywheelPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const totals = useMemo(() => {
+  /// Filter out everything before FLYWHEEL_HISTORY_START_BLOCK. Default is a
+  /// far-future block so every pre-launch test event is hidden — the display
+  /// reads as zeroed until we lower the cutoff at real launch time. See
+  /// launchpadStatus.ts for the flip procedure.
+  const liveRows = useMemo(() => {
     if (!activityRows) return null;
+    return activityRows.filter((r) => Number(r.blockNumber) >= FLYWHEEL_HISTORY_START_BLOCK);
+  }, [activityRows]);
+
+  const totals = useMemo(() => {
+    if (!liveRows) return null;
     let uruBoughtBack = 0n;
     let ethToGemu = 0n;
     let ethToTeam = 0n;
-    for (const r of activityRows) {
+    for (const r of liveRows) {
       if (r.kind === 'distribution') {
         if (r.toNft) ethToGemu += BigInt(r.toNft);
         if (r.toTreasury) ethToTeam += BigInt(r.toTreasury);
@@ -132,7 +142,7 @@ export default function FlywheelPage() {
       }
     }
     return { uruBoughtBack, ethToGemu, ethToTeam };
-  }, [activityRows]);
+  }, [liveRows]);
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
@@ -250,7 +260,7 @@ export default function FlywheelPage() {
         </>
       )}
 
-      <ActivityFeed rows={activityRows} error={activityError} />
+      <ActivityFeed rows={liveRows} error={activityError} />
     </div>
   );
 }
