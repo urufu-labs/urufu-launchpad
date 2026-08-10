@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { formatEther } from 'viem';
 
@@ -10,19 +10,23 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
   MOCK_LAUNCHES,
-  mockMarketCapEth,
   mockProgressPct,
   launchKind,
   tradeCountOf,
   type MockLaunch,
+  type MockTrade,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useAgo } from '@/lib/useAgo';
-import { fetchRecentTrades, fetchRecentV4Swaps, type IndexerTrade, type IndexerV4Swap } from '@/lib/indexer';
+import {
+  fetchRecentTrades,
+  fetchRecentV4Swaps,
+  type IndexerTrade,
+  type IndexerV4Swap,
+} from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
-import { CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
+import { CONTRACTS, CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
-import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 
 // All tabs are curve-only now; the create page only launches curves (quick +
 // customizable, both fire installBondingCurve=true). The old 'direct mint' tab
@@ -30,6 +34,71 @@ import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 // but NFT bases aren't live yet and legacy direct tokens are hidden. Dropped
 // the tab to declutter the bar.
 type Tab = 'trending' | 'new' | 'near' | 'graduated';
+type HomeTrade = { l: MockLaunch; t: MockTrade };
+type PreviewTicket = {
+  address: string;
+  creator: string;
+  tone: 'pink' | 'sky' | 'mint';
+  progress: number;
+  raised: string;
+  trades: number;
+};
+type PreviewTrade = {
+  id: string;
+  wallet: string;
+  ticker: string;
+  amount: string;
+};
+
+const PREVIEW_LAUNCHES = MOCK_LAUNCHES.filter(
+  (launch) => launch.chainId === 11155111 && launchKind(launch) === 'curve',
+).slice(0, 3);
+const PREVIEW_TICKETS: PreviewTicket[] = [
+  {
+    address: PREVIEW_LAUNCHES[0]!.address,
+    creator: 'studio 02',
+    tone: 'pink',
+    progress: 82,
+    raised: '3.48 Ξ',
+    trades: 19,
+  },
+  {
+    address: PREVIEW_LAUNCHES[1]!.address,
+    creator: 'momo press',
+    tone: 'sky',
+    progress: 56,
+    raised: '1.87 Ξ',
+    trades: 12,
+  },
+  {
+    address: PREVIEW_LAUNCHES[2]!.address,
+    creator: 'pink unit',
+    tone: 'mint',
+    progress: 29,
+    raised: '0.74 Ξ',
+    trades: 7,
+  },
+];
+const PREVIEW_TRADE_SEEDS: PreviewTrade[] = [
+  { id: 'momo-mochi', wallet: 'momo.eth', ticker: '$MOCHI', amount: '0.42 Ξ' },
+  { id: 'wallet-kawaii', wallet: '0x7b··f3', ticker: '$KAWAII', amount: '0.18 Ξ' },
+  { id: 'pink-ramen', wallet: 'pinkunit', ticker: '$RAMEN', amount: '0.09 Ξ' },
+  { id: 'studio-kawaii', wallet: 'studio02', ticker: '$KAWAII', amount: '0.64 Ξ' },
+  { id: 'lilypad-mochi', wallet: 'lilypad.eth', ticker: '$MOCHI', amount: '0.26 Ξ' },
+];
+const PREVIEW_STATS = {
+  tokens: '27',
+  graduated: '6',
+  ethRaised: '18.42 Ξ',
+  trades: '163',
+  chain: 'Robinhood',
+};
+
+// Preview data is for local reviews by default. A staging deployment must opt in with
+// NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
+// someone deliberately supplies that flag.
+const HOME_PREVIEW_AVAILABLE =
+  process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_HOME_PREVIEW === 'true';
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -54,31 +123,39 @@ function HomePageContent() {
   const chainId = CHAIN_KEY_TO_ID[activeChain];
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
-  // Layer-3 release gate — the "up to 50% off launch fees" callout in the
-  // right-rail flywheel card only shows when the on-chain loyalty wiring
-  // is verified live. Falls back to hiding the callout on unsupported
-  // chains / when RPC is down, so we never promise a specific % the
-  // frontend can't back with a live read.
-  const loyaltyReady = useLoyaltyDiscountReady();
+  // The local/staging review starts with the expressive fixture state on. The toggle
+  // remains available there to inspect the real empty/live state; it never renders in
+  // production unless that environment deliberately supplies the staging flag.
+  const [previewEnabled, setPreviewEnabled] = useState(HOME_PREVIEW_AVAILABLE);
+  const [previewRun, setPreviewRun] = useState(0);
+  const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
+    HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
+  );
+  const [previewIncomingTradeId, setPreviewIncomingTradeId] = useState<string | null>(null);
+  const previewTradeListRef = useRef<HTMLUListElement>(null);
+  const previewTradePositions = useRef(new Map<string, DOMRect>());
 
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
+  const previewLaunches = PREVIEW_LAUNCHES;
+  const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
+  const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
   const stats = useMemo(() => {
-    const total = chainMocks.length;
-    const graduated = chainMocks.filter((l) => l.graduated).length;
-    const totalEth = chainMocks.reduce((acc, l) => acc + l.ethReserve, 0n);
-    const totalTrades = chainMocks.reduce((acc, l) => acc + tradeCountOf(l), 0);
+    const total = sourceLaunches.length;
+    const graduated = sourceLaunches.filter((l) => l.graduated).length;
+    const totalEth = sourceLaunches.reduce((acc, l) => acc + l.ethReserve, 0n);
+    const totalTrades = sourceLaunches.reduce((acc, l) => acc + tradeCountOf(l), 0);
     return { total, graduated, totalEth, totalTrades };
-  }, [chainMocks]);
+  }, [sourceLaunches]);
 
   const filtered = useMemo(() => {
     // All tabs are curve-only after the direct-mint tab drop; non-curve tokens
     // (legacy pre-rename direct launches + any NFT bases) never surface here.
-    let list = chainMocks.filter((l) => launchKind(l) === 'curve');
+    let list = sourceLaunches.filter((l) => launchKind(l) === 'curve');
     if (query.trim()) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -93,14 +170,16 @@ function HomePageContent() {
         list.sort((a, b) => b.launchedAt - a.launchedAt);
         break;
       case 'near':
-        list = list.filter((l) => !l.graduated).sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
+        list = list
+          .filter((l) => !l.graduated)
+          .sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
         break;
       case 'graduated':
         list = list.filter((l) => l.graduated);
         break;
     }
     return list;
-  }, [chainMocks, query, tab]);
+  }, [sourceLaunches, query, tab]);
 
   // Right-rail "live activity", real trades from the indexer on chains with deployed
   // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
@@ -110,7 +189,7 @@ function HomePageContent() {
   const [liveV4Real, setLiveV4Real] = useState<IndexerV4Swap[] | null>(null);
   const liveIsRealChain = CONTRACTS[activeChain] !== null;
   useEffect(() => {
-    if (!liveIsRealChain) return;
+    if (previewEnabled || !liveIsRealChain) return;
     let cancelled = false;
     const load = async () => {
       const [curveRows, v4Rows] = await Promise.all([
@@ -134,14 +213,17 @@ function HomePageContent() {
     // 5s poll, Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
     // should surface in ≤10s from confirm to render (indexer processing lag + one poll).
     const id = setInterval(load, 5_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [liveIsRealChain, chainId]);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [liveIsRealChain, chainId, previewEnabled]);
 
   // Normalize both curve trades and v4 swaps to the shape the JSX rail expects: { l, t }.
   // v4 swap direction is derived from the sign of amount0 (currency0 = ETH): amount0 < 0
   // means the pool paid out ETH (user bought token), amount0 > 0 means the pool received
   // ETH (user sold token). Amounts are absolute values of the pool-side delta.
-  const liveTrades = useMemo(() => {
+  const liveTrades = useMemo<HomeTrade[]>(() => {
     if (liveIsRealChain) {
       const byToken = new Map(chainMocks.map((l) => [l.address.toLowerCase(), l] as const));
       const curveRows = (liveTradesReal ?? [])
@@ -184,339 +266,357 @@ function HomePageContent() {
           };
         })
         .filter(<T,>(x: T | null): x is T => x !== null);
-      return [...curveRows, ...v4Rows]
-        .sort((a, b) => b.t.timestamp - a.t.timestamp)
-        .slice(0, 14);
+      return [...curveRows, ...v4Rows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
     }
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
-    return MOCK_LAUNCHES
-      .flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
+    return MOCK_LAUNCHES.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
 
+  // The static review's rail tells a small, readable story: three creator-first rows,
+  // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
+  // production activity below still comes exclusively from the indexer.
+  useEffect(() => {
+    if (!previewEnabled || PREVIEW_TRADE_SEEDS.length === 0) {
+      setPreviewTrades([]);
+      return;
+    }
+    const initialReviewState = previewRun === 0;
+    let next = initialReviewState ? 3 : 0;
+    const timers: number[] = [];
+    let interval: number | undefined;
+    const addTrade = () => {
+      const row = PREVIEW_TRADE_SEEDS[next % PREVIEW_TRADE_SEEDS.length]!;
+      next += 1;
+      previewTradePositions.current = new Map(
+        [...(previewTradeListRef.current?.children ?? [])].map((entry) => [
+          entry.getAttribute('data-trade-id') ?? '',
+          entry.getBoundingClientRect(),
+        ]),
+      );
+      setPreviewIncomingTradeId(row.id);
+      setPreviewTrades((current) => [row, ...current.filter((item) => item.id !== row.id)].slice(0, 3));
+    };
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      setPreviewTrades(PREVIEW_TRADE_SEEDS.slice(0, 3).reverse());
+      next = 3;
+    } else if (initialReviewState) {
+      // Local review opens on the settled static-mock arrangement. New activity begins
+      // after the same pause as the original mock instead of briefly flashing empty.
+      timers.push(
+        window.setTimeout(() => {
+          addTrade();
+          interval = window.setInterval(addTrade, 2_200);
+        }, 1_900),
+      );
+    } else {
+      setPreviewTrades([]);
+      [0, 280, 560].forEach((delay) => timers.push(window.setTimeout(addTrade, delay)));
+      timers.push(
+        window.setTimeout(() => {
+          addTrade();
+          interval = window.setInterval(addTrade, 2_200);
+        }, 1_900),
+      );
+    }
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      if (interval) window.clearInterval(interval);
+    };
+  }, [previewEnabled, previewRun]);
+
+  // Keep the existing three rows moving when a new review trade arrives. This is the
+  // same FLIP idea as the static mock, expressed with the Web Animations API so React
+  // can still own the list order and keep the production rail entirely separate.
+  useLayoutEffect(() => {
+    const previous = previewTradePositions.current;
+    const list = previewTradeListRef.current;
+    if (
+      !previewEnabled ||
+      previous.size === 0 ||
+      !list ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      previewTradePositions.current = new Map();
+      return;
+    }
+    [...list.children].forEach((entry) => {
+      const oldPosition = previous.get(entry.getAttribute('data-trade-id') ?? '');
+      if (!oldPosition || entry.getAttribute('data-trade-id') === previewIncomingTradeId) return;
+      const deltaY = oldPosition.top - entry.getBoundingClientRect().top;
+      if (Math.abs(deltaY) < 1 || typeof entry.animate !== 'function') return;
+      const animation = entry.animate(
+        [{ transform: `translateY(${deltaY}px)` }, { transform: 'translateY(0)' }],
+        { duration: 680, easing: 'cubic-bezier(0.22, 0.85, 0.32, 1)', fill: 'both' },
+      );
+      animation.onfinish = () => animation.cancel();
+    });
+    previewTradePositions.current = new Map();
+  }, [previewEnabled, previewIncomingTradeId, previewTrades]);
+
+  const displayedStats = previewEnabled
+    ? PREVIEW_STATS
+    : {
+        tokens: String(stats.total),
+        graduated: String(stats.graduated),
+        ethRaised: `${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`,
+        trades: String(stats.totalTrades),
+        chain: sourceLabel,
+      };
+  const bulletinLaunch = previewEnabled ? PREVIEW_LAUNCHES[1] ?? PREVIEW_LAUNCHES[0] : filtered[0];
+  const bulletinTicket = bulletinLaunch
+    ? PREVIEW_TICKETS.find((ticket) => ticket.address === bulletinLaunch.address)
+    : undefined;
+
   return (
-    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-4">
-      {/* ===================================================================
-          COMPACT HERO, one row, mascot inline, CTA on the right
-          =================================================================== */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '14px 20px',
-          marginBottom: 12,
-          display: 'flex',
-          gap: 16,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Mascot size={64} mood="happy" className="uru-idle-bob" />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 3 }}>✿ urufu labs launchpad</div>
-          <div className="uru-h1" style={{ fontSize: 'clamp(22px, 3vw, 30px)', lineHeight: 1.05 }}>
-            a launchpad <span style={{ color: 'var(--pink-hot)' }}>u</span> can compose
+    <main className="uru-home-shell">
+      <section className="uru-home-hero-frame" aria-labelledby="hero-title">
+        <span className="uru-home-tape uru-home-tape-top" aria-hidden="true" />
+        {HOME_PREVIEW_AVAILABLE && (
+          <button
+            type="button"
+            className="uru-home-preview-toggle"
+            aria-pressed={previewEnabled}
+            onClick={() =>
+              setPreviewEnabled((enabled) => {
+                const next = !enabled;
+                if (next) setPreviewRun((run) => run + 1);
+                return next;
+              })
+            }
+          >
+            <span className="uru-home-preview-dot" aria-hidden="true" />
+            mock data: {previewEnabled ? 'on' : 'off'}
+          </button>
+        )}
+        <div className="uru-home-hero">
+          <div className="uru-home-hero-copy">
+            <p className="uru-home-eyebrow">✿ urufu labs launchpad</p>
+            <h1 id="hero-title" className="uru-home-title">
+              The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
+            </h1>
+            <p className="uru-home-subtitle">
+              Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
+              a safe launch.
+            </p>
+            <div className="uru-home-flags" aria-label="Launch properties">
+              <span>erc-20</span>
+              <span data-tone="mint">uniswap v4</span>
+              <span data-tone="pink">LP locked forever</span>
+            </div>
+            <div className="uru-home-actions">
+              <Link href="/create" className="uru-btn uru-btn-primary">
+                launch a token <span className="uru-arrow">→</span>
+              </Link>
+              <Link href="/catalog" className="uru-btn uru-btn-cream">
+                shelf
+              </Link>
+            </div>
           </div>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--anchor-soft)' }}>
-            compose a token, ship real solidity, LP locked + earn creator fees forever ✿
-          </div>
+
+          <HeroArt />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link href="/create" className="uru-btn uru-btn-primary">
-            launch a token <span className="uru-arrow">→</span>
-          </Link>
-          <Link href="/catalog" className="uru-btn uru-btn-mint">
-            shelf
-          </Link>
-        </div>
+
+        <section className="uru-home-stat-strip" aria-label="Launchpad statistics">
+          <StatTile label="tokens" jp="数" value={displayedStats.tokens} />
+          <StatTile label="graduated" jp="卒業" value={displayedStats.graduated} accent="mint" />
+          <StatTile label="eth raised" jp="集金" value={displayedStats.ethRaised} accent="pink" />
+          <StatTile label="trades" jp="取引" value={displayedStats.trades} />
+          <StatTile label="chain" jp="鎖" value={displayedStats.chain} accent="mizuiro" />
+        </section>
       </section>
 
-      {/* ===================================================================
-          STATS STRIP, data-forward, pixel-font values
-          =================================================================== */}
-      <section
-        className="grid gap-2 mb-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
-      >
-        <StatTile label="tokens" jp="数" value={String(stats.total)} />
-        <StatTile label="graduated" jp="卒業" value={String(stats.graduated)} accent="mint" />
-        <StatTile
-          label="eth raised"
-          jp="集金"
-          value={`${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`}
-          accent="pink"
-        />
-        <StatTile label="trades" jp="取引" value={String(stats.totalTrades)} />
-        <StatTile label="chain" jp="鎖" value={CHAIN_LABELS[activeChain]} accent="mizuiro" />
-      </section>
+      <div className="uru-home-gallery-layout" id="launches">
+        <section className="uru-home-gallery-main" aria-label="Launches">
+          <div className="uru-home-feed-bar">
+            <div className="uru-home-tabs" role="tablist" aria-label="Launch filters">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  role="tab"
+                  aria-selected={tab === t.id}
+                  className="uru-chip"
+                  data-active={tab === t.id}
+                >
+                  {t.label}
+                  <span>{t.jp}</span>
+                </button>
+              ))}
+            </div>
+            <input
+              className="uru-input uru-home-search"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="search name / ticker"
+              aria-label="Search name or ticker"
+            />
+            {previewEnabled && <span className="uru-home-feed-preview">preview data</span>}
+            <Link href="/discover" className="uru-home-feed-link">
+              see all »
+            </Link>
+          </div>
 
-      {/* ===================================================================
-          MAIN GRID, dense feed on the left, live-activity rail on the right
-          =================================================================== */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
-            {/* -------------- feed column -------------- */}
-            <section style={{ minWidth: 0 }}>
-              {/* Tabs + search */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  alignItems: 'center',
-                  marginBottom: 10,
-                }}
-              >
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  {TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTab(t.id)}
-                      className="uru-chip"
-                      data-active={tab === t.id}
-                      style={{ padding: '5px 12px' }}
-                    >
-                      {t.label}
-                      <span
-                        style={{
-                          fontFamily: 'var(--font-jp), monospace',
-                          fontSize: 10,
-                          marginLeft: 4,
-                          opacity: 0.7,
-                        }}
-                      >
-                        {t.jp}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div style={{ flex: 1 }} />
-                <input
-                  className="uru-input"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="search name / ticker"
-                  style={{ maxWidth: 200, fontSize: 12 }}
+          {filtered.length > 0 ? (
+            <div className="uru-home-launch-grid">
+              {filtered.slice(0, 12).map((l) => (
+                <LaunchTile
+                  key={l.address}
+                  launch={l}
+                  preview={PREVIEW_TICKETS.find((ticket) => ticket.address === l.address)}
                 />
-                <Link
-                  href="/discover"
-                  style={{
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 11,
-                    color: 'var(--link-blue)',
-                    textDecoration: 'underline',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  see all »
-                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="uru-home-empty">
+              <div>
+                <Mascot size={52} mood="confused" />
+                <p>no launches on {sourceLabel} yet ~~</p>
+                <Link href="/create">launch the first one »</Link>
               </div>
+            </div>
+          )}
+        </section>
 
-              {/* Dense card grid, 3-col at lg, 2-col at sm, 1-col mobile */}
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.slice(0, 12).map((l) => (
-                  <LaunchTile key={l.address} launch={l} />
-                ))}
-              </div>
-
-              {filtered.length === 0 && (
-                <div
-                  className="uru-shell"
-                  style={{ padding: 22, textAlign: 'center' }}
+        <aside className="uru-home-side-rail">
+          <section
+            className="uru-home-sidebar-card"
+            aria-label={previewEnabled ? 'Preview trades' : 'Live trades'}
+          >
+            <div className="uru-home-sidebar-title">
+              <span>
+                ✦ live trades{' '}
+                <span
+                  className="uru-home-live-dot"
+                  aria-label={previewEnabled ? 'Preview activity' : 'Live activity'}
+                />
+              </span>
+              {previewEnabled && (
+                <button
+                  type="button"
+                  className="uru-home-trade-replay"
+                  onClick={() => setPreviewRun((run) => run + 1)}
                 >
-                  <Mascot size={44} mood="confused" />
-                  <div
-                    style={{
-                      marginTop: 6,
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                      color: 'var(--anchor-soft)',
-                    }}
-                  >
-                    no launches on {CHAIN_LABELS[activeChain]} yet ~~
-                  </div>
-                  <Link
-                    href="/create"
-                    style={{
-                      display: 'inline-block',
-                      marginTop: 10,
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                      color: 'var(--link-blue)',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    launch the first one »
-                  </Link>
-                </div>
+                  replay ↻
+                </button>
               )}
-            </section>
-
-            {/* -------------- live-activity + flywheel rail -------------- */}
-            <aside style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: 6,
-                  }}
-                >
-                  <div className="uru-eyebrow">✦ live trades</div>
-                  <span
-                    aria-hidden
-                    title="preview data"
-                    style={{
-                      display: 'inline-block',
-                      width: 7,
-                      height: 7,
-                      borderRadius: '50%',
-                      background: 'var(--mint-hot)',
-                      boxShadow: '0 0 6px var(--mint-hot)',
-                    }}
-                  />
-                </div>
+            </div>
+            {previewEnabled ? (
+              previewTrades.length > 0 ? (
                 <ul
-                  style={{
-                    listStyle: 'none',
-                    margin: 0,
-                    padding: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                  }}
+                  ref={previewTradeListRef}
+                  className="uru-home-trade-list uru-home-trade-list-preview"
+                  aria-label="Mock live trades"
                 >
-                  {liveTrades.map((row, i) => (
+                  {previewTrades.map((row) => (
                     <li
-                      key={`${row.l.address}-${row.t.timestamp}-${i}`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: 6,
-                        padding: '3px 0',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        borderBottom: '1px dashed var(--cream-shadow)',
-                      }}
+                      key={row.id}
+                      data-trade-id={row.id}
+                      className={row.id === previewIncomingTradeId ? 'uru-home-trade-incoming' : undefined}
                     >
-                      <span
-                        style={{
-                          color: row.t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)',
-                          fontWeight: 700,
-                          width: 30,
-                        }}
-                      >
-                        {row.t.isBuy ? 'BUY' : 'SELL'}
+                      <span>
+                        {row.wallet} bought <b>{row.ticker}</b>
                       </span>
-                      <Link
-                        href={`/trade/${row.l.address}`}
-                        style={{
-                          color: 'var(--anchor)',
-                          flex: 1,
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        ${row.l.ticker}
-                      </Link>
-                      <span style={{ color: 'var(--anchor-soft)' }}>
-                        {Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ
-                      </span>
-                      <span style={{ color: 'var(--anchor-soft)', width: 24, textAlign: 'right' }}>
-                        <AgoLabel ts={row.t.timestamp} />
+                      <span className="uru-home-trade-value">
+                        {row.amount}<small>now</small>
                       </span>
                     </li>
                   ))}
                 </ul>
-              </div>
+              ) : (
+                <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+              )
+            ) : liveTrades.length > 0 ? (
+              <ul className="uru-home-trade-list">
+                {liveTrades.map((row) => (
+                  <li key={homeTradeKey(row)} className="uru-home-trade-incoming">
+                    <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
+                      {row.t.isBuy ? 'BUY' : 'SELL'}
+                    </span>
+                    <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
+                    <span>{Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ</span>
+                    <time>
+                      <AgoLabel ts={row.t.timestamp} />
+                    </time>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+            )}
+          </section>
 
-              <div className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ the flywheel</div>
-                <ul
-                  className="uru-list-flower"
-                  style={{ margin: 0, fontSize: 11, lineHeight: 1.55 }}
-                >
-                  <li><b style={{ color: 'var(--pink-hot)' }}>40%</b> URU buyback</li>
-                  <li><b style={{ color: 'var(--pink-hot)' }}>35%</b> urufu gemu nft holders</li>
-                  <li><b style={{ color: 'var(--pink-hot)' }}>25%</b> treasury</li>
-                </ul>
-                {loyaltyReady.ready && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: 6,
-                      background: 'var(--yolk)',
-                      border: '1px solid var(--anchor)',
-                      fontSize: 10,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
-                  </div>
-                )}
-                {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility.
-                    URU link opens Uniswap on Robinhood with the pre-selected outputCurrency
-                    so the swap widget is pre-filled, no chain-picker fumbling. NFT link
-                    goes to the collection page on OpenSea where the cheapest listing is one
-                    tap away. */}
-                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                  <a
-                    href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="uru-btn uru-btn-mint"
-                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
-                  >
-                    ✿ buy URU
-                  </a>
-                  <a
-                    href="https://opensea.io/collection/urufugemu"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="uru-btn uru-btn-primary"
-                    style={{ flex: 1, minWidth: 120, justifyContent: 'center', fontSize: 11, padding: '5px 8px' }}
-                  >
-                    ✿ buy gemu nft
-                  </a>
-                </div>
-              </div>
-            </aside>
+          <section className="uru-home-sidebar-card" aria-label="The flywheel">
+            <div className="uru-home-sidebar-title">
+              <span>❀ the flywheel</span>
+            </div>
+            <ul className="uru-home-flywheel-list">
+              <li>
+                <b>40%</b> URU buyback
+              </li>
+              <li>
+                <b>35%</b> urufu gemu nft holders
+              </li>
+              <li>
+                <b>25%</b> treasury
+              </li>
+            </ul>
+            <p className="uru-home-flywheel-note">
+              hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
+            </p>
+            {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility. */}
+            <div className="uru-home-rail-actions">
+              <a
+                href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="uru-btn uru-btn-mint"
+              >
+                ✿ buy URU
+              </a>
+              <a
+                href="https://opensea.io/collection/urufugemu"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="uru-btn uru-btn-primary"
+              >
+                ✿ buy gemu nft
+              </a>
+            </div>
+          </section>
+        </aside>
       </div>
 
-      {/* ===================================================================
-          HOW IT WORKS, demoted below the feed, compact 3-tile strip
-          =================================================================== */}
-      <section style={{ marginTop: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-          <span className="uru-h1" style={{ fontSize: 18 }}>how it works</span>
-          <span
-            style={{
-              fontFamily: 'var(--font-jp), monospace',
-              fontSize: 14,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            流れ
-          </span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StepTile n="01" title="pick a base" body="erc-20 · 721a · 1155" tape="pink" />
-          <StepTile n="02" title="drag modules" body="audited fragments in ur cart" tape="mint" />
-          <StepTile n="03" title="launch" body="one tx · address on etherscan" tape="mizuiro" />
-        </div>
-      </section>
-
-    </div>
+      <CultureBulletin
+        launch={bulletinLaunch}
+        preview={bulletinTicket}
+        previewLaunches={previewEnabled ? PREVIEW_LAUNCHES : filtered.slice(0, 3)}
+        collectors={
+          previewEnabled
+            ? previewTrades.map((trade) => trade.wallet)
+            : liveTrades.slice(0, 3).map((trade) => shortWallet(trade.t.trader))
+        }
+      />
+    </main>
   );
 }
 
 // ============================================================================
 // small components
 // ============================================================================
+
+function homeTradeKey(row: HomeTrade) {
+  return `${row.l.address}-${row.t.trader}-${row.t.ethAmount}-${row.t.timestamp}`;
+}
+
+function shortWallet(wallet: string) {
+  return wallet.length > 12 ? `${wallet.slice(0, 6)}··${wallet.slice(-3)}` : wallet;
+}
 
 function StatTile({
   label,
@@ -529,16 +629,8 @@ function StatTile({
   value: string;
   accent?: 'pink' | 'mint' | 'mizuiro';
 }) {
-  const bg =
-    accent === 'pink' ? 'var(--pink-warm)' :
-    accent === 'mint' ? 'var(--mint)' :
-    accent === 'mizuiro' ? 'var(--mizuiro)' :
-    'var(--cream)';
   return (
-    <div
-      className="uru-shell-tight"
-      style={{ background: bg, padding: '8px 12px', minWidth: 0 }}
-    >
+    <div className="uru-home-stat" data-accent={accent}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <span className="uru-eyebrow">{label}</span>
         <span
@@ -570,10 +662,8 @@ function StatTile({
   );
 }
 
-function LaunchTile({ launch }: { launch: MockLaunch }) {
-  const progress = mockProgressPct(launch);
-  const mcap = mockMarketCapEth(launch);
-  const kind = launchKind(launch);
+function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: PreviewTicket }) {
+  const progress = preview?.progress ?? mockProgressPct(launch);
   // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
   // for the seconds right after launch before the metadata POST completes.
   const [localImage, setLocalImage] = useState<string | undefined>();
@@ -583,106 +673,49 @@ function LaunchTile({ launch }: { launch: MockLaunch }) {
     if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
   }, [launch.imageUrl, launch.chainId, launch.address]);
   const logoDataUrl = launch.imageUrl ?? localImage;
+  const name = launch.name;
+  const ticker = launch.ticker;
+  const raised = preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`;
+  const creator = preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`;
+  const tradeCount = preview?.trades ?? tradeCountOf(launch);
+  const tone = preview?.tone ?? (launch.graduated ? 'mint' : 'pink');
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-shell-tight uru-launch-card"
-      style={{
-        display: 'block',
-        textDecoration: 'none',
-        color: 'inherit',
-        padding: 10,
-      }}
+      className="uru-launch-ticket"
+      data-tone={tone}
+      data-preview={preview ? 'true' : undefined}
     >
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <div className="uru-launch-ticket-top">
         <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 8,
-            border: '1.5px solid var(--anchor)',
-            background: safeBackgroundImage(logoDataUrl, launch.logoBg),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-            flexShrink: 0,
-          }}
+          className="uru-launch-ticket-art"
+          role="img"
+          aria-label={logoDataUrl ? `${name} token artwork` : undefined}
+          style={{ background: safeBackgroundImage(logoDataUrl, launch.logoBg) }}
         >
           {!logoDataUrl && launch.logoEmoji}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-            <div
-              className="uru-h2"
-              style={{
-                fontSize: 13,
-                lineHeight: 1.1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {launch.name}
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: 'var(--anchor-soft)',
-              }}
-            >
-              ${launch.ticker}
-            </div>
-          </div>
-          <div
-            style={{
-              marginTop: 2,
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            <span>
-              mcap <b style={{ color: 'var(--anchor)' }}>{Number(formatEther(mcap)).toFixed(3)}</b>Ξ
-            </span>
-            <span>{tradeCountOf(launch)} tx</span>
-          </div>
-        </div>
+        <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
       </div>
-      <div style={{ marginTop: 6 }}>
-        <div
-          style={{
-            height: 6,
-            background: 'var(--cream-deep)',
-            border: '1.5px solid var(--anchor)',
-          }}
-        >
-          <div
-            className={progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}
-            style={{
-              width: `${progress}%`,
-              height: '100%',
-              background: launch.graduated ? 'var(--mint-hot)' : 'var(--pink-hot)',
-            }}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 3,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          <span>{launch.graduated ? '✿ graduated' : `${progress.toFixed(0)}% → v4`}</span>
-          <span><AgoLabel ts={launch.launchedAt} /> ago</span>
-        </div>
+      <span className="uru-launch-ticket-name">{name}</span>
+      <span className="uru-launch-ticket-symbol">${ticker}</span>
+      <div className="uru-launch-ticket-meta">
+        <span>
+          curve<b>{launch.graduated ? '100%' : `${progress.toFixed(0)}%`}</b>
+        </span>
+        <span>
+          raised<b>{raised}</b>
+        </span>
       </div>
+      <div className="uru-launch-ticket-progress" aria-label={`${progress.toFixed(0)} percent of the bonding curve`}>
+        <span
+          className={`uru-launch-progress-fill ${progress > 85 && !launch.graduated ? 'uru-shimmer' : ''}`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="uru-launch-ticket-foot">
+        {creator} · {tradeCount} trades
+      </p>
     </Link>
   );
 }
@@ -692,43 +725,138 @@ function AgoLabel({ ts }: { ts: number }) {
   return <>{label ?? '~'}</>;
 }
 
-function StepTile({
-  n,
-  title,
-  body,
-  tape,
-}: {
-  n: string;
-  title: string;
-  body: string;
-  tape: 'pink' | 'mint' | 'mizuiro';
-}) {
-  const tapeClass = tape === 'mint' ? 'uru-tape-mint' : tape === 'mizuiro' ? 'uru-tape-mizuiro' : '';
+function HeroArt() {
   return (
     <div
-      className="uru-shell-tight relative"
-      style={{ padding: 14, textAlign: 'center' }}
+      className="uru-home-hero-art"
+      role="img"
+      aria-label="An Urufu creator tending a glowing token-launch altar"
     >
-      <span
-        className={`uru-tape ${tapeClass}`}
-        style={{ width: 56, height: 12, top: -5, left: '50%', marginLeft: -28 }}
-      />
-      <div className="uru-h1" style={{ fontSize: 26, color: 'var(--pink-hot)', lineHeight: 1 }}>
-        {n}
-      </div>
-      <div className="uru-h2" style={{ fontSize: 13, marginTop: 5 }}>
-        {title}
-      </div>
-      <div
-        style={{
-          marginTop: 2,
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 11,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        {body}
-      </div>
+      <span className="uru-home-art-label">
+        <b>❋ urufu gēmu</b> / soft + cruel
+      </span>
     </div>
+  );
+}
+
+function CultureBulletin({
+  launch,
+  preview,
+  previewLaunches,
+  collectors,
+}: {
+  launch?: MockLaunch;
+  preview?: PreviewTicket;
+  previewLaunches: MockLaunch[];
+  collectors: string[];
+}) {
+  const progress = launch ? (preview?.progress ?? mockProgressPct(launch)) : 0;
+  const raised = launch
+    ? (preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`)
+    : '—';
+  const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
+  const creator = launch
+    ? (preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`)
+    : 'waiting for a first release';
+
+  return (
+    <section className="uru-home-bulletin" aria-labelledby="bulletin-title">
+      <div className="uru-home-bulletin-topline">
+        <span id="bulletin-title">culture bulletin</span>
+        <span>artist release desk</span>
+      </div>
+
+      <div className="uru-home-bulletin-art">
+        {launch ? (
+          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} release`}>
+            <div
+              className="uru-home-bulletin-artwork"
+              role="img"
+              aria-label={launch.imageUrl ? `${launch.name} token artwork` : undefined}
+              style={{
+                background: safeBackgroundImage(launch.imageUrl, launch.logoBg),
+                backgroundSize: 'contain',
+              }}
+            />
+          </Link>
+        ) : (
+          <div className="uru-home-bulletin-artwork uru-home-bulletin-artwork-empty" aria-hidden="true" />
+        )}
+      </div>
+
+      <div className="uru-home-bulletin-note">
+        <span className="uru-home-bulletin-kicker">release note</span>
+        {launch ? (
+          <>
+            <h2>{launch.name}</h2>
+            <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
+            <p className="uru-home-bulletin-byline">by {creator}</p>
+            <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
+              open release <span aria-hidden="true">→</span>
+            </Link>
+          </>
+        ) : (
+          <>
+            <h2>the next release</h2>
+            <p className="uru-home-bulletin-byline">the desk is ready when the first artist is.</p>
+            <Link href="/create" className="uru-home-bulletin-link">
+              launch a token <span aria-hidden="true">→</span>
+            </Link>
+          </>
+        )}
+      </div>
+
+      <div className="uru-home-bulletin-signal" aria-label="Launch signal">
+        <span className="uru-home-bulletin-kicker">launch signal</span>
+        <dl>
+          <div>
+            <dt>curve</dt>
+            <dd>{launch ? `${progress.toFixed(0)}%` : '—'}</dd>
+          </div>
+          <div>
+            <dt>raised</dt>
+            <dd>{raised}</dd>
+          </div>
+          <div>
+            <dt>trades</dt>
+            <dd>{launch ? String(trades) : '—'}</dd>
+          </div>
+        </dl>
+        <div className="uru-home-bulletin-collectors">
+          <span>recent collectors</span>
+          {collectors.slice(0, 3).map((collector) => <b key={collector}>{collector}</b>)}
+          {collectors.length === 0 && <b>waiting for the first collector</b>}
+        </div>
+        <div className="uru-home-bulletin-hooks" aria-label="Selected launch protections">
+          <span>selected hooks</span>
+          <ul>
+          <li>LP locked forever</li>
+          <li>creator fees</li>
+          <li>safe launch</li>
+        </ul>
+        </div>
+      </div>
+
+      <div className="uru-home-bulletin-from">
+        <span className="uru-home-bulletin-kicker">from the artists</span>
+        <div className="uru-home-bulletin-artists">
+          {previewLaunches.slice(0, 3).map((item) => {
+            const itemPreview = PREVIEW_TICKETS.find((ticket) => ticket.address === item.address);
+            const itemCreator = itemPreview?.creator ?? `${item.creator.slice(0, 6)}··${item.creator.slice(-3)}`;
+            return (
+              <Link key={item.address} href={`/trade/${item.address}`} className="uru-home-bulletin-artist">
+                <span>${item.ticker}</span>
+                <b>{itemCreator}</b>
+              </Link>
+            );
+          })}
+          {previewLaunches.length === 0 && <span className="uru-home-bulletin-artist-empty">new work will collect here.</span>}
+        </div>
+      </div>
+
+      <Link href="/create" className="uru-home-bulletin-cta">
+        launch a token <span aria-hidden="true">→</span>
+      </Link>
+    </section>
   );
 }

@@ -20,6 +20,22 @@ export function WalletButton() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
+  if (!mounted) {
+    return (
+      <button
+        type="button"
+        className="uru-btn uru-btn-primary"
+        style={{
+          padding: '5px 12px',
+          fontSize: 12,
+        }}
+      >
+        <span aria-hidden style={{ marginRight: 4 }}>✿</span>
+        connect wallet
+      </button>
+    );
+  }
+
   if (mounted && isConnected && address) {
     return (
       <button
@@ -59,7 +75,7 @@ export function WalletButton() {
     );
   }
 
-  const disabled = !mounted || isPending || !injected;
+  const disabled = isPending || !injected;
   return (
     <button
       type="button"

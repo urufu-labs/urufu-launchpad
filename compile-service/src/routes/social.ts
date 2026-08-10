@@ -376,6 +376,12 @@ export async function registerSocialRoutes(
         address: string;
         username: string | null;
         avatarUrl: string | null;
+        avatarNftChainId: number | null;
+        avatarNftChain: string | null;
+        avatarNftContractAddress: string | null;
+        avatarNftTokenId: string | null;
+        avatarNftCollectionName: string | null;
+        avatarNftTokenName: string | null;
         bio: string | null;
         twitter: string | null;
         telegram: string | null;
@@ -389,7 +395,14 @@ export async function registerSocialRoutes(
         updatedAt: Date;
       }>
     >`
-      SELECT address, username, avatar_url AS "avatarUrl", bio, twitter, telegram, discord, website,
+      SELECT address, username, avatar_url AS "avatarUrl",
+             avatar_nft_chain_id         AS "avatarNftChainId",
+             avatar_nft_chain            AS "avatarNftChain",
+             avatar_nft_contract_address AS "avatarNftContractAddress",
+             avatar_nft_token_id         AS "avatarNftTokenId",
+             avatar_nft_collection_name  AS "avatarNftCollectionName",
+             avatar_nft_token_name       AS "avatarNftTokenName",
+             bio, twitter, telegram, discord, website,
              x_verified_handle AS "xVerifiedHandle",
              x_verified_id     AS "xVerifiedId",
              x_verified_at     AS "xVerifiedAt",
@@ -421,6 +434,14 @@ export async function registerSocialRoutes(
     payload: z.object({
       username: z.string().max(24).nullable().optional(),
       avatarUrl: z.string().url().refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
+      avatarNft: z.object({
+        chainId: z.number().int().positive(),
+        chain: z.string().min(1).max(40),
+        contractAddress: z.string().refine(isAddress, { message: 'invalid contract address' }),
+        tokenId: z.string().min(1).max(100),
+        collectionName: z.string().max(120).nullable(),
+        tokenName: z.string().max(120).nullable(),
+      }).nullable().optional(),
       bio: z.string().max(200).nullable().optional(),
       twitter: z.string().max(80).nullable().optional(),
       telegram: z.string().max(80).nullable().optional(),
@@ -458,11 +479,26 @@ export async function registerSocialRoutes(
     // preference the wallet owner controls, not a verified attestation.
     const hideHoldings = payload.hideHoldings === true;
     await sql!`
-      INSERT INTO app.user_profile (address, username, avatar_url, bio, twitter, telegram, discord, website, hide_holdings, updated_at)
-      VALUES (${auth.address}, ${payload.username ?? null}, ${payload.avatarUrl ?? null}, ${payload.bio ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.website ?? null}, ${hideHoldings}, now())
+      INSERT INTO app.user_profile (
+        address, username, avatar_url,
+        avatar_nft_chain_id, avatar_nft_chain, avatar_nft_contract_address,
+        avatar_nft_token_id, avatar_nft_collection_name, avatar_nft_token_name,
+        bio, twitter, telegram, discord, website, hide_holdings, updated_at
+      ) VALUES (
+        ${auth.address}, ${payload.username ?? null}, ${payload.avatarUrl ?? null},
+        ${payload.avatarNft?.chainId ?? null}, ${payload.avatarNft?.chain ?? null}, ${payload.avatarNft?.contractAddress?.toLowerCase() ?? null},
+        ${payload.avatarNft?.tokenId ?? null}, ${payload.avatarNft?.collectionName ?? null}, ${payload.avatarNft?.tokenName ?? null},
+        ${payload.bio ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.website ?? null}, ${hideHoldings}, now()
+      )
       ON CONFLICT (address) DO UPDATE SET
         username = EXCLUDED.username,
         avatar_url = EXCLUDED.avatar_url,
+        avatar_nft_chain_id = EXCLUDED.avatar_nft_chain_id,
+        avatar_nft_chain = EXCLUDED.avatar_nft_chain,
+        avatar_nft_contract_address = EXCLUDED.avatar_nft_contract_address,
+        avatar_nft_token_id = EXCLUDED.avatar_nft_token_id,
+        avatar_nft_collection_name = EXCLUDED.avatar_nft_collection_name,
+        avatar_nft_token_name = EXCLUDED.avatar_nft_token_name,
         bio = EXCLUDED.bio,
         twitter = EXCLUDED.twitter,
         telegram = EXCLUDED.telegram,

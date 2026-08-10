@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Yusei_Magic, Klee_One, Pixelify_Sans, DotGothic16, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
+import Script from 'next/script';
 import './globals.css';
 
 import { Providers } from './providers';
@@ -127,12 +128,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* Theme bootstrap — served as a static file so React never sees a <script> node
-            in its tree (Next 16 warns on any <script> rendered from a component, even via
-            next/script). Blocking, no defer/async: must run before first paint so dark
-            mode doesn't flash light. Source at web/public/theme-bootstrap.js. */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script src="/theme-bootstrap.js"></script>
+        {/* Theme bootstrap must run before first paint so dark mode doesn't flash light.
+            Use next/script here so React does not warn about raw <script> tags in the
+            rendered tree. Source at web/public/theme-bootstrap.js. */}
+        <Script src="/theme-bootstrap.js" strategy="beforeInteractive" />
 
         {/* JSON-LD structured data. Two nodes in one @graph:
              - Organization (who we are, links to social)
@@ -142,8 +141,10 @@ export default function RootLayout({
             about unknown properties. Rendered inline (no state, no client
             bundle) via dangerouslySetInnerHTML so the JSON isn't turned into
             react children (would need to escape < / > everywhere). */}
-        <script
+        <Script
+          id="urufu-json-ld"
           type="application/ld+json"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
@@ -211,6 +212,7 @@ export default function RootLayout({
             <nav
               className="flex items-center gap-2 sm:gap-3 text-[12px] sm:text-[13px] flex-wrap justify-end"
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
+              aria-label="primary navigation"
             >
               <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ shop</Link>
               <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>

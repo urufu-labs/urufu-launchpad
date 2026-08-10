@@ -7,6 +7,7 @@
 
 **Status:** ✅ IMPLEMENTED. See `contracts/src/router/Router.sol` for the shipping code; this document remains as design-intent reference.
 **Since shipped:** `LaunchParams` gained `bool installBondingCurve`; Router has `curveFactory` mutable state (owner-set via `setCurveFactory`); on `installBondingCurve == true && base == ERC20`, Router `approve`s CurveFactory and calls `createCurve(token)` between the factory deploy and ownership dispatch, emitting `CurveInstalled(token, curve)`. Full details in `docs/SPEC-curve.md`.
+**Known v1 gap:** Router atomically creates and seeds the curve, but it does not execute an initial buy. Extra ETH is refunded. If the product supports a creator/seed first buy, v1 should add `launchAndBuy` semantics so create + seed + first buy happen in one transaction.
 **File:** `contracts/src/router/Router.sol` (+ `contracts/src/router/FeeReceiver.sol`)
 **Tests:** `test/unit/Router.t.sol`, `test/integration/LaunchE2E*.t.sol`, `test/integration/LaunchWithCurve.t.sol`, `test/integration/PhaseCombos.t.sol`.
 
@@ -22,21 +23,26 @@ Every VM launch flows through `Router.launch(...)`. Router is the only contract 
 
 If any step reverts, the entire transaction reverts — no fees taken, no reservations made, no orphaned tokens. Router is the only contract in the system with authority to call `NameRegistry.reserve`.
 
+For ERC-20 curve launches, shipped Router also installs the bonding curve in the
+same transaction. It still does not perform the first buy. That means a launcher
+who wants to buy immediately after launch must use a later `BondingCurve.buy`
+transaction unless a future `launchAndBuy` path is added.
+
 ---
 
 ## State
 
-| Variable | Type | Purpose |
-|---|---|---|
-| `registry` | `NameRegistry` (immutable) | Set at construction, never changed. If registry migrates, Router redeploys. |
-| `feeReceiver` | `IFeeReceiver` (immutable) | Receives the launch fee. |
-| `factories` | `mapping(BaseType => address)` | `ERC20 → ERC20Factory addr`, etc. Owner-managed via `setFactory`. |
-| `fees` | `mapping(BaseType => uint256)` | Base launch fee per base type, wei. Owner-managed. |
-| `moduleAddOnFee` | `uint256` | Extra fee per selected module beyond the first. Owner-managed. |
-| `hookAddOnFee` | `uint256` | Extra fee for installing the v4 hook. |
-| `governanceAddOnFee` | `uint256` | Extra fee for adding governance bundle. |
-| `paused` | `bool` | Emergency circuit breaker. **Flagged** per Security SKILL — owner + Pausable is a censorship vector. Owner must be a multisig; see §Attack surface. |
-| `_owner` | Solady Ownable | Admin. Timelocked multisig recommended. |
+| Variable             | Type                           | Purpose                                                                                                                                             |
+| -------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registry`           | `NameRegistry` (immutable)     | Set at construction, never changed. If registry migrates, Router redeploys.                                                                         |
+| `feeReceiver`        | `IFeeReceiver` (immutable)     | Receives the launch fee.                                                                                                                            |
+| `factories`          | `mapping(BaseType => address)` | `ERC20 → ERC20Factory addr`, etc. Owner-managed via `setFactory`.                                                                                   |
+| `fees`               | `mapping(BaseType => uint256)` | Base launch fee per base type, wei. Owner-managed.                                                                                                  |
+| `moduleAddOnFee`     | `uint256`                      | Extra fee per selected module beyond the first. Owner-managed.                                                                                      |
+| `hookAddOnFee`       | `uint256`                      | Extra fee for installing the v4 hook.                                                                                                               |
+| `governanceAddOnFee` | `uint256`                      | Extra fee for adding governance bundle.                                                                                                             |
+| `paused`             | `bool`                         | Emergency circuit breaker. **Flagged** per Security SKILL — owner + Pausable is a censorship vector. Owner must be a multisig; see §Attack surface. |
+| `_owner`             | Solady Ownable                 | Admin. Timelocked multisig recommended.                                                                                                             |
 
 Router is **not upgradeable**. A v2 Router redeploys, and the frontend routes new launches there. `NameRegistry.setRouter` exists precisely so a v2 Router can take over without redeploying the registry.
 
@@ -45,19 +51,27 @@ Router is **not upgradeable**. A v2 Router redeploys, and the frontend routes ne
 ## Types
 
 ```solidity
-enum BaseType { ERC20, ERC721A, ERC1155 }
-enum OwnershipMode { Renounce, TransferToMultisig, KeepEOA }
+enum BaseType {
+  ERC20,
+  ERC721A,
+  ERC1155
+}
+enum OwnershipMode {
+  Renounce,
+  TransferToMultisig,
+  KeepEOA
+}
 
 struct LaunchParams {
-    BaseType base;
-    string name;
-    string ticker;
-    bytes config;                    // ABI-encoded, factory-specific. See SPEC-factories.
-    uint256 moduleCount;             // used for pricing only; factory validates modules against the matrix
-    bool installHook;                // triggers hook add-on price
-    bool installGovernance;          // triggers governance add-on price
-    OwnershipMode ownership;
-    address ownerTargetIfMultisig;   // used only when ownership == TransferToMultisig
+  BaseType base;
+  string name;
+  string ticker;
+  bytes config; // ABI-encoded, factory-specific. See SPEC-factories.
+  uint256 moduleCount; // used for pricing only; factory validates modules against the matrix
+  bool installHook; // triggers hook add-on price
+  bool installGovernance; // triggers governance add-on price
+  OwnershipMode ownership;
+  address ownerTargetIfMultisig; // used only when ownership == TransferToMultisig
 }
 ```
 
@@ -66,6 +80,7 @@ struct LaunchParams {
 ## Functions
 
 ### `launch(LaunchParams params) external payable returns (address token)`
+
 - **Caller:** anyone with ETH. `nonReentrant`.
 - **Not callable when `paused`**.
 - **Sequence — Checks-Effects-Interactions strictly:**
@@ -91,7 +106,16 @@ struct LaunchParams {
 
 **Ordering note:** The factory must deploy the token BEFORE the registry reserves — the registry needs the token address. The revert-atomicity property holds because if `registry.reserve` reverts, the whole tx (including the factory deploy) unwinds.
 
+**Atomic first-buy note:** For v1 anti-sniping, consider replacing or extending
+`launch` with a path that accepts `initialBuyEth`, `minInitialTokensOut`, and
+`initialBuyRecipient`. The router should create and seed the curve, execute the
+buy internally through a recipient-aware curve path or safe router-forward step,
+enforce slippage, emit the trade through the curve, and only refund ETH not
+assigned to either the launch fee or initial buy. Hooks and post-launch
+anti-snipe fees do not remove the pre-first-buy transaction gap by themselves.
+
 ### `quote(LaunchParams params) public view returns (uint256)`
+
 - Pure fee computation. Same formula the FE uses to preview cost:
   ```
   fees[base]
@@ -102,18 +126,23 @@ struct LaunchParams {
 - Returns wei. Guaranteed to never revert.
 
 ### `setFactory(BaseType base, address factory)` — `onlyOwner`
+
 - Sets/replaces the factory for a base type. Cannot be zero. Emits `FactorySet`.
 
 ### `setFee(BaseType base, uint256 wei_)` — `onlyOwner`
+
 - Emits `FeeSet`.
 
 ### `setAddOnFees(uint256 module_, uint256 hook_, uint256 governance_)` — `onlyOwner`
+
 - Emits `AddOnFeesSet`.
 
 ### `setPaused(bool)` — `onlyOwner`
+
 - Emits `PausedSet`. See §Attack surface for censorship-vector flag.
 
 ### `sweepStuckETH(address to)` — `onlyOwner`
+
 - Recover ETH stranded in Router (e.g. from an unusual revert path that didn't refund). Should be effectively never called. Emits `Swept`.
 
 ### `transferOwnership(address)` — Solady Ownable inherited (two-step).
@@ -124,14 +153,14 @@ struct LaunchParams {
 
 ```solidity
 event Launched(
-    address indexed token,
-    address indexed launchedBy,
-    BaseType indexed base,
-    bytes32 nameHash,
-    bytes32 tickerHash,
-    uint256 feePaid,
-    bool installedHook,
-    bool installedGovernance
+  address indexed token,
+  address indexed launchedBy,
+  BaseType indexed base,
+  bytes32 nameHash,
+  bytes32 tickerHash,
+  uint256 feePaid,
+  bool installedHook,
+  bool installedGovernance
 );
 event FactorySet(BaseType indexed base, address indexed factory);
 event FeeSet(BaseType indexed base, uint256 wei_);
@@ -146,9 +175,9 @@ event Swept(address indexed to, uint256 amount);
 
 ## Access control
 
-| Function | Access |
-|---|---|
-| `launch`, `quote` | public |
+| Function                                                                                  | Access      |
+| ----------------------------------------------------------------------------------------- | ----------- |
+| `launch`, `quote`                                                                         | public      |
 | `setFactory`, `setFee`, `setAddOnFees`, `setPaused`, `sweepStuckETH`, `transferOwnership` | `onlyOwner` |
 
 **Ownership post-deploy:** transferred to a 2-of-3 multisig within 24 hours of mainnet deploy. `Pausable` present but flagged — see below.
@@ -158,6 +187,7 @@ event Swept(address indexed to, uint256 amount);
 ## Reentrancy
 
 `launch` is `nonReentrant` because:
+
 - It calls `FeeReceiver.receiveFee` (which could re-enter Router).
 - It calls the factory (which deploys a new contract and could re-enter).
 - It calls the registry (view + storage only, but the outer guard is cheap).
@@ -176,6 +206,9 @@ CEI ordering: state writes (none in Router itself; the factory + registry do wri
 5. **Pause blocks writes only:** when `paused = true`, `launch` reverts. `quote` still returns.
 6. **Router never holds ETH beyond a tx:** after every top-level call to Router, `address(this).balance == 0` (handler asserts after every operation).
 7. **Ownership mode fidelity:** for every `Launched`, `token.owner()` matches the requested `OwnershipMode` at the end of the tx.
+8. **Future launch-and-buy atomicity:** if a launch emits an initial curve buy,
+   then token deploy, curve creation, curve seeding, and that buy all occur in
+   one top-level router transaction.
 
 ---
 
@@ -183,26 +216,27 @@ CEI ordering: state writes (none in Router itself; the factory + registry do wri
 
 Per ETHSKILLS Security §Reentrancy, §Access control, §Input validation, §MEV.
 
-| Vector | Mitigation |
-|---|---|
-| Reentrancy through refund | `nonReentrant` + CEI. |
-| Factory replacement rug | `setFactory` is `onlyOwner` — timelocked multisig. Add a delay guard in v2 if we want stronger. |
-| Fee undercharge via calldata manipulation | `msg.value >= quote(params)`, checked at top. |
-| Fee overcharge (user pays too much) | Refund excess. |
-| DoS by front-run reservation | Not fully mitigable — see SPEC-registry. Users can pick a slightly different name. |
-| CREATE2 salt griefing | Factory must include `msg.sender` (or a per-launch nonce) in the salt. Enforced in SPEC-factories. |
-| Ownership mode manipulation (user chose Renounce but attacker somehow bypasses) | `params.ownership` is user-provided; Router dispatches unconditionally. Invariant 7 tests fidelity. |
-| Pausable censorship | Owner-controlled pause is a censorship vector per Security SKILL. **Flagged.** Mitigations: (a) owner is a 2-of-3 multisig, (b) UI discloses "protocol can pause new launches — existing tokens continue trading" prominently, (c) v2 candidate: auto-unpause after 30 days if not renewed. Never applied to existing token contracts — Router pause is scoped to new launches only. |
-| Fee bracket misalignment | `quote` and `launch` share the same formula (single source of truth), so the FE preview matches the on-chain charge exactly. Tested in Router invariant tests. |
-| Factory returns wrong `token` address | Factory is trusted (owner-set). If compromised, everything downstream is untrusted. Owner is a multisig for this reason. |
-| Fee-on-transfer / rebasing / pausable ETH-equivalent | N/A — Router accepts native ETH only. FeeReceiver may swap to WETH but that's downstream. |
-| Griefing via failed factory reverts | Every revert path is user's own tx; attacker can't stick another user with the cost. |
+| Vector                                                                          | Mitigation                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reentrancy through refund                                                       | `nonReentrant` + CEI.                                                                                                                                                                                                                                                                                                                                                                |
+| Factory replacement rug                                                         | `setFactory` is `onlyOwner` — timelocked multisig. Add a delay guard in v2 if we want stronger.                                                                                                                                                                                                                                                                                      |
+| Fee undercharge via calldata manipulation                                       | `msg.value >= quote(params)`, checked at top.                                                                                                                                                                                                                                                                                                                                        |
+| Fee overcharge (user pays too much)                                             | Refund excess.                                                                                                                                                                                                                                                                                                                                                                       |
+| DoS by front-run reservation                                                    | Not fully mitigable — see SPEC-registry. Users can pick a slightly different name.                                                                                                                                                                                                                                                                                                   |
+| CREATE2 salt griefing                                                           | Factory must include `msg.sender` (or a per-launch nonce) in the salt. Enforced in SPEC-factories.                                                                                                                                                                                                                                                                                   |
+| Ownership mode manipulation (user chose Renounce but attacker somehow bypasses) | `params.ownership` is user-provided; Router dispatches unconditionally. Invariant 7 tests fidelity.                                                                                                                                                                                                                                                                                  |
+| Pausable censorship                                                             | Owner-controlled pause is a censorship vector per Security SKILL. **Flagged.** Mitigations: (a) owner is a 2-of-3 multisig, (b) UI discloses "protocol can pause new launches — existing tokens continue trading" prominently, (c) v2 candidate: auto-unpause after 30 days if not renewed. Never applied to existing token contracts — Router pause is scoped to new launches only. |
+| Fee bracket misalignment                                                        | `quote` and `launch` share the same formula (single source of truth), so the FE preview matches the on-chain charge exactly. Tested in Router invariant tests.                                                                                                                                                                                                                       |
+| Factory returns wrong `token` address                                           | Factory is trusted (owner-set). If compromised, everything downstream is untrusted. Owner is a multisig for this reason.                                                                                                                                                                                                                                                             |
+| Fee-on-transfer / rebasing / pausable ETH-equivalent                            | N/A — Router accepts native ETH only. FeeReceiver may swap to WETH but that's downstream.                                                                                                                                                                                                                                                                                            |
+| Griefing via failed factory reverts                                             | Every revert path is user's own tx; attacker can't stick another user with the cost.                                                                                                                                                                                                                                                                                                 |
 
 ---
 
 ## Deploy
 
 **Constructor:**
+
 ```solidity
 constructor(
     address initialOwner,
@@ -220,6 +254,7 @@ constructor(
 `registry` and `feeReceiver` are immutable. All factories start unset; the deploy script calls `setFactory` for each base type after each factory deploys.
 
 **Post-deploy checklist:**
+
 1. Deploy each factory (`ERC20Factory`, `ERC721AFactory`, `ERC1155Factory`).
 2. `router.setFactory(base, factoryAddr)` for each.
 3. `registry.setRouter(routerAddr)`.
@@ -263,8 +298,8 @@ Minimal contract:
 
 ```solidity
 interface IFeeReceiver {
-    function receiveFee(address launcher, BaseType base) external payable;
-    function sweep(address to) external;   // onlyOwner
+  function receiveFee(address launcher, BaseType base) external payable;
+  function sweep(address to) external; // onlyOwner
 }
 ```
 

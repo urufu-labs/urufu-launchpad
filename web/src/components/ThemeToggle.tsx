@@ -13,16 +13,6 @@ type Theme = 'light' | 'dark';
 
 const STORAGE_KEY = 'urufu-theme';
 
-function readStoredTheme(): Theme | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const v = window.localStorage.getItem(STORAGE_KEY);
-    return v === 'dark' || v === 'light' ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 function currentAppliedTheme(): Theme {
   if (typeof document === 'undefined') return 'light';
   const t = document.documentElement.getAttribute('data-theme');
@@ -53,10 +43,11 @@ export function ThemeToggle() {
   };
 
   if (!mounted) {
-    // Match the applied attribute so hydration doesn't warn. Icon defaults to sun; the
-    // bootstrap script sets `data-theme` before React hydrates so no flash.
+    // Keep the first client render byte-for-byte with the server markup. React 19
+    // reports a hydration attribute mismatch if this placeholder adds `disabled`
+    // before the interactive render lands.
     return (
-      <button type="button" aria-label="Toggle theme" disabled style={toggleStyle(false)}>
+      <button type="button" aria-label="Toggle theme" style={toggleStyle(false)}>
         ☼
       </button>
     );

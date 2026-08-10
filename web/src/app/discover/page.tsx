@@ -177,7 +177,17 @@ export default function DiscoverPage() {
           marginBottom: 12,
         }}
       >
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 5,
+            flexWrap: 'nowrap',
+            overflowX: 'auto',
+            maxWidth: '100%',
+            paddingBottom: 2,
+            scrollbarWidth: 'none',
+          }}
+        >
           {FILTERS.map((f) => (
             <button
               key={f.id}
@@ -185,7 +195,7 @@ export default function DiscoverPage() {
               onClick={() => setFilter(f.id)}
               className="uru-chip"
               data-active={filter === f.id}
-              style={{ padding: '5px 12px' }}
+              style={{ padding: '5px 12px', flexShrink: 0, whiteSpace: 'nowrap' }}
             >
               {f.label}
               <span

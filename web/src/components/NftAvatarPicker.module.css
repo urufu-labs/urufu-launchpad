@@ -1,0 +1,155 @@
+.picker {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--cream-shadow);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.copy,
+.partial {
+  margin: 3px 0 0;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.selectedNote,
+.empty,
+.error {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+}
+
+.selectedNote {
+  background: var(--mint);
+}
+
+.empty {
+  color: var(--anchor-soft);
+  background: var(--cream-deep);
+}
+
+.error {
+  background: var(--pink-warm);
+}
+
+.chain {
+  margin-top: 12px;
+}
+
+.chainHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.chainHead small {
+  color: var(--anchor-soft);
+  font-size: inherit;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  max-height: 315px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.card {
+  min-width: 0;
+  padding: 0 0 5px;
+  overflow: hidden;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--cream-shadow);
+  color: var(--anchor);
+  cursor: pointer;
+  text-align: left;
+}
+
+.card[data-active] {
+  border-color: var(--anchor);
+  background: var(--mint);
+  box-shadow: 3px 3px 0 var(--pink-hot);
+}
+
+.art {
+  display: block;
+  aspect-ratio: 1;
+  background: var(--cream-deep);
+}
+
+.art img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.nftName,
+.nftMeta {
+  display: block;
+  padding: 0 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nftName {
+  margin-top: 5px;
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.nftMeta {
+  margin-top: 1px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), monospace;
+  font-size: 8px;
+}
+
+.more {
+  margin-top: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--link-blue);
+  cursor: pointer;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-decoration: underline;
+}
+
+.more:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+@media (max-width: 540px) {
+  .head {
+    flex-direction: column;
+  }
+}

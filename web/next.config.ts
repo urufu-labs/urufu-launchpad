@@ -27,6 +27,20 @@ const nextConfig: NextConfig = {
     // touched. 1 year is safe because Pinata CIDs are content-addressed.
     minimumCacheTTL: 31_536_000,
   },
+  // Empty turbopack block matches Next 16 defaults — leaves the door open for
+  // per-workspace overrides later without another config edit.
+  turbopack: {},
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      // Optional browser/native helpers pulled in by wallet connector packages.
+      // The app only configures the injected connector, so these should not warn
+      // when Next walks MetaMask/WalletConnect's optional paths.
+      '@react-native-async-storage/async-storage': false,
+      'pino-pretty': false,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

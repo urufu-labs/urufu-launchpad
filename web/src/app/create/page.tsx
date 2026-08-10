@@ -64,18 +64,6 @@ const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
   KeepEOA: 2,
 };
 
-const BASE_LABELS: Record<BaseType, { label: string; jp: string; desc: string }> = {
-  ERC20: { label: 'erc-20', jp: '通貨', desc: 'ur basic token ✿' },
-  ERC721A: { label: 'erc-721a', jp: '絵', desc: 'nft collection ❀' },
-  ERC1155: { label: 'erc-1155', jp: '多品', desc: 'multi items ❁' },
-};
-
-// Phase-1 launch: only ERC-20 is enabled. NFT + multi-item bases are wired
-// end-to-end in contracts + tests, but held back at the UI level so we can
-// prove the flywheel on fungibles first. Set to true here to unlock the cards.
-const NFT_BASES_ENABLED = false;
-const DISABLED_BASES: readonly BaseType[] = NFT_BASES_ENABLED ? [] : ['ERC721A', 'ERC1155'];
-
 // Prime rotations — never multiples of 5 per SKILL.md §rotation
 const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
   'n7', 'p3', 'n4', 'p11', 'p2', 'n11', 'p13', 'n2',
@@ -108,7 +96,10 @@ function CreatePageContent() {
   const contracts = CONTRACTS[targetChain];
   const activeChain = targetChain; // legacy alias — every downstream ref stays valid
 
-  const [base, setBase] = useState<BaseType>('ERC20');
+  // The launch type is fixed while ERC-20 is the only available offering. Keeping
+  // the invariant in code avoids presenting a non-choice to creators; the lower
+  // factory branches remain until the NFT launch work is actually reintroduced.
+  const base = useMemo<BaseType>(() => 'ERC20', []);
   // Two launch mechanics for ERC-20:
   //   'quick'  — pump.fun style, safe defaults baked in (renounce, LP lock,
   //              anti-sniper, no modules). Only inputs are name/ticker/vibes
@@ -1157,12 +1148,29 @@ function CreatePageContent() {
               </span>
             </h1>
             <p className="uru-h2" style={{ fontSize: 15, fontWeight: 400, marginTop: 4, maxWidth: 620 }}>
-              drag stuff from the shelf into the basket. every module gets spliced right into ur token's
-              solidity — not a wrapper, real code (◕‿◕✿). alphabetical order bc that's what the splicer
-              wants.
+              compose a token from real on-chain fragments. choose a path, fill the basics, launch.
             </p>
           </div>
         </header>
+
+        <section className="uru-create-flow" aria-labelledby="create-flow-title">
+          <div className="uru-create-flow-title">
+            <div id="create-flow-title">
+              how it works<small>流れ</small>
+            </div>
+          </div>
+          <CreateFlowTile n="01" title="define your coin" body="name · ticker · art · socials" />
+          <CreateFlowTile
+            n="02"
+            title="customize contract"
+            body="add v4 hooks & custom security modules to your token contract"
+          />
+          <CreateFlowTile
+            n="03"
+            title="launch"
+            body="a smooth guided flow deploys your bonding curve securely"
+          />
+        </section>
 
         {mounted && !contracts && (
           <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
@@ -1210,83 +1218,17 @@ function CreatePageContent() {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {/* MAIN — the shop counter */}
           <div className="space-y-3">
-            {/* STEP 1 — base picker with prime-tilt polaroids */}
+            {/* STEP 1 — launch mechanic */}
             <section className="uru-shell">
-              <span className="uru-tape" style={{ width: 74, height: 16, top: -8, left: 42, transform: 'rotate(-7deg)' }} />
-              <span className="uru-tape uru-tape-mizuiro" style={{ width: 62, height: 16, top: -6, right: 60, transform: 'rotate(3deg)' }} />
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1 ✿ pick a base</div>
-
-              <div className="uru-shell-inner">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(['ERC20', 'ERC721A', 'ERC1155'] as const).map((b, i) => {
-                    const info = BASE_LABELS[b];
-                    const active = base === b;
-                    const disabled = DISABLED_BASES.includes(b);
-                    const tilt = TILTS[i]!;
-                    return (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => { if (!disabled) { setBase(b); setSelectedModules([]); } }}
-                        disabled={disabled}
-                        aria-disabled={disabled}
-                        title={disabled ? 'coming soon ✿' : undefined}
-                        className="uru-polaroid text-left relative"
-                        data-tilt={active ? undefined : tilt}
-                        style={{
-                          boxShadow: active ? '4px 4px 0 var(--pink-hot)' : undefined,
-                          background: active ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
-                          opacity: disabled ? 0.45 : 1,
-                          cursor: disabled ? 'not-allowed' : 'pointer',
-                          filter: disabled ? 'grayscale(0.6)' : undefined,
-                        }}
-                      >
-                        {disabled && (
-                          <span
-                            className="uru-tape"
-                            style={{
-                              position: 'absolute',
-                              top: 4,
-                              right: 4,
-                              padding: '2px 6px',
-                              fontFamily: 'var(--font-pixel), monospace',
-                              fontSize: 9,
-                              background: 'var(--anchor)',
-                              color: 'var(--cream)',
-                              transform: 'rotate(6deg)',
-                              width: 'auto',
-                              height: 'auto',
-                              letterSpacing: '0.05em',
-                            }}
-                          >
-                            soon ✧
-                          </span>
-                        )}
-                        <div style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 28, textAlign: 'center', color: 'var(--anchor)' }}>
-                          {info.jp}
-                        </div>
-                        <div className="uru-h2" style={{ fontSize: 14, textAlign: 'center', marginTop: 2 }}>
-                          {info.label}
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, textAlign: 'center', color: 'var(--anchor-soft)', marginTop: 2 }}>
-                          {info.desc}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            {/* STEP 1B — launch mechanic */}
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1.5 ✿ launch mechanic</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1 ✿ launch mechanic</div>
               <div className="uru-shell-inner">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
                     disabled={base !== 'ERC20'}
+                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 10 ETH graduation target, 5-block sniper gate."
+                    aria-label="quick launch, safe defaults"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'quick' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
@@ -1303,11 +1245,11 @@ function CreatePageContent() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      pump.fun style. just name / ticker / vibes ~ safe defaults baked in (LP locked forever, ownership renounced, sniper gate on)
+                      safe defaults. name, ticker, vibes, launch.
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 10 ETH · anti-sniper 60 sec
+                        800M supply · 1% fee · 10 ETH target · anti-sniper 60 sec
                       </div>
                     )}
                   </button>
@@ -1315,6 +1257,8 @@ function CreatePageContent() {
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
                     disabled={base !== 'ERC20'}
+                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
+                    aria-label="customizable curve, module shelf and hook knobs"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
@@ -1331,11 +1275,11 @@ function CreatePageContent() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      same curve, more knobs. pick modules from the shelf, tune anti-sniper / buyback-burn / whitelist / etc.
+                      same curve, more knobs. modules + hook params.
                     </div>
                     {mechanic === 'custom' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
-                        + supply auto = 800M · fee 1% · target 10 ETH · ur modules
+                        whitelist · sniper gate · buyback-burn
                       </div>
                     )}
                   </button>
@@ -1386,6 +1330,7 @@ function CreatePageContent() {
                 )}
                 {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
                   <div
+                    title="Paste any NFT or token contract. Holders get 60% of curve reserves during a 1-hour exclusive window; unfilled supply opens to public after that, and whitelist tokens stay locked until graduation."
                     style={{
                       marginTop: 12,
                       padding: 10,
@@ -1423,10 +1368,7 @@ function CreatePageContent() {
                       ✿ community whitelist (optional)
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginBottom: 8 }}>
-                      paste any NFT or token contract → 60% of ur curve reserves for those
-                      holders, exclusive access for the first 1h post-launch. anything
-                      unfilled opens to public at the 1h mark. WL tokens stay locked on
-                      the curve until graduation.
+                      60% holder reserve · 1h exclusive window.
                     </div>
                     {!wlEnabled && (
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -1719,7 +1661,7 @@ function CreatePageContent() {
                 {launchedTokenAddress ? (
                   <>yayyy!! ur token is live 好き!! (づ｡◕‿‿◕｡)づ</>
                 ) : isQuick ? (
-                  <>quick launch mode ✿ safe defaults locked in — just name / ticker / vibes ~</>
+                  <>quick launch mode ✿ safe defaults locked in ~</>
                 ) : selectedModules.length === 0 ? (
                   <>hi hi!! pls drag something into the basket ~ i sorted em by category for u (◕‿◕✿)</>
                 ) : selectedModules.length === 1 ? (
@@ -1938,7 +1880,7 @@ function CreatePageContent() {
             </div>
 
             {/* "currently" widget — cheap author-trace signal */}
-            <div className="uru-shell uru-shell-tight">
+            <div className="hidden lg:block uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ currently</div>
               <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
                 <li>listening — Perfume, <i>Polyrhythm</i></li>
@@ -1949,7 +1891,7 @@ function CreatePageContent() {
             </div>
 
             {/* 88x31 webring — reciprocal embedding signal */}
-            <div>
+            <div className="hidden lg:block">
               <div className="uru-eyebrow" style={{ marginBottom: 4, color: 'var(--cream)' }}>friends of urufu ✿</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 <span className="uru-88 uru-88-pink"><strong>urufu</strong>labs</span>
@@ -1960,7 +1902,7 @@ function CreatePageContent() {
             </div>
 
             {/* Composition info — tiny receipt strip */}
-            <div className="uru-shell uru-shell-tight">
+            <div className="hidden lg:block uru-shell uru-shell-tight">
               <div className="uru-eyebrow" style={{ marginBottom: 4 }}>tech</div>
               <dl style={{ fontSize: 10, fontFamily: 'var(--font-pixel), monospace', lineHeight: 1.6, color: 'var(--anchor-soft)' }}>
                 <div>base: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
@@ -2278,6 +2220,17 @@ function CartItem({
 function FieldGrid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>{children}</div>;
 }
+
+function CreateFlowTile({ n, title, body }: { n: string; title: string; body: string }) {
+  return (
+    <div className="uru-create-flow-step">
+      <span>{n}</span>
+      <b>{title}</b>
+      <p>{body}</p>
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>

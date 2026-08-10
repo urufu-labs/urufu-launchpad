@@ -31,13 +31,14 @@ export function AudioToggle() {
     }
   };
 
-  // SSR-safe: render a disabled placeholder until mounted so hydration matches.
+  // SSR-safe: render an inert placeholder until mounted. Do not add a `disabled`
+  // attribute here; the server/client boundary can otherwise disagree during
+  // hydration before the interactive render lands.
   if (!mounted) {
     return (
       <button
         type="button"
         aria-label="Toggle audio"
-        disabled
         style={audioToggleStyle(false)}
       >
         ♪
