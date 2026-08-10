@@ -94,6 +94,46 @@ export default function FlywheelPage() {
   const hasPending = pendingReadyAt > 0;
   const pendingReady = hasPending && pendingReadyAt <= nowSec;
 
+  /// Lift activity-feed fetch to the parent so the totals row + the row list
+  /// share one round-trip. Rows carry the per-event breakdown (ETH split into
+  /// buyback / nft / treasury on distributions; URU acquired on buybacks) so
+  /// summing across them gives lifetime totals without a dedicated aggregate
+  /// endpoint. Numbers are capped at whatever MAX_ROWS the feed pulls, which
+  /// is fine for launch — a proper `/api/flywheel/totals` endpoint can replace
+  /// this later.
+  const [activityRows, setActivityRows] = useState<FlywheelActivityRow[] | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchFlywheelActivity(CHAIN_ID, MAX_ROWS);
+        if (cancelled) return;
+        setActivityRows(data);
+      } catch (err) {
+        if (cancelled) return;
+        setActivityError(err instanceof Error ? err.message : 'indexer unreachable');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const totals = useMemo(() => {
+    if (!activityRows) return null;
+    let uruBoughtBack = 0n;
+    let ethToGemu = 0n;
+    let ethToTeam = 0n;
+    for (const r of activityRows) {
+      if (r.kind === 'distribution') {
+        if (r.toNft) ethToGemu += BigInt(r.toNft);
+        if (r.toTreasury) ethToTeam += BigInt(r.toTreasury);
+      } else if (r.kind === 'buyback') {
+        if (r.uruOut) uruBoughtBack += BigInt(r.uruOut);
+      }
+    }
+    return { uruBoughtBack, ethToGemu, ethToTeam };
+  }, [activityRows]);
+
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
       <header style={{ marginBottom: 16 }}>
@@ -117,18 +157,50 @@ export default function FlywheelPage() {
 
       {feeSplitter && parsed && (
         <>
-          {/* Split card */}
+          {/* Lifetime totals row — the top-line numbers a visitor should see
+              first: what has actually happened, not what percentages will
+              apply. Three tiles in a line, responsive down to a single column
+              on narrow phones. */}
           <section
             className="uru-shell"
-            style={{ padding: 16, marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
+            style={{
+              padding: 16,
+              marginBottom: 12,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 12,
+            }}
           >
-            <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span aria-hidden style={{ fontSize: 18 }}>♡</span>
-              <h2 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
+            <TotalTile
+              label="URU bought back"
+              value={totals ? formatBig(totals.uruBoughtBack, 'URU') : '—'}
+              tint="var(--pink-hot)"
+            />
+            <TotalTile
+              label="paid to gemu holders"
+              value={totals ? formatBig(totals.ethToGemu, 'ETH') : '—'}
+              tint="var(--mint-hot)"
+            />
+            <TotalTile
+              label="paid to team + ops"
+              value={totals ? formatBig(totals.ethToTeam, 'ETH') : '—'}
+              tint="var(--yolk-deep)"
+            />
+          </section>
+
+          {/* Current split — one compact bar + a caption line. Way lighter
+              than the earlier three-row SinkRow list; the labels + %s in the
+              caption are enough since the totals above show the effect. */}
+          <section
+            className="uru-shell"
+            style={{ padding: 14, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
+          >
+            <header style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span aria-hidden style={{ fontSize: 15 }}>♡</span>
+              <h2 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
                 the split right now
               </h2>
             </header>
-
             <SplitBar
               parts={[
                 { label: 'URU buyback', bps: parsed.uruBps, color: 'var(--pink-hot)' },
@@ -136,42 +208,28 @@ export default function FlywheelPage() {
                 { label: 'team + ops', bps: parsed.treasuryBps, color: 'var(--yolk-deep)' },
               ]}
             />
-
-            <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: 12 }}>
-              <SinkRow
-                label="URU buyback"
-                bps={parsed.uruBps}
-                note="buys URU on the open market and burns it (shrinks supply, benefits URU holders)"
-              />
-              <SinkRow
-                label="gemu holder rewards"
-                bps={parsed.nftBps}
-                note="paid out to urufu gemu NFT holders as ETH rewards"
-              />
-              <SinkRow
-                label="team + operations"
-                bps={parsed.treasuryBps}
-                note="funds the team + long-term reserves"
-              />
-            </ul>
+            <div style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>
+              <b>{parsed.uruBps / 100}%</b> URU buyback ·{' '}
+              <b>{parsed.nftBps / 100}%</b> gemu rewards ·{' '}
+              <b>{parsed.treasuryBps / 100}%</b> team + ops
+            </div>
           </section>
 
-          {/* Pending timelock card — two flavors depending on whether the
-              queued config's timelock has expired yet. */}
+          {/* Pending timelock card — only when there's actually one queued. */}
           {hasPending && (
             <section
               className="uru-shell"
               style={{
-                padding: 16,
-                marginBottom: 16,
+                padding: 14,
+                marginBottom: 12,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 8,
+                gap: 6,
                 background: pendingReady ? 'var(--mint)' : 'var(--yolk)',
               }}
             >
-              <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span aria-hidden style={{ fontSize: 16 }}>{pendingReady ? '✿' : '⏳'}</span>
+              <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span aria-hidden style={{ fontSize: 15 }}>{pendingReady ? '✿' : '⏳'}</span>
                 <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
                   {pendingReady ? 'new split ready to activate' : 'new split coming soon'}
                 </strong>
@@ -183,36 +241,53 @@ export default function FlywheelPage() {
                     after the owner activates: </>
                   : <>new split takes effect{' '}
                     <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. after that: </>}
-                <b>{parsed.pending![3] / 100}%</b> to URU buyback,{' '}
-                <b>{parsed.pending![4] / 100}%</b> to gemu holder rewards,{' '}
-                <b>{parsed.pending![5] / 100}%</b> to team + operations.
+                <b>{parsed.pending![3] / 100}%</b> URU buyback,{' '}
+                <b>{parsed.pending![4] / 100}%</b> gemu rewards,{' '}
+                <b>{parsed.pending![5] / 100}%</b> team + ops.
               </p>
             </section>
           )}
-
-          {/* Small print — contract addresses for anyone who wants to verify on chain. */}
-          <section
-            className="uru-shell"
-            style={{ padding: 12, marginBottom: 16, fontSize: 11, color: 'var(--anchor-soft)' }}
-          >
-            <div style={{ marginBottom: 4 }}>
-              on-chain contracts (verify anything): FeeSplitter {short(feeSplitter)}
-              {uruBuybackVault && <>, UruBuybackVault {short(uruBuybackVault)}</>}
-              {nftRevenueVault && <>, NftRevenueVault {short(nftRevenueVault)}</>}
-            </div>
-            {parsed.minDelay > 0n && (
-              <div>
-                any change to the split waits {Number(parsed.minDelay) / 86_400} days before it
-                takes effect (safety rule from audit).
-              </div>
-            )}
-          </section>
         </>
       )}
 
-      <ActivityFeed />
+      <ActivityFeed rows={activityRows} error={activityError} />
     </div>
   );
+}
+
+/// One of the three top-line tiles. Big number, tinted underline, small
+/// caption. Kept plain so a visitor can scan all three at once.
+function TotalTile({ label, value, tint }: { label: string; value: string; tint: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div
+        className="uru-num"
+        style={{
+          fontSize: 20,
+          lineHeight: 1.15,
+          fontFamily: 'var(--font-round), cursive',
+          borderBottom: `2px solid ${tint}`,
+          paddingBottom: 3,
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>{label}</div>
+    </div>
+  );
+}
+
+/// Human-readable formatter for wei bignums with a currency suffix. Small
+/// values get 4 decimals, larger values compact suffixes so a 12M URU total
+/// doesn't span half the row.
+function formatBig(wei: bigint, unit: string): string {
+  const num = Number(wei) / 1e18;
+  if (num === 0) return `0 ${unit}`;
+  if (num < 0.0001) return `<0.0001 ${unit}`;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M ${unit}`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(2)}K ${unit}`;
+  if (num >= 1) return `${num.toFixed(3)} ${unit}`;
+  return `${num.toFixed(4)} ${unit}`;
 }
 
 /// Fetches the merged event stream from the indexer's /api/flywheel/activity
@@ -223,27 +298,13 @@ export default function FlywheelPage() {
 const INITIAL_ROWS = 6;
 const MAX_ROWS = 30;
 
-function ActivityFeed() {
-  const [rows, setRows] = useState<FlywheelActivityRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/// Presentation-only — the parent owns the fetch so the totals row + this
+/// feed share the same batch. `rows === null` = loading, `error !== null` =
+/// indexer unreachable, `rows === []` = fresh contracts with no events yet.
+function ActivityFeed({ rows, error }: { rows: FlywheelActivityRow[] | null; error: string | null }) {
   /// Show a small window by default so the feed doesn't dominate the page;
   /// "show more" expands to the full pulled batch.
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchFlywheelActivity(CHAIN_ID, MAX_ROWS);
-        if (cancelled) return;
-        setRows(data);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'indexer unreachable');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   const visibleRows = rows
     ? (expanded ? rows : rows.slice(0, INITIAL_ROWS))
