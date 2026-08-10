@@ -60,6 +60,7 @@ import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
 import { NftAvatarPicker } from '@/components/NftAvatarPicker';
+import styles from '../profile.module.css';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
@@ -335,7 +336,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const name = displayNameFor(profile, address);
 
   return (
-    <div className="mx-auto max-w-6xl px-3 sm:px-4 py-4">
+    <div className={styles.profileFrame}>
       {xVerifiedToast && (
         <div
           role="status"
@@ -355,225 +356,136 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       )}
       {/* ================================================================
           IDENTITY HEADER — avatar + name + address + socials + CTA
+          Uses the pressKit two-pane grid: identityPlate (avatar + text)
+          on the left, actionShelf on the right (edit / follow / feed).
           ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '14px 18px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 14,
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div
-          style={{
-            width: 72,
-            height: 72,
-            flexShrink: 0,
-            borderRadius: 12,
-            border: '1.5px solid var(--anchor)',
-            boxShadow: '2px 2px 0 var(--anchor)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 28,
-            color: 'var(--anchor)',
-            backgroundColor: 'var(--cream-deep)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          {profile.avatarDataUrl ? (
-            // next/image prioritizes above-fold LCP asset + serves WebP/AVIF
-            // via Vercel edge cache (see web/next.config.ts remotePatterns).
-            // Data URLs (uploaded but not yet pinned) fall through to a raw
-            // img since next/image proxy only handles http(s) sources.
-            profile.avatarDataUrl.startsWith('data:') ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={profile.avatarDataUrl}
-                alt=""
-                width={72}
-                height={72}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            ) : (
+      <section className={styles.pressKit}>
+        <div className={styles.identityPlate}>
+          <div className={styles.avatarStamp} style={{ background: safeBackgroundImage(profile.avatarDataUrl) }}>
+            {profile.avatarDataUrl && !profile.avatarDataUrl.startsWith('data:') && (
+              // next/image prioritizes above-fold LCP asset + serves WebP/AVIF
+              // via Vercel edge cache (see web/next.config.ts remotePatterns).
+              // Data URLs (uploaded but not yet pinned) stay as the CSS
+              // background above since next/image proxy only handles http(s).
               <Image
                 src={profile.avatarDataUrl}
                 alt=""
                 fill
-                sizes="72px"
+                sizes="118px"
                 priority
                 fetchPriority="high"
                 style={{ objectFit: 'cover' }}
               />
-            )
-          ) : (
-            'ウ'
-          )}
-        </div>
-
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow">♡ profile</div>
-          <h1 className="uru-h1" style={{ fontSize: 24, lineHeight: 1.1 }}>
-            {name}
-          </h1>
-          <div
-            style={{
-              marginTop: 2,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-              wordBreak: 'break-all',
-            }}
-          >
-            {address}
+            )}
+            {!profile.avatarDataUrl && <span>ウ</span>}
           </div>
-          {profile.bio && (
-            <p style={{ marginTop: 6, fontSize: 12.5, lineHeight: 1.45, maxWidth: 520 }}>
-              {profile.bio}
-            </p>
-          )}
-          {(profile.xVerifiedHandle || profile.twitter || profile.telegram || profile.discord || profile.website) && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-              {profile.xVerifiedHandle ? (
-                // Verified X — link out and show the green checkmark. Uses the
-                // exact stored handle string; the id is what actually pins the
-                // binding (see xVerifiedId) but the handle is what humans read.
-                <XVerifiedBadge handle={profile.xVerifiedHandle} />
-              ) : profile.twitter ? (
-                // Legacy / unverified self-declared handle — NEVER link out
-                // (phishing vector: anyone could type "https://x.com/vitalik").
-                // Rendered gray + noninteractive with an "unverified" hint.
-                <XUnverifiedBadge value={profile.twitter} />
-              ) : null}
-              {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
-              {profile.discord && <MiniLink href={profile.discord} label="discord" />}
-              {profile.website && <MiniLink href={profile.website} label="site" />}
+
+          <div className={styles.identityText}>
+            <div className="uru-eyebrow">creator profile</div>
+            <h1 className={`uru-h1 ${styles.profileName}`}>{name}</h1>
+            <div className={styles.addressLine}>{address}</div>
+            {profile.bio && <p className={styles.bio}>{profile.bio}</p>}
+            {(profile.xVerifiedHandle || profile.twitter || profile.telegram || profile.discord || profile.website) && (
+              <div className={styles.socials}>
+                {profile.xVerifiedHandle ? (
+                  // Verified X — link out and show the green checkmark. Uses the
+                  // exact stored handle string; the id is what actually pins the
+                  // binding (see xVerifiedId) but the handle is what humans read.
+                  <XVerifiedBadge handle={profile.xVerifiedHandle} />
+                ) : profile.twitter ? (
+                  // Legacy / unverified self-declared handle — NEVER link out
+                  // (phishing vector: anyone could type "https://x.com/vitalik").
+                  // Rendered gray + noninteractive with an "unverified" hint.
+                  <XUnverifiedBadge value={profile.twitter} />
+                ) : null}
+                {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
+                {profile.discord && <MiniLink href={profile.discord} label="discord" />}
+                {profile.website && <MiniLink href={profile.website} label="site" />}
+              </div>
+            )}
+            {/* Follower/following pills open the modal listing that bucket. */}
+            <div className={styles.followPills}>
+              <button type="button" onClick={() => setModalMode('followers')} className={styles.followPill}>
+                <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
+              </button>
+              <button type="button" onClick={() => setModalMode('following')} className={styles.followPill}>
+                <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
+              </button>
             </div>
-          )}
-          {/* Followers / following pills — clickable to open the modal that lists
-              everyone in that bucket. Live on the LEFT side under the profile
-              info so edit/follow + feed stay on the RIGHT as a clean action
-              column. Shown for every profile (own + others). */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              marginTop: 10,
-              fontFamily: 'var(--font-round), Klee One, cursive',
-              fontSize: 12,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setModalMode('followers')}
-              style={{
-                padding: '3px 10px',
-                borderRadius: 999,
-                border: '1.5px solid var(--anchor)',
-                background: 'var(--cream)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                lineHeight: 1.4,
-                color: 'var(--anchor)',
-              }}
-            >
-              <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
-            </button>
-            <button
-              type="button"
-              onClick={() => setModalMode('following')}
-              style={{
-                padding: '3px 10px',
-                borderRadius: 999,
-                border: '1.5px solid var(--anchor)',
-                background: 'var(--cream)',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                lineHeight: 1.4,
-                color: 'var(--anchor)',
-              }}
-            >
-              <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
-            </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'flex-start' }}>
-          {isOwn ? (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="uru-btn uru-btn-primary"
-              style={{ padding: '6px 14px', fontSize: 12 }}
-            >
-              ✿ edit profile
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={async () => {
-                // Optimistic local toggle for the instant button flip, then
-                // fire the signed backend write so the followee's /followers
-                // list reflects it. If the wallet isn't connected we fall back
-                // to local-only (backend needs a signature).
-                if (wallet) {
-                  const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
-                  playSfx(nowFollowing ? 'coin' : 'flip');
-                  // Backend write completed — bump the tick so the counts
-                  // pill refetches the new server-side state. Without this
-                  // the refetch races the signature and reads stale data.
-                  setRemoteRefreshTick((n) => n + 1);
-                } else {
-                  const nowFollowing = toggleFollow(address);
-                  playSfx(nowFollowing ? 'coin' : 'flip');
-                }
-              }}
-              className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
-              style={{ padding: '6px 14px', fontSize: 12 }}
-            >
-              {isFollowingThis ? '✿ following' : '+ follow'}
-            </button>
-          )}
-          {isOwn && (
-            <Link
-              href="/feed"
-              className="uru-btn uru-btn-mint"
-              style={{ justifyContent: 'center', fontSize: 11, padding: '5px 10px' }}
-            >
-              ur feed ({followingCount})
-            </Link>
-          )}
+        <div className={styles.pressFacts}>
+          <div className={styles.actionShelf}>
+            {isOwn ? (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="uru-btn uru-btn-primary"
+              >
+                edit profile
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  // Optimistic local toggle for the instant button flip, then
+                  // fire the signed backend write so the followee's /followers
+                  // list reflects it. If the wallet isn't connected we fall back
+                  // to local-only (backend needs a signature).
+                  if (wallet) {
+                    const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
+                    playSfx(nowFollowing ? 'coin' : 'flip');
+                    // Backend write completed — bump the tick so the counts
+                    // pill refetches the new server-side state. Without this
+                    // the refetch races the signature and reads stale data.
+                    setRemoteRefreshTick((n) => n + 1);
+                  } else {
+                    const nowFollowing = toggleFollow(address);
+                    playSfx(nowFollowing ? 'coin' : 'flip');
+                  }
+                }}
+                className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
+              >
+                {isFollowingThis ? 'following' : '+ follow'}
+              </button>
+            )}
+            {isOwn && (
+              <Link href="/feed" className="uru-btn uru-btn-mint">
+                ur feed ({followingCount})
+              </Link>
+            )}
+          </div>
+          {/* Six-key facts pane — mirrors the stats strip but presented as
+              a labelled dl grid, which pairs with the pressKit layout on
+              wide screens (stats sit next to the identity plate). */}
+          <dl className={styles.factGrid}>
+            <div>
+              <dt>launches</dt>
+              <dd>{stats.launched.toString()}</dd>
+            </div>
+            <div>
+              <dt>trades</dt>
+              <dd>{stats.tradeCount.toString()}</dd>
+            </div>
+            <div>
+              <dt>buys</dt>
+              <dd>{stats.buyCount.toString()}</dd>
+            </div>
+            <div>
+              <dt>sells</dt>
+              <dd>{stats.sellCount.toString()}</dd>
+            </div>
+            <div>
+              <dt>net eth</dt>
+              <dd>{formatSignedEth(stats.netFlow)} Ξ</dd>
+            </div>
+            <div>
+              <dt>realized pnl</dt>
+              <dd>{formatSignedEth(realizedTotal)} Ξ</dd>
+            </div>
+          </dl>
         </div>
-      </section>
-
-      {/* ================================================================
-          STATS STRIP — 6 tiles, data-forward
-          ================================================================ */}
-      <section
-        className="grid gap-2 mb-3"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}
-      >
-        <StatTile label="launches" value={stats.launched.toString()} />
-        <StatTile label="trades" value={stats.tradeCount.toString()} />
-        <StatTile label="buys" value={stats.buyCount.toString()} accent="mint" />
-        <StatTile label="sells" value={stats.sellCount.toString()} accent="pink" />
-        <StatTile
-          label="net eth flow"
-          value={`${formatSignedEth(stats.netFlow)} Ξ`}
-          accent={stats.netFlow > 0n ? 'mint' : stats.netFlow < 0n ? 'pink' : undefined}
-        />
-        <StatTile
-          label="realized pnl"
-          value={`${formatSignedEth(realizedTotal)} Ξ`}
-          accent={realizedTotal > 0n ? 'mint' : realizedTotal < 0n ? 'pink' : undefined}
-        />
       </section>
 
       <div
@@ -590,9 +502,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       {/* ================================================================
           MAIN + RAIL
           ================================================================ */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div className={styles.profileBody}>
         {/* MAIN */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+        <div className={styles.dossierPanel} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* creations */}
           <section>
             <SectionHead label="creations" jp="発行" count={launches?.length} />
@@ -833,15 +745,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             When the toggle is on AND a stranger is viewing, we render a
             single explanatory placeholder card so the absence of data
             is obvious (never silent). */}
-        <aside
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            minWidth: 0,
-          }}
-          className="lg:sticky lg:top-4 lg:h-fit"
-        >
+        <aside className={styles.sideStack}>
           {isOwn && profile.hideHoldings && <PrivateModeHint />}
 
           {shouldHideHoldingsFromView({ isOwn, hideHoldings: profile.hideHoldings }) ? (
@@ -850,39 +754,19 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             <>
               <EcosystemHoldings visibleFor={address} chain={activeChain} />
 
-              <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ launchpad holdings</div>
+              <section className={styles.sideCard}>
+                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>launchpad holdings</div>
                 {holdings === null && !loaded && <LoadingRow tight />}
                 {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
                   <EmptyRow label="no urufu tokens held" tight />
                 )}
                 {holdings && holdings.length > 0 && (
-                  <ul
-                    style={{
-                      listStyle: 'none',
-                      padding: 0,
-                      margin: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 3,
-                    }}
-                  >
+                  <ul className={styles.holdingList}>
                     {holdings
                       .filter((h) => BigInt(h.balance) > 0n)
                       .slice(0, 20)
                       .map((h) => (
-                        <li
-                          key={h.id}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            padding: '3px 0',
-                            borderBottom: '1px dashed var(--cream-shadow)',
-                            fontFamily: 'var(--font-pixel), monospace',
-                            fontSize: 10.5,
-                          }}
-                        >
+                        <li key={h.id} className={styles.holdingRow}>
                           {(() => {
                             const lbl = tokenLabel(h.tokenAddress);
                             return (
@@ -934,69 +818,12 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
 function SectionHead({ label, jp, count }: { label: string; jp: string; count?: number }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-      <span className="uru-h1" style={{ fontSize: 16, lineHeight: 1 }}>{label}</span>
-      <span
-        style={{
-          fontFamily: 'var(--font-jp), monospace',
-          fontSize: 12,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        {jp}
-      </span>
+    <div className={styles.sectionHead}>
+      <span className={`uru-h1 ${styles.sectionTitle}`}>{label}</span>
+      <span className={styles.sectionJp}>{jp}</span>
       {typeof count === 'number' && (
-        <span
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-            marginLeft: 2,
-          }}
-        >
-          · {count}
-        </span>
+        <span className={styles.sectionCount}>· {count}</span>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: 'pink' | 'mint' | 'mizuiro';
-}) {
-  const bg =
-    accent === 'pink' ? 'var(--pink-warm)' :
-    accent === 'mint' ? 'var(--mint)' :
-    accent === 'mizuiro' ? 'var(--mizuiro)' :
-    'var(--cream)';
-  const color =
-    accent === 'pink' ? 'var(--pink-hot)' :
-    accent === 'mint' ? 'var(--mint-hot,#2b8a3e)' :
-    'var(--anchor)';
-  return (
-    <div className="uru-shell-tight" style={{ background: bg, padding: '8px 12px', minWidth: 0 }}>
-      <div className="uru-eyebrow">{label}</div>
-      <div
-        style={{
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 17,
-          fontWeight: 700,
-          color,
-          lineHeight: 1.05,
-          marginTop: 2,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {value}
-      </div>
     </div>
   );
 }
@@ -1470,27 +1297,10 @@ function EditProfileModal({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(58,44,58,0.35)',
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: 20,
-        overflowY: 'auto',
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="uru-shell"
-        style={{ maxWidth: 520, width: '100%', marginTop: 24, background: 'var(--cream)' }}
-      >
+    <div className={styles.modalBackdrop} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className={`uru-shell ${styles.editModal}`}>
         <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-          <div className="uru-eyebrow">✿ edit profile</div>
+          <div className="uru-eyebrow">edit profile</div>
           <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer' }} aria-label="close">✕</button>
         </div>
 
