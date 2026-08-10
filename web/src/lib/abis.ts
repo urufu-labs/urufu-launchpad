@@ -140,6 +140,9 @@ export const curveFactoryAbi = parseAbi([
   `function predictCurveAddress(address token) view returns (address)`,
   `function defaultCurveSupply() view returns (uint256)`,
   `function defaultGraduationTargetEth() view returns (uint256)`,
+  `function defaultVirtualTokenReserve() view returns (uint256)`,
+  `function defaultVirtualEthReserve() view returns (uint256)`,
+  `function defaultTradeFeeBps() view returns (uint16)`,
 ] as const);
 
 /// Same shape as `erc20FactoryAbi.predictAddress` — used for both ERC-721A + ERC-1155 factories.
