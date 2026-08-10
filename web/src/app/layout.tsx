@@ -273,7 +273,7 @@ export default function RootLayout({
               <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ shelf</Link>
               <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
               <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
-              <Link href="/agents" className="hover:underline" style={{ color: 'var(--anchor)' }}>❋ agents</Link>
+              <Link href="/agents" className="hover:underline" style={{ color: 'var(--anchor)' }}>❋ launch with agent</Link>
               <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>
               <a
                 href="https://x.com/urugemu"
