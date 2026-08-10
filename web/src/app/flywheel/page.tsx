@@ -67,7 +67,15 @@ export default function FlywheelPage() {
     };
   }, [reads.data]);
 
-  const hasPending = parsed?.pending && parsed.pending[6] > 0n;
+  /// Three-state banner: no pending config, pending config with timelock
+  /// still counting down, or pending config whose timelock already elapsed
+  /// (ready to activate — copy switches from "coming soon" to "ready when
+  /// owner activates"). Previously the banner said "coming soon" even after
+  /// the timestamp passed, which read as broken data to visitors.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const pendingReadyAt = parsed?.pending ? Number(parsed.pending[6]) : 0;
+  const hasPending = pendingReadyAt > 0;
+  const pendingReady = hasPending && pendingReadyAt <= nowSec;
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
@@ -131,7 +139,8 @@ export default function FlywheelPage() {
             </ul>
           </section>
 
-          {/* Pending timelock card */}
+          {/* Pending timelock card — two flavors depending on whether the
+              queued config's timelock has expired yet. */}
           {hasPending && (
             <section
               className="uru-shell"
@@ -141,18 +150,22 @@ export default function FlywheelPage() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
-                background: 'var(--yolk)',
+                background: pendingReady ? 'var(--mint)' : 'var(--yolk)',
               }}
             >
               <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span aria-hidden style={{ fontSize: 16 }}>⏳</span>
+                <span aria-hidden style={{ fontSize: 16 }}>{pendingReady ? '✿' : '⏳'}</span>
                 <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
-                  update coming soon
+                  {pendingReady ? 'new split ready to activate' : 'new split coming soon'}
                 </strong>
               </header>
               <p style={{ margin: 0, fontSize: 12 }}>
-                a new split takes effect{' '}
-                <b>{new Date(Number(parsed.pending![6]) * 1000).toLocaleString()}</b>. after that:{' '}
+                {pendingReady
+                  ? <>timelock ended{' '}
+                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. next launch fee
+                    after the owner activates: </>
+                  : <>new split takes effect{' '}
+                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. after that: </>}
                 <b>{parsed.pending![3] / 100}%</b> to URU buyback,{' '}
                 <b>{parsed.pending![4] / 100}%</b> to gemu holder rewards,{' '}
                 <b>{parsed.pending![5] / 100}%</b> to team + operations.
@@ -190,15 +203,21 @@ export default function FlywheelPage() {
 /// chain). Renders a small skeleton while loading, an honest empty state when
 /// there's nothing to show (fresh contracts on a chain that hasn't graduated
 /// anything yet), and an error state when the indexer is unreachable.
+const INITIAL_ROWS = 6;
+const MAX_ROWS = 30;
+
 function ActivityFeed() {
   const [rows, setRows] = useState<FlywheelActivityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /// Show a small window by default so the feed doesn't dominate the page;
+  /// "show more" expands to the full pulled batch.
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await fetchFlywheelActivity(CHAIN_ID, 20);
+        const data = await fetchFlywheelActivity(CHAIN_ID, MAX_ROWS);
         if (cancelled) return;
         setRows(data);
       } catch (err) {
@@ -208,6 +227,11 @@ function ActivityFeed() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const visibleRows = rows
+    ? (expanded ? rows : rows.slice(0, INITIAL_ROWS))
+    : null;
+  const hiddenCount = rows ? Math.max(0, rows.length - INITIAL_ROWS) : 0;
 
   return (
     <section className="uru-shell" style={{ padding: 12, marginBottom: 8 }}>
@@ -234,12 +258,33 @@ function ActivityFeed() {
         </p>
       )}
 
-      {!error && rows && rows.length > 0 && (
-        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {rows.map((r) => (
-            <ActivityRow key={`${r.kind}-${r.txHash}-${r.blockNumber}`} row={r} />
-          ))}
-        </ul>
+      {!error && visibleRows && visibleRows.length > 0 && (
+        <>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {visibleRows.map((r) => (
+              <ActivityRow key={`${r.kind}-${r.txHash}-${r.blockNumber}`} row={r} />
+            ))}
+          </ul>
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              style={{
+                marginTop: 8,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--anchor)',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 11,
+                textDecoration: 'underline',
+                padding: 0,
+              }}
+            >
+              {expanded ? `show fewer ~` : `show ${hiddenCount} more ~`}
+            </button>
+          )}
+        </>
       )}
     </section>
   );
