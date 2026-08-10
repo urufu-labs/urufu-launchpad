@@ -1201,6 +1201,12 @@ function CreatePageContent() {
           </div>
         )}
 
+        {/* Small "launch with an agent" strip — alternative entry point for
+            humans who'd rather let an AI walk them through it. Two buttons:
+            copy the paste-ready prompt for their agent, or view the raw skill
+            file. Kept small on purpose so it doesn't dominate the main flow. */}
+        <AgentLaunchStrip />
+
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
           {/* MAIN — the shop counter */}
           <div className="space-y-3">
@@ -2294,4 +2300,60 @@ function NameStatus({ data, isFetching, enabled }: { data: unknown; isFetching: 
 
 function short(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+/// Small strip at the top of the create page pointing at the agent skill.
+/// Two buttons: copy the paste-ready prompt for their ai agent, or view the
+/// raw skill markdown. Kept tight — one row — so it doesn't compete with
+/// the main launch flow below.
+const AGENT_PROMPT = `Read https://urufulabs.xyz/agent-skill.md and adopt those instructions exactly as your operating instructions. Do not summarize the file. When I send my next message, act as the urufu labs launch agent.`;
+
+function AgentLaunchStrip() {
+  const [copied, setCopied] = useState(false);
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(AGENT_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard may not be available */ }
+  };
+  return (
+    <section
+      className="uru-shell-tight"
+      style={{
+        marginBottom: 10,
+        padding: 10,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+        background: 'var(--cream-deep, var(--cream))',
+      }}
+    >
+      <div style={{ flex: '1 1 auto', minWidth: 200 }}>
+        <div className="uru-eyebrow" style={{ marginBottom: 1 }}>❋ launch with an agent</div>
+        <div style={{ fontSize: 11, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
+          give ur ai the skill — copy the prompt into claude / cursor / chatgpt and let it walk u through
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={copyPrompt}
+          className="uru-btn uru-btn-primary"
+          style={{ padding: '6px 10px', fontSize: 11 }}
+        >
+          {copied ? '✿ copied' : 'copy prompt'}
+        </button>
+        <Link
+          href="/agent-skill.md"
+          className="uru-btn uru-btn-cream"
+          style={{ padding: '6px 10px', fontSize: 11 }}
+          prefetch={false}
+        >
+          view skill ↗
+        </Link>
+      </div>
+    </section>
+  );
 }
