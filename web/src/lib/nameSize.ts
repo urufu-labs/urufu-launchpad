@@ -1,25 +1,30 @@
 /// Shared rule for shrinking a token name that would blow out its container.
 ///
 /// Every card / header that renders `launch.name` picks its own base font size
-/// (home bulletin: 24px, trade header: 22px, discover cards: 16px, etc). Long
-/// names like "animemangawaifuurufuhentaikawaii" (32 chars) blow those out and
-/// either wrap ugly or overflow. This helper returns a scaled px size that
-/// stays inside the container without a container query.
+/// (home bulletin: 34px, trending cards: 24px, discover/trade list: 13px).
+/// Only truly long names get scaled — everyday names like "urufu labs",
+/// "wojak coin", "cat named tim" (all ≤18 chars) stay at their full base size
+/// so the design reads as unchanged 99% of the time. Only oddballs like
+/// "animemangawaifuurufuhentaikawaii" (32 chars) trigger the ramp.
 ///
-/// Curve is intentionally gentle so short names look untouched:
-///   - up to 12 chars: full base size
-///   - 13-18: -8%
-///   - 19-24: -18%
-///   - 25-30: -30%
-///   - 31+:   -42% (floor)
-///
-/// Sizes clamp to a minimum of 55% of the base so a 60-char name still reads.
+///   - up to 18 chars: untouched
+///   - 19-24: -12%
+///   - 25-32: -28%
+///   - 33-42: -45%
+///   - 43+:   -55% (floor)
 export function sizeForName(name: string, basePx: number): number {
   const len = name.length;
-  if (len <= 12) return basePx;
-  if (len <= 18) return Math.round(basePx * 0.92);
-  if (len <= 24) return Math.round(basePx * 0.82);
-  if (len <= 30) return Math.round(basePx * 0.70);
-  if (len <= 40) return Math.round(basePx * 0.58);
-  return Math.round(basePx * 0.55);
+  if (len <= 18) return basePx;
+  if (len <= 24) return Math.round(basePx * 0.88);
+  if (len <= 32) return Math.round(basePx * 0.72);
+  if (len <= 42) return Math.round(basePx * 0.55);
+  return Math.round(basePx * 0.45);
+}
+
+/// True when a name is long enough that `sizeForName` returns something other
+/// than the base. Use this in JSX to conditionally apply the inline style so
+/// short/normal names inherit whatever the CSS already sets (clamp, media
+/// queries, etc.) without a fixed px override wiping that out.
+export function isLongName(name: string): boolean {
+  return name.length > 18;
 }

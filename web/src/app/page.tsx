@@ -8,7 +8,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
-import { sizeForName } from '@/lib/nameSize';
+import { sizeForName, isLongName } from '@/lib/nameSize';
 import {
   MOCK_LAUNCHES,
   mockProgressPct,
@@ -698,7 +698,12 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
         </div>
         <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
       </div>
-      <span className="uru-launch-ticket-name">{name}</span>
+      <span
+        className="uru-launch-ticket-name"
+        style={isLongName(name) ? { fontSize: sizeForName(name, 24), lineHeight: 1.05 } : undefined}
+      >
+        {name}
+      </span>
       <span className="uru-launch-ticket-symbol">${ticker}</span>
       <div className="uru-launch-ticket-meta">
         <span>
@@ -789,7 +794,7 @@ function CultureBulletin({
         <span className="uru-home-bulletin-kicker">token details</span>
         {launch ? (
           <>
-            <h2 style={launch.name.length > 12 ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
+            <h2 style={isLongName(launch.name) ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
             <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
             <p className="uru-home-bulletin-byline">by {creator}</p>
             <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
