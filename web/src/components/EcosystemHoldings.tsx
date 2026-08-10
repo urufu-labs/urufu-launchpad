@@ -79,9 +79,9 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
   const loyaltyTier = useMemo(() => {
     const hasNft = nftCount > 0n;
     const hasUru = uru >= URU_LOYALTY_THRESHOLD_WEI;
-    if (hasNft && hasUru) return { pct: 50, label: 'both tiers' };
+    if (hasNft && hasUru) return { pct: 50, label: 'combined tier' };
     if (hasUru) return { pct: 40, label: 'URU tier' };
-    if (hasNft) return { pct: 20, label: 'NFT tier' };
+    if (hasNft) return { pct: 20, label: 'holder-pass tier' };
     return { pct: 0, label: 'no tier' };
   }, [uru, nftCount]);
 
@@ -104,7 +104,7 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
   return (
     <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
       <div className="uru-eyebrow" style={{ marginBottom: 6 }}>
-        ✿ ecosystem holdings
+        ecosystem holdings
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
@@ -112,7 +112,7 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
           <span className="uru-num" style={{ fontWeight: 600 }}>{uruShort(uru)}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-          <span>urufu gemu NFT</span>
+          <span>gemu holder pass</span>
           <span className="uru-num" style={{ fontWeight: 600 }}>{nftCount.toString()}</span>
         </div>
         {loyalty.ready && (

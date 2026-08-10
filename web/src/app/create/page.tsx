@@ -39,6 +39,7 @@ import { playSfx } from '@/lib/audio/sfx';
 import { curveFactoryAbi, erc20FactoryAbi, erc20TokenAbi, nameRegistryAbi, routerAbi, v4StateViewAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, URU_PAY, V4_STATE_VIEWS } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl, explorerTxUrl } from '@/lib/wagmi';
+import { useMockDataMode } from '@/lib/mockDataMode';
 import {
   BASE_TYPE_TO_UINT,
   configHashFor,
@@ -48,14 +49,16 @@ import {
   type ModuleSpec,
 } from '@/lib/modules';
 import { encodeModuleSlice } from '@/components/ModulePicker';
-import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
+import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, saveMetadata, type TokenMetadata } from '@/lib/metadata';
 import { saveTokenMetadata } from '@/lib/socialApi';
+import { saveMockLaunch } from '@/lib/mockLaunches';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
+import styles from './create-studio.module.css';
 
 type OwnershipMode = 'Renounce' | 'TransferToMultisig' | 'KeepEOA';
 const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
@@ -68,6 +71,8 @@ const OWNERSHIP_TO_UINT: Record<OwnershipMode, 0 | 1 | 2> = {
 const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
   'n7', 'p3', 'n4', 'p11', 'p2', 'n11', 'p13', 'n2',
 ];
+const ALWAYS_ON_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
+const PER_LAUNCH_HOOKS = new Set(['AntiSniper', 'BuybackBurn']);
 
 export default function CreatePage() {
   if (!LAUNCHPAD_LIVE) {
@@ -86,6 +91,8 @@ function CreatePageContent() {
   // hydration-mismatch unless we gate its first render behind `mounted`.
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  const mockData = useMockDataMode();
+  const [mockLaunchedAddress, setMockLaunchedAddress] = useState<Address | null>(null);
 
   // The user's PICKED chain (from the header switcher) is the launch target — not the
   // wallet's current chain. When the wallet is on a different chain than the pick, we
@@ -188,8 +195,6 @@ function CreatePageContent() {
   // writes them onto the pool via MultiHookHost.setPoolConfig at graduation. Show
   // them only when the launcher picks a bonding curve (direct-mint tokens never
   // graduate → no pool → these would do nothing).
-  const ALWAYS_ON_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
-  const PER_LAUNCH_HOOKS = new Set(['AntiSniper', 'BuybackBurn']);
   const available = useMemo(
     () =>
       shippedModulesForBase(base).filter((m) => {
@@ -666,6 +671,16 @@ function CreatePageContent() {
       setWlError('paste a valid contract address');
       return;
     }
+    if (mockData.enabled) {
+      setWlSnapshot({
+        root: `0x${'d'.repeat(64)}` as Hex,
+        snapshotBlock: 'demo',
+        holderCount: 274,
+        listId: 'demo-holder-snapshot',
+        fallbackTs: BigInt(Math.floor(Date.now() / 1000) + 3_600),
+      });
+      return;
+    }
     setWlApplying(true);
     try {
       const chainId = CHAIN_KEY_TO_ID[targetChain];
@@ -799,7 +814,19 @@ function CreatePageContent() {
     return true;
   }, [selectedModules, moduleParams]);
 
-  const canLaunch =
+  function mkMockAddress(): Address {
+    const seed = `${name}|${ticker}|${address ?? zeroAddress}|${CHAIN_KEY_TO_ID[targetChain] ?? chainId}`;
+    let hash = 0x9e3779b9;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash ^= (hash << 5) + (hash >> 2) + seed.charCodeAt(i);
+    }
+    const suffix = Math.abs(hash >>> 0).toString(16).padStart(8, '0').slice(-8);
+    const stamped = `${Date.now().toString(16).slice(-4)}${suffix}`;
+    const mockAddress = `0xbeadface${stamped}`.padEnd(42, '0').slice(0, 42);
+    return mockAddress as Address;
+  }
+
+  const canLaunchLive =
     !!contracts && isConnected && isOnEnabledChain &&
     (nameQuery.data ?? false) && (tickerQuery.data ?? false) &&
     multisigValid && moduleParamsFilled && !!implRegistered && typeof quote.data === 'bigint'
@@ -863,6 +890,44 @@ function CreatePageContent() {
     }
     return [params] as const;
   })();
+
+  function launchMockToken() {
+    if (!canLaunchMock) return;
+    const launchChainId = CHAIN_KEY_TO_ID[targetChain] ?? chainId;
+    const tokenAddress = mkMockAddress();
+    const saved = saveMockLaunch({
+      chainId: launchChainId,
+      address: tokenAddress,
+      name: name.trim(),
+      ticker: ticker.trim(),
+      creator: (address ?? zeroAddress) as Address,
+      description: metadata.description ?? undefined,
+      logoEmoji: '✿',
+      logoBg: '#ffb3d1',
+      imageUrl: metadata.logoDataUrl,
+      website: metadata.website,
+      twitter: metadata.twitter,
+      telegram: metadata.telegram,
+      targetEthRaised: '1',
+      numTrades: 12,
+      launchedAtHoursAgo: 1,
+      kind: 'curve',
+      tradeFeeBps: 100,
+      graduated: false,
+      hasWhitelist: wlEnabled,
+    });
+    saveMetadata(launchChainId, saved.address, {
+      ...metadata,
+      description: metadata.description,
+      website: metadata.website,
+      twitter: metadata.twitter,
+      telegram: metadata.telegram,
+      discord: metadata.discord,
+      tiktok: metadata.tiktok,
+    });
+    setMockLaunchedAddress(saved.address);
+  }
+
   const simulate = useSimulateContract({
     abi: routerAbi,
     address: contracts?.Router,
@@ -876,7 +941,7 @@ function CreatePageContent() {
         ? 0n
         : ((quote.data as bigint | undefined) ?? 0n) + initialBuyEthWei,
     account: address,
-    query: { enabled: canLaunch },
+    query: { enabled: canLaunchLive },
   });
 
   // Separate simulate for the URU approve — same wagmi wrapper the launch button uses.
@@ -891,6 +956,20 @@ function CreatePageContent() {
 
   const { writeContract, isPending: launchPending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
+
+  const canLaunchMock = useMemo(
+    () =>
+      mounted &&
+      mockData.enabled &&
+      name.trim().length >= 2 &&
+      ticker.trim().length >= 2 &&
+      multisigValid &&
+      moduleParamsFilled &&
+      ownerlessDeadModules.length === 0 &&
+      !launchPending &&
+      !receipt.isLoading,
+    [mounted, mockData.enabled, name, ticker, multisigValid, moduleParamsFilled, ownerlessDeadModules.length, launchPending, receipt.isLoading],
+  );
 
   // Refetch URU allowance every time a tx confirms while on the URU path. Covers the
   // approve → launch handoff (approve confirms → allowance refetches → button flips
@@ -911,12 +990,13 @@ function CreatePageContent() {
     if (!t1) return null;
     return `0x${t1.slice(-40)}` as Address;
   }, [receipt.data, contracts]);
+  const displayedLaunchAddress = mockData.enabled ? mockLaunchedAddress : launchedTokenAddress;
 
   // useRef, not useMemo — React 19 compiler treats memoized values as immutable; mutable
   // "did this happen already" flags belong in a ref. Refs also don't trigger re-renders.
   const savedRef = useRef(false);
   const { signMessageAsync } = useSignMessage();
-  if (launchedTokenAddress && !savedRef.current) {
+  if (!mockData.enabled && launchedTokenAddress && !savedRef.current) {
     const wlCid = wlSnapshot?.listCid;
     const hasAny =
       metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter || wlCid;
@@ -963,13 +1043,50 @@ function CreatePageContent() {
     }
   }
 
-  const mascotMood = launchedTokenAddress
+  const mascotMood = displayedLaunchAddress
     ? 'gasp'
     : selectedModules.length > 3
       ? 'gasp'
       : selectedModules.length === 0
         ? 'sleepy'
         : 'happy';
+  const launchButtonLabel = launchPending
+    ? 'confirming ~~'
+    : receipt.isLoading
+      ? 'waiting..'
+      : mockData.enabled
+        ? canLaunchMock
+          ? 'create mock launch'
+          : !mounted
+            ? 'loading demo form'
+            : !name.trim() || !ticker.trim()
+                ? 'name + ticker first'
+                : ownerlessDeadModules.length > 0
+                  ? 'drop blocked modules'
+                  : !multisigValid
+                    ? 'fix owner address'
+                    : !moduleParamsFilled
+                      ? 'fill module params'
+                      : 'launch blocked'
+        : !mounted
+          ? 'checking wallet'
+          : !isConnected
+            ? 'connect wallet to launch'
+            : !contracts
+              ? 'contracts not live'
+              : !isOnEnabledChain
+                ? `switch to ${CHAIN_LABELS[targetChain]}`
+                : !name.trim() || !ticker.trim()
+                  ? 'name + ticker first'
+                  : ownerlessDeadModules.length > 0
+                    ? 'drop blocked modules'
+                    : !multisigValid
+                      ? 'fix owner address'
+                      : !moduleParamsFilled
+                        ? 'fill module params'
+                        : implRegistered
+                          ? 'launch'
+                          : 'impl not registered';
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -1106,71 +1223,29 @@ function CreatePageContent() {
         </>
       )}
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
-      <div className="mx-auto max-w-6xl px-4 py-4">
-        {/* Header cluster — high density anchor zone per SKILL.md §density */}
-        <header className="relative mb-3" style={{ paddingTop: 20 }}>
-          {/* stamps cluster — kept above the content strip so nothing overlaps the eyebrow */}
-          <span className="uru-stamp uru-stamp-pink" style={{ position: 'absolute', top: 0, right: 140, transform: 'rotate(-7deg)' }}>
-            ★ new
-          </span>
-          <span className="uru-stamp uru-stamp-mint" style={{ position: 'absolute', top: 4, right: 78, transform: 'rotate(3deg)' }}>
-            v1.2
-          </span>
-          <span className="uru-stamp uru-stamp-mizuiro" style={{ position: 'absolute', top: 0, right: 8, transform: 'rotate(11deg)' }}>
-            fresh~
-          </span>
-
-          <div className="flex items-end gap-4">
-            <div className="flex items-end gap-3">
-              <Mascot size={72} mood={mascotMood} className="uru-idle-bob" />
-              <div style={{ paddingBottom: 6 }}>
-                <div
-                  className="uru-h1"
-                  style={{
-                    fontSize: 26,
-                    lineHeight: 1,
-                    letterSpacing: '-0.5px',
-                  }}
-                >
-                  urufu<span style={{ color: 'var(--pink-hot)' }}>labs</span>
-                  <sup style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, marginLeft: 2, color: 'var(--anchor-soft)' }}>®</sup>
-                </div>
-                <div className="uru-eyebrow" style={{ marginTop: 4 }}>front counter</div>
+      <div className={styles.studio}>
+        <header className={styles.studioHeader} aria-labelledby="create-title">
+          <span className={styles.tapeTop} aria-hidden="true" />
+          <div className={styles.headerCopy}>
+            <div className={styles.brandLockup}>
+              <Mascot size={48} mood={mascotMood} className="uru-idle-bob" />
+              <div>
+                <p className={styles.eyebrow}>urufu labs token creator</p>
+                <h1 id="create-title" className={styles.title}>
+                  The culture-first token launchpad.
+                </h1>
               </div>
             </div>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <h1 className="uru-h1" style={{ fontSize: '38px' }}>
-              pick <span style={{ color: 'var(--pink-hot)' }}>u</span>r modules
-              <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: '24px', marginLeft: 8 }}>
-                好き
-              </span>
-            </h1>
-            <p className="uru-h2" style={{ fontSize: 15, fontWeight: 400, marginTop: 4, maxWidth: 620 }}>
-              compose a token from real on-chain fragments. choose a path, fill the basics, launch.
+            <p className={styles.subtitle}>
+              Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and a safe launch.
             </p>
           </div>
-        </header>
-
-        <section className="uru-create-flow" aria-labelledby="create-flow-title">
-          <div className="uru-create-flow-title">
-            <div id="create-flow-title">
-              how it works<small>流れ</small>
-            </div>
+          <div className={styles.headerFacts} aria-label="Current launch settings">
+            <span>ERC-20 token</span>
+            <span>{isQuick ? 'quick defaults' : 'advanced curve'}</span>
+            <span>{mounted && isConnected ? CHAIN_LABELS[targetChain] : 'wallet pending'}</span>
           </div>
-          <CreateFlowTile n="01" title="define your coin" body="name · ticker · art · socials" />
-          <CreateFlowTile
-            n="02"
-            title="customize contract"
-            body="add v4 hooks & custom security modules to your token contract"
-          />
-          <CreateFlowTile
-            n="03"
-            title="launch"
-            body="a smooth guided flow deploys your bonding curve securely"
-          />
-        </section>
+        </header>
 
         {mounted && !contracts && (
           <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
@@ -1215,40 +1290,56 @@ function CreatePageContent() {
             file. Kept small on purpose so it doesn't dominate the main flow. */}
         <AgentLaunchStrip />
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className={styles.workbench}>
+          <nav className={styles.progressRail} aria-label="Create progress">
+            <span className={styles.railLabel}>creation steps</span>
+            <a href="#define-coin">
+              <b>01</b>
+              <span>token details</span>
+            </a>
+            <a href="#coin-media">
+              <b>02</b>
+              <span>artwork + links</span>
+            </a>
+            <a href="#contract-setup">
+              <b>03</b>
+              <span>contract</span>
+            </a>
+            <a href="#launch-review">
+              <b>04</b>
+              <span>launch</span>
+            </a>
+          </nav>
+
           {/* MAIN — the shop counter */}
-          <div className="space-y-3">
-            {/* STEP 1 — launch mechanic */}
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 1 ✿ launch mechanic</div>
+          <div className={styles.mainStack}>
+            {/* CUSTOMIZE — launch mechanic */}
+            <section id="contract-setup" className={`${styles.contractPanel} uru-shell`}>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>launch settings</div>
               <div className="uru-shell-inner">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
-                    disabled={base !== 'ERC20'}
                     title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 10 ETH graduation target, 5-block sniper gate."
                     aria-label="quick launch, safe defaults"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'quick' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
                       boxShadow: mechanic === 'quick' ? '4px 4px 0 var(--pink-hot)' : undefined,
-                      opacity: base !== 'ERC20' ? 0.4 : 1,
-                      cursor: base !== 'ERC20' ? 'not-allowed' : 'pointer',
+                      color: '#3a2c3a',
+                      cursor: 'pointer',
                     }}
                   >
-                    <div className="uru-h2" style={{ fontSize: 14 }}>
-                      ✿ quick launch
-                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>速</span>
-                      {base !== 'ERC20' && (
-                        <span className="uru-stamp" style={{ marginLeft: 8, transform: 'rotate(-2deg)', background: 'var(--pink-warm)' }}>erc-20 only</span>
-                      )}
+                    <div className="uru-h2" style={{ fontSize: 14, color: mechanic === 'quick' ? '#3a2c3a' : undefined }}>
+                      quick launch
+                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: mechanic === 'quick' ? '#3a2c3a' : 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>速</span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 11, color: mechanic === 'quick' ? '#3a2c3a' : 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
                       safe defaults. name, ticker, token details, launch.
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
-                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
+                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
                         800M supply · 1% fee · 10 ETH target · anti-sniper 60 sec
                       </div>
                     )}
@@ -1257,28 +1348,25 @@ function CreatePageContent() {
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
                     disabled={base !== 'ERC20'}
-                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper parameters, buyback-burn parameters, whitelist setup, and other settings."
+                    title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
                     aria-label="customizable curve, modules, and hook settings"
                     className="uru-polaroid text-left"
                     style={{
                       background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
                       boxShadow: mechanic === 'custom' ? '4px 4px 0 var(--anchor)' : undefined,
-                      opacity: base !== 'ERC20' ? 0.4 : 1,
-                      cursor: base !== 'ERC20' ? 'not-allowed' : 'pointer',
+                      color: '#3a2c3a',
+                      cursor: 'pointer',
                     }}
                   >
-                    <div className="uru-h2" style={{ fontSize: 14 }}>
-                      ✿ customizable curve
-                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>曲線</span>
-                      {base !== 'ERC20' && (
-                        <span className="uru-stamp" style={{ marginLeft: 8, transform: 'rotate(-2deg)', background: 'var(--pink-warm)' }}>erc-20 only</span>
-                      )}
+                    <div className="uru-h2" style={{ fontSize: 14, color: mechanic === 'custom' ? '#3a2c3a' : undefined }}>
+                      advanced curve
+                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: mechanic === 'custom' ? '#3a2c3a' : 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>曲線</span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      same curve, more knobs. modules + hook params.
+                    <div style={{ fontSize: 11, color: mechanic === 'custom' ? '#3a2c3a' : 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
+                      same curve, more settings. modules + hook parameters.
                     </div>
                     {mechanic === 'custom' && (
-                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor)' }}>
+                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
                         whitelist · sniper gate · buyback-burn
                       </div>
                     )}
@@ -1291,11 +1379,11 @@ function CreatePageContent() {
                 with no modules by design). The whitelist toggle below stays
                 visible in quick mode under a repositioned label, so the WL
                 affordance isn't lost when the shelf goes away. */}
-            <section className="uru-shell">
+            <section className={`${styles.hooksPanel} uru-shell`}>
               <span className="uru-tape uru-tape-mint" style={{ width: 82, height: 16, top: -8, right: 30, transform: 'rotate(11deg)' }} />
               <div className="flex items-baseline justify-between mb-2">
                 <div className="uru-eyebrow">
-                  {isQuick ? 'step 2 ✿ whitelist (optional)' : 'step 2 ✿ modules'}
+                  {isQuick ? 'whitelist (optional)' : 'advanced modules'}
                 </div>
                 {!isQuick && (
                   <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
@@ -1309,7 +1397,7 @@ function CreatePageContent() {
                   <div style={{ padding: 20, textAlign: 'center' }}>
                     <Mascot size={40} mood="sleepy" />
                     <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                      no modules available for this token type yet
+                      no modules available for this launch yet~~
                     </div>
                   </div>
                 )}
@@ -1330,27 +1418,28 @@ function CreatePageContent() {
                 )}
                 {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
                   <div
-                    title="Paste any NFT or token contract. Holders get 60% of curve reserves during a 1-hour exclusive window; unfilled supply opens to public after that, and whitelist tokens stay locked until graduation."
+                    title="Paste a source project contract. Holders get 60% of curve reserves during a 1-hour exclusive window; unfilled supply opens to public after that, and whitelist tokens stay locked until graduation."
                     style={{
                       marginTop: 12,
                       padding: 10,
                       background: 'var(--mint)',
+                      color: '#3a2c3a',
                       border: '1.5px dashed var(--anchor)',
                       fontSize: 12,
                       lineHeight: 1.5,
                       fontFamily: 'var(--font-round), Klee One, cursive',
                     }}
                   >
-                    ✿ <b>on graduation</b>, ur curve auto-installs the platform hook:{' '}
+                    <b>on graduation</b>, ur curve auto-installs the platform hook:{' '}
                     <b>LP locked forever</b> on Uniswap v4 + <b>1% creator fee</b> on every
-                    swap (claim it anytime from ur profile). optional modules —{' '}
+                    swap (claim it anytime from ur profile). optional modules:{' '}
                     <b>sniper gate</b> + <b>buy → burn</b> — get wired into the same pool at
                     graduation using the params u picked ~
                   </div>
                 )}
 
                 {/* Community whitelist — optional, curve-only. Paste any project's
-                    contract address (NFT or ERC20), click apply, backend snapshots
+                    source project address, click apply, backend snapshots
                     holders + returns a Merkle root that gets attached to the launch. */}
                 {useCurve && (
                   <div
@@ -1417,8 +1506,8 @@ function CreatePageContent() {
             </section>
 
             {/* STEP 3 — identity */}
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 3 ✿ name ur baby</div>
+            <section id="define-coin" className={`${styles.identityPanel} uru-shell`}>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>token details · name + ticker</div>
               <div className="uru-shell-inner space-y-3">
                 <FieldGrid>
                   <Field label="name">
@@ -1449,8 +1538,8 @@ function CreatePageContent() {
                   </Field>
                 )}
                 {base === 'ERC20' && useCurve && (
-                  <div style={{ padding: 10, background: 'var(--mint)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, lineHeight: 1.5 }}>
-                    ✿ curve mode: supply auto = <b>800,000,000</b>. all of it goes to the bonding
+                  <div style={{ padding: 10, background: 'var(--mint)', color: '#3a2c3a', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, lineHeight: 1.5 }}>
+                    curve mode: supply auto = <b>800,000,000</b>. all of it goes to the bonding
                     curve, ownership auto-renounces. u can trade against it at{' '}
                     <code>/trade/&lt;tokenAddress&gt;</code> right after launch~
                   </div>
@@ -1488,8 +1577,8 @@ function CreatePageContent() {
                 picker would silently lie). Direct-launch NFT bases keep the
                 three-mode radio live. */}
             {!isQuick && (
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 4 ✿ ownership</div>
+            <section className={`${styles.ownershipPanel} uru-shell`}>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>contract ownership</div>
               <div className="uru-shell-inner">
                 {useCurve ? (
                   <div
@@ -1504,8 +1593,7 @@ function CreatePageContent() {
                   >
                     <b>auto-renounced</b> ~ customizable-curve launches must renounce so
                     the curve is trustless to trade. no admin, no pause switch, no
-                    owner-only knobs. quick launch and NFT bases keep an ownership
-                    picker; ERC-20 curves do not.
+                    owner-only knobs.
                   </div>
                 ) : (
                   <>
@@ -1550,8 +1638,8 @@ function CreatePageContent() {
             )}
 
             {/* STEP 5 — metadata (tiny) */}
-            <section className="uru-shell">
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>step 5 ✿ token details (metadata)</div>
+            <section id="coin-media" className={`${styles.metadataPanel} uru-shell`}>
+              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>token details · artwork + links</div>
               <div className="uru-shell-inner space-y-3">
                 <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
                   optional. images pin to IPFS via our pinata gateway so ur token metadata
@@ -1653,7 +1741,25 @@ function CreatePageContent() {
           </div>
 
           {/* SIDEBAR — cart + widgets + webring */}
-          <aside className="space-y-3 lg:sticky lg:top-4 lg:h-fit">
+          <aside id="launch-review" className={styles.launchRail}>
+            <section className={styles.previewPanel} aria-label="Token preview">
+              <div className={styles.previewTopline}>
+                <span>token preview</span>
+                <b>{ticker ? `$${ticker}` : '$TICKER'}</b>
+              </div>
+              <div
+                className={styles.previewArt}
+                style={metadata.logoDataUrl ? { backgroundImage: safeBackgroundImage(metadata.logoDataUrl) } : undefined}
+                aria-hidden="true"
+              >
+                {!metadata.logoDataUrl && <span>urufu</span>}
+              </div>
+              <div className={styles.previewTicket}>
+                <b>{name || 'new token'}</b>
+                <p>{metadata.description || 'Token description appears here once you write it.'}</p>
+              </div>
+            </section>
+
             {/* Shopkeeper speech bubble */}
             <div className="flex items-start gap-2">
               <Mascot size={44} mood={mascotMood} className="uru-idle-bob" />
@@ -1661,9 +1767,9 @@ function CreatePageContent() {
                 {launchedTokenAddress ? (
                   <>yayyy!! ur token is live 好き!! (づ｡◕‿‿◕｡)づ</>
                 ) : isQuick ? (
-                  <>quick launch mode ✿ safe defaults locked in ~</>
+                  <>quick launch mode · safe defaults locked in ~</>
                 ) : selectedModules.length === 0 ? (
-                  <>add modules only when this token needs them.</>
+                  <>advanced curve open · add modules only when the launch needs them</>
                 ) : selectedModules.length === 1 ? (
                   <>1 module selected. Add more or launch below.</>
                 ) : (
@@ -1702,8 +1808,7 @@ function CreatePageContent() {
                   <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
                   {' '}— these have owner-only functions (pause, allowlist, etc). every
                   ERC-20 curve here auto-renounces ownership so those buttons would be dead
-                  forever. drop these modules, or launch a non-curve NFT base if u need
-                  ongoing admin control.
+                  forever. drop these modules if u need the launch button back.
                 </span>
               </div>
             )}
@@ -1711,7 +1816,7 @@ function CreatePageContent() {
             {/* Receipt + launch */}
             <div className="uru-shell uru-shell-tight">
               <div className="flex items-baseline justify-between">
-                <div className="uru-eyebrow">receipt</div>
+                <div className="uru-eyebrow">launch cost</div>
                 <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 20, fontWeight: 700, color: 'var(--anchor)' }}>
                   {payToken === 'URU'
                     ? (typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '—')
@@ -1746,21 +1851,21 @@ function CreatePageContent() {
               )}
 
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
-                <li>✿ base fee: {formatEther(feeSchedule.base)} ETH</li>
-                <li>✿ module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
+                <li>launch fee: {formatEther(feeSchedule.base)} ETH</li>
+                <li>module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
                 {loyaltyReady.ready && discountBps > 0 && grossQuote.data && (
                   <>
                     <li style={{ marginTop: 4, color: 'var(--anchor-soft)', textDecoration: 'line-through' }}>
                       subtotal: {formatEther(grossQuote.data as bigint)} ETH
                     </li>
                     <li style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
-                      ✿ loyalty discount: −{(discountBps / 100).toFixed(0)}% (holding urufu gemu nft {'&'} URU)
+                      loyalty discount: −{(discountBps / 100).toFixed(0)}% (holding urufu gemu nft {'&'} URU)
                     </li>
                   </>
                 )}
                 {payToken === 'URU' && (
                   <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
-                    ✿ URU quoted from RH pool spot; approves + charges the shown amount
+                    URU quoted from RH pool spot; approves + charges the shown amount
                   </li>
                 )}
                 {initialBuyEnabled && (
@@ -1808,7 +1913,7 @@ function CreatePageContent() {
               {/* URU approve step — shown only when URU is picked and allowance is short.
                   Renders in place of the launch button; after approve confirms, allowance
                   refetches and this collapses back to the standard launch button. */}
-              {payToken === 'URU' && needsUruApprove ? (
+              {payToken === 'URU' && needsUruApprove && !mockData.enabled ? (
                 <button
                   type="button"
                   onClick={() => approveSimulate.data && writeContract(approveSimulate.data.request)}
@@ -1827,18 +1932,18 @@ function CreatePageContent() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => simulate.data && writeContract(simulate.data.request)}
-                  disabled={!canLaunch || !simulate.data || launchPending || receipt.isLoading}
+                  onClick={() => {
+                    if (mockData.enabled) {
+                      launchMockToken();
+                      return;
+                    }
+                    if (simulate.data) writeContract(simulate.data.request);
+                  }}
+                  disabled={mockData.enabled ? !canLaunchMock : !canLaunchLive || !simulate.data || launchPending || receipt.isLoading}
                   className="uru-btn uru-btn-primary"
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  {launchPending
-                    ? 'confirming ~~'
-                    : receipt.isLoading
-                      ? 'waiting..'
-                      : implRegistered
-                        ? '✿ launch ✿'
-                        : 'impl not registered'}
+                  {launchButtonLabel}
                 </button>
               )}
 
@@ -1857,18 +1962,19 @@ function CreatePageContent() {
                 </div>
               )}
 
-              {launchedTokenAddress && (
-                <div className="uru-pop" style={{ marginTop: 8, padding: 10, background: 'var(--mint)', border: '2px double var(--anchor)' }}>
-                  <div className="uru-h2" style={{ fontSize: 13 }}>✿ deployed ✿</div>
+              {displayedLaunchAddress && (
+                <div className="uru-pop" style={{ marginTop: 8, padding: 10, background: 'var(--mint)', color: '#3a2c3a', border: '2px double var(--anchor)' }}>
+                  <div className="uru-h2" style={{ fontSize: 13 }}>{mockLaunchedAddress ? '✿ demo token created ✿' : '✿ deployed ✿'}</div>
                   <div style={{ fontSize: 11, marginTop: 4 }}>
-                    at{' '}
-                    <Link href={activeChain ? explorerAddressUrl(activeChain, launchedTokenAddress) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>
-                      {short(launchedTokenAddress)}
-                    </Link>
+                    {mockLaunchedAddress ? (
+                      <>browser-local: <code>{short(displayedLaunchAddress)}</code></>
+                    ) : (
+                      <>at{' '}<Link href={activeChain ? explorerAddressUrl(activeChain, displayedLaunchAddress) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>{short(displayedLaunchAddress)}</Link></>
+                    )}
                   </div>
                   {useCurve && (
                     <Link
-                      href={`/trade/${launchedTokenAddress}`}
+                      href={`/trade/${displayedLaunchAddress}`}
                       className="uru-btn uru-btn-primary"
                       style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
                     >
@@ -1881,18 +1987,18 @@ function CreatePageContent() {
 
             {/* "currently" widget — cheap author-trace signal */}
             <div className="hidden lg:block uru-shell uru-shell-tight">
-              <div className="uru-eyebrow" style={{ marginBottom: 6 }}>✿ currently</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 6 }}>launch details</div>
               <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
-                <li>listening — Perfume, <i>Polyrhythm</i></li>
-                <li>testing — with real ETH like a maniac</li>
-                <li>obsessed with — dnd-kit spring physics </li>
-                <li>mood — 好き 好き 大好き</li>
+                <li>LP locks forever after graduation</li>
+                <li>creator fee claim stays in profile</li>
+                <li>advanced modules stay opt-in</li>
+                <li>chain + wallet checks gate launch</li>
               </ul>
             </div>
 
             {/* 88x31 webring — reciprocal embedding signal */}
             <div className="hidden lg:block">
-              <div className="uru-eyebrow" style={{ marginBottom: 4, color: 'var(--cream)' }}>friends of urufu ✿</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 4, color: 'var(--cream)' }}>related projects</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 <span className="uru-88 uru-88-pink"><strong>urufu</strong>labs</span>
                 <span className="uru-88 uru-88-mint">chibi-<strong>wolf</strong></span>
@@ -1903,9 +2009,9 @@ function CreatePageContent() {
 
             {/* Composition info — tiny receipt strip */}
             <div className="hidden lg:block uru-shell uru-shell-tight">
-              <div className="uru-eyebrow" style={{ marginBottom: 4 }}>tech</div>
+              <div className="uru-eyebrow" style={{ marginBottom: 4 }}>technical details</div>
               <dl style={{ fontSize: 10, fontFamily: 'var(--font-pixel), monospace', lineHeight: 1.6, color: 'var(--anchor-soft)' }}>
-                <div>base: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
+                <div>token: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
                 <div>modules: <span style={{ color: 'var(--anchor)' }}>{selectedModules.length === 0 ? 'none' : selectedModules.join(', ')}</span></div>
                 <div>configHash: <span style={{ color: 'var(--anchor)' }}>{configHash.slice(0, 10)}…</span></div>
                 <div>impl: <span style={{ color: implRegistered ? 'var(--anchor)' : 'var(--pink-hot)' }}>{implRegistered ? short(implQuery.data as string) : 'not registered'}</span></div>
@@ -2219,16 +2325,6 @@ function CartItem({
 
 function FieldGrid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>{children}</div>;
-}
-
-function CreateFlowTile({ n, title, body }: { n: string; title: string; body: string }) {
-  return (
-    <div className="uru-create-flow-step">
-      <span>{n}</span>
-      <b>{title}</b>
-      <p>{body}</p>
-    </div>
-  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

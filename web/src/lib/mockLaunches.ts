@@ -1,5 +1,6 @@
 import type { Address } from 'viem';
 import { parseEther } from 'viem';
+import { isHiddenToken } from './hiddenTokens';
 
 /// Static preview data for the pump.fun-style discover feed + trade page. Any address that
 /// matches one of these fixtures gets served mock reserves / trades / metadata instead of the
@@ -67,6 +68,31 @@ export interface MockLaunch {
   hasWhitelist?: boolean;
   /// Pay-token variant: 'ETH' (default) or 'URU' for RouterV2 URU-paid launches.
   payToken?: 'ETH' | 'URU';
+  /// Browser-created record rather than a seeded fixture. Lets compact surfaces such as
+  /// Home prioritise the launch a reviewer just made without changing the fixtures.
+  isDemo?: boolean;
+}
+
+export interface MockLaunchSeed {
+  chainId?: number;
+  address: Address;
+  name: string;
+  ticker: string;
+  creator: Address;
+  description?: string;
+  logoBg?: string;
+  logoEmoji?: string;
+  imageUrl?: string;
+  launchedAtHoursAgo?: number;
+  website?: string;
+  twitter?: string;
+  telegram?: string;
+  tradeFeeBps?: number;
+  targetEthRaised?: string;
+  numTrades?: number;
+  kind?: LaunchKind;
+  graduated?: boolean;
+  hasWhitelist?: boolean;
 }
 
 /// Prefer indexer-supplied tradeCount, otherwise fall back to the length of the trades
@@ -90,6 +116,98 @@ const VIRTUAL_TOKEN = parseEther('800000000');
 const VIRTUAL_ETH = parseEther('17');
 const GRAD_TARGET = parseEther('10');
 const TOTAL_SUPPLY = parseEther('1000000000');
+
+const USER_MOCK_STORAGE_KEY = 'uru:mock-launches:v1';
+const USER_MOCK_LAUNCH_EVENT = 'urufu-user-mock-launches-change';
+
+type MockLaunchSeedRecord = Omit<MockLaunchSeed, 'address'> & { address: string };
+let sessionMockLaunches: MockLaunchSeedRecord[] = [];
+
+function normalizeSeedAddress(input: string): Address {
+  return `0x${input.replace(/^0x/i, '').slice(0, 40).toLowerCase().padEnd(40, '0')}` as Address;
+}
+
+function readUserMockLaunches(): MockLaunchSeedRecord[] {
+  if (typeof window === 'undefined') return [];
+  let stored: MockLaunchSeedRecord[] = [];
+  try {
+    const raw = window.localStorage.getItem(USER_MOCK_STORAGE_KEY);
+    if (!raw) return sessionMockLaunches;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return sessionMockLaunches;
+    stored = parsed
+      .filter((row): row is MockLaunchSeedRecord => {
+        if (!row || typeof row !== 'object') return false;
+        if (!('address' in row) || typeof row.address !== 'string') return false;
+        if (!row.name || typeof row.name !== 'string') return false;
+        if (!row.ticker || typeof row.ticker !== 'string') return false;
+        if (!row.creator || typeof row.creator !== 'string') return false;
+        return true;
+      })
+      .map((row) => ({ ...row, address: normalizeSeedAddress(row.address) }));
+  } catch {
+    // Preview mode still works when storage is blocked (for example in a private
+    // browsing context); the current tab keeps its session-only launches.
+  }
+  return Array.from(
+    new Map([...stored, ...sessionMockLaunches].map((launch) => [launch.address.toLowerCase(), launch])).values(),
+  );
+}
+
+function writeUserMockLaunches(next: MockLaunchSeedRecord[]): void {
+  if (typeof window === 'undefined') return;
+  const cleaned = Array.from(
+    new Map(next.map((l) => [l.address.toLowerCase(), l])).values(),
+  );
+  sessionMockLaunches = cleaned;
+  try {
+    window.localStorage.setItem(USER_MOCK_STORAGE_KEY, JSON.stringify(cleaned));
+  } catch {
+    // Storage failures are intentionally non-fatal; sessionMockLaunches keeps the
+    // review path usable in this tab.
+  }
+  window.dispatchEvent(new CustomEvent(USER_MOCK_LAUNCH_EVENT));
+}
+
+function buildFromSeed(seed: MockLaunchSeedRecord): MockLaunch {
+  const chainId = seed.chainId ?? 11155111;
+  const seededAt = seed.launchedAtHoursAgo ?? 1;
+  const targetEthRaised = parseEther(seed.targetEthRaised ?? '1');
+  const numTrades = Math.max(5, Math.min(260, seed.numTrades ?? 35));
+  return {
+    ...build({
+      chainId,
+      address: normalizeSeedAddress(seed.address),
+      name: seed.name || 'new token',
+      ticker: seed.ticker || 'TOKEN',
+      description: seed.description ?? 'mock launch created in preview mode.',
+      logoBg: seed.logoBg ?? '#ffb3d1',
+      logoEmoji: seed.logoEmoji ?? '✿',
+      imageUrl: seed.imageUrl,
+      creator: normalizeSeedAddress(seed.creator),
+      launchedAtHoursAgo: seededAt,
+      website: seed.website,
+      twitter: seed.twitter,
+      telegram: seed.telegram,
+      targetEthRaised,
+      seed: buildAddressSeed(seed.address),
+      numTrades,
+      graduated: seed.graduated,
+    }),
+    kind: seed.kind ?? 'curve',
+    tradeFeeBps: seed.tradeFeeBps ?? 100,
+    hasWhitelist: seed.hasWhitelist ?? false,
+    isDemo: true,
+  };
+}
+
+function buildAddressSeed(address: string): number {
+  const clean = address.toLowerCase().replace(/^0x/, '');
+  if (!clean) return 0;
+  let h = 0;
+  for (let i = 0; i < clean.length; i += 1) h = ((h << 5) - h) + clean.charCodeAt(i);
+  return h >>> 0;
+}
 
 /// Build a deterministic trade series from starting reserves up to a target ETH raised.
 /// Produces `n` mostly-buys with a few sells so the chart has both green + red candles.
@@ -385,15 +503,56 @@ export const MOCK_LAUNCHES: MockLaunch[] = [
   }),
 ];
 
+export function allMockLaunches(): MockLaunch[] {
+  const user = readUserMockLaunches().map(buildFromSeed);
+  return [...user, ...MOCK_LAUNCHES]
+    .filter((l) => !isHiddenToken(l.chainId, l.address))
+    .sort((a, b) => b.launchedAt - a.launchedAt);
+}
+
+export function saveMockLaunch(seed: MockLaunchSeed): MockLaunch {
+  const record: MockLaunchSeedRecord = {
+    chainId: seed.chainId,
+    address: seed.address,
+    name: seed.name,
+    ticker: seed.ticker,
+    creator: seed.creator,
+    description: seed.description ?? 'mock launch created in preview mode.',
+    logoBg: seed.logoBg ?? '#ffb3d1',
+    logoEmoji: seed.logoEmoji ?? '✿',
+    imageUrl: seed.imageUrl,
+    launchedAtHoursAgo: seed.launchedAtHoursAgo ?? 1,
+    website: seed.website,
+    twitter: seed.twitter,
+    telegram: seed.telegram,
+    targetEthRaised: seed.targetEthRaised ?? '1',
+    numTrades: seed.numTrades ?? 35,
+    tradeFeeBps: seed.tradeFeeBps ?? 100,
+    kind: seed.kind,
+    graduated: seed.graduated ?? false,
+    hasWhitelist: seed.hasWhitelist ?? false,
+  };
+  const raw = readUserMockLaunches();
+  const next = [...raw.filter((r) => r.address.toLowerCase() !== record.address.toLowerCase()), record];
+  writeUserMockLaunches(next);
+  return buildFromSeed(record as MockLaunchSeedRecord);
+}
+
+export function onMockLaunchesChange(handler: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  window.addEventListener(USER_MOCK_LAUNCH_EVENT, handler);
+  return () => window.removeEventListener(USER_MOCK_LAUNCH_EVENT, handler);
+}
+
 export function mockLaunchByAddress(address: string): MockLaunch | null {
   const lower = address.toLowerCase();
-  return MOCK_LAUNCHES.find((l) => l.address.toLowerCase() === lower) ?? null;
+  return allMockLaunches().find((l) => l.address.toLowerCase() === lower) ?? null;
 }
 
 /// Only return mocks belonging to the given chain. Used by feed pages to filter to the
 /// user's active chain.
 export function mocksForChain(chainId: number): MockLaunch[] {
-  return MOCK_LAUNCHES.filter((l) => l.chainId === chainId);
+  return allMockLaunches().filter((l) => l.chainId === chainId);
 }
 
 export function mockProgressPct(l: MockLaunch): number {

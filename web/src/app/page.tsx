@@ -6,18 +6,22 @@ import { formatEther } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
+import { CultureHeroArt } from '@/components/CultureHeroArt';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { sizeForName, isLongName } from '@/lib/nameSize';
 import {
+  allMockLaunches,
   MOCK_LAUNCHES,
   mockProgressPct,
   launchKind,
   tradeCountOf,
   type MockLaunch,
   type MockTrade,
+  onMockLaunchesChange,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
 import { useAgo } from '@/lib/useAgo';
 import {
   fetchRecentTrades,
@@ -95,11 +99,19 @@ const PREVIEW_STATS = {
   chain: 'Robinhood',
 };
 
+function getPreviewLaunches(chainId: number): MockLaunch[] {
+  const curveLaunches = allMockLaunches().filter((launch) => launchKind(launch) === 'curve');
+  const createdOnActiveChain = curveLaunches.filter((launch) => launch.isDemo && launch.chainId === chainId);
+  const fixtures = curveLaunches.filter((launch) => !launch.isDemo);
+  return [...createdOnActiveChain, ...fixtures]
+    .sort((a, b) => b.launchedAt - a.launchedAt)
+    .slice(0, 3);
+}
+
 // Preview data is for local reviews by default. A staging deployment must opt in with
 // NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
 // someone deliberately supplies that flag.
-const HOME_PREVIEW_AVAILABLE =
-  process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_HOME_PREVIEW === 'true';
+const HOME_PREVIEW_AVAILABLE = mockDataAvailable;
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -122,13 +134,13 @@ export default function HomePage() {
 function HomePageContent() {
   const activeChain = useActiveChain();
   const chainId = CHAIN_KEY_TO_ID[activeChain];
+  const mockData = useMockDataMode();
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
-  // The local/staging review starts with the expressive fixture state on. The toggle
-  // remains available there to inspect the real empty/live state; it never renders in
-  // production unless that environment deliberately supplies the staging flag.
-  const [previewEnabled, setPreviewEnabled] = useState(HOME_PREVIEW_AVAILABLE);
+  const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
+  const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
+  const [previewLaunches, setPreviewLaunches] = useState<MockLaunch[]>(PREVIEW_LAUNCHES);
   const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
     HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
   );
@@ -139,9 +151,20 @@ function HomePageContent() {
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
-  const previewLaunches = PREVIEW_LAUNCHES;
   const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
   const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
+
+  useEffect(() => {
+    setMockLaunchesHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!previewEnabled || !mockLaunchesHydrated) return;
+    const onChange = () => setPreviewLaunches(getPreviewLaunches(chainId ?? 11155111));
+    onChange();
+    const unsubscribe = onMockLaunchesChange(onChange);
+    return () => unsubscribe();
+  }, [previewEnabled, chainId, mockLaunchesHydrated]);
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
@@ -270,10 +293,10 @@ function HomePageContent() {
       return [...curveRows, ...v4Rows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
     }
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
-    return MOCK_LAUNCHES.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
+    return sourceLaunches.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
-  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
+  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks, sourceLaunches]);
 
   // The static review's rail tells a small, readable story: three creator-first rows,
   // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
@@ -359,7 +382,13 @@ function HomePageContent() {
   }, [previewEnabled, previewIncomingTradeId, previewTrades]);
 
   const displayedStats = previewEnabled
-    ? PREVIEW_STATS
+    ? {
+        tokens: String(previewLaunches.length),
+        graduated: String(previewLaunches.filter((l) => l.graduated).length),
+        ethRaised: `${Number(formatEther(previewLaunches.reduce((sum, l) => sum + l.ethReserve, 0n))).toFixed(2)} Ξ`,
+        trades: String(previewLaunches.reduce((sum, l) => sum + tradeCountOf(l), 0)),
+        chain: 'preview',
+      }
     : {
         tokens: String(stats.total),
         graduated: String(stats.graduated),
@@ -367,7 +396,7 @@ function HomePageContent() {
         trades: String(stats.totalTrades),
         chain: sourceLabel,
       };
-  const bulletinLaunch = previewEnabled ? PREVIEW_LAUNCHES[1] ?? PREVIEW_LAUNCHES[0] : filtered[0];
+  const bulletinLaunch = previewEnabled ? previewLaunches[1] ?? previewLaunches[0] : filtered[0];
   const bulletinTicket = bulletinLaunch
     ? PREVIEW_TICKETS.find((ticket) => ticket.address === bulletinLaunch.address)
     : undefined;
@@ -381,13 +410,11 @@ function HomePageContent() {
             type="button"
             className="uru-home-preview-toggle"
             aria-pressed={previewEnabled}
-            onClick={() =>
-              setPreviewEnabled((enabled) => {
-                const next = !enabled;
-                if (next) setPreviewRun((run) => run + 1);
-                return next;
-              })
-            }
+            onClick={() => {
+              const next = !previewEnabled;
+              if (next) setPreviewRun((run) => run + 1);
+              mockData.setEnabled(next);
+            }}
           >
             <span className="uru-home-preview-dot" aria-hidden="true" />
             mock data: {previewEnabled ? 'on' : 'off'}
@@ -397,7 +424,7 @@ function HomePageContent() {
           <div className="uru-home-hero-copy">
             <p className="uru-home-eyebrow">✿ urufu labs launchpad</p>
             <h1 id="hero-title" className="uru-home-title">
-              The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
+                  The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
             </h1>
             <p className="uru-home-subtitle">
               Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
@@ -406,7 +433,7 @@ function HomePageContent() {
             <div className="uru-home-flags" aria-label="Launch properties">
               <span>erc-20</span>
               <span data-tone="mint">uniswap v4</span>
-              <span data-tone="pink">LP locked forever</span>
+              <span data-tone="pink">anti-sniper</span>
             </div>
             <div className="uru-home-actions">
               <Link href="/create" className="uru-btn uru-btn-primary">
@@ -469,7 +496,7 @@ function HomePageContent() {
                 <LaunchTile
                   key={l.address}
                   launch={l}
-                  preview={PREVIEW_TICKETS.find((ticket) => ticket.address === l.address)}
+                  preview={previewEnabled ? PREVIEW_TICKETS.find((ticket) => ticket.address === l.address) : undefined}
                 />
               ))}
             </div>
@@ -596,7 +623,7 @@ function HomePageContent() {
       <CultureBulletin
         launch={bulletinLaunch}
         preview={bulletinTicket}
-        previewLaunches={previewEnabled ? PREVIEW_LAUNCHES : filtered.slice(0, 3)}
+        previewLaunches={previewEnabled ? previewLaunches : filtered.slice(0, 3)}
         collectors={
           previewEnabled
             ? previewTrades.map((trade) => trade.wallet)
@@ -732,17 +759,7 @@ function AgoLabel({ ts }: { ts: number }) {
 }
 
 function HeroArt() {
-  return (
-    <div
-      className="uru-home-hero-art"
-      role="img"
-      aria-label="An Urufu creator tending a glowing token-launch altar"
-    >
-      <span className="uru-home-art-label">
-        <b>❋ urufu gēmu</b> / soft + cruel
-      </span>
-    </div>
-  );
+  return <CultureHeroArt />;
 }
 
 function CultureBulletin({

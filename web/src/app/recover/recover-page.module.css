@@ -1,0 +1,562 @@
+.page {
+  width: min(1080px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 18px 0 42px;
+  color: var(--anchor);
+}
+
+.incidentHeader,
+.taskPanel,
+.resultsHeader,
+.card,
+.help,
+.empty {
+  position: relative;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.18);
+}
+
+.incidentHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+  background:
+    linear-gradient(90deg, rgba(255, 239, 173, 0.44) 0 1px, transparent 1px 18px),
+    var(--card);
+}
+
+.incidentHeader::before,
+.taskPanel::before,
+.resultsHeader::before,
+.card::before,
+.help::before,
+.empty::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(58, 44, 58, 0.3);
+  pointer-events: none;
+}
+
+.incidentHeader > *,
+.taskPanel > *,
+.resultsHeader > *,
+.card > *,
+.help > *,
+.empty > * {
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow,
+.noteKicker,
+.cardKicker {
+  display: block;
+  margin: 0 0 6px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--pink-hot);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: clamp(30px, 5vw, 54px);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.subtitle {
+  max-width: 68ch;
+  margin: 10px 0 0;
+  color: var(--anchor-soft);
+  line-height: 1.52;
+}
+
+.safetyCard {
+  border-left: 1px dashed var(--anchor-soft);
+  padding-left: 16px;
+}
+
+.safetyCard b {
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.safetyCard p {
+  margin: 0;
+  color: var(--anchor-soft);
+  line-height: 1.5;
+}
+
+.safetyCard code,
+.stateBox code {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 0.92em;
+  word-break: break-word;
+}
+
+.taskPanel {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 270px;
+  gap: 14px;
+  align-items: stretch;
+  margin: 14px 0;
+  padding: 14px;
+  background: var(--cream-deep);
+}
+
+.reserveSummary,
+.searchBlock,
+.stepList {
+  min-width: 0;
+}
+
+.reserveSummary {
+  border-right: 1px dashed var(--anchor-soft);
+  padding-right: 14px;
+}
+
+.reserveSummary b {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.reserveSummary p {
+  margin: 0;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.searchBlock {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+
+.searchBlock label {
+  font-family: var(--font-pixel), monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--anchor-soft);
+}
+
+.searchInput,
+.amountInput {
+  width: 100%;
+  border: 2px solid var(--anchor);
+  border-radius: 0;
+  background: var(--paper-white, #fff);
+  color: var(--anchor);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 14px;
+}
+
+.searchInput {
+  padding: 12px;
+}
+
+.walletHint {
+  border: 1.5px dashed var(--anchor);
+  background: var(--yolk);
+  padding: 9px 10px;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.stepList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepList li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px dashed var(--anchor-soft);
+  background: var(--paper-white, #fff);
+  padding: 8px;
+}
+
+.stepList span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--anchor);
+  background: var(--pink-warm);
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+
+.stepList p {
+  margin: 0;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.results {
+  display: grid;
+  gap: 12px;
+}
+
+.resultsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 12px;
+  background: var(--cream-deep);
+}
+
+.resultsHeader b {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 18px;
+}
+
+.card {
+  padding: 14px;
+}
+
+.card[data-blocked="true"] {
+  background: linear-gradient(90deg, rgba(255, 239, 173, 0.2) 0 1px, transparent 1px 18px), var(--card);
+}
+
+.cardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 14px;
+  align-items: start;
+}
+
+.cardHeader h2 {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.cardHeader h2 span {
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+  color: var(--anchor-soft);
+}
+
+.reserve {
+  border: 1.5px solid var(--anchor);
+  background: var(--mint);
+  padding: 9px;
+  text-align: right;
+}
+
+.reserve span {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--anchor-soft);
+  text-transform: uppercase;
+}
+
+.reserve b {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 16px;
+}
+
+.addressGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.addressGrid div {
+  border: 1px dashed var(--anchor-soft);
+  background: var(--paper-white, #fff);
+  padding: 8px;
+}
+
+.addressGrid dt {
+  margin-bottom: 4px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--pink-hot);
+  text-transform: uppercase;
+}
+
+.addressGrid dd {
+  margin: 0;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.stateBox {
+  margin-top: 12px;
+  border: 1.5px solid var(--anchor);
+  border-left-width: 5px;
+  background: var(--cream-deep);
+  padding: 10px 11px;
+  font-size: 13px;
+  line-height: 1.52;
+}
+
+.stateBox[data-tone="pink"] { background: var(--pink-warm); }
+.stateBox[data-tone="mint"] { background: var(--mint); }
+.stateBox[data-tone="yolk"] { background: var(--yolk); }
+
+.stateBox small {
+  display: block;
+  margin-top: 6px;
+  color: var(--anchor-soft);
+  font-size: 11px;
+}
+
+.stateBox a,
+.help a {
+  color: var(--link-blue);
+  text-decoration: underline;
+}
+
+.actionPanel {
+  margin-top: 12px;
+  border-top: 1px dashed var(--anchor-soft);
+  padding-top: 12px;
+}
+
+.balanceLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 9px;
+}
+
+.balanceLine span {
+  font-family: var(--font-pixel), monospace;
+  font-size: 12px;
+  color: var(--anchor-soft);
+  text-transform: uppercase;
+}
+
+.balanceLine b {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 14px;
+}
+
+.amountRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.amountInput {
+  padding: 10px;
+}
+
+.maxButton,
+.primaryButton {
+  border: 2px solid var(--anchor);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--anchor);
+  color: var(--anchor);
+  cursor: pointer;
+  font-family: var(--font-pixel), monospace;
+}
+
+.maxButton {
+  min-width: 76px;
+  background: var(--cream);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.primaryButton {
+  width: 100%;
+  margin-top: 11px;
+  background: var(--pink-warm);
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.primaryButton[data-ready="true"] {
+  background: var(--pink-hot);
+  color: var(--paper-base);
+}
+
+.primaryButton:disabled,
+.maxButton:disabled,
+.amountInput:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.empty {
+  padding: 24px;
+  text-align: center;
+  background: var(--cream-deep);
+}
+
+.empty span {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 22px;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--anchor-soft);
+}
+
+.help {
+  margin-top: 14px;
+  padding: 13px 15px;
+  background: var(--cream-deep);
+}
+
+.help summary {
+  cursor: pointer;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  list-style: none;
+}
+
+.help summary::-webkit-details-marker {
+  display: none;
+}
+
+.help summary::before {
+  content: "✿ ";
+  color: var(--pink-hot);
+}
+
+.help div {
+  margin-top: 10px;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 880px) {
+  .incidentHeader,
+  .taskPanel,
+  .cardHeader,
+  .addressGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .safetyCard,
+  .reserveSummary {
+    border-left: 0;
+    border-right: 0;
+    border-top: 1px dashed var(--anchor-soft);
+    padding: 14px 0 0;
+  }
+
+  .reserve {
+    text-align: left;
+  }
+}
+
+@media (max-width: 560px) {
+  .page {
+    width: min(100% - 16px, 1080px);
+    padding-top: 10px;
+  }
+
+  .incidentHeader,
+  .taskPanel,
+  .card,
+  .help {
+    padding: 12px;
+  }
+
+  .title {
+    font-size: 34px;
+  }
+
+  .amountRow,
+  .balanceLine {
+    grid-template-columns: 1fr;
+  }
+
+  .maxButton {
+    width: 100%;
+  }
+}
+
+:global(:root[data-theme="dark"]) .incidentHeader,
+:global(:root[data-theme="dark"]) .taskPanel,
+:global(:root[data-theme="dark"]) .resultsHeader,
+:global(:root[data-theme="dark"]) .card,
+:global(:root[data-theme="dark"]) .help,
+:global(:root[data-theme="dark"]) .empty {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+
+:global(:root[data-theme="dark"]) .incidentHeader::before,
+:global(:root[data-theme="dark"]) .taskPanel::before,
+:global(:root[data-theme="dark"]) .resultsHeader::before,
+:global(:root[data-theme="dark"]) .card::before,
+:global(:root[data-theme="dark"]) .help::before,
+:global(:root[data-theme="dark"]) .empty::before {
+  border-color: rgba(255, 248, 231, 0.22);
+}
+
+:global(:root[data-theme="dark"]) .incidentHeader {
+  background:
+    linear-gradient(90deg, rgba(255, 239, 173, 0.08) 0 1px, transparent 1px 18px),
+    var(--card);
+}
+
+:global(:root[data-theme="dark"]) .subtitle,
+:global(:root[data-theme="dark"]) .safetyCard p,
+:global(:root[data-theme="dark"]) .reserveSummary p,
+:global(:root[data-theme="dark"]) .stepList p,
+:global(:root[data-theme="dark"]) .walletHint,
+:global(:root[data-theme="dark"]) .empty p,
+:global(:root[data-theme="dark"]) .help div {
+  color: #f4e0b3;
+}
+
+:global(:root[data-theme="dark"]) .stepList li,
+:global(:root[data-theme="dark"]) .addressGrid div,
+:global(:root[data-theme="dark"]) .searchInput,
+:global(:root[data-theme="dark"]) .amountInput,
+:global(:root[data-theme="dark"]) .stateBox[data-tone="paper"] {
+  background: var(--card-lifted);
+}
+
+:global(:root[data-theme="dark"]) .stateBox[data-tone="yolk"],
+:global(:root[data-theme="dark"]) .walletHint {
+  background: #40311a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

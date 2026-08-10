@@ -1,0 +1,511 @@
+.page {
+  width: min(1220px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 18px 0 42px;
+  color: var(--anchor);
+}
+
+.manualHeader,
+.toc,
+.referenceSection,
+.factCard {
+  position: relative;
+  border: 2px solid var(--anchor);
+  background: var(--card);
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.18);
+}
+
+.manualHeader {
+  display: grid;
+  grid-template-columns: minmax(260px, auto) minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 16px;
+  background:
+    linear-gradient(90deg, rgba(255, 209, 220, 0.26) 0 1px, transparent 1px 18px),
+    var(--card);
+}
+
+.manualHeader::before,
+.toc::before,
+.referenceSection::before,
+.factCard::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px dashed rgba(58, 44, 58, 0.28);
+  pointer-events: none;
+}
+
+.manualHeader > *,
+.toc > *,
+.referenceSection > *,
+.factCard > * {
+  position: relative;
+  z-index: 1;
+}
+
+.headerId {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eyebrow,
+.noteKicker {
+  display: block;
+  margin: 0 0 5px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--pink-hot);
+}
+
+.manualHeader h1 {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.manualHeader p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--anchor-soft);
+  line-height: 1.45;
+}
+
+.manualLayout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 260px;
+  gap: 14px;
+  align-items: start;
+  margin-top: 14px;
+}
+
+.toc,
+.factRail {
+  position: sticky;
+  top: 12px;
+}
+
+.toc {
+  padding: 14px;
+}
+
+.toc nav {
+  display: grid;
+  gap: 4px;
+}
+
+.toc a {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px dashed rgba(58, 44, 58, 0.28);
+  padding: 7px 0;
+  color: var(--anchor);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.toc a:hover,
+.toc a:focus-visible {
+  color: var(--pink-hot);
+}
+
+.toc a span {
+  flex: none;
+  font-family: var(--font-jp), monospace;
+  color: var(--anchor-soft);
+  font-size: 11px;
+}
+
+.primary {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.referenceSection {
+  scroll-margin-top: 18px;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.sectionTitle {
+  border-right: 1px dashed var(--anchor-soft);
+  padding: 14px;
+}
+
+.sectionTitle span {
+  display: block;
+  margin-bottom: 7px;
+  font-family: var(--font-jp), monospace;
+  color: var(--anchor-soft);
+  font-size: 13px;
+}
+
+.sectionTitle h2 {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 28px;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.sectionBody {
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.sectionBody p {
+  max-width: 72ch;
+  margin: 0 0 12px;
+  line-height: 1.62;
+}
+
+.processList,
+.factList,
+.compactList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.processList {
+  gap: 0;
+  border: 1.5px solid var(--anchor);
+  background: var(--paper-white, #fff);
+}
+
+.processList li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px dashed var(--anchor-soft);
+  padding: 11px 12px;
+}
+
+.processList li:last-child {
+  border-bottom: 0;
+}
+
+.processList li > span {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  color: var(--pink-hot);
+  font-size: 13px;
+}
+
+.processList h3 {
+  margin: 0 0 3px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.processList p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--anchor-soft);
+}
+
+.factList li,
+.compactList li {
+  position: relative;
+  padding-left: 18px;
+  line-height: 1.55;
+}
+
+.factList li::before,
+.compactList li::before {
+  content: "✿";
+  position: absolute;
+  left: 0;
+  color: var(--pink-hot);
+}
+
+.compactList li {
+  font-size: 13px;
+}
+
+.callout {
+  margin-top: 13px;
+  border: 1.5px solid var(--anchor);
+  border-left-width: 5px;
+  padding: 11px 12px;
+  background: var(--yolk);
+}
+
+.callout[data-tone="pink"] { background: var(--pink-warm); }
+.callout[data-tone="mint"] { background: var(--mint); }
+.callout[data-tone="mizuiro"] { background: var(--mizuiro); }
+
+.callout span {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--anchor);
+}
+
+.callout div {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.feeGrid,
+.riskGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.feeGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 13px;
+}
+
+.metric,
+.risk,
+.faq {
+  border: 1.5px solid var(--anchor);
+  background: var(--paper-white, #fff);
+}
+
+.metric {
+  padding: 10px;
+  background: var(--pink-warm);
+}
+
+.metric[data-tone="mint"] { background: var(--mint); }
+.metric[data-tone="mizuiro"] { background: var(--mizuiro); }
+
+.metric span {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--anchor-soft);
+  text-transform: uppercase;
+}
+
+.metric b {
+  display: block;
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+  font-size: 17px;
+  line-height: 1.12;
+}
+
+.riskGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.risk {
+  padding: 10px;
+  background: var(--cream-deep);
+}
+
+.risk h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--pink-hot);
+}
+
+.risk p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.faq {
+  margin-bottom: 7px;
+  padding: 8px 10px;
+  background: var(--cream-deep);
+}
+
+.faq summary {
+  cursor: pointer;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  list-style: none;
+}
+
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq summary::before {
+  content: "❀ ";
+  color: var(--pink-hot);
+}
+
+.faq div {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--anchor-soft);
+}
+
+.factRail {
+  display: grid;
+  gap: 10px;
+}
+
+.factCard {
+  padding: 13px;
+}
+
+.factCard b {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 17px;
+}
+
+.factCard p {
+  margin: 0 0 10px;
+  color: var(--anchor-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.factCard[data-tone="warning"] {
+  background: var(--yolk);
+}
+
+.factCard :global(.uru-btn) {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 1080px) {
+  .manualLayout {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  .factRail {
+    grid-column: 1 / -1;
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .manualHeader,
+  .manualLayout,
+  .referenceSection,
+  .riskGrid,
+  .feeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .manualHeader {
+    align-items: start;
+  }
+
+  .toc {
+    position: static;
+  }
+
+  .toc nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 12px;
+  }
+
+  .sectionTitle {
+    border-right: 0;
+    border-bottom: 1px dashed var(--anchor-soft);
+  }
+
+  .factRail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .page {
+    width: min(100% - 16px, 1220px);
+    padding-top: 10px;
+  }
+
+  .manualHeader,
+  .sectionBody,
+  .sectionTitle,
+  .toc,
+  .factCard {
+    padding: 12px;
+  }
+
+  .manualHeader h1 {
+    font-size: 32px;
+  }
+
+  .toc nav,
+  .factRail {
+    grid-template-columns: 1fr;
+  }
+
+  .processList li {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
+:global(:root[data-theme="dark"]) .manualHeader,
+:global(:root[data-theme="dark"]) .toc,
+:global(:root[data-theme="dark"]) .referenceSection,
+:global(:root[data-theme="dark"]) .factCard {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+
+:global(:root[data-theme="dark"]) .manualHeader::before,
+:global(:root[data-theme="dark"]) .toc::before,
+:global(:root[data-theme="dark"]) .referenceSection::before,
+:global(:root[data-theme="dark"]) .factCard::before {
+  border-color: rgba(255, 248, 231, 0.22);
+}
+
+:global(:root[data-theme="dark"]) .manualHeader {
+  background:
+    linear-gradient(90deg, rgba(255, 209, 220, 0.08) 0 1px, transparent 1px 18px),
+    var(--card);
+}
+
+:global(:root[data-theme="dark"]) .manualHeader p,
+:global(:root[data-theme="dark"]) .processList p,
+:global(:root[data-theme="dark"]) .faq div,
+:global(:root[data-theme="dark"]) .sectionBody p,
+:global(:root[data-theme="dark"]) .factCard p {
+  color: #f4e0b3;
+}
+
+:global(:root[data-theme="dark"]) .processList,
+:global(:root[data-theme="dark"]) .metric,
+:global(:root[data-theme="dark"]) .risk,
+:global(:root[data-theme="dark"]) .faq {
+  background: var(--card-lifted);
+}
+
+:global(:root[data-theme="dark"]) .callout[data-tone="yolk"],
+:global(:root[data-theme="dark"]) .factCard[data-tone="warning"] {
+  background: #40311a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

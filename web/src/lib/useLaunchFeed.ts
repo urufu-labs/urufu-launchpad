@@ -5,10 +5,12 @@ import { parseEther } from 'viem';
 
 import type { Address } from 'viem';
 import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
-import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
+import { allMockLaunches, MOCK_LAUNCHES, mocksForChain, onMockLaunchesChange, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
 import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
+import { useMockDataMode } from './mockDataMode';
+import { isHiddenToken } from './hiddenTokens';
 
 interface FeedState {
   source: 'indexer' | 'mock';
@@ -16,14 +18,27 @@ interface FeedState {
   ready: boolean;
 }
 
-import { isHiddenToken } from './hiddenTokens';
-
-// Chains where CONTRACTS[chain] has been populated with real deployed addresses — the mock
-// preview no longer belongs on these because there are real launches to show. Kept as a
-// lazy read so tree-shaking of unused chain configs doesn't matter.
+// Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
+// no longer belongs on these because there are real launches to show. Kept as a lazy read so
+// tree-shaking of unused chain configs doesn't matter.
 function hasLiveContracts(chainId: number): boolean {
   const key = CHAIN_ID_TO_KEY[chainId] as ChainKey | undefined;
   return key ? CONTRACTS[key] !== null : false;
+}
+
+function previewLaunches(hydrated: boolean): MockLaunch[] {
+  // Demo mode is deliberately chain-independent: the fixture set illustrates fresh,
+  // mid-curve, near-graduation, and graduated tokens even when the selected live chain
+  // has no fixture addresses of its own. Browser-local launches wait until after
+  // hydration so server and first-client markup remain identical.
+  return (hydrated ? allMockLaunches() : MOCK_LAUNCHES)
+    .filter((launch) => !isHiddenToken(launch.chainId, launch.address));
+}
+
+function mocksForChainAfterHydration(chainId: number, hydrated: boolean): MockLaunch[] {
+  if (hydrated) return mocksForChain(chainId);
+  return MOCK_LAUNCHES.filter((launch) => launch.chainId === chainId)
+    .filter((launch) => !isHiddenToken(launch.chainId, launch.address));
 }
 
 /// Unified launch-feed hook consumed by home / discover / trade-list.
@@ -35,16 +50,19 @@ function hasLiveContracts(chainId: number): boolean {
 /// `ready` flips true once the indexer probe has finished, so pages can render a skeleton
 /// or an "indexer offline" fallback without briefly flashing the mock list.
 export function useLaunchFeed(chainId: number): FeedState {
+  const mockData = useMockDataMode();
+  const [hydrated, setHydrated] = useState(false);
   const [state, setState] = useState<FeedState>(() => {
+    if (mockData.enabled) {
+      return { source: 'mock', launches: previewLaunches(false), ready: true };
+    }
     // First paint: if we already know the chain has no live contracts, render the mock
     // preview immediately (SSR-safe, deterministic). Otherwise start empty and let the
     // effect fill in from the indexer — avoids a flash of unrelated mock tokens.
     if (!hasLiveContracts(chainId)) {
       return {
         source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
-          (l) => !isHiddenToken(l.chainId, l.address),
-        ),
+        launches: mocksForChainAfterHydration(chainId, false),
         ready: true,
       };
     }
@@ -52,17 +70,27 @@ export function useLaunchFeed(chainId: number): FeedState {
   });
 
   useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
-    if (!hasLiveContracts(chainId)) {
-      setState({
-        source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
-          (l) => !isHiddenToken(l.chainId, l.address),
-        ),
-        ready: true,
-      });
-      return () => { cancelled = true; };
+    if (mockData.enabled || !hasLiveContracts(chainId)) {
+      const refreshMocks = () => {
+        if (cancelled) return;
+        setState({
+          source: 'mock',
+          launches: mockData.enabled ? previewLaunches(hydrated) : mocksForChainAfterHydration(chainId, hydrated),
+          ready: true,
+        });
+      };
+      refreshMocks();
+      const unsubscribe = onMockLaunchesChange(refreshMocks);
+      return () => {
+        cancelled = true;
+        unsubscribe();
+      };
     }
 
     // First run per chainId — clear so we don't flash mocks from another chain while
@@ -99,8 +127,11 @@ export function useLaunchFeed(chainId: number): FeedState {
     // without a page refresh. 15s is a friendly cadence — indexer catch-up is usually
     // sub-second so this feels near-real-time without hammering the backend.
     const id = setInterval(load, 15_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [chainId]);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [chainId, hydrated, mockData.enabled]);
 
   return state;
 }

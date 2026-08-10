@@ -1,620 +1,306 @@
 'use client';
 
-/// Docs page, normie-friendly guide to what urufu labs is, how to launch, and how
-/// value routes back to holders. Uses plain language everywhere. Any deep-technical
-/// stuff lives in the shelf + on-chain readmes.
+/// Public guide for the live Urufu launch flow. Keep this ERC-20-only until the
+/// product exposes NFT/mixed-item launching again.
 
 import Link from 'next/link';
 
 import { Mascot } from '@/components/Mascot';
-import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
+import styles from './docs-page.module.css';
 
 type Section = { id: string; label: string; jp: string };
+type Tone = 'pink' | 'mint' | 'mizuiro' | 'yolk' | 'paper';
 
 const SECTIONS: Section[] = [
-  { id: 'what', label: 'what is this', jp: '説明' },
-  { id: 'launch', label: 'how to launch', jp: '発行' },
-  { id: 'whitelist', label: 'whitelist launches', jp: '関係者' },
-  { id: 'uru-pay', label: 'paying in URU', jp: 'URU支払' },
-  { id: 'trade', label: 'trading + graduation', jp: '取引' },
-  { id: 'creator', label: 'creator revenue', jp: '報酬' },
-  { id: 'fees', label: 'fees + discounts', jp: '料金' },
-  { id: 'chains', label: 'which chain', jp: '鎖' },
-  { id: 'protections', label: 'anti-bot/whale/vamp', jp: '防御' },
-  { id: 'safe', label: 'is it safe', jp: '安全' },
+  { id: 'flow', label: 'launch flow', jp: '流れ' },
+  { id: 'whitelist', label: 'whitelists', jp: '関係者' },
+  { id: 'uru-pay', label: 'URU pay', jp: 'URU支払' },
+  { id: 'trading', label: 'curve trading', jp: '曲線' },
+  { id: 'graduation', label: 'V4 graduation', jp: '卒業' },
+  { id: 'fees', label: 'fees', jp: '料金' },
+  { id: 'risk', label: 'risk', jp: '注意' },
+  { id: 'chains', label: 'chains', jp: '鎖' },
   { id: 'faq', label: 'faq', jp: 'よくある' },
 ];
 
+const FLOW = [
+  {
+    n: '01',
+    title: 'define coin',
+    body: 'name, ticker, artwork, description, and links. This is the public identity traders see on the launch and trade pages.',
+  },
+  {
+    n: '02',
+    title: 'customize contract',
+    body: 'quick launch uses safe defaults; customizable curve adds shipped ERC-20 modules plus optional whitelist, sniper gate, and buyback-burn settings.',
+  },
+  {
+    n: '03',
+    title: 'safe launch',
+    body: 'the router quotes the live fee, checks name/ticker availability, deploys the token, installs the bonding curve, and auto-renounces curve ownership.',
+  },
+  {
+    n: '04',
+    title: 'curve trading',
+    body: 'buyers and sellers trade against the bonding curve immediately. Price moves with the curve reserves, and sellability depends on curve liquidity.',
+  },
+  {
+    n: '05',
+    title: 'V4 graduation',
+    body: 'when the curve reaches its target, liquidity migrates to a Uniswap V4 pool with the platform hook for locked LP and creator fee routing.',
+  },
+];
+
 export default function DocsPage() {
-  // Layer-3 release gate — every hardcoded discount tier % below (20 / 40 /
-  // 50) only renders when the on-chain loyalty wiring is verified live on
-  // the connected chain. If ready is false the tier tables are replaced
-  // with a plain-language placeholder pointing users at the profile page
-  // for the live tier value. No specific % ever shows without a
-  // corresponding on-chain read having succeeded within the last 30s.
-  const loyaltyReady = useLoyaltyDiscountReady();
   return (
-    <div className="mx-auto max-w-4xl px-3 sm:px-4 py-4">
-      {/* ================================================================
-          COMPACT HERO
-          ================================================================ */}
-      <section
-        className="uru-shell"
-        style={{
-          padding: '12px 18px',
-          marginBottom: 10,
-          display: 'flex',
-          gap: 14,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <Mascot size={44} mood="happy" className="uru-idle-bob" />
-        <div style={{ flex: 1, minWidth: 220 }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 2 }}>❉ docs</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <h1 className="uru-h1" style={{ fontSize: 22, lineHeight: 1 }}>the friendly guide</h1>
-            <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 14, color: 'var(--anchor-soft)' }}>
-              説明書
-            </span>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
-              · everything in plain english ~
-            </span>
+    <main className={styles.page}>
+      <header className={styles.manualHeader} aria-labelledby="docs-title">
+        <div className={styles.headerId}>
+          <Mascot size={38} mood="happy" />
+          <div>
+            <p className={styles.eyebrow}>urufu reference</p>
+            <h1 id="docs-title">Launchpad documentation</h1>
           </div>
         </div>
-        <Link href="/create" className="uru-btn uru-btn-primary" style={{ padding: '6px 14px', fontSize: 12 }}>
-          launch a token <span className="uru-arrow">→</span>
-        </Link>
-      </section>
-
-      {/* ================================================================
-          SECTION JUMP BAR (sticky)
-          ================================================================ */}
-      <nav
-        style={{
-          display: 'flex',
-          gap: 5,
-          flexWrap: 'wrap',
-          marginBottom: 14,
-          position: 'sticky',
-          top: 0,
-          zIndex: 5,
-          padding: '6px 0',
-          background: 'var(--paper-base)',
-        }}
-      >
-        {SECTIONS.map((s) => (
-          <a
-            key={s.id}
-            href={`#${s.id}`}
-            className="uru-chip"
-            style={{ padding: '5px 12px', textDecoration: 'none' }}
-          >
-            {s.label}
-            <span
-              style={{
-                fontFamily: 'var(--font-jp), monospace',
-                fontSize: 10,
-                marginLeft: 4,
-                opacity: 0.7,
-              }}
-            >
-              {s.jp}
-            </span>
-          </a>
-        ))}
-      </nav>
-
-      {/* ================================================================
-          WHAT IS THIS
-          ================================================================ */}
-      <Section id="what" title="what is urufu labs?" jp="説明">
         <p>
-          a launchpad for <b>customizable ERC-20 tokens</b>. add modules
-          (anti-bot, staking, voting, royalties, more), hit launch, get a real token
-          on-chain in one tx, plus a trade page + chart for anyone to trade.
-        </p>
-        <Callout tone="pink" label="what makes urufu different">
-          <ul className="uru-list-flower" style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
-            <li><b>every module is real solidity</b>, not a clone with a shared impl. compose voting + staking + anti-bot + royalties + more in one tx.</li>
-            <li><b>graduates onto a uniswap v4 pool with a custom hook</b> that routes trade fees three ways: creator, holder rewards, and on-token buyback-burn.</li>
-            <li><b>LP is math-locked forever</b> post-graduation. no rugs, no vampire attacks, no team-triggered removals.</li>
-            <li><b>trade-fee split</b>: 35% of every trade fee goes to urufu gemu NFT holders as ETH, and 40% buys back URU on market.</li>
-            <li><b>snapshot whitelists</b>: point at any existing token, we hash its holders into a merkle root. no CSV uploads, no manual lists.</li>
-            {loyaltyReady.ready && (
-              <li><b>pay in URU for a discount</b>: 20% to 50% off the launch fee if u hold URU and/or urufu gemu.</li>
-            )}
-            <li><b>name + ticker are globally unique</b> via the on-chain registry, so copycat bots can&apos;t front-run ur brand.</li>
-          </ul>
-        </Callout>
-        <Callout tone="mint" label="coming later">
-          NFT and mixed-item collections (ERC-721/1155) are designed and the contracts
-          are on-chain, but the launch flow for them isn&apos;t live yet. we&apos;re proving
-          the fee-routing model on fungible tokens first. right now token creation is coin-only.
-        </Callout>
-        <Callout tone="mint" label="powered by uniswap v4 hooks">
-          post-graduation tokens live in a{' '}
-          <a
-            href="https://docs.uniswap.org/contracts/v4/overview"
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-          >
-            uniswap v4 pool
-          </a>{' '}
-          with a custom hook that routes trade fees three ways: creators, holder rewards (URU
-          buyback + urufu gemu NFT holders), and an on-token buyback-burn. v4 hooks are what
-          make the &quot;LP locked forever + earn fees forever&quot; guarantee possible in
-          the first place ~
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          HOW TO LAUNCH
-          ================================================================ */}
-      <Section id="launch" title="how to launch" jp="発行">
-        <ol style={numberedListStyle}>
-          <li><b>connect wallet</b> (top-right). fund w/ a little ETH.</li>
-          <li><b>pick a chain</b> in the switcher next to the wallet button.</li>
-          <li>
-            open the <Link href="/create" style={linkStyle}>✿ token creation page</Link> and{' '}
-            <b>pick a base</b>: coin (like $DOGE) · collectible (like an NFT) ·
-            mixed items (like in-game items).
-          </li>
-          <li>
-            <b>drag features</b> into ur cart, anti-bot cooldowns, staking, royalties,
-            deflation, voting. each one is optional; hover to see what it does.
-          </li>
-          <li>
-            <b>hit launch.</b> approve the tx, pay the fee, get a token address. ur trade
-            page + chart is live immediately.
-          </li>
-        </ol>
-      </Section>
-
-      {/* ================================================================
-          WHITELIST LAUNCHES
-          ================================================================ */}
-      <Section id="whitelist" title="whitelist launches" jp="関係者">
-        <p>
-          if u want ur supporters to buy first, a private window before the rest of the
-          world sees the token, u can attach a <b>whitelist</b> at launch. only wallets on
-          the WL can buy during the window; everyone else has to wait.
-        </p>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it works</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
-            <li>
-              <b>the WL = holders of an existing token OR NFT collection you point at.</b>{' '}
-              paste any ERC-20 or ERC-721 address in the whitelist box on the create page,
-              we snapshot its current holders and hash them into a Merkle root that goes
-              on-chain. no list upload, no CSV. ERC-1155 support is a follow-up.
-            </li>
-            <li>
-              <b>works for NFT communities out of the box.</b> want ur token pre-sale gated
-              to holders of a specific NFT collection? just paste the collection address.
-              every wallet holding at least one token from that collection at snapshot time
-              lands on the WL.
-            </li>
-            <li>
-              <b>60% of the curve supply is reserved for WL buyers</b> during the window;
-              the other 40% stays available for public <code>buy()</code> after fallback.
-              (fixed ratio for now; not tunable in the UI.)
-            </li>
-            <li>
-              <b>per-wallet cap = reserved ÷ 5</b> (so ~12% of curve supply per wallet, or
-              the top 5 WL wallets could fill it). stops one whale from draining the whole
-              reserved slice.
-            </li>
-            <li>
-              <b>1-hour fallback window</b>, after 1 hour, public <code>buy()</code>
-              unlocks and anyone can buy through the curve, WL or not. keeps a launch from
-              being stuck forever if the WL doesn&apos;t drain the reserved slice.
-            </li>
-            <li>
-              WL buyers <b>hold their tokens on the curve</b> until graduation, no
-              dump-on-launch. after graduation they call <code>claimWl()</code> once and
-              their held balance transfers to them.
-            </li>
-          </ul>
-        </div>
-        <Callout tone="mint" label="who this is for">
-          projects with an existing on-chain community, a token, an NFT collection , 
-          whose holders you want to reward with first-look access. if you don&apos;t have
-          one, skip WL and pick a plain curve; the sniper gate handles the general case.
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          PAYING IN URU
-          ================================================================ */}
-      <Section id="uru-pay" title="paying in URU" jp="URU支払">
-        <p>
-          the launch fee normally gets paid in ETH. but if u hold enough <b>URU token</b>{' '}
-          or <b>urufu gemu NFT</b>, u can pay the fee in URU instead, and it comes with a
-          discount. this is the loyalty discount: holders launch cheaper, and the URU they
-          pay goes right back into the buyback vault that supports the URU price.
-        </p>
-        {loyaltyReady.ready ? (
-          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
-            <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
-              <li>
-                <b>hold ≥ 100,000 URU:</b> 40% off launch fee (threshold on-chain,
-                tunable by owner)
-              </li>
-              <li><b>hold ≥ 1 urufu gemu NFT:</b> 20% off launch fee</li>
-              <li>
-                <b>hold both:</b> 50% off (capped, not the naive 60% because we max at 50%)
-              </li>
-              <li>discount applies to the ETH price OR the URU price, whichever u pick</li>
-            </ul>
-          </div>
-        ) : (
-          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)', fontSize: 13, lineHeight: 1.6, opacity: 0.85 }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ discount tiers</div>
-            loyalty discounts loading ~ live tiers show up once wallet + chain are connected.
-          </div>
-        )}
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how the URU flows</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>
-            <li>
-              when u pick <b>pay in URU</b>, the frontend quotes the ETH-equivalent price
-              and shows the URU amount you&apos;ll be charged (loyalty discount already applied).
-            </li>
-            <li>
-              the URU goes straight into the <b>deposit sink</b>, a smart contract that
-              batches URU deposits and periodically swaps them back to ETH.
-            </li>
-            <li>
-              that ETH feeds into the fee splitter alongside every other launch fee,
-              routing to URU buyback / NFT rewards / treasury per the 40/35/25 split.
-            </li>
-            <li>
-              <b>minimum floor:</b> there&apos;s an on-chain minimum URU amount so a
-              hand-crafted tx can&apos;t undercut the frontend&apos;s honest quote.
-            </li>
-          </ul>
-        </div>
-        <Callout tone="pink" label="not urufu gemu nft only">
-          the discount + pay-in-URU path is separate from URU-holder-only launches (which
-          don&apos;t exist as a hard gate), anyone can launch, holders just get cheaper +
-          route more value back into the ecosystem.
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          TRADING + GRADUATION
-          ================================================================ */}
-      <Section id="trade" title="trading + graduation" jp="取引">
-        <p>
-          <b>every token starts on a bonding curve</b>, a math formula that sets price from
-          the ETH in the pool. more buys → higher price. more sells → lower. u can always
-          trade because the curve is the market; no market maker or LP providers needed.
-        </p>
-        <p style={{ marginTop: 10 }}>
-          when the curve fills to its target ETH amount, the token <b>graduates</b>:
-        </p>
-        <ul style={bulletListStyle}>
-          <li>ETH + tokens migrate to a Uniswap v4 pool</li>
-          <li><b>the LP position is math-locked forever</b>, the contract literally reverts on
-            any removal attempt. not u, not the creator, not us can pull it.</li>
-          <li>trading continues on the same trade page, same UX, bigger market</li>
-          <li>the creator starts earning a % of every trade (see below)</li>
-        </ul>
-        <Callout tone="mizuiro" label="locked forever = coded in">
-          not a timer, not a promise. `LPLockedHook.beforeRemoveLiquidity` reverts on every
-          v4 removal call. graduated urufu tokens can&apos;t be rugged, period.
-        </Callout>
-
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 12, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ opt-in curve extras (pick at launch)</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li><b>sniper gate</b>, first N blocks after graduation, swaps revert. gives real
-              ppl a beat to catch up before bots front-run.</li>
-            <li><b>buy → burn</b>, up to 20% of tokens on each buy go to 0x…dead. deflation
-              on every trade.</li>
-          </ul>
-          <p style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-            baked into the v4 pool at graduation; not changeable after ~
-          </p>
-        </div>
-      </Section>
-
-      {/* ================================================================
-          CREATOR REVENUE
-          ================================================================ */}
-      <Section id="creator" title="creator revenue" jp="報酬">
-        <p>
-          <b>if u launch a token that graduates, u earn ETH on every trade forever.</b>{' '}
-          this is set at launch and can never be changed.
-        </p>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ how it flows</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li><b>pre-graduation:</b> the 1% curve trade fee is split between platform + creator.</li>
-            <li><b>post-graduation:</b> uniswap v4 charges a 0.3% swap fee. our hook
-              redirects a slice of that fee stream to u as the creator, forever.</li>
-            <li>u don&apos;t claim manually, fees accumulate to ur address and u withdraw via the
-              MultiHookHost <code style={codeStyle}>claim()</code> function whenever u want.</li>
-          </ul>
-        </div>
-        <Callout tone="mint" label="a small example">
-          launch a coin, hit graduation, community trades $50k/day. at typical creator-share
-          rates, that&apos;s meaningful passive ETH monthly, no team required, no marketing tricks,
-          just from the pool doing what pools do ~
-        </Callout>
-        <p style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
-          exact split (platform / creator / holder rewards) is set per launch by the hook config.
-          check the trade page for ur token&apos;s configured split.
-        </p>
-      </Section>
-
-      {/* ================================================================
-          FEES + DISCOUNTS
-          ================================================================ */}
-      <Section id="fees" title="fees + discounts" jp="料金">
-        <div className="uru-shell-tight" style={{ padding: 12, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch fee (paid once)</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>bare token: <b>0.001 ETH</b></li>
-            <li>full-loaded (hook + gov + modules): <b>~0.005 ETH</b></li>
-            <li>plus network gas (cheap on Base + Robinhood)</li>
-          </ul>
-        </div>
-
-        {loyaltyReady.ready ? (
-          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
-            <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-              <li>hold ≥ 1 urufu gemu nft → <b>20% off</b></li>
-              <li>hold ≥ 100,000 URU → <b>40% off</b></li>
-              <li>hold both → <b>50% off</b> (capped)</li>
-            </ul>
-          </div>
-        ) : (
-          <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)', fontSize: 12, opacity: 0.85 }}>
-            <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ launch-fee discounts</div>
-            loyalty discounts loading ~ connect a wallet on a supported chain to see live tiers.
-          </div>
-        )}
-
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ trade fee (paid per swap)</div>
-          <p style={{ margin: 0, fontSize: 13 }}>
-            <b>1%</b> pre-graduation, <b>0.3%</b> post-graduation (uniswap v4 standard).
-            never paid directly, deducted from swap output.
-          </p>
-        </div>
-
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ where the trade fee goes</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li><b>40%</b> → buys back URU on-market</li>
-            <li><b>35%</b> → paid to urufu gemu nft holders as ETH</li>
-            <li><b>25%</b> → treasury (servers, audits, next builds)</li>
-          </ul>
-        </div>
-      </Section>
-
-      {/* ================================================================
-          WHICH CHAIN
-          ================================================================ */}
-      <Section id="chains" title="which chain should i pick?" jp="鎖">
-        <p>
-          right now urufu is <b>robinhood-only</b>. the launchpad, fee-distribution contracts, URU token, and
-          urufu gemu NFT all live on robinhood chain (chain id 4663). other chains are
-          grayed out in the chain switcher for now and will re-enable as we expand.
-        </p>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>
-              <b>robinhood chain</b> (live). near-zero gas, home of the urufu ecosystem.
-              every launch, every trade, and every holder reward distribution happens here.
-            </li>
-            <li>
-              <b>base mainnet</b> (soon). was the original home before the robinhood
-              migration. contracts and design are ready to redeploy when we open it back up.
-            </li>
-            <li>
-              <b>ethereum mainnet</b> (soon). same contracts, higher gas, best for
-              high-credibility launches.
-            </li>
-            <li>
-              <b>testnets</b> (soon). we&apos;ll wire up base sepolia + a robinhood testnet
-              once we open external testing.
-            </li>
-          </ul>
-        </div>
-        <Callout tone="yolk" label="why robinhood first">
-          robinhood is where the URU token and urufu gemu NFT already live, so the fee split
-          (URU buyback + NFT holder rewards + on-token buyback-burn) loops back to holders
-          from day one. adding more chains later is a matter of redeploying, not
-          re-architecting.
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          PROTECTIONS
-          ================================================================ */}
-      <Section id="protections" title="anti-bot, anti-whale, anti-vamp" jp="防御">
-        <p>
-          launchpads that skip these details are how memecoins get sniped, ripped off, and
-          copycat-drained before the first real trader shows up. urufu bakes protections
-          in at three levels: the token, the pool, and the registry.
-        </p>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ token-level modules</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>
-              <b>anti-bot cooldown</b>: per-wallet per-block cooldown on transfers. scripted
-              bots trying to snipe every block get rate-limited into the ground.
-            </li>
-            <li>
-              <b>anti-whale caps</b>: max transaction size and max wallet holding. no single
-              buyer can accumulate more than the cap.
-            </li>
-            <li>
-              <b>pausable / blocklist / jailable</b>: emergency levers if someone abuses the
-              token. optional and owner-controlled.
-            </li>
-          </ul>
-        </div>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ registry-level (anti-vamp / anti-copycat)</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>
-              <b>names + tickers are globally unique</b>{' '}on the NameRegistry. the second
-              someone launches &quot;URU&quot;, nobody else on the launchpad can ever launch
-              a token with that name or ticker again. copycats trying to piggyback on a
-              trending launch get rejected at the contract level.
-            </li>
-            <li>
-              <b>reservation is atomic with deploy</b>. the name and ticker lock in the same
-              tx that mints the token, so there&apos;s no race window where a bot could
-              front-run and claim ur ticker before ur launch confirms.
-            </li>
-            <li>
-              <b>character rules enforced on-chain</b>. ticker length + charset validated by
-              the registry, no zero-width unicode tricks, no invisible-character imposters.
-            </li>
-          </ul>
-        </div>
-        <div className="uru-shell-tight" style={{ padding: 12, marginTop: 10, background: 'var(--cream)' }}>
-          <div className="uru-eyebrow" style={{ marginBottom: 6 }}>❀ pool-level (automatic on every graduation)</div>
-          <ul className="uru-list-flower" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-            <li>
-              <b>anti-sniper gate</b>: the v4 hook reverts every swap for the first N seconds
-              after graduation (typically 60 seconds). MEV bots that pre-signed a buy at graduation get denied.
-              real humans get in on equal footing.
-            </li>
-            <li>
-              <b>LP math-locked forever</b>: LPLockedHook makes
-              <code style={codeStyle}>removeLiquidity</code> revert unconditionally. no team
-              removal, no rug, no post-launch withdrawal. liquidity is welded to the pool.
-            </li>
-            <li>
-              <b>on-token buyback-burn</b>: up to 20% of every buy routes tokens straight to
-              <code style={codeStyle}>0x...dead</code>. deflation happens automatically on
-              every trade, not team-triggered when they feel like it.
-            </li>
-            <li>
-              <b>fee routing is contract-enforced</b>: 40% of trade fees buy back URU on
-              market, 35% goes to urufu gemu NFT holders, 25% to treasury. nobody can
-              redirect this after launch, the split is set on the FeeSplitter.
-            </li>
-          </ul>
-        </div>
-        <Callout tone="mint" label="why anti-vamp matters">
-          on most launchpads, the moment a token starts trending, ten copycats deploy the
-          same name and ticker within seconds to phish confused buyers. on urufu the
-          registry rejects those launches at the contract level, so ur brand belongs to u
-          the second the launch confirms.
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          IS IT SAFE
-          ================================================================ */}
-      <Section id="safe" title="is it safe?" jp="安全">
-        <p>
-          <b>the code is safe. the tokens people launch are not always safe.</b> those are
-          two different things.
-        </p>
-        <ul style={bulletListStyle}>
-          <li>
-            <b>contracts are open + tested</b>, every combo compiles from the same audited
-            primitives, factory addresses are on-chain readable, internal test suite covers
-            shipped combos. external audit in progress.
-          </li>
-          <li>
-            <b>graduated LPs can&apos;t be rugged</b>, LPLockedHook makes removal impossible.
-          </li>
-          <li>
-            <b>ur job: check what u&apos;re buying.</b> anyone can launch. always verify the
-            token address on the <Link href="/discover" style={linkStyle}>discover page</Link>.
-          </li>
-        </ul>
-        <Callout tone="yolk" label="urufu can&apos;t save u from">
-          bad ideas u picked · pre-graduation dumps · fake tokens copying real ones.
-        </Callout>
-      </Section>
-
-      {/* ================================================================
-          FAQ
-          ================================================================ */}
-      <Section id="faq" title="faq" jp="よくある">
-        <FAQ q="never used a crypto wallet, can i still use urufu?">
-          install metamask / rabby / coinbase wallet, fund with a little ETH, done. any
-          beginner ETH guide works.
-        </FAQ>
-        <FAQ q="do i need to code anything?">
-          no. pick, click launch, done. we handle every line of solidity.
-        </FAQ>
-        <FAQ q="what if my token doesn&apos;t graduate?">
-          totally fine, it stays on the curve forever. u can still trade it. no penalty, no
-          creator fees (those start post-graduation).
-        </FAQ>
-        <FAQ q="how do i claim creator fees?">
-          call <code style={codeStyle}>claim(currency)</code> on the MultiHookHost contract from
-          ur creator address. fees accumulate to u automatically on every swap, u just
-          withdraw when u want.
-        </FAQ>
-        <FAQ q="where do i see my launches + trades?">
-          <Link href="/profile" style={linkStyle}>ur profile</Link>. every token u launched,
-          every trade, ur current holdings, ur PnL.
-        </FAQ>
-        <FAQ q="can i follow other people?">
-          yes, paste a wallet address into <code style={codeStyle}>/profile/0x…</code> and
-          hit follow. their activity shows up in{' '}
-          <Link href="/feed" style={linkStyle}>ur feed</Link>.
-        </FAQ>
-        <FAQ q="how do i buy URU or a gemu nft?">
-          URU trades on Uniswap on Base. gemu nfts mint occasionally + trade on OpenSea. use
-          the community channels for the real contract addresses so u don&apos;t buy a fake.
-        </FAQ>
-        <FAQ q="where&apos;s the source code?">
-          <code style={codeStyle}>github.com/urufu-labs</code>, every contract + this website,
-          MIT-licensed.
-        </FAQ>
-      </Section>
-
-      {/* ================================================================
-          FOOTER CTA
-          ================================================================ */}
-      <section
-        style={{
-          padding: '18px 12px',
-          textAlign: 'center',
-          border: '1.5px dashed var(--anchor)',
-          background: 'var(--cream)',
-          marginTop: 12,
-        }}
-      >
-        <p
-          style={{
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 13,
-            color: 'var(--anchor-soft)',
-            marginBottom: 10,
-          }}
-        >
-          feel ready? go make ur first token ~~
+          Current public flow for ERC-20 coin launches, curve trading, and V4
+          graduation. This page is written as product documentation, not launch copy.
         </p>
         <Link href="/create" className="uru-btn uru-btn-primary">
-          launch a token <span className="uru-arrow">→</span>
+          go to /create <span className="uru-arrow">→</span>
         </Link>
-      </section>
-    </div>
+      </header>
+
+      <div className={styles.manualLayout}>
+        <aside className={styles.toc} aria-label="Documentation table of contents">
+          <span className={styles.noteKicker}>contents</span>
+          <nav>
+            {SECTIONS.map((section) => (
+              <a key={section.id} href={`#${section.id}`}>
+                {section.label}
+                <span>{section.jp}</span>
+              </a>
+            ))}
+          </nav>
+        </aside>
+
+        <article className={styles.primary}>
+          <section id="flow" className={styles.referenceSection} aria-labelledby="flow-title">
+            <div className={styles.sectionTitle}>
+              <span>流れ</span>
+              <h2 id="flow-title">Launch Flow</h2>
+            </div>
+            <div className={styles.sectionBody}>
+              <p>
+                Public Urufu launches follow one ERC-20 lifecycle: define coin,
+                customize contract, safe launch, curve trading, then V4 graduation
+                if the bonding curve reaches its target.
+              </p>
+              <ol className={styles.processList}>
+                {FLOW.map((step) => (
+                  <li key={step.n}>
+                    <span>{step.n}</span>
+                    <div>
+                      <h3>{step.title}</h3>
+                      <p>{step.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+
+          <DocSection id="whitelist" title="Whitelist Launches" jp="関係者">
+            <p>
+              A customizable curve can attach a community whitelist at launch. The creator
+              pastes a supported contract address, the backend snapshots current holders,
+              and the launch transaction stores a Merkle root.
+            </p>
+            <FactList
+              items={[
+                'Whitelisted wallets use the proof path during the exclusive window; non-whitelisted wallets wait for fallback.',
+                '60% of curve supply is reserved for whitelist buyers while the window is active.',
+                'The per-wallet cap is reserved supply divided by five, so a small set of holders cannot drain the full reserved slice from one wallet.',
+                'The current frontend sets a 1-hour fallback window when the whitelist is applied.',
+                'Whitelist buyers hold on-curve balances until graduation, then claim through the whitelist claim path.',
+              ]}
+            />
+            <Callout tone="yolk" label="plain limitation">
+              Holder snapshots only support compatible source contracts in the current public
+              whitelist flow. A source community can gate an ERC-20 coin release; that is not
+              a second public launch format.
+            </Callout>
+          </DocSection>
+
+          <DocSection id="uru-pay" title="Paying In URU" jp="URU支払">
+            <p>
+              Launch fees are quoted from the router. Creators can pay in ETH, or on chains
+              where URU pay is wired, pay the quoted ETH-equivalent amount in URU through
+              the router&apos;s URU launch path.
+            </p>
+            <FactList
+              items={[
+                'Holding at least one urufu gemu pass applies a 20% launch-fee discount.',
+                'Holding at least 100,000 URU applies a 40% launch-fee discount.',
+                'Holding both applies a 50% combined discount in the frontend, with an on-chain hard cap protecting the router.',
+                'The frontend checks the live URU/WETH V4 slot and the router floor before enabling URU payment.',
+                'URU approvals are separate from the launch transaction; approve first, then launch.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="trading" title="Curve Trading" jp="曲線">
+            <p>
+              Every public ERC-20 launch installs a bonding curve. The token supply starts
+              inside the curve, the trade page is live after launch, and users buy or sell
+              against the curve while it has reserves.
+            </p>
+            <FactList
+              items={[
+                'The curve uses virtual reserves and a constant-product style price model.',
+                'Buys add ETH and move the price up; sells remove ETH and move the price down.',
+                'Pre-graduation curve trading charges a 1% trade fee routed by platform contracts, not a hidden creator kickback.',
+                'Quick launch uses safe defaults, including a fixed supply and a safe launch; customizable curve exposes more knobs.',
+                'A token that never graduates can keep trading on its curve as long as the curve has usable liquidity.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="graduation" title="V4 Graduation" jp="卒業">
+            <p>
+              Graduation moves the market from the bonding curve to Uniswap V4. The
+              graduator creates the pool, installs the platform hook, and moves the curve
+              liquidity into the V4 position.
+            </p>
+            <FactList
+              items={[
+                'The V4 LP is intended to be locked by hook behavior: remove-liquidity calls revert through the LP-lock hook.',
+                'The trade page continues against the graduated market instead of the old curve path.',
+                'Creator fee routing starts after graduation through the V4 hook configuration.',
+                'Optional security and buyback-burn settings are written into the pool at graduation when selected.',
+                'Graduation improves market depth, but it does not make price appreciation or future volume guaranteed.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="fees" title="Fees, Discounts, And Revenue" jp="料金">
+            <div className={styles.feeGrid}>
+              <Metric label="launch fee" value="live router quote" tone="pink" />
+              <Metric label="curve trade fee" value="1%" tone="mint" />
+              <Metric label="V4 swap fee" value="0.3%" tone="mizuiro" />
+            </div>
+            <FactList
+              items={[
+                'Launch fees use a documented split: 40% URU buyback, 35% urufu gemu NFT revenue, and 25% treasury.',
+                'There is no launch-fee creator slot. That path was removed to avoid spam-launch farming.',
+                'Creator earnings are post-graduation V4 swap fees, claimable from the configured creator address.',
+                'Discounts lower the launch fee only; they do not remove gas costs or trading risk.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="risk" title="Material Risks" jp="注意">
+            <div className={styles.riskGrid}>
+              <Risk title="ownership" body="Curve ERC-20 launches auto-renounce ownership so traders are not relying on a launcher admin. Modules that need owner controls are blocked for curve launches." />
+              <Risk title="sellability" body="Selling depends on contract behavior, your wallet state, chain availability, and available curve or pool liquidity. A token can be hard to exit." />
+              <Risk title="liquidity" body="Locked LP removes one rug path after graduation, but it also means the position is not manually withdrawn to rescue a bad market." />
+              <Risk title="fees" body="Launch fees, trade fees, swap fees, and gas are real costs. Fee discounts do not make a launch or trade free." />
+              <Risk title="censorship" body="Owner-controlled platform contracts can pause or update platform-level routing where those powers exist. Existing token contracts do not become risk-free because the UI looks friendly." />
+              <Risk title="market" body="Anyone can launch a coin. The launchpad does not verify creator promises, future demand, art provenance, or off-chain roadmap claims." />
+            </div>
+            <Callout tone="pink" label="security wording">
+              Urufu can make specific contract-level guarantees, such as the LP-lock hook
+              reverting remove-liquidity calls after graduation. It cannot guarantee that
+              every launched coin is valuable, liquid, honest, or easy to sell.
+            </Callout>
+          </DocSection>
+
+          <DocSection id="chains" title="Chains" jp="鎖">
+            <p>
+              The frontend should be treated as the source of truth for which chain is
+              currently launch-enabled. The create page reads deployed contract addresses
+              from configuration, quotes from the live router, and disables launch when the
+              selected chain is not wired.
+            </p>
+            <FactList
+              items={[
+                'Robinhood Chain is the current culture-first target for the public flow.',
+                'Historical Base and testnet code remains in the repository, but inactive chains should not be treated as public launch availability.',
+                'Wrong-network and not-live states block the launch button before a transaction is sent.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="faq" title="FAQ" jp="よくある">
+            <FAQ q="Do I need to code?">
+              No. The token creation page collects the coin identity and configuration, then the
+              router deploys the token and curve from shipped contracts.
+            </FAQ>
+            <FAQ q="Can I launch an NFT collection here today?">
+              Not from the public creator flow. NFT contracts exist in the repo, and an NFT
+              collection can be used as a whitelist source, but public launching is ERC-20
+              coin-only right now.
+            </FAQ>
+            <FAQ q="What happens if my coin does not graduate?">
+              It stays on its bonding curve. Trading can continue there while the curve has
+              usable reserves, but creator V4 swap-fee revenue starts only after graduation.
+            </FAQ>
+            <FAQ q="Where do creator fees go?">
+              Post-graduation fees accrue to the configured creator address through the V4
+              hook path. The creator claims from the configured contract flow when fees are
+              available.
+            </FAQ>
+            <FAQ q="Where do I recover historical orphan-curve funds?">
+              Use the dedicated <Link href="/recover">recovery page</Link>. It is only for
+              historical curves that are no longer shown in the main app.
+            </FAQ>
+          </DocSection>
+        </article>
+
+        <aside className={styles.factRail} aria-label="Current scope and source-of-truth notes">
+          <section className={styles.factCard}>
+            <span className={styles.noteKicker}>current scope</span>
+            <b>ERC-20 coins only</b>
+            <p>
+              NFT and mixed-item contracts remain in the codebase, but the public
+              creator flow does not offer them today.
+            </p>
+          </section>
+          <section className={styles.factCard}>
+            <span className={styles.noteKicker}>before launch</span>
+            <FactList
+              compact
+              items={[
+                'Pick a name and ticker you want reserved.',
+                'Use quick launch for safe defaults.',
+                'Use customizable curve only when you understand the selected modules.',
+                'Read the quote and gas prompt before signing.',
+              ]}
+            />
+          </section>
+          <section className={styles.factCard} data-tone="warning">
+            <span className={styles.noteKicker}>source of truth</span>
+            <p>
+              For exact contract addresses, fees, and chain enablement, trust the live
+              router/config reads over old screenshots or copied docs.
+            </p>
+          </section>
+          <section className={styles.factCard}>
+            <span className={styles.noteKicker}>support route</span>
+            <p>
+              Historical orphan curves are handled outside normal trading.
+            </p>
+            <Link href="/recover" className="uru-btn uru-btn-mint">
+              open recovery
+            </Link>
+          </section>
+        </aside>
+      </div>
+    </main>
   );
 }
 
-// ============================================================================
-// subcomponents
-// ============================================================================
-
-function Section({
+function DocSection({
   id,
   title,
   jp,
@@ -626,27 +312,23 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} style={{ scrollMarginTop: 60, marginBottom: 22 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-        <h2
-          className="uru-h1"
-          style={{ fontSize: 20, lineHeight: 1 }}
-          dangerouslySetInnerHTML={{ __html: title }}
-        />
-        <span
-          style={{
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 14,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          {jp}
-        </span>
+    <section id={id} className={styles.referenceSection}>
+      <div className={styles.sectionTitle}>
+        <span>{jp}</span>
+        <h2>{title}</h2>
       </div>
-      <div className="uru-shell-tight" style={{ padding: 14, lineHeight: 1.6, fontSize: 13 }}>
-        {children}
-      </div>
+      <div className={styles.sectionBody}>{children}</div>
     </section>
+  );
+}
+
+function FactList({ items, compact = false }: { items: string[]; compact?: boolean }) {
+  return (
+    <ul className={compact ? styles.compactList : styles.factList}>
+      {items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
   );
 }
 
@@ -655,82 +337,41 @@ function Callout({
   label,
   children,
 }: {
-  tone: 'pink' | 'mint' | 'mizuiro' | 'yolk';
+  tone: Exclude<Tone, 'paper'>;
   label: string;
   children: React.ReactNode;
 }) {
-  const bg =
-    tone === 'pink' ? 'var(--pink-warm)' :
-    tone === 'mint' ? 'var(--mint)' :
-    tone === 'mizuiro' ? 'var(--mizuiro)' :
-    'var(--yolk)';
   return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: 10,
-        background: bg,
-        border: '1.5px solid var(--anchor)',
-        borderLeft: '4px solid var(--anchor)',
-      }}
-    >
-      <div className="uru-eyebrow" style={{ marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, lineHeight: 1.55 }}>{children}</div>
+    <div className={styles.callout} data-tone={tone}>
+      <span>{label}</span>
+      <div>{children}</div>
     </div>
+  );
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+  return (
+    <div className={styles.metric} data-tone={tone}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}
+
+function Risk({ title, body }: { title: string; body: string }) {
+  return (
+    <article className={styles.risk}>
+      <h3>{title}</h3>
+      <p>{body}</p>
+    </article>
   );
 }
 
 function FAQ({ q, children }: { q: string; children: React.ReactNode }) {
   return (
-    <details
-      style={{
-        marginBottom: 6,
-        padding: '6px 10px',
-        border: '1.5px solid var(--anchor)',
-        background: 'var(--cream-deep)',
-      }}
-    >
-      <summary
-        style={{
-          cursor: 'pointer',
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontWeight: 700,
-          fontSize: 13,
-          listStyle: 'none',
-        }}
-        dangerouslySetInnerHTML={{ __html: `❀ ${q}` }}
-      />
-      <div style={{ marginTop: 6, fontSize: 12.5, lineHeight: 1.55 }}>{children}</div>
+    <details className={styles.faq}>
+      <summary>{q}</summary>
+      <div>{children}</div>
     </details>
   );
 }
-
-// ============================================================================
-// shared styles
-// ============================================================================
-
-const numberedListStyle: React.CSSProperties = {
-  margin: 0,
-  paddingLeft: 20,
-  fontSize: 13,
-  lineHeight: 1.65,
-};
-
-const bulletListStyle: React.CSSProperties = {
-  margin: '6px 0',
-  paddingLeft: 18,
-  fontSize: 13,
-  lineHeight: 1.55,
-};
-
-const linkStyle: React.CSSProperties = {
-  color: 'var(--link-blue)',
-  textDecoration: 'underline',
-};
-
-const codeStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-pixel), monospace',
-  background: 'var(--cream-deep)',
-  padding: '1px 4px',
-  border: '1px solid var(--anchor)',
-};
