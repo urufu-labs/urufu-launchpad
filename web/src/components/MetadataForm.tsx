@@ -35,16 +35,23 @@ const EYEBROW: React.CSSProperties = {
 /// per-token edit modal without palette clashes.
 export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [logoNotice, setLogoNotice] = useState<string | null>(null);
 
   async function handleLogo(file: File | null) {
     setLogoError(null);
+    setLogoNotice(null);
     if (!file) {
       onChange({ ...value, logoDataUrl: undefined });
       return;
     }
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      onChange({ ...value, logoDataUrl: dataUrl });
+      const result = await readFileAsDataUrl(file);
+      onChange({ ...value, logoDataUrl: result.dataUrl });
+      if (result.optimized) {
+        setLogoNotice(
+          `optimized ${Math.ceil(result.originalBytes / 1024)}KB → ${Math.ceil(result.outputBytes / 1024)}KB for launch ~`,
+        );
+      }
     } catch (err) {
       setLogoError((err as Error).message);
     }
@@ -120,8 +127,20 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
                 lineHeight: 1.5,
               }}
             >
-              png / jpeg / webp / svg, up to 256 kb. gets pinned to ipfs on save ~
+              png / jpeg / webp / svg up to 10MB. larger images get resized for launch ~
             </div>
+            {logoNotice && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 10,
+                  color: 'var(--anchor-soft)',
+                }}
+              >
+                {logoNotice}
+              </div>
+            )}
             {logoError && (
               <div
                 style={{
