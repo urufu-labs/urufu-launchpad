@@ -11,6 +11,7 @@ import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { sizeForName } from '@/lib/nameSize';
 
 /// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
 /// is: paste a launched token's address to jump into its trade page. Once Ponder is wired,
@@ -211,7 +212,7 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-          <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div className="uru-h2" style={{ fontSize: sizeForName(launch.name, 13), lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {launch.name}
           </div>
           <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>

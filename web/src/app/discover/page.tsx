@@ -20,6 +20,7 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
+import { sizeForName } from '@/lib/nameSize';
 
 // All filters are curve-only now — the create page only launches curves (quick
 // + customizable, both fire installBondingCurve=true). The old 'direct mint'
@@ -300,7 +301,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
             <div
               className="uru-h2"
               style={{
-                fontSize: 13,
+                fontSize: sizeForName(launch.name, 13),
                 lineHeight: 1.1,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',

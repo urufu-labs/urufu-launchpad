@@ -8,6 +8,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { sizeForName } from '@/lib/nameSize';
 import {
   MOCK_LAUNCHES,
   mockProgressPct,
@@ -788,7 +789,7 @@ function CultureBulletin({
         <span className="uru-home-bulletin-kicker">token details</span>
         {launch ? (
           <>
-            <h2>{launch.name}</h2>
+            <h2 style={launch.name.length > 12 ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
             <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
             <p className="uru-home-bulletin-byline">by {creator}</p>
             <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
