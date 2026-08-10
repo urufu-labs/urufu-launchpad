@@ -10,12 +10,14 @@ import { CultureHeroArt } from '@/components/CultureHeroArt';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
+  allMockLaunches,
   MOCK_LAUNCHES,
   mockProgressPct,
   launchKind,
   tradeCountOf,
   type MockLaunch,
   type MockTrade,
+  onMockLaunchesChange,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
@@ -96,6 +98,15 @@ const PREVIEW_STATS = {
   chain: 'Robinhood',
 };
 
+function getPreviewLaunches(chainId: number): MockLaunch[] {
+  const curveLaunches = allMockLaunches().filter((launch) => launchKind(launch) === 'curve');
+  const createdOnActiveChain = curveLaunches.filter((launch) => launch.isDemo && launch.chainId === chainId);
+  const fixtures = curveLaunches.filter((launch) => !launch.isDemo);
+  return [...createdOnActiveChain, ...fixtures]
+    .sort((a, b) => b.launchedAt - a.launchedAt)
+    .slice(0, 3);
+}
+
 // Preview data is for local reviews by default. A staging deployment must opt in with
 // NEXT_PUBLIC_ENABLE_HOME_PREVIEW=true; production does not render the control unless
 // someone deliberately supplies that flag.
@@ -127,6 +138,7 @@ function HomePageContent() {
   const [query, setQuery] = useState('');
   const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
+  const [previewLaunches, setPreviewLaunches] = useState<MockLaunch[]>(() => getPreviewLaunches(chainId ?? 11155111));
   const [previewTrades, setPreviewTrades] = useState<PreviewTrade[]>(() =>
     HOME_PREVIEW_AVAILABLE ? PREVIEW_TRADE_SEEDS.slice(0, 3).reverse() : [],
   );
@@ -137,9 +149,16 @@ function HomePageContent() {
   // Real indexer feed for chains with deployed contracts, mocks otherwise.
   const feed = useLaunchFeed(chainId);
   const chainMocks = feed.launches;
-  const previewLaunches = PREVIEW_LAUNCHES;
   const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
   const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
+
+  useEffect(() => {
+    if (!previewEnabled) return;
+    const onChange = () => setPreviewLaunches(getPreviewLaunches(chainId ?? 11155111));
+    onChange();
+    const unsubscribe = onMockLaunchesChange(onChange);
+    return () => unsubscribe();
+  }, [previewEnabled, chainId]);
 
   // Chain-scoped aggregates for the stat strip. On live chains this reflects real indexer
   // launches; on preview chains it aggregates the mock fixtures useLaunchFeed returned.
@@ -268,10 +287,10 @@ function HomePageContent() {
       return [...curveRows, ...v4Rows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
     }
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
-    return MOCK_LAUNCHES.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
+    return sourceLaunches.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
-  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks]);
+  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks, sourceLaunches]);
 
   // The static review's rail tells a small, readable story: three creator-first rows,
   // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
@@ -357,7 +376,13 @@ function HomePageContent() {
   }, [previewEnabled, previewIncomingTradeId, previewTrades]);
 
   const displayedStats = previewEnabled
-    ? PREVIEW_STATS
+    ? {
+        tokens: String(previewLaunches.length),
+        graduated: String(previewLaunches.filter((l) => l.graduated).length),
+        ethRaised: `${Number(formatEther(previewLaunches.reduce((sum, l) => sum + l.ethReserve, 0n))).toFixed(2)} Ξ`,
+        trades: String(previewLaunches.reduce((sum, l) => sum + tradeCountOf(l), 0)),
+        chain: 'preview',
+      }
     : {
         tokens: String(stats.total),
         graduated: String(stats.graduated),
@@ -365,7 +390,7 @@ function HomePageContent() {
         trades: String(stats.totalTrades),
         chain: sourceLabel,
       };
-  const bulletinLaunch = previewEnabled ? PREVIEW_LAUNCHES[1] ?? PREVIEW_LAUNCHES[0] : filtered[0];
+  const bulletinLaunch = previewEnabled ? previewLaunches[1] ?? previewLaunches[0] : filtered[0];
   const bulletinTicket = bulletinLaunch
     ? PREVIEW_TICKETS.find((ticket) => ticket.address === bulletinLaunch.address)
     : undefined;
@@ -465,7 +490,7 @@ function HomePageContent() {
                 <LaunchTile
                   key={l.address}
                   launch={l}
-                  preview={PREVIEW_TICKETS.find((ticket) => ticket.address === l.address)}
+                  preview={previewEnabled ? PREVIEW_TICKETS.find((ticket) => ticket.address === l.address) : undefined}
                 />
               ))}
             </div>
@@ -592,7 +617,7 @@ function HomePageContent() {
       <CultureBulletin
         launch={bulletinLaunch}
         preview={bulletinTicket}
-        previewLaunches={previewEnabled ? PREVIEW_LAUNCHES : filtered.slice(0, 3)}
+        previewLaunches={previewEnabled ? previewLaunches : filtered.slice(0, 3)}
         collectors={
           previewEnabled
             ? previewTrades.map((trade) => trade.wallet)

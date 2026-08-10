@@ -6,51 +6,115 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { formatEther, formatUnits } from 'viem';
+import { formatEther, formatUnits, parseEther, parseUnits } from 'viem';
 
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
-import { mockMarketCapEth, type MockLaunch } from '@/lib/mockLaunches';
+import { mockMarketCapEth, type MockLaunch, type MockTrade } from '@/lib/mockLaunches';
 import { formatGweiPerToken } from '@/lib/priceFmt';
 import styles from './trade-terminal.module.css';
 
 type Side = 'buy' | 'sell';
+const PREVIEW_TRADER = '0x0badf00d0badf00d0badf00d0badf00d0badf00d' as const;
 
 export function MockTradeView({ launch }: { launch: MockLaunch }) {
   const [side, setSide] = useState<Side>('buy');
   const [inputAmount, setInputAmount] = useState('');
   const [slippagePct, setSlippagePct] = useState('2');
-  // Fake-trade nonce — bump on the "preview buy/sell" button to fire a chart flash even
-  // when there's no real chain event yet. Side comes from the current side toggle.
+  const [simulatedTrades, setSimulatedTrades] = useState<MockTrade[]>([]);
+  const [tradeNotice, setTradeNotice] = useState<string | null>(null);
+  // Bumped for each local fill so TradeChart highlights the simulated trade.
   const [previewNonce, setPreviewNonce] = useState(0);
   const [previewSide, setPreviewSide] = useState<Side>('buy');
 
+  const trades = useMemo(() => [...launch.trades, ...simulatedTrades], [launch.trades, simulatedTrades]);
+  const latestTrade = trades.at(-1);
+  const ethReserve = latestTrade?.ethReserve ?? launch.ethReserve;
+  const tokenReserve = latestTrade?.tokenReserve ?? launch.tokenReserve;
+  const tradeAmount = inputAmount || (side === 'buy' ? '0.1' : '100000');
+
+  const previewQuote = useMemo(() => {
+    if (launch.graduated) return null;
+    try {
+      const input = side === 'buy' ? parseEther(tradeAmount) : parseUnits(tradeAmount, 18);
+      if (input <= 0n) return null;
+      const effectiveEth = ethReserve + launch.virtualEthReserve;
+      const effectiveToken = tokenReserve + launch.virtualTokenReserve;
+      const invariant = effectiveEth * effectiveToken;
+      if (side === 'buy') {
+        const nextEffectiveToken = invariant / (effectiveEth + input);
+        const tokensOut = effectiveToken - nextEffectiveToken;
+        if (tokensOut <= 0n || tokensOut >= tokenReserve) return null;
+        return {
+          ethAmount: input,
+          tokenAmount: tokensOut,
+          nextEthReserve: ethReserve + input,
+          nextTokenReserve: tokenReserve - tokensOut,
+        };
+      }
+      const nextEffectiveEth = invariant / (effectiveToken + input);
+      const ethOut = effectiveEth - nextEffectiveEth;
+      if (ethOut <= 0n || ethOut >= ethReserve) return null;
+      return {
+        ethAmount: ethOut,
+        tokenAmount: input,
+        nextEthReserve: ethReserve - ethOut,
+        nextTokenReserve: tokenReserve + input,
+      };
+    } catch {
+      return null;
+    }
+  }, [ethReserve, launch.graduated, launch.virtualEthReserve, launch.virtualTokenReserve, side, tokenReserve, tradeAmount]);
+
+  function simulateTrade() {
+    if (!previewQuote) {
+      setTradeNotice('enter a valid amount that the preview curve can fill');
+      return;
+    }
+    const trade: MockTrade = {
+      isBuy: side === 'buy',
+      ethAmount: previewQuote.ethAmount,
+      tokenAmount: previewQuote.tokenAmount,
+      ethReserve: previewQuote.nextEthReserve,
+      tokenReserve: previewQuote.nextTokenReserve,
+      trader: PREVIEW_TRADER,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+    setSimulatedTrades((current) => [...current, trade]);
+    setPreviewSide(side);
+    setPreviewNonce((current) => current + 1);
+    setTradeNotice(`simulated ${side}: no wallet prompt or network transaction`);
+  }
+
   const tradePoints: TradePoint[] = useMemo(
     () =>
-      launch.trades.map((t) => ({
+      trades.map((t) => ({
         timestamp: t.timestamp,
         priceWeiPerToken:
           t.tokenAmount > 0n ? (t.ethAmount * 10n ** 18n) / t.tokenAmount : 0n,
       })),
-    [launch.trades],
+    [trades],
   );
 
   const progressPct = useMemo(() => {
     if (launch.graduated) return 100;
-    return Math.min(100, Number((launch.ethReserve * 10_000n) / launch.graduationTargetEth) / 100);
-  }, [launch]);
+    return Math.min(100, Number((ethReserve * 10_000n) / launch.graduationTargetEth) / 100);
+  }, [ethReserve, launch.graduated, launch.graduationTargetEth]);
 
   const spotPrice = useMemo(
     () =>
-      ((launch.ethReserve + launch.virtualEthReserve) * 10n ** 18n) /
-      (launch.tokenReserve + launch.virtualTokenReserve),
-    [launch],
+      ((ethReserve + launch.virtualEthReserve) * 10n ** 18n) /
+      (tokenReserve + launch.virtualTokenReserve),
+    [ethReserve, launch.virtualEthReserve, launch.virtualTokenReserve, tokenReserve],
   );
 
-  const marketCap = useMemo(() => mockMarketCapEth(launch), [launch]);
-  const tokensSold = launch.curveSupply - launch.tokenReserve;
+  const marketCap = useMemo(
+    () => mockMarketCapEth({ ...launch, ethReserve, tokenReserve, trades }),
+    [ethReserve, launch, tokenReserve, trades],
+  );
+  const tokensSold = launch.curveSupply - tokenReserve;
 
-  const recentTrades = useMemo(() => launch.trades.slice(-25).reverse(), [launch.trades]);
+  const recentTrades = useMemo(() => trades.slice(-25).reverse(), [trades]);
   const tickerTrades = useMemo(
     () => recentTrades.map((t) => ({ isBuy: t.isBuy, eth: t.ethAmount, tokens: t.tokenAmount, trader: t.trader })),
     [recentTrades],
@@ -68,7 +132,7 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
     <div className={styles.terminalPage}>
       {/* preview-mode strip — slim colored bar */}
       <div className={styles.notice}>
-        <b>◐ preview mode</b> ~ mock token for UI demo. buy/sell buttons are inert til phase 1 broadcasts.
+        <b>◐ preview mode</b> ~ trades are simulated in this tab and never broadcast.
       </div>
 
       {/* ================================================================
@@ -105,7 +169,7 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
               creator {launch.creator.slice(0, 6)}…{launch.creator.slice(-4)}
             </Link>
             <span>fee: {launch.tradeFeeBps / 100}%</span>
-            <span>{launch.trades.length} trades</span>
+            <span>{trades.length} trades</span>
             <CopyCA address={launch.address} />
           </div>
         </div>
@@ -137,7 +201,7 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
           <div className={styles.progressTop}>
             <span className="uru-eyebrow">{launch.graduated ? 'graduated' : 'grad -> v4'}</span>
             <span>
-              {Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
+              {Number(formatEther(ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
               {' '}({progressPct.toFixed(1)}%)
             </span>
           </div>
@@ -299,7 +363,12 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
                 <div className={styles.quoteBox}>
                   <div className={styles.fieldLabel}>you receive</div>
                   <div className={styles.quoteValue}>
-                    — <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>(preview)</span>
+                    {previewQuote
+                      ? `${side === 'buy'
+                        ? Number(formatUnits(previewQuote.tokenAmount, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                        : Number(formatEther(previewQuote.ethAmount)).toFixed(5)} ${side === 'buy' ? launch.ticker : 'ETH'}`
+                      : '—'}
+                    <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>(simulated)</span>
                   </div>
                 </div>
 
@@ -319,11 +388,12 @@ export function MockTradeView({ launch }: { launch: MockLaunch }) {
 
                 <button
                   type="button"
-                  onClick={() => { setPreviewSide(side); setPreviewNonce((n) => n + 1); }}
+                  onClick={simulateTrade}
                   className={`${side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'} ${styles.primaryAction}`}
                 >
-                  preview {side} (chart flashes)
+                  simulate {side} (no wallet)
                 </button>
+                {tradeNotice && <div role="status" style={{ marginTop: 8, fontSize: 11, color: 'var(--anchor-soft)' }}>{tradeNotice}</div>}
               </>
             )}
             </div>

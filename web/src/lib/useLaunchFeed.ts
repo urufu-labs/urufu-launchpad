@@ -5,19 +5,18 @@ import { parseEther } from 'viem';
 
 import type { Address } from 'viem';
 import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
-import { MOCK_LAUNCHES, type MockLaunch } from './mockLaunches';
+import { allMockLaunches, mocksForChain, onMockLaunchesChange, type MockLaunch } from './mockLaunches';
 import { CONTRACTS, type ChainKey } from './config';
 import { CHAIN_ID_TO_KEY } from './wagmi';
 import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
 import { useMockDataMode } from './mockDataMode';
+import { isHiddenToken } from './hiddenTokens';
 
 interface FeedState {
   source: 'indexer' | 'mock';
   launches: MockLaunch[];
   ready: boolean;
 }
-
-import { isHiddenToken } from './hiddenTokens';
 
 // Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
 // no longer belongs on these because there are real launches to show. Kept as a lazy read so
@@ -31,7 +30,7 @@ function previewLaunches(): MockLaunch[] {
   // Demo mode is deliberately chain-independent: the fixture set illustrates fresh,
   // mid-curve, near-graduation, and graduated tokens even when the selected live chain
   // has no fixture addresses of its own.
-  return MOCK_LAUNCHES.filter((launch) => !isHiddenToken(launch.chainId, launch.address));
+  return allMockLaunches();
 }
 
 /// Unified launch-feed hook consumed by home / discover / trade-list.
@@ -54,9 +53,7 @@ export function useLaunchFeed(chainId: number): FeedState {
     if (!hasLiveContracts(chainId)) {
       return {
         source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
-          (l) => !isHiddenToken(l.chainId, l.address),
-        ),
+        launches: mocksForChain(chainId),
         ready: true,
       };
     }
@@ -66,20 +63,21 @@ export function useLaunchFeed(chainId: number): FeedState {
   useEffect(() => {
     let cancelled = false;
 
-    if (mockData.enabled) {
-      setState({ source: 'mock', launches: previewLaunches(), ready: true });
-      return () => { cancelled = true; };
-    }
-
-    if (!hasLiveContracts(chainId)) {
-      setState({
-        source: 'mock',
-        launches: MOCK_LAUNCHES.filter((l) => l.chainId === chainId).filter(
-          (l) => !isHiddenToken(l.chainId, l.address),
-        ),
-        ready: true,
-      });
-      return () => { cancelled = true; };
+    if (mockData.enabled || !hasLiveContracts(chainId)) {
+      const refreshMocks = () => {
+        if (cancelled) return;
+        setState({
+          source: 'mock',
+          launches: mockData.enabled ? previewLaunches() : mocksForChain(chainId),
+          ready: true,
+        });
+      };
+      refreshMocks();
+      const unsubscribe = onMockLaunchesChange(refreshMocks);
+      return () => {
+        cancelled = true;
+        unsubscribe();
+      };
     }
 
     // First run per chainId — clear so we don't flash mocks from another chain while
@@ -116,7 +114,10 @@ export function useLaunchFeed(chainId: number): FeedState {
     // without a page refresh. 15s is a friendly cadence — indexer catch-up is usually
     // sub-second so this feels near-real-time without hammering the backend.
     const id = setInterval(load, 15_000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [chainId, mockData.enabled]);
 
   return state;

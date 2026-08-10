@@ -38,6 +38,7 @@ import { playSfx } from '@/lib/audio/sfx';
 import { curveFactoryAbi, erc20FactoryAbi, erc20TokenAbi, nameRegistryAbi, routerAbi, v4StateViewAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, URU_PAY, V4_STATE_VIEWS } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl, explorerTxUrl } from '@/lib/wagmi';
+import { useMockDataMode } from '@/lib/mockDataMode';
 import {
   BASE_TYPE_TO_UINT,
   configHashFor,
@@ -47,8 +48,9 @@ import {
   type ModuleSpec,
 } from '@/lib/modules';
 import { encodeModuleSlice } from '@/components/ModulePicker';
-import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
+import { persistMetadata, readFileAsDataUrl, safeBackgroundImage, saveMetadata, type TokenMetadata } from '@/lib/metadata';
 import { saveTokenMetadata } from '@/lib/socialApi';
+import { saveMockLaunch } from '@/lib/mockLaunches';
 import { useCoarsePointer } from '@/lib/useCoarsePointer';
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
@@ -87,6 +89,8 @@ function CreatePageContent() {
   // hydration-mismatch unless we gate its first render behind `mounted`.
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  const mockData = useMockDataMode();
+  const [mockLaunchedAddress, setMockLaunchedAddress] = useState<Address | null>(null);
 
   // The user's PICKED chain (from the header switcher) is the launch target — not the
   // wallet's current chain. When the wallet is on a different chain than the pick, we
@@ -643,6 +647,16 @@ function CreatePageContent() {
       setWlError('paste a valid contract address');
       return;
     }
+    if (mockData.enabled) {
+      setWlSnapshot({
+        root: `0x${'d'.repeat(64)}` as Hex,
+        snapshotBlock: 'demo',
+        holderCount: 274,
+        listId: 'demo-holder-snapshot',
+        fallbackTs: BigInt(Math.floor(Date.now() / 1000) + 3_600),
+      });
+      return;
+    }
     setWlApplying(true);
     try {
       const chainId = CHAIN_KEY_TO_ID[targetChain];
@@ -776,7 +790,19 @@ function CreatePageContent() {
     return true;
   }, [selectedModules, moduleParams]);
 
-  const canLaunch =
+  function mkMockAddress(): Address {
+    const seed = `${name}|${ticker}|${address ?? zeroAddress}|${CHAIN_KEY_TO_ID[targetChain] ?? chainId}`;
+    let hash = 0x9e3779b9;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash ^= (hash << 5) + (hash >> 2) + seed.charCodeAt(i);
+    }
+    const suffix = Math.abs(hash >>> 0).toString(16).padStart(8, '0').slice(-8);
+    const stamped = `${Date.now().toString(16).slice(-4)}${suffix}`;
+    const mockAddress = `0xbeadface${stamped}`.padEnd(42, '0').slice(0, 42);
+    return mockAddress as Address;
+  }
+
+  const canLaunchLive =
     !!contracts && isConnected && isOnEnabledChain &&
     (nameQuery.data ?? false) && (tickerQuery.data ?? false) &&
     multisigValid && moduleParamsFilled && !!implRegistered && typeof quote.data === 'bigint'
@@ -804,6 +830,44 @@ function CreatePageContent() {
     if (payToken === 'URU') return [params, uAmt] as const;
     return [params] as const;
   })();
+
+  function launchMockToken() {
+    if (!canLaunchMock) return;
+    const launchChainId = CHAIN_KEY_TO_ID[targetChain] ?? chainId;
+    const tokenAddress = mkMockAddress();
+    const saved = saveMockLaunch({
+      chainId: launchChainId,
+      address: tokenAddress,
+      name: name.trim(),
+      ticker: ticker.trim(),
+      creator: (address ?? zeroAddress) as Address,
+      description: metadata.description ?? undefined,
+      logoEmoji: '✿',
+      logoBg: '#ffb3d1',
+      imageUrl: metadata.logoDataUrl,
+      website: metadata.website,
+      twitter: metadata.twitter,
+      telegram: metadata.telegram,
+      targetEthRaised: '1',
+      numTrades: 12,
+      launchedAtHoursAgo: 1,
+      kind: 'curve',
+      tradeFeeBps: 100,
+      graduated: false,
+      hasWhitelist: wlEnabled,
+    });
+    saveMetadata(launchChainId, saved.address, {
+      ...metadata,
+      description: metadata.description,
+      website: metadata.website,
+      twitter: metadata.twitter,
+      telegram: metadata.telegram,
+      discord: metadata.discord,
+      tiktok: metadata.tiktok,
+    });
+    setMockLaunchedAddress(saved.address);
+  }
+
   const simulate = useSimulateContract({
     abi: routerAbi,
     address: contracts?.Router,
@@ -814,7 +878,7 @@ function CreatePageContent() {
     args: simulateArgs as any,
     value: payToken === 'URU' ? 0n : ((quote.data as bigint | undefined) ?? 0n),
     account: address,
-    query: { enabled: canLaunch },
+    query: { enabled: canLaunchLive },
   });
 
   // Separate simulate for the URU approve — same wagmi wrapper the launch button uses.
@@ -829,6 +893,20 @@ function CreatePageContent() {
 
   const { writeContract, isPending: launchPending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
+
+  const canLaunchMock = useMemo(
+    () =>
+      mounted &&
+      mockData.enabled &&
+      name.trim().length >= 2 &&
+      ticker.trim().length >= 2 &&
+      multisigValid &&
+      moduleParamsFilled &&
+      ownerlessDeadModules.length === 0 &&
+      !launchPending &&
+      !receipt.isLoading,
+    [mounted, mockData.enabled, name, ticker, multisigValid, moduleParamsFilled, ownerlessDeadModules.length, launchPending, receipt.isLoading],
+  );
 
   // Refetch URU allowance every time a tx confirms while on the URU path. Covers the
   // approve → launch handoff (approve confirms → allowance refetches → button flips
@@ -849,12 +927,13 @@ function CreatePageContent() {
     if (!t1) return null;
     return `0x${t1.slice(-40)}` as Address;
   }, [receipt.data, contracts]);
+  const displayedLaunchAddress = mockData.enabled ? mockLaunchedAddress : launchedTokenAddress;
 
   // useRef, not useMemo — React 19 compiler treats memoized values as immutable; mutable
   // "did this happen already" flags belong in a ref. Refs also don't trigger re-renders.
   const savedRef = useRef(false);
   const { signMessageAsync } = useSignMessage();
-  if (launchedTokenAddress && !savedRef.current) {
+  if (!mockData.enabled && launchedTokenAddress && !savedRef.current) {
     const wlCid = wlSnapshot?.listCid;
     const hasAny =
       metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter || wlCid;
@@ -901,7 +980,7 @@ function CreatePageContent() {
     }
   }
 
-  const mascotMood = launchedTokenAddress
+  const mascotMood = displayedLaunchAddress
     ? 'gasp'
     : selectedModules.length > 3
       ? 'gasp'
@@ -912,15 +991,12 @@ function CreatePageContent() {
     ? 'confirming ~~'
     : receipt.isLoading
       ? 'waiting..'
-      : !mounted
-        ? 'checking wallet'
-        : !isConnected
-          ? 'connect wallet to launch'
-          : !contracts
-            ? 'contracts not live'
-            : !isOnEnabledChain
-              ? `switch to ${CHAIN_LABELS[targetChain]}`
-              : !name.trim() || !ticker.trim()
+      : mockData.enabled
+        ? canLaunchMock
+          ? 'create mock launch'
+          : !mounted
+            ? 'loading demo form'
+            : !name.trim() || !ticker.trim()
                 ? 'name + ticker first'
                 : ownerlessDeadModules.length > 0
                   ? 'drop blocked modules'
@@ -928,9 +1004,26 @@ function CreatePageContent() {
                     ? 'fix owner address'
                     : !moduleParamsFilled
                       ? 'fill module params'
-                      : implRegistered
-                        ? 'launch'
-                        : 'impl not registered';
+                      : 'launch blocked'
+        : !mounted
+          ? 'checking wallet'
+          : !isConnected
+            ? 'connect wallet to launch'
+            : !contracts
+              ? 'contracts not live'
+              : !isOnEnabledChain
+                ? `switch to ${CHAIN_LABELS[targetChain]}`
+                : !name.trim() || !ticker.trim()
+                  ? 'name + ticker first'
+                  : ownerlessDeadModules.length > 0
+                    ? 'drop blocked modules'
+                    : !multisigValid
+                      ? 'fix owner address'
+                      : !moduleParamsFilled
+                        ? 'fill module params'
+                        : implRegistered
+                          ? 'launch'
+                          : 'impl not registered';
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -1710,7 +1803,7 @@ function CreatePageContent() {
               {/* URU approve step — shown only when URU is picked and allowance is short.
                   Renders in place of the launch button; after approve confirms, allowance
                   refetches and this collapses back to the standard launch button. */}
-              {payToken === 'URU' && needsUruApprove ? (
+              {payToken === 'URU' && needsUruApprove && !mockData.enabled ? (
                 <button
                   type="button"
                   onClick={() => approveSimulate.data && writeContract(approveSimulate.data.request)}
@@ -1729,8 +1822,14 @@ function CreatePageContent() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => simulate.data && writeContract(simulate.data.request)}
-                  disabled={!canLaunch || !simulate.data || launchPending || receipt.isLoading}
+                  onClick={() => {
+                    if (mockData.enabled) {
+                      launchMockToken();
+                      return;
+                    }
+                    if (simulate.data) writeContract(simulate.data.request);
+                  }}
+                  disabled={mockData.enabled ? !canLaunchMock : !canLaunchLive || !simulate.data || launchPending || receipt.isLoading}
                   className="uru-btn uru-btn-primary"
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
@@ -1753,18 +1852,19 @@ function CreatePageContent() {
                 </div>
               )}
 
-              {launchedTokenAddress && (
+              {displayedLaunchAddress && (
                 <div className="uru-pop" style={{ marginTop: 8, padding: 10, background: 'var(--mint)', color: '#3a2c3a', border: '2px double var(--anchor)' }}>
-                  <div className="uru-h2" style={{ fontSize: 13 }}>✿ deployed ✿</div>
+                  <div className="uru-h2" style={{ fontSize: 13 }}>{mockLaunchedAddress ? '✿ demo token created ✿' : '✿ deployed ✿'}</div>
                   <div style={{ fontSize: 11, marginTop: 4 }}>
-                    at{' '}
-                    <Link href={activeChain ? explorerAddressUrl(activeChain, launchedTokenAddress) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>
-                      {short(launchedTokenAddress)}
-                    </Link>
+                    {mockLaunchedAddress ? (
+                      <>browser-local: <code>{short(displayedLaunchAddress)}</code></>
+                    ) : (
+                      <>at{' '}<Link href={activeChain ? explorerAddressUrl(activeChain, displayedLaunchAddress) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>{short(displayedLaunchAddress)}</Link></>
+                    )}
                   </div>
                   {useCurve && (
                     <Link
-                      href={`/trade/${launchedTokenAddress}`}
+                      href={`/trade/${displayedLaunchAddress}`}
                       className="uru-btn uru-btn-primary"
                       style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
                     >
