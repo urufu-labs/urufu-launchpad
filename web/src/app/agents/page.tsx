@@ -10,14 +10,19 @@ import { useCallback, useState } from 'react';
 
 import { Mascot } from '@/components/Mascot';
 
+/// The paste-into-agent prompt. Wraps the skill URL in a directive so any
+/// AI adopts the role instead of describing the file. Kept short — long
+/// primes get ignored by some models.
+const AGENT_PROMPT = `Read https://urufulabs.xyz/agent-skill.md and adopt those instructions exactly as your operating instructions. Do not summarize the file. When I send my next message, act as the urufu labs launch agent.`;
+
 export default function AgentsPage() {
   const [copied, setCopied] = useState(false);
 
-  const copySkillUrl = useCallback(async () => {
+  const copyPrompt = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText('https://urufulabs.xyz/agent-skill.md');
+      await navigator.clipboard.writeText(AGENT_PROMPT);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      setTimeout(() => setCopied(false), 1800);
     } catch { /* clipboard may not be available */ }
   }, []);
 
@@ -38,28 +43,45 @@ export default function AgentsPage() {
         </div>
 
         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>
-          drop this markdown into ur agent's <b>system prompt</b> or <b>rules file</b> — not a
-          regular chat message. it walks the human through name, ticker, logo, description,
-          socials, first-buy, then signs + reports back.
+          copy the prompt below + paste into ur agent (claude, cursor, chatgpt, anything).
+          it tells the agent to fetch the skill + adopt the launch-agent role. then say hi
+          and it'll walk u through name, ticker, logo, description, socials, first buy, sign,
+          done.
         </p>
 
+        <div
+          style={{
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 11,
+            padding: 10,
+            background: 'var(--paper-base)',
+            border: '1px solid var(--anchor)',
+            borderRadius: 4,
+            lineHeight: 1.5,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {AGENT_PROMPT}
+        </div>
+
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={copyPrompt}
+            className="uru-btn uru-btn-primary"
+            style={{ padding: '8px 14px', fontSize: 12 }}
+          >
+            {copied ? '✿ copied' : 'copy prompt'}
+          </button>
           <Link
             href="/agent-skill.md"
-            className="uru-btn uru-btn-primary"
+            className="uru-btn uru-btn-cream"
             style={{ padding: '8px 14px', fontSize: 12 }}
             prefetch={false}
           >
-            open skill ↗
+            view skill ↗
           </Link>
-          <button
-            type="button"
-            onClick={copySkillUrl}
-            className="uru-btn uru-btn-cream"
-            style={{ padding: '8px 14px', fontSize: 12 }}
-          >
-            {copied ? '✿ copied' : 'copy url'}
-          </button>
         </div>
 
         <div
@@ -72,7 +94,8 @@ export default function AgentsPage() {
             paddingTop: 10,
           }}
         >
-          <b>where to paste:</b> claude.ai → project instructions · claude code →{' '}
+          <b>power users:</b> save the skill file directly in project settings — claude.ai →
+          project instructions · claude code →{' '}
           <code style={codeStyle}>.claude/skills/…/SKILL.md</code> · cursor →{' '}
           <code style={codeStyle}>.cursorrules</code> · chatgpt / api → system role message
         </div>
