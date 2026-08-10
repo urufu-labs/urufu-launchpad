@@ -801,7 +801,7 @@ body {
   justify-content: center;
   overflow: hidden;
   border-left: 1px dashed color-mix(in srgb, var(--anchor) 32%, transparent);
-  background: #fff8e7 url('/culture-first-altar-light-sheep-v1.png') center / cover no-repeat;
+  background: #fff8e7 url('/urufu-altar-light-poster-v1.png') center / cover no-repeat;
 }
 .uru-home-hero-video {
   position: absolute;

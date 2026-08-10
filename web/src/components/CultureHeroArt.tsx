@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 type Theme = 'light' | 'dark';
 
 const VIDEO_BY_THEME: Record<Theme, string | null> = {
-  light: null,
+  light: '/urufu-altar-light-loop-v1.mp4',
   dark: '/urufu-altar-ring-braid-loop-v1.mp4',
 };
 
