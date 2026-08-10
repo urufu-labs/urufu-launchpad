@@ -14,6 +14,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 import { PriceUnitToggle } from '@/components/PriceUnitToggle';
 import { WelcomeModal } from '@/components/WelcomeModal';
+import { MobileNavigation } from '@/components/MobileNavigation';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -182,10 +183,10 @@ export default function RootLayout({
           <AudioBindings />
           <WelcomeModal />
           <header
-            className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 flex-wrap"
+            className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2"
             style={{ borderBottom: '1.5px solid var(--anchor)', background: 'var(--cream)', color: 'var(--anchor)' }}
           >
-            <Link href="/" className="flex items-center gap-2 shrink-0">
+            <Link href="/" className="flex items-center gap-2 shrink-0" aria-label="urufu labs home">
               <span
                 aria-hidden
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-sm"
@@ -200,49 +201,43 @@ export default function RootLayout({
                 ウ
               </span>
               <span
-                className="uru-h1"
+                className="uru-h1 hidden min-[360px]:inline"
                 style={{ fontSize: 'clamp(16px, 4vw, 22px)' }}
               >
                 urufu<span style={{ color: 'var(--pink-hot)' }}>labs</span>
                 <sup style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: '10px', marginLeft: 2 }}>®</sup>
               </span>
             </Link>
-            {/* Nav: primary links only on ≥sm, chain switcher + wallet stay visible on every size */}
+            {/* Full navigation only appears when every destination can remain visible. */}
             <nav
-              className="flex items-center gap-2 sm:gap-3 text-[12px] sm:text-[13px] flex-wrap justify-end"
+              className="hidden lg:flex items-center gap-3 text-[13px] justify-end"
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
               aria-label="primary navigation"
             >
-              <Link href="/create" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✿ create</Link>
-              <Link href="/discover" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
-              <Link href="/trade" className="hover:underline hidden sm:inline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
-              <Link href="/feed" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
-              <Link href="/profile" className="hover:underline hidden md:inline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
+              <Link href="/create" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ create</Link>
+              <Link href="/discover" className="hover:underline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
+              <Link href="/trade" className="hover:underline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
+              <Link href="/feed" className="hover:underline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
+              <Link href="/profile" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
               <a
                 href="https://www.urufu.xyz"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hover:underline hidden md:inline"
+                className="hover:underline"
                 style={{ color: 'var(--pink-hot)' }}
               >
                 ❋ urufu gemu ↗
               </a>
-              {/* mobile-only compact menu */}
-              <Link href="/create" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="create token">✿</Link>
-              <Link href="/trade" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="trade">✦</Link>
-              <Link href="/profile" className="hover:underline sm:hidden" style={{ color: 'var(--anchor)' }} aria-label="profile">♡</Link>
-              {/* Theme + audio hide under `sm` — the header runs out of room and both are
-                  reachable elsewhere (theme toggle re-appears in the footer strip; audio
-                  is a nice-to-have that autoplay-blocks anyway on mobile). Chain switcher
-                  + wallet are the two non-negotiables since they gate every interaction. */}
-              <div className="hidden sm:contents">
-                <PriceUnitToggle />
-                <ThemeToggle />
-                <AudioToggle />
-              </div>
+              <PriceUnitToggle />
+              <ThemeToggle />
+              <AudioToggle />
               <ChainSwitcher />
               <WalletButton />
             </nav>
+            <div className="flex lg:hidden items-center gap-2 shrink-0">
+              <WalletButton />
+              <MobileNavigation />
+            </div>
           </header>
           <TokenTicker />
           <main className="flex-1">{children}</main>

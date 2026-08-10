@@ -1,0 +1,230 @@
+.mobileNavigation {
+  display: contents;
+}
+
+.menuButton,
+.closeButton {
+  align-items: center;
+  appearance: none;
+  background: var(--cream);
+  border: 1.5px solid var(--anchor);
+  box-shadow: 2px 2px 0 var(--anchor);
+  color: var(--anchor);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 13px;
+  font-weight: 600;
+  justify-content: center;
+  line-height: 1;
+  min-height: 44px;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.menuButton {
+  gap: 7px;
+  min-width: 44px;
+  padding: 0 10px;
+}
+
+.menuButton:hover,
+.closeButton:hover {
+  background: var(--pink-hot);
+  color: #fff;
+  box-shadow: 3px 3px 0 var(--anchor), var(--glow-pink);
+  transform: translate(-1px, -1px);
+}
+
+.menuButton:active,
+.closeButton:active {
+  box-shadow: 0 0 0 var(--anchor);
+  transform: translate(2px, 2px);
+}
+
+.menuGlyph {
+  display: grid;
+  gap: 3px;
+  width: 16px;
+}
+
+.menuGlyph i {
+  background: currentColor;
+  display: block;
+  height: 2px;
+  width: 16px;
+}
+
+.drawerLayer {
+  inset: 0;
+  position: fixed;
+  z-index: 10000;
+}
+
+.backdrop {
+  background: rgba(18, 14, 28, 0.54);
+  border: 0;
+  cursor: pointer;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.drawer {
+  background: var(--cream);
+  border-left: 2px solid var(--anchor);
+  box-shadow: -8px 0 0 color-mix(in srgb, var(--pink-hot) 45%, transparent);
+  color: var(--anchor);
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: min(100%, 390px);
+}
+
+.drawerHeader {
+  align-items: start;
+  border-bottom: 1.5px solid var(--anchor);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+
+.kicker,
+.drawer h3 {
+  display: block;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kicker {
+  color: var(--pink-hot);
+  margin-bottom: 5px;
+}
+
+.drawer h2 {
+  font-family: var(--font-display), sans-serif;
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.closeButton {
+  min-width: 72px;
+  padding: 0 10px;
+}
+
+.primaryLinks {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 18px 0;
+}
+
+.primaryLink,
+.primaryLinkSecondary,
+.linkSection nav a {
+  align-items: center;
+  border: 1.5px solid var(--anchor);
+  color: var(--anchor);
+  display: flex;
+  font-family: var(--font-round), Klee One, cursive;
+  font-size: 15px;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 48px;
+  padding: 8px 12px;
+  text-decoration: none;
+  transition: background 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.primaryLink {
+  background: var(--pink-hot);
+  box-shadow: 3px 3px 0 var(--anchor), var(--glow-pink);
+  color: #fff;
+  grid-column: 1 / -1;
+}
+
+.primaryLinkSecondary,
+.linkSection nav a {
+  background: color-mix(in srgb, var(--pink-warm) 25%, var(--cream));
+}
+
+.primaryLink:hover,
+.primaryLinkSecondary:hover,
+.linkSection nav a:hover {
+  background: var(--mint);
+  box-shadow: 3px 3px 0 var(--anchor);
+  color: var(--anchor);
+  transform: translate(-1px, -1px);
+}
+
+.primaryLink:active,
+.primaryLinkSecondary:active,
+.linkSection nav a:active {
+  box-shadow: 0 0 0 var(--anchor);
+  transform: translate(2px, 2px);
+}
+
+.controlSection,
+.linkSection {
+  border-top: 1px solid color-mix(in srgb, var(--anchor) 35%, transparent);
+  padding: 16px 0;
+}
+
+.drawer h3 {
+  margin: 0 0 10px;
+}
+
+.preferences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The shared header controls are compact by design; in a touch drawer they
+   need a full-size target without changing the desktop header. */
+.preferences :global(button) {
+  height: 44px !important;
+  width: 44px !important;
+}
+
+.controlSection > :global(div) > :global(button) {
+  min-height: 44px;
+  padding: 4px 12px;
+}
+
+.linkSection nav {
+  display: grid;
+  gap: 8px;
+}
+
+.linkSection nav a {
+  justify-content: flex-start;
+}
+
+@media (max-width: 359px) {
+  .menuLabel {
+    display: none;
+  }
+
+  .menuButton {
+    padding: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menuButton,
+  .closeButton,
+  .primaryLink,
+  .primaryLinkSecondary,
+  .linkSection nav a {
+    transition: none;
+  }
+}
