@@ -72,12 +72,12 @@ export function NotLiveYet() {
             </div>
             <div className="uru-home-actions">
               <a
-                href="https://x.com/spoobsV1"
+                href="https://x.com/urugemu"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="uru-btn uru-btn-primary"
               >
-                follow for launch <span className="uru-arrow">→</span>
+                follow @urugemu <span className="uru-arrow">→</span>
               </a>
               <Link href="/docs" className="uru-btn uru-btn-cream">
                 read what we&apos;re building
