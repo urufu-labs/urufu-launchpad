@@ -9,7 +9,7 @@
 ///
 /// Removal flow: flip this to `true`, delete web/src/components/NotLiveYet.tsx,
 /// clean up the import + branch in web/src/app/page.tsx + web/src/app/create/page.tsx.
-export const LAUNCHPAD_LIVE = false;
+export const LAUNCHPAD_LIVE = true;
 
 /// Block number the /flywheel dashboard treats as the "start of history"
 /// on Robinhood chain. Events (splits, buybacks, conversions) at a lower
@@ -25,4 +25,4 @@ export const LAUNCHPAD_LIVE = false;
 /// test-launch show up. If you forget to lower it before launch, the
 /// dashboard reads as "0 URU / 0 ETH / 0 ETH" which is confusing but
 /// never misleading. Lowering it later is a one-line PR.
-export const FLYWHEEL_HISTORY_START_BLOCK = 1_099_511_627_776; // 2^40
+export const FLYWHEEL_HISTORY_START_BLOCK = 32_989_802;
