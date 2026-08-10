@@ -29,6 +29,19 @@ import {
 const CHAIN: ChainKey = 'robinhood';
 const CHAIN_ID = CHAIN_KEY_TO_ID[CHAIN] as WagmiChainId;
 
+/// Ticking-clock hook. Seeded via a stable initializer on first render and
+/// updated every 30 seconds so the pending-config countdown flip (from
+/// "coming soon" to "ready to activate") happens without a manual refresh.
+/// Kept internal to this file — the banner is the only place we need this.
+function useNowSec(): number {
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 export default function FlywheelPage() {
   const feeSplitter = FLYWHEEL[CHAIN]?.FeeSplitter as Address | undefined;
   const uruBuybackVault = FLYWHEEL[CHAIN]?.UruBuybackVault as Address | undefined;
@@ -72,7 +85,11 @@ export default function FlywheelPage() {
   /// (ready to activate — copy switches from "coming soon" to "ready when
   /// owner activates"). Previously the banner said "coming soon" even after
   /// the timestamp passed, which read as broken data to visitors.
-  const nowSec = Math.floor(Date.now() / 1000);
+  ///
+  /// `now` is a piece of state seeded on mount + ticked every 30s so React
+  /// treats it as external. Reading Date.now during render violates the
+  /// react-hooks/purity rule.
+  const nowSec = useNowSec();
   const pendingReadyAt = parsed?.pending ? Number(parsed.pending[6]) : 0;
   const hasPending = pendingReadyAt > 0;
   const pendingReady = hasPending && pendingReadyAt <= nowSec;
