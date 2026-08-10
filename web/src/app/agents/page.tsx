@@ -182,25 +182,39 @@ export default function AgentsPage() {
           HOW TO GIVE IT TO AN AGENT
           ================================================================ */}
       <section className="uru-shell" style={{ padding: 14, marginBottom: 12 }}>
-        <div className="uru-eyebrow" style={{ marginBottom: 8 }}>❁ how to give it to ur agent</div>
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+        <div className="uru-eyebrow" style={{ marginBottom: 8 }}>❁ how to load it (this matters!!)</div>
+        <div style={{ fontSize: 12, color: 'var(--anchor-soft)', marginBottom: 8, lineHeight: 1.5 }}>
+          the skill must go in ur agent's <b>instructions / system prompt / rules file</b> — not
+          as a regular chat message. pasted-in-chat, the ai will summarize it instead of
+          following it. use one of these patterns ~
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.75 }}>
+          <li>
+            <b>claude.ai (project or custom style)</b>: paste into <i>Project Instructions</i>{' '}
+            or <i>Custom Instructions</i>. do NOT paste into a normal chat — claude will
+            summarize instead of adopting the role.
+          </li>
           <li>
             <b>claude code</b>: save as{' '}
-            <code style={codeStyle}>.claude/skills/launch-urufu-token/SKILL.md</code> in ur project.
+            <code style={codeStyle}>.claude/skills/launch-urufu-token/SKILL.md</code> in ur
+            project + say "use the launch-urufu-token skill".
           </li>
           <li>
-            <b>cursor</b>: paste into a project rule file (.cursorrules) or as a system prompt
-            in a custom mode.
+            <b>cursor</b>: paste into <code style={codeStyle}>.cursorrules</code> or a custom
+            mode's system prompt.
           </li>
           <li>
-            <b>chatgpt / api</b>: use as a system prompt when u start a new conversation.
+            <b>chatgpt / anthropic api / openai api</b>: paste as the <i>system</i> role message
+            when starting a new conversation.
           </li>
           <li>
-            <b>langchain / crewai / autogen</b>: load as a tool description or agent system prompt.
+            <b>langchain / crewai / autogen / custom agents</b>: load as the agent's system prompt
+            or tool-description.
           </li>
           <li>
-            <b>any http-capable agent</b>: point it at the raw markdown URL — the whole spec
-            plus the four APIs is served fresh from urufulabs.xyz.
+            <b>quick test in any chat</b>: prefix with a directive line, e.g.
+            <i> "Adopt the following operating instructions and follow them exactly when I talk
+            to u. Do not summarize this file."</i> then paste. Reply with "hi" to trigger.
           </li>
         </ul>
       </section>
