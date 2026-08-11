@@ -1828,7 +1828,7 @@ function CreatePageContent() {
               </div>
               <div
                 className={styles.previewArt}
-                style={metadata.logoDataUrl ? { backgroundImage: safeBackgroundImage(metadata.logoDataUrl) } : undefined}
+                style={metadata.logoDataUrl ? { background: safeBackgroundImage(metadata.logoDataUrl) } : undefined}
                 aria-hidden="true"
               >
                 {!metadata.logoDataUrl && <span>urufu</span>}
