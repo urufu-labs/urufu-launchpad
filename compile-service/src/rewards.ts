@@ -44,6 +44,11 @@ export interface ChainConfig {
   rpcUrl: string;
   vaultAddress: Address;
   gemuNftAddress: Address;
+  // Public Blockscout API root for this chain. When set, the holder snapshot
+  // pulls from `/api/v2/tokens/:addr/holders` first because Blockscout's
+  // count matches the on-chain reality; the Ponder indexer has been observed
+  // to undercount (indexed schema drift on migration blocks).
+  blockscoutUrl?: string;
 }
 
 /// urufu gemu NFT lives ONLY on Robinhood as of 2026-07 - the Base collection
@@ -60,7 +65,14 @@ function chainConfigFor(slug: string): ChainConfig | null {
   // zero holders → publishEpoch would credit no one. Fail loud instead.
   const gemuNftAddress = process.env.ROBINHOOD_GEMU_NFT_ADDRESS as Address | undefined;
   if (!rpcUrl || !vaultAddress || !gemuNftAddress) return null;
-  return { slug: 'robinhood', chainId: 4663, rpcUrl, vaultAddress, gemuNftAddress };
+  return {
+    slug: 'robinhood',
+    chainId: 4663,
+    rpcUrl,
+    vaultAddress,
+    gemuNftAddress,
+    blockscoutUrl: process.env.ROBINHOOD_BLOCKSCOUT_URL ?? 'https://robinhoodchain.blockscout.com',
+  };
 }
 
 /// Ponder GraphQL endpoint — same URL the frontend uses, wired via env because
@@ -366,6 +378,26 @@ async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): P
 /// indexer returns empty. Logs which source served so ops can spot silent
 /// indexer regressions.
 async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+  // Priority order:
+  //   1. Blockscout — matches on-chain reality (429 holders), fast (~10 pages),
+  //      no state to fall out of sync.
+  //   2. Ponder indexer — historically undercounted (was reporting 105 while
+  //      Blockscout reported 429), likely a schema-migration gap. Kept as
+  //      fallback because it's faster than a full Transfer-event walk.
+  //   3. On-chain Transfer walk — slowest but the ultimate source of truth.
+  //      Only fires if both remote indexers are unavailable.
+  if (cfg.blockscoutUrl) {
+    try {
+      const fromBs = await fetchGemuHoldersFromBlockscout(cfg);
+      if (fromBs.length > 0) {
+        console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', count: fromBs.length }));
+        return fromBs;
+      }
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', count: 0, fallback: 'indexer' }));
+    } catch (err) {
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', error: (err as Error).message, fallback: 'indexer' }));
+    }
+  }
   try {
     const fromIndexer = await fetchGemuHoldersFromIndexer(cfg);
     if (fromIndexer.length > 0) {
@@ -383,6 +415,52 @@ async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Ho
   const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
   console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: fromChain.length }));
   return fromChain;
+}
+
+/// Blockscout `/api/v2/tokens/:addr/holders` — paginated by opaque
+/// `next_page_params` object echoed back as query string. Returns each
+/// current holder + their NFT count (`value`). Matches the number Blockscout
+/// shows on its UI, which is the on-chain truth.
+export async function fetchGemuHoldersFromBlockscout(
+  cfg: ChainConfig,
+  fetchImpl: IndexerFetch = (globalThis as { fetch: IndexerFetch }).fetch,
+): Promise<Holder[]> {
+  if (!cfg.blockscoutUrl) return [];
+  const base = cfg.blockscoutUrl.replace(/\/$/, '');
+  const holders: Holder[] = [];
+  let params: Record<string, string> | null = null;
+  const cap = holderCap();
+  // Belt-and-suspenders: hard ceiling on iterations so a broken cursor can't
+  // loop forever. A single collection cannot have more than cap holders, and
+  // pages are 50 items each.
+  for (let i = 0; i < Math.ceil(cap / 50) + 5; i++) {
+    const url = new URL(`${base}/api/v2/tokens/${cfg.gemuNftAddress.toLowerCase()}/holders`);
+    if (params) {
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    }
+    const res = await fetchImpl(url.toString(), { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`blockscout ${res.status} for ${cfg.slug}`);
+    const body = (await res.json()) as {
+      items?: Array<{ address?: { hash?: string; is_scam?: boolean }; value?: string }>;
+      next_page_params?: Record<string, unknown> | null;
+    };
+    for (const item of body.items ?? []) {
+      const addr = item.address?.hash?.toLowerCase();
+      const bal = item.value ? BigInt(item.value) : 0n;
+      if (!addr || bal === 0n || item.address?.is_scam) continue;
+      holders.push({ address: addr as Address, balance: bal });
+      if (holders.length > cap) {
+        throw new IndexerHolderCountExceedsCap(holders.length, cap);
+      }
+    }
+    if (!body.next_page_params) break;
+    // Blockscout returns the next-page cursor as a bag of {value,address_hash,items_count};
+    // it comes back stringified below the network boundary.
+    params = Object.fromEntries(
+      Object.entries(body.next_page_params).map(([k, v]) => [k, String(v)]),
+    );
+  }
+  return holders;
 }
 
 // ---------------------------------------------------------------- tree building
