@@ -498,6 +498,29 @@ export async function withPublicationLockOn<T>(
 ): Promise<T> {
   if (!sqlClient) throw new Error('DATABASE_URL not set — cannot persist tree');
   const db = await sqlClient.reserve();
+  // postgres.js's ReservedSql in v3.4.x exposes tagged-template + .release()
+  // but does NOT inherit .begin() from the pool-level Sql. The test doubles in
+  // rewards.test.ts add .begin() to their fakes which masked this at test time;
+  // production explodes with "db.begin is not a function" when publishEpoch
+  // hits its transactional DELETE/INSERT block.
+  //
+  // Fix: shim .begin() on the reserved connection with manual BEGIN/COMMIT/
+  // ROLLBACK. Runs on the SAME connection (so the outer pg_advisory_lock we
+  // acquire below still serializes across publishers), and semantics match
+  // Sql.begin() closely enough for our usage — single-level, no savepoints.
+  if (typeof db.begin !== 'function') {
+    db.begin = async (inner: (tx: unknown) => Promise<unknown>) => {
+      await db`BEGIN`;
+      try {
+        const result = await inner(db);
+        await db`COMMIT`;
+        return result;
+      } catch (err) {
+        try { await db`ROLLBACK`; } catch { /* rollback failure — surface original */ }
+        throw err;
+      }
+    };
+  }
   try {
     await db`SELECT pg_advisory_lock(${REWARDS_PUBLICATION_LOCK.toString()})`;
     return await fn(db);
