@@ -279,13 +279,13 @@ export default function RootLayout({
                 ✧ twitter ↗
               </a>
               <a
-                href="https://t.me/urugemu"
+                href="https://discord.gg/urufugemu"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline"
                 style={{ color: 'var(--anchor)' }}
               >
-                ✧ telegram ↗
+                ✧ discord ↗
               </a>
               <a
                 href="https://www.urufu.xyz"

@@ -64,11 +64,6 @@ export function NotLiveYet() {
               we&apos;re putting the last few pieces in place. launching is paused
               for a moment so nothing breaks on the way in.
             </p>
-            <div className="uru-home-flags" aria-label="Pre-launch">
-              <span>erc-20</span>
-              <span data-tone="mint">robinhood chain</span>
-              <span data-tone="pink">flywheel live</span>
-            </div>
             <div className="uru-home-actions">
               <a
                 href="https://x.com/urugemu"

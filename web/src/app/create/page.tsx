@@ -1064,28 +1064,58 @@ function CreatePageContent() {
       const metadataToSave = wlCid ? { ...metadata, wlListCid: wlCid } : metadata;
       void (async () => {
         const pinned = await persistMetadata(chainId, launchedTokenAddress, metadataToSave);
-        if (!address) return;
-        try {
-          await saveTokenMetadata(
-            address as Address,
-            {
-              chainId,
-              tokenAddress: launchedTokenAddress,
-              imageUrl: pinned.gatewayUrl ?? null,
-              description: metadata.description ?? null,
-              website: metadata.website ?? null,
-              twitter: metadata.twitter ?? null,
-              telegram: metadata.telegram ?? null,
-              discord: metadata.discord ?? null,
-              tiktok: metadata.tiktok ?? null,
-              // WL list CID lands here so any browser (not just the deployer's)
-              // can fetch the pinned holder list + build proofs at trade time.
-              wlListCid: wlCid ?? null,
-            },
-            ({ message }) => signMessageAsync({ message }),
+        // Loud console signal so a launcher can see why their share card is
+        // empty. Pinata failure isn't always the user's fault — it usually
+        // means PINATA_JWT isn't set on the compile-service; either way it's
+        // worth surfacing rather than swallowing.
+        if (metadata.logoDataUrl && !pinned.gatewayUrl) {
+          console.warn(
+            '[urufu] logo pin failed — image lives only in this browser. ' +
+              'Check PINATA_JWT on the compile-service so share cards + other browsers can see it.',
           );
-        } catch {
-          // User cancelled signature or network hiccup — local persistence still succeeded.
+        }
+        if (!address) return;
+        // One retry on transient network failures. Wallet-sig rejection still
+        // throws AFTER retry so the user gets one shot to catch it.
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await saveTokenMetadata(
+              address as Address,
+              {
+                chainId,
+                tokenAddress: launchedTokenAddress,
+                imageUrl: pinned.gatewayUrl ?? null,
+                description: metadata.description ?? null,
+                website: metadata.website ?? null,
+                twitter: metadata.twitter ?? null,
+                telegram: metadata.telegram ?? null,
+                discord: metadata.discord ?? null,
+                tiktok: metadata.tiktok ?? null,
+                // WL list CID lands here so any browser (not just the deployer's)
+                // can fetch the pinned holder list + build proofs at trade time.
+                wlListCid: wlCid ?? null,
+              },
+              ({ message }) => signMessageAsync({ message }),
+            );
+            lastError = null;
+            break;
+          } catch (err) {
+            lastError = err;
+            // Don't retry on user rejection — a second wallet prompt would
+            // read as buggy behavior. Only retry on network-ish messages.
+            const msg = err instanceof Error ? err.message.toLowerCase() : '';
+            if (msg.includes('rejected') || msg.includes('cancel') || msg.includes('denied')) break;
+          }
+        }
+        if (lastError) {
+          console.warn(
+            '[urufu] token metadata save failed — the token launched fine, but ' +
+              'the trade page will only show what this browser has cached. Anyone ' +
+              'else opening the link will not see the logo / description / socials. ' +
+              'Reopen the token trade page + hit "edit metadata" to try again.',
+            lastError,
+          );
         }
       })();
     }
