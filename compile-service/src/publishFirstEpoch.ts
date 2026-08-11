@@ -59,7 +59,11 @@ const wallet = createWalletClient({ account, transport: http(RPC), chain });
 const vaultAbi = parseAbi([
     'function owner() view returns (address)',
     'function nextEpochId() view returns (uint256)',
-    'function addEpoch(bytes32 merkleRoot, uint256 totalAmount)',
+    'function minConfigDelay() view returns (uint256)',
+    'function pendingEpoch() view returns (uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount, uint64 readyAt)',
+    // URU-A11 timelocked flow (V9 vault). Direct addEpoch reverts when
+    // minConfigDelay > 0 which is the production config on RH.
+    'function proposeEpoch(uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount)',
 ]);
 
 const TRANSFER_EVT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)');
@@ -157,6 +161,25 @@ async function main(): Promise<void> {
     process.stdout.write(`Next epoch id: ${nextEpochId}\n`);
     if (balance === 0n) throw new Error('vault balance zero');
 
+    // Refuse to broadcast if a proposal is already sitting in the timelock
+    // window — a second proposeEpoch would revert with PendingEpochExists.
+    // Better to fail fast with a clear message here.
+    const pending = (await pub.readContract({
+        address: VAULT, abi: vaultAbi, functionName: 'pendingEpoch',
+    })) as readonly [bigint, Hex, bigint, bigint];
+    // Struct order is (expectedEpochId, merkleRoot, totalAmount, readyAt) — readyAt is [3].
+    if (pending[3] !== 0n) {
+        const readyAt = Number(pending[3]);
+        throw new Error(
+            `pending epoch already exists (readyAt=${new Date(readyAt * 1000).toISOString()}). ` +
+            `wait for activateEpoch or call cancelPendingEpoch first.`,
+        );
+    }
+    const delay = (await pub.readContract({
+        address: VAULT, abi: vaultAbi, functionName: 'minConfigDelay',
+    })) as bigint;
+    process.stdout.write(`Timelock: ${delay}s (${(Number(delay) / 3600).toFixed(1)}h)\n`);
+
     const holders = await walkTransfers();
     process.stdout.write(`\nHolders: ${holders.size}\n`);
     const totalNfts = [...holders.values()].reduce((s, v) => s + v, 0n);
@@ -184,15 +207,22 @@ async function main(): Promise<void> {
     process.stdout.write(`\nSum of allocations: ${distributed.toString()} wei (delta from vault: ${balance - distributed})\n`);
     if (distributed !== balance) throw new Error('invariant broken: sum != vault balance');
 
-    process.stdout.write(`\nBroadcasting vault.addEpoch in 3s (Ctrl-C to abort)…\n`);
+    process.stdout.write(`\nBroadcasting vault.proposeEpoch in 3s (Ctrl-C to abort)…\n`);
+    process.stdout.write(`After this lands, wait ${(Number(delay) / 3600).toFixed(1)}h then call activateEpoch() to make it claimable.\n`);
     await new Promise((r) => setTimeout(r, 3000));
 
-    const data = encodeFunctionData({ abi: vaultAbi, functionName: 'addEpoch', args: [root, balance] });
+    const data = encodeFunctionData({
+        abi: vaultAbi,
+        functionName: 'proposeEpoch',
+        args: [nextEpochId, root, balance],
+    });
     const txHash = await wallet.sendTransaction({ to: VAULT, data });
     process.stdout.write(`tx: ${txHash}\n`);
     const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
     process.stdout.write(`status: ${receipt.status}, block: ${receipt.blockNumber}, gas: ${receipt.gasUsed}\n`);
-    if (receipt.status !== 'success') throw new Error(`addEpoch reverted: ${txHash}`);
+    if (receipt.status !== 'success') throw new Error(`proposeEpoch reverted: ${txHash}`);
+    const activationReadyAt = new Date(Date.now() + Number(delay) * 1000).toISOString();
+    process.stdout.write(`\n✓ Epoch ${nextEpochId} proposed. Activation ready: ${activationReadyAt}\n`);
 
     // Print a JSON blob of every leaf + proof so the compile-service or
     // frontend can persist it later. Small tree = fine to print all.
