@@ -40,6 +40,39 @@ import {UruBuybackVault} from "src/flywheel/UruBuybackVault.sol";
 /// Usage:
 ///   forge script script/ConfigureFlywheel.s.sol:ConfigureFlywheel \
 ///     --rpc-url $BASE_RPC_URL --broadcast --private-key $DEV_PRIVATE_KEY -vvvv
+interface IUruDepositSinkLike {
+    function isKeeper(
+        address
+    ) external view returns (bool);
+    function isSwapTarget(
+        address
+    ) external view returns (bool);
+    function setKeeper(
+        address keeper,
+        bool allowed
+    ) external;
+    function setSwapTarget(
+        address target,
+        bool allowed
+    ) external;
+    // URU-A11: propose/activate helpers so this script can stage a keeper /
+    // target change on the first pass and activate it on the follow-up.
+    function keeperChangeId(
+        address keeper,
+        bool allowed
+    ) external pure returns (bytes32);
+    function swapTargetChangeId(
+        address target,
+        bool allowed
+    ) external pure returns (bytes32);
+    function adminChangeReadyAt(
+        bytes32 changeId
+    ) external view returns (uint256);
+    function proposeAdminChange(
+        bytes32 changeId
+    ) external;
+}
+
 contract ConfigureFlywheel is Script {
     error ConfigureFlywheel__NoFlywheelBook();
     error ConfigureFlywheel__BadSplit(uint256 total);
@@ -52,6 +85,22 @@ contract ConfigureFlywheel is Script {
         address feeSplitterAddr = vm.parseJsonAddress(book, ".FeeSplitter");
         address nftVaultAddr = vm.parseJsonAddress(book, ".NftRevenueVault");
         address buybackVaultAddr = vm.parseJsonAddress(book, ".UruBuybackVault");
+
+        // UruDepositSink also has a keeper + swap-target allowlist. It lives
+        // in the fresh-deploy or router-rotation address book (not the
+        // flywheel book which pre-dates URU-pay). Try fresh first, then
+        // routerv2, then skip if neither is present — an operator running
+        // against a legacy Base-era stack won't have URU pay wired at all.
+        address uruSinkAddr;
+        string memory freshPath = string.concat("deployment-fresh.", vm.toString(block.chainid), ".json");
+        if (vm.exists(freshPath)) {
+            uruSinkAddr = vm.parseJsonAddress(vm.readFile(freshPath), ".uruDepositSink");
+        } else {
+            string memory rvPath = string.concat("deployment-routerv2.", vm.toString(block.chainid), ".json");
+            if (vm.exists(rvPath)) {
+                uruSinkAddr = vm.parseJsonAddress(vm.readFile(rvPath), ".UruDepositSink");
+            }
+        }
 
         address keeper = vm.envAddress("KEEPER");
         address swapTarget = vm.envAddress("SWAP_TARGET");
@@ -80,32 +129,34 @@ contract ConfigureFlywheel is Script {
 
         vm.startBroadcast();
 
-        // --- Job 1: UruBuybackVault allowlists (no timelock) -----------------
-        if (!vault.isKeeper(keeper)) {
-            vault.setKeeper(keeper, true);
-            console2.log("  [ok] keeper allowlisted");
+        // --- Job 1: UruBuybackVault allowlists (URU-A11 propose→activate) ----
+        _stageOrActivateBuybackKeeper(vault, keeper);
+        _stageOrActivateBuybackTarget(vault, swapTarget);
+
+        // --- Job 1b: UruDepositSink allowlists ----------------------------
+        if (uruSinkAddr != address(0)) {
+            IUruDepositSinkLike sink = IUruDepositSinkLike(uruSinkAddr);
+            _stageOrActivateSinkKeeper(sink, keeper);
+            _stageOrActivateSinkTarget(sink, swapTarget);
         } else {
-            console2.log("  [skip] keeper already allowlisted");
+            console2.log("  [skip] UruDepositSink not in address book (pre-URU-pay stack)");
         }
 
-        if (!vault.isSwapTarget(swapTarget)) {
-            vault.setSwapTarget(swapTarget, true);
-            console2.log("  [ok] swap target allowlisted");
-        } else {
-            console2.log("  [skip] swap target already allowlisted");
-        }
-
-        // --- Job 2: FeeSplitter splits (timelock-gated) ----------------------
-        uint256 earliest = splitter.lastConfigChange() + splitter.minConfigDelay();
-        if (block.timestamp < earliest) {
+        // --- Job 2: FeeSplitter splits (URU-A11 propose→activate) ----------
+        (,,,,,, uint64 splitterReadyAt) = splitter.pendingConfig();
+        if (splitterReadyAt == 0) {
+            // No pending proposal — stage one. Operator re-runs to activate.
+            splitter.proposeConfig(buybackVaultAddr, nftVaultAddr, treasury, buybackBps, nftBps, treasuryBps);
+            console2.log("  [staged] FeeSplitter config proposed; re-run after maturity to activate");
+        } else if (block.timestamp < splitterReadyAt) {
             console2.log("---------------------------------------------------------");
-            console2.log("  [wait] FeeSplitter timelock not yet elapsed");
-            console2.log("         earliest valid block.timestamp:", earliest);
+            console2.log("  [wait] FeeSplitter proposal not yet mature");
+            console2.log("         earliest valid block.timestamp:", splitterReadyAt);
             console2.log("         current block.timestamp:       ", block.timestamp);
-            console2.log("         re-run this script after that time to apply splits");
+            console2.log("         re-run this script after that time to activate");
         } else {
-            splitter.setConfig(buybackVaultAddr, nftVaultAddr, treasury, buybackBps, nftBps, treasuryBps);
-            console2.log("  [ok] FeeSplitter splits configured");
+            splitter.activateConfig();
+            console2.log("  [ok] FeeSplitter proposed config activated");
         }
 
         vm.stopBroadcast();
@@ -115,5 +166,91 @@ contract ConfigureFlywheel is Script {
         console2.log("  cast call <UruBuybackVault> 'isKeeper(address)(bool)' <keeper> --rpc-url ...");
         console2.log("  cast call <UruBuybackVault> 'isSwapTarget(address)(bool)' <target> --rpc-url ...");
         console2.log("  cast call <FeeSplitter> 'uruBuybackSink()(address)' --rpc-url ...");
+    }
+
+    // URU-A11 helpers — propose on first invocation, activate on the follow-up
+    // after `minConfigDelay` has elapsed. Idempotent: skip if already granted.
+    function _stageOrActivateBuybackKeeper(
+        UruBuybackVault vault,
+        address keeper
+    ) internal {
+        if (vault.isKeeper(keeper)) {
+            console2.log("  [skip] UruBuybackVault keeper already allowlisted");
+            return;
+        }
+        bytes32 id = vault.keeperChangeId(keeper, true);
+        uint256 readyAt = vault.adminChangeReadyAt(id);
+        if (readyAt == 0) {
+            vault.proposeAdminChange(id);
+            console2.log("  [staged] UruBuybackVault keeper proposal");
+        } else if (block.timestamp >= readyAt) {
+            vault.setKeeper(keeper, true);
+            console2.log("  [ok] UruBuybackVault keeper allowlisted");
+        } else {
+            console2.log("  [wait] UruBuybackVault keeper proposal matures at:", readyAt);
+        }
+    }
+
+    function _stageOrActivateBuybackTarget(
+        UruBuybackVault vault,
+        address target
+    ) internal {
+        if (vault.isSwapTarget(target)) {
+            console2.log("  [skip] UruBuybackVault swap target already allowlisted");
+            return;
+        }
+        bytes32 id = vault.swapTargetChangeId(target, true);
+        uint256 readyAt = vault.adminChangeReadyAt(id);
+        if (readyAt == 0) {
+            vault.proposeAdminChange(id);
+            console2.log("  [staged] UruBuybackVault swap target proposal");
+        } else if (block.timestamp >= readyAt) {
+            vault.setSwapTarget(target, true);
+            console2.log("  [ok] UruBuybackVault swap target allowlisted");
+        } else {
+            console2.log("  [wait] UruBuybackVault swap target proposal matures at:", readyAt);
+        }
+    }
+
+    function _stageOrActivateSinkKeeper(
+        IUruDepositSinkLike sink,
+        address keeper
+    ) internal {
+        if (sink.isKeeper(keeper)) {
+            console2.log("  [skip] UruDepositSink keeper already allowlisted");
+            return;
+        }
+        bytes32 id = sink.keeperChangeId(keeper, true);
+        uint256 readyAt = sink.adminChangeReadyAt(id);
+        if (readyAt == 0) {
+            sink.proposeAdminChange(id);
+            console2.log("  [staged] UruDepositSink keeper proposal");
+        } else if (block.timestamp >= readyAt) {
+            sink.setKeeper(keeper, true);
+            console2.log("  [ok] UruDepositSink keeper allowlisted");
+        } else {
+            console2.log("  [wait] UruDepositSink keeper proposal matures at:", readyAt);
+        }
+    }
+
+    function _stageOrActivateSinkTarget(
+        IUruDepositSinkLike sink,
+        address target
+    ) internal {
+        if (sink.isSwapTarget(target)) {
+            console2.log("  [skip] UruDepositSink swap target already allowlisted");
+            return;
+        }
+        bytes32 id = sink.swapTargetChangeId(target, true);
+        uint256 readyAt = sink.adminChangeReadyAt(id);
+        if (readyAt == 0) {
+            sink.proposeAdminChange(id);
+            console2.log("  [staged] UruDepositSink swap target proposal");
+        } else if (block.timestamp >= readyAt) {
+            sink.setSwapTarget(target, true);
+            console2.log("  [ok] UruDepositSink swap target allowlisted");
+        } else {
+            console2.log("  [wait] UruDepositSink swap target proposal matures at:", readyAt);
+        }
     }
 }

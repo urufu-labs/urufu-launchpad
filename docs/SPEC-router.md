@@ -1,5 +1,8 @@
 # SPEC — Router
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > User-facing entry to VM. Accepts the launch fee, atomically reserves the name in `NameRegistry`, dispatches to the correct base-type factory, and emits the launch event the frontend and indexer both watch.
 
 **Status:** ✅ IMPLEMENTED. See `contracts/src/router/Router.sol` for the shipping code; this document remains as design-intent reference.
@@ -259,18 +262,17 @@ constructor(
 5. Transfer ownership on all four contracts to the 2-of-3 multisig.
 6. Add addresses to `web/lib/config.ts` and to `indexer/ponder.config.ts`.
 
-**Fee schedule per PLAN.md §Economic model:**
+**Fee schedule (live on Robinhood, chain 4663):**
+| BaseType | Fee |
+|---|---|
+| ERC20 | 0.001 ETH |
+| ERC721A | 0.001 ETH |
+| ERC1155 | 0.001 ETH |
+| Module add-on (per extra) | 0.0005 ETH |
+| Hook add-on | 0.0005 ETH |
+| Governance add-on | 0.0005 ETH |
 
-| BaseType                  | Mainnet  | Base      |
-| ------------------------- | -------- | --------- |
-| ERC20                     | 0.05 ETH | 0.005 ETH |
-| ERC721A                   | 0.05 ETH | 0.005 ETH |
-| ERC1155                   | 0.05 ETH | 0.005 ETH |
-| Module add-on (per extra) | 0.01 ETH | 0.001 ETH |
-| Hook add-on               | 0.10 ETH | 0.01 ETH  |
-| Governance add-on         | 0.10 ETH | 0.01 ETH  |
-
-Base chain fee schedule deployed later (Phase 5).
+Loyalty discount: up to 40% for URU holders, 20% for gemu NFT holders (stacks up to 50% cap). Read via `Router.quoteFor(params, launcher)`. URU-pay path (`launchWithURU`) tracks the same ETH-equivalent floor.
 
 ---
 

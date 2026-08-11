@@ -1,6 +1,6 @@
 {
-  "$comment": "Module compatibility matrix. Read by frontend (grey-out incompatible options) AND compile-service (validate on submit). Single source of truth. Shape: { bases: string[]; mechanics: Record<base, string[]>; modules: Record<name, { base: string[]; requires?: string[]; incompatibleWith?: string[]; flagged?: string; params: {...JSONSchema}; }>; }",
-  "version": "0.0.0",
+  "$comment": "URU-A09 AC #1: single source of truth for the module catalog. Read at compile time by compile-service (validation + Solidity splicing) and at runtime by web (module picker, param inputs, config-hash preview). Each module entry carries: (a) core protocol fields — version, base, requires, incompatibleWith, flagged, fragmentPath, templateOverride, params (JSON Schema), abiEncode — consumed by the splicer/validator; (b) `ui` — label, category, status, description — presentation-only overlays consumed by the shop; (c) `capabilities` — requiresOwner / taxesTransfers — booleans mirroring the Router bitmap flags (FLAG_REQUIRES_OWNER, FLAG_BALANCE_MUTATING) so a single edit updates both the frontend gate and the on-chain policy view. Each param property may add a `ui` object with a friendlier form contract (label, type ∈ percent|eth|integer|address|string|boolean, default, hint); this overlays the JSON Schema which stays the server-side validation contract. Modules WITHOUT `fragmentPath` are not compilable through /compile — they are either post-graduation hooks deployed as standalone contracts (LPLocked, FeeRedirect, MultiHookHost, AntiSniper, BuybackBurn) or planned modules (status='planned') the shop greys out.",
+  "version": "1.0.0",
   "bases": ["ERC20", "ERC721A", "ERC1155"],
   "mechanics": {
     "ERC20": ["bonding-curve", "fixed-sale", "lbp", "direct-to-lp", "no-sale"],
@@ -15,6 +15,13 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/token/AntiBot.frag.sol",
+      "capabilities": { "requiresOwner": true },
+      "ui": {
+        "label": "✿ bot gate",
+        "category": "token",
+        "status": "shipped",
+        "description": "keeps snipers out for the first few blocks. only wallets u trust can grab tokens while the gate is up ~ turns off on its own after the window"
+      },
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -24,7 +31,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 100,
-            "description": "Number of blocks after initialize during which non-owner senders can only send to allowlisted recipients."
+            "description": "Number of blocks after initialize during which non-owner senders can only send to allowlisted recipients.",
+            "ui": {
+              "label": "how many blocks?",
+              "type": "integer",
+              "default": 5,
+              "hint": "each block ≈ 12 sec on eth. 5 is normal ~ higher = safer but ppl wait longer to trade ✿"
+            }
           }
         }
       },
@@ -37,15 +50,71 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/token/FeeOnTransfer.frag.sol",
+      "capabilities": { "taxesTransfers": true },
+      "ui": {
+        "label": "✿ tax on trade",
+        "category": "token",
+        "status": "shipped",
+        "description": "every trade pays a small tax. u decide how much gets burned forever (deflation ~) vs sent to a wallet u control"
+      },
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "required": ["feeBps", "burnBps", "treasuryBps", "treasury"],
         "properties": {
-          "feeBps":      { "type": "integer", "minimum": 1, "maximum": 3000, "description": "Fee in basis points (1 = 0.01%). Capped at 30%." },
-          "burnBps":     { "type": "integer", "minimum": 0, "maximum": 10000, "description": "Portion of fee that's burned. burnBps + treasuryBps must equal 10000." },
-          "treasuryBps": { "type": "integer", "minimum": 0, "maximum": 10000, "description": "Portion of fee routed to treasury." },
-          "treasury":    { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$", "description": "Treasury address. Required if treasuryBps > 0." }
+          "feeBps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3000,
+            "description": "Fee in basis points (1 = 0.01%). Capped at 30%.",
+            "ui": {
+              "label": "tax per trade (%)",
+              "type": "percent",
+              "min": 0.01,
+              "max": 30,
+              "default": 5,
+              "hint": "how much every trade pays into the tax pool. capped at 30% ~"
+            }
+          },
+          "burnBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Portion of fee that's burned. burnBps + treasuryBps must equal 10000.",
+            "ui": {
+              "label": "burn slice (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 100,
+              "default": 50,
+              "hint": "of the tax above, how much gets destroyed forever"
+            }
+          },
+          "treasuryBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Portion of fee routed to treasury.",
+            "ui": {
+              "label": "wallet slice (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 100,
+              "default": 50,
+              "hint": "the rest. burn + wallet must add up to exactly 100 ~"
+            }
+          },
+          "treasury": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "description": "Treasury address. Required if treasuryBps > 0.",
+            "ui": {
+              "label": "wallet address",
+              "type": "address",
+              "default": "0x000000000000000000000000000000000000dEaD",
+              "hint": "where the wallet slice lands. paste ur wallet or a multisig ✿"
+            }
+          }
         }
       },
       "abiEncode": "(uint16,uint16,uint16,address)"
@@ -57,6 +126,12 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/OnChainSVG.frag.sol",
+      "ui": {
+        "label": "✿ art lives on-chain",
+        "category": "nft",
+        "status": "shipped",
+        "description": "each nft gets rendered right on the chain — no ipfs, no server, forever. as long as ethereum exists, ur art exists ~"
+      },
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -71,13 +146,40 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/ERC2981Royalty.frag.sol",
+      "ui": {
+        "label": "✿ resale royalties",
+        "category": "nft",
+        "status": "shipped",
+        "description": "opensea, blur & the rest check ur royalty setting and forward a cut on every resale. enforcement is up to them tho ~"
+      },
       "params": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "required": ["receiver", "feeBps"],
         "properties": {
-          "receiver": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
-          "feeBps":   { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Royalty in basis points. Capped at 10%." }
+          "receiver": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": {
+              "label": "royalty wallet",
+              "type": "address",
+              "hint": "where royalties land. u can change this after launch ✿"
+            }
+          },
+          "feeBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "description": "Royalty in basis points. Capped at 10%.",
+            "ui": {
+              "label": "royalty (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 10,
+              "default": 5,
+              "hint": "what marketplaces send u on every resale. capped at 10%"
+            }
+          }
         }
       },
       "abiEncode": "(address,uint96)"
@@ -89,24 +191,66 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/token/AntiWhale.frag.sol",
+      "capabilities": { "requiresOwner": true },
+      "ui": {
+        "label": "✿ whale caps",
+        "category": "token",
+        "status": "shipped",
+        "description": "caps how much any wallet can hold + how much can move in one trade. runs for N blocks after launch then turns off ~ so whales cant just camp on ur launch"
+      },
       "params": {
         "type": "object",
         "required": ["maxWallet", "maxTx", "expireAfterBlocks"],
         "properties": {
-          "maxWallet": { "type": "string", "description": "uint128 wei max wallet holding" },
-          "maxTx":     { "type": "string", "description": "uint128 wei max per-tx amount" },
-          "expireAfterBlocks": { "type": "integer", "minimum": 0, "maximum": 500000 }
+          "maxWallet": {
+            "type": "string",
+            "description": "uint128 wei max wallet holding",
+            "ui": {
+              "label": "max per wallet",
+              "type": "eth",
+              "hint": "biggest wallet balance allowed while caps are on. in ur token units ~"
+            }
+          },
+          "maxTx": {
+            "type": "string",
+            "description": "uint128 wei max per-tx amount",
+            "ui": {
+              "label": "max per trade",
+              "type": "eth",
+              "hint": "biggest single transfer allowed while caps are on"
+            }
+          },
+          "expireAfterBlocks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500000,
+            "ui": {
+              "label": "how many blocks?",
+              "type": "integer",
+              "min": 0,
+              "max": 500000,
+              "default": 1000,
+              "hint": "1000 ≈ 3 hrs on eth. after this, caps turn off entirely"
+            }
+          }
         }
       },
       "abiEncode": "(uint128,uint128,uint32)"
     },
     "Pausable": {
-      "version": 1,
+      "version": 2,
       "base": ["ERC20"],
       "requires": [],
       "incompatibleWith": [],
-      "flagged": "reduces decentralization — owner can freeze all transfers",
+      "flagged": "pause freezes ALL transfers, including yours. even you cant move or sell while paused ~ centralization tradeoff, ppl will notice",
       "fragmentPath": "contracts/modules/token/Pausable.frag.sol",
+      "capabilities": { "requiresOwner": true },
+      "ui": {
+        "label": "✿ emergency pause",
+        "category": "token",
+        "status": "shipped",
+        "description": "u can pause every transfer (including your own). safety net for emergencies. holders see the pause switch and get spooked, so think twice ~"
+      },
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
@@ -117,6 +261,12 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/Soulbound.frag.sol",
+      "ui": {
+        "label": "✿ soulbound",
+        "category": "nft",
+        "status": "shipped",
+        "description": "nft can never be transferred after mint. good for badges, memberships, poaps ~ only mint + burn work"
+      },
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
@@ -127,11 +277,26 @@
       "incompatibleWith": ["OnChainSVG"],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/DelayedReveal.frag.sol",
+      "ui": {
+        "label": "✿ delayed reveal",
+        "category": "nft",
+        "status": "shipped",
+        "description": "art stays hidden til u pull the reveal trigger. every nft shows a placeholder image until u call reveal() ~"
+      },
       "params": {
         "type": "object",
         "required": ["hiddenBaseURI"],
         "properties": {
-          "hiddenBaseURI": { "type": "string", "description": "URI prefix served for every token until reveal()." }
+          "hiddenBaseURI": {
+            "type": "string",
+            "description": "URI prefix served for every token until reveal().",
+            "ui": {
+              "label": "placeholder art link",
+              "type": "string",
+              "default": "ipfs://hidden/",
+              "hint": "the image ppl see before reveal. ipfs:// or https:// both work ✿"
+            }
+          }
         }
       },
       "abiEncode": "(string)"
@@ -143,6 +308,12 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/token/Permit.frag.sol",
+      "ui": {
+        "label": "✿ gasless approvals",
+        "category": "token",
+        "status": "shipped",
+        "description": "lets holders approve trades with a signature instead of a whole tx (saves gas). standard on modern tokens ~"
+      },
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
@@ -153,12 +324,39 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/Refundable.frag.sol",
+      "ui": {
+        "label": "✿ refundable mint",
+        "category": "nft",
+        "status": "shipped",
+        "description": "paid mint with a safety net. buyers can burn their nft within N blocks to get their money back — anti-rug for paid drops ✿"
+      },
       "params": {
         "type": "object",
         "required": ["pricePerToken", "refundWindowBlocks"],
         "properties": {
-          "pricePerToken": { "type": "string", "description": "Mint price per token in wei. Buyer must send exactly price*qty on refundableMint." },
-          "refundWindowBlocks": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Blocks post-mint during which buyer can burn to reclaim price." }
+          "pricePerToken": {
+            "type": "string",
+            "description": "Mint price per token in wei. Buyer must send exactly price*qty on refundableMint.",
+            "ui": {
+              "label": "price per nft (ETH)",
+              "type": "eth",
+              "hint": "what buyers pay each. type the ETH amount ~"
+            }
+          },
+          "refundWindowBlocks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "description": "Blocks post-mint during which buyer can burn to reclaim price.",
+            "ui": {
+              "label": "refund window (blocks)",
+              "type": "integer",
+              "min": 1,
+              "max": 1000000,
+              "default": 43200,
+              "hint": "43,200 ≈ 6 days on eth. how long buyers can burn-to-refund"
+            }
+          }
         }
       },
       "abiEncode": "(uint256,uint32)"
@@ -171,6 +369,12 @@
       "flagged": null,
       "fragmentPath": "contracts/modules/token/Votes.frag.sol",
       "templateOverride": "contracts/src/templates/ERC20VotesTemplate.sol",
+      "ui": {
+        "label": "✿ voteable token",
+        "category": "token",
+        "status": "shipped",
+        "description": "makes ur token voteable. holders can delegate voting power to themselves or someone else. u need this if u want a dao later ~"
+      },
       "params": { "type": "object", "properties": {} },
       "abiEncode": "()"
     },
@@ -181,12 +385,36 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/SupplyPerToken1155.frag.sol",
+      "ui": {
+        "label": "✿ per-item supply cap",
+        "category": "nft",
+        "status": "shipped",
+        "description": "cap how many of each item can exist. items u dont cap stay unlimited ~"
+      },
       "params": {
         "type": "object",
         "required": ["ids", "caps"],
         "properties": {
-          "ids":  { "type": "array", "items": { "type": "string" }, "description": "Token IDs to cap. Any id not in this list stays uncapped." },
-          "caps": { "type": "array", "items": { "type": "string" }, "description": "Max supply for each id (equal-length with ids)." }
+          "ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Token IDs to cap. Any id not in this list stays uncapped.",
+            "ui": {
+              "label": "item ids (comma-separated)",
+              "type": "string",
+              "hint": "e.g. 1,2,3"
+            }
+          },
+          "caps": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Max supply for each id (equal-length with ids).",
+            "ui": {
+              "label": "max supply per item (comma-separated)",
+              "type": "string",
+              "hint": "same order + count as the ids ~"
+            }
+          }
         }
       },
       "abiEncode": "(uint256[],uint256[])"
@@ -198,12 +426,34 @@
       "incompatibleWith": ["PayableMint1155Split"],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/PayableMint1155.frag.sol",
+      "ui": {
+        "label": "✿ paid mint per item",
+        "category": "nft",
+        "status": "shipped",
+        "description": "public mint at a fixed price per item. buyers send eth + get the item, u sweep proceeds later ~"
+      },
       "params": {
         "type": "object",
         "required": ["ids", "pricesWei"],
         "properties": {
-          "ids":       { "type": "array", "items": { "type": "string" } },
-          "pricesWei": { "type": "array", "items": { "type": "string" }, "description": "Price per token in wei for each id (equal-length with ids)." }
+          "ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "ui": {
+              "label": "item ids (comma-separated)",
+              "type": "string"
+            }
+          },
+          "pricesWei": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Price per token in wei for each id (equal-length with ids).",
+            "ui": {
+              "label": "prices in wei (comma-separated)",
+              "type": "string",
+              "hint": "one price per item, same order as ids. in wei bc these can be huge numbers ~"
+            }
+          }
         }
       },
       "abiEncode": "(uint256[],uint256[])"
@@ -215,14 +465,49 @@
       "incompatibleWith": ["PayableMint1155"],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/PayableMint1155Split.frag.sol",
+      "ui": {
+        "label": "✿ paid mint (fee split)",
+        "category": "nft",
+        "status": "shipped",
+        "description": "same as paid mint but every mint routes a platform slice to FeeSplitter automatically. use this over payable-mint when u want the launchpad-fee wiring built in ~"
+      },
       "params": {
         "type": "object",
         "required": ["ids", "pricesWei", "platformFeeReceiver", "platformFeeBps"],
         "properties": {
-          "ids":                  { "type": "array", "items": { "type": "string" } },
-          "pricesWei":            { "type": "array", "items": { "type": "string" }, "description": "Price per token in wei for each id (equal-length with ids)." },
-          "platformFeeReceiver":  { "type": "string", "description": "FeeSplitter address that receives the platform bps of each mint." },
-          "platformFeeBps":       { "type": "string", "description": "Platform's basis-point cut of every mint. Must be < 10000." }
+          "ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "ui": { "label": "item ids (comma-separated)", "type": "string" }
+          },
+          "pricesWei": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Price per token in wei for each id (equal-length with ids).",
+            "ui": {
+              "label": "prices in wei (comma-separated)",
+              "type": "string",
+              "hint": "one price per item, same order as ids"
+            }
+          },
+          "platformFeeReceiver": {
+            "type": "string",
+            "description": "FeeSplitter address that receives the platform bps of each mint.",
+            "ui": {
+              "label": "platform fee receiver",
+              "type": "address",
+              "hint": "FeeSplitter address"
+            }
+          },
+          "platformFeeBps": {
+            "type": "string",
+            "description": "Platform's basis-point cut of every mint. Must be < 10000.",
+            "ui": {
+              "label": "platform cut (bps)",
+              "type": "string",
+              "hint": "basis points — 1000 = 10%. must be < 10000"
+            }
+          }
         }
       },
       "abiEncode": "(uint256[],uint256[],address,uint16)"
@@ -234,12 +519,34 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/nft/ERC2981Royalty1155.frag.sol",
+      "ui": {
+        "label": "✿ resale royalties (1155)",
+        "category": "nft",
+        "status": "shipped",
+        "description": "same as the nft royalty module but for multi-item drops. same royalty applies across every item id ~"
+      },
       "params": {
         "type": "object",
         "required": ["receiver", "feeBps"],
         "properties": {
-          "receiver": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
-          "feeBps":   { "type": "integer", "minimum": 0, "maximum": 1000 }
+          "receiver": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": { "label": "royalty wallet", "type": "address", "hint": "where royalties land ~" }
+          },
+          "feeBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "ui": {
+              "label": "royalty (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 10,
+              "default": 5,
+              "hint": "what marketplaces send u on every resale. capped at 10%"
+            }
+          }
         }
       },
       "abiEncode": "(address,uint96)"
@@ -248,15 +555,42 @@
       "version": 1,
       "base": ["ERC20"],
       "requires": [],
-      "incompatibleWith": ["FeeOnTransfer"],
+      "incompatibleWith": ["FeeOnTransfer", "Vesting"],
       "flagged": null,
       "fragmentPath": "contracts/modules/allocation/Staking.frag.sol",
+      "ui": {
+        "label": "✿ staking pool",
+        "category": "allocation",
+        "status": "shipped",
+        "description": "stake this token to earn more of this token. u fund the reward pool up-front, rewards stream out linearly over the window ~ (doesnt stack with tax-on-trade, airdrop, or vesting for now)"
+      },
       "params": {
         "type": "object",
         "required": ["rewardsTotal", "durationSeconds"],
         "properties": {
-          "rewardsTotal":    { "type": "string", "description": "Total reward tokens distributed over the period (wei)." },
-          "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 630720000, "description": "Reward emission window. Max ~20 years." }
+          "rewardsTotal": {
+            "type": "string",
+            "description": "Total reward tokens distributed over the period (wei).",
+            "ui": {
+              "label": "reward pool (tokens)",
+              "type": "eth",
+              "hint": "how many tokens ur putting up for the whole staking window"
+            }
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 630720000,
+            "description": "Reward emission window. Max ~20 years.",
+            "ui": {
+              "label": "how long? (seconds)",
+              "type": "integer",
+              "min": 1,
+              "max": 630720000,
+              "default": 2592000,
+              "hint": "2,592,000 = 30 days. how long rewards stream out for"
+            }
+          }
         }
       },
       "abiEncode": "(uint256,uint32)"
@@ -268,17 +602,305 @@
       "incompatibleWith": [],
       "flagged": null,
       "fragmentPath": "contracts/modules/allocation/Vesting.frag.sol",
+      "ui": {
+        "label": "✿ vesting schedule",
+        "category": "allocation",
+        "status": "shipped",
+        "description": "one wallet, one unlock schedule. tokens unlock linearly from cliff to end date ~ no reserve needed, minted as they vest"
+      },
       "params": {
         "type": "object",
         "required": ["beneficiary", "totalAmount", "cliffTimestamp", "endTimestamp"],
         "properties": {
-          "beneficiary":     { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
-          "totalAmount":     { "type": "string", "description": "Total amount to vest in wei." },
-          "cliffTimestamp":  { "type": "integer", "description": "Unix seconds. No release before this." },
-          "endTimestamp":    { "type": "integer", "description": "Unix seconds. Full amount vested at or after this." }
+          "beneficiary": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": { "label": "who gets the tokens", "type": "address", "hint": "wallet that receives the vested amount ~" }
+          },
+          "totalAmount": {
+            "type": "string",
+            "description": "Total amount to vest in wei.",
+            "ui": {
+              "label": "total tokens",
+              "type": "eth",
+              "hint": "full amount that vests over the schedule"
+            }
+          },
+          "cliffTimestamp": {
+            "type": "integer",
+            "description": "Unix seconds. No release before this.",
+            "ui": {
+              "label": "cliff (unix seconds)",
+              "type": "integer",
+              "min": 0,
+              "hint": "when unlocks start. use a unix timestamp — date pickers ship soon ~"
+            }
+          },
+          "endTimestamp": {
+            "type": "integer",
+            "description": "Unix seconds. Full amount vested at or after this.",
+            "ui": {
+              "label": "end (unix seconds)",
+              "type": "integer",
+              "min": 0,
+              "hint": "when everything is fully unlocked"
+            }
+          }
         }
       },
       "abiEncode": "(address,uint256,uint64,uint64)"
+    },
+    "LPLocked": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "ui": {
+        "label": "✿ lp locked forever",
+        "category": "hook",
+        "status": "shipped",
+        "description": "liquidity gets locked in uniswap forever. no one — not even u — can pull it. classic anti-rug ~ this is why urufu labs exists"
+      },
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "FeeRedirect": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": ["LPLocked"],
+      "incompatibleWith": [],
+      "flagged": null,
+      "ui": {
+        "label": "✿ swap fee → u",
+        "category": "hook",
+        "status": "shipped",
+        "description": "every uniswap swap sends a slice of the output to ur wallet (creator) and a slice to urufu labs. u claim ur fees whenever — max 30% combined"
+      },
+      "params": {
+        "type": "object",
+        "required": ["creatorReceiver", "platformBps", "creatorBps"],
+        "properties": {
+          "creatorReceiver": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": {
+              "label": "ur wallet",
+              "type": "address",
+              "hint": "where ur cut lands. bake it right — this cant change after launch ~"
+            }
+          },
+          "platformBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3000,
+            "ui": {
+              "label": "urufu cut (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 30,
+              "default": 1,
+              "hint": "what urufu labs takes per swap ~ default 1%"
+            }
+          },
+          "creatorBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3000,
+            "ui": {
+              "label": "ur cut (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 30,
+              "default": 1,
+              "hint": "what u take per swap. up to 30%"
+            }
+          }
+        }
+      },
+      "abiEncode": "(address,uint16,uint16)"
+    },
+    "AntiSniper": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "ui": {
+        "label": "✿ sniper gate",
+        "category": "hook",
+        "status": "shipped",
+        "description": "blocks trades on uniswap for the first N seconds after the pool opens. adds + minting still work — only swapping is gated. auto-expires ~"
+      },
+      "params": {
+        "type": "object",
+        "required": ["gateBlocks"],
+        "properties": {
+          "gateBlocks": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 600,
+            "ui": {
+              "label": "how many seconds?",
+              "type": "integer",
+              "min": 30,
+              "max": 600,
+              "default": 60,
+              "hint": "60 seconds catches bots. rounded up to the next ethereum block (12 sec each) on chain ~"
+            }
+          }
+        }
+      },
+      "abiEncode": "(uint256)"
+    },
+    "MultiHookHost": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": ["LPLocked", "FeeRedirect"],
+      "flagged": null,
+      "ui": {
+        "label": "✿ lp lock + swap fee (combo)",
+        "category": "hook",
+        "status": "shipped",
+        "description": "lp lock and swap fee combined into one. u need this if u want both, bc uniswap only lets one hook attach per pool ~"
+      },
+      "params": {
+        "type": "object",
+        "required": ["creatorReceiver", "platformBps", "creatorBps"],
+        "properties": {
+          "creatorReceiver": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": {
+              "label": "ur wallet",
+              "type": "address",
+              "hint": "where ur cut lands. cant change this after launch ~"
+            }
+          },
+          "platformBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3000,
+            "ui": {
+              "label": "urufu cut (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 30,
+              "default": 1,
+              "hint": "what urufu labs takes per swap"
+            }
+          },
+          "creatorBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3000,
+            "ui": {
+              "label": "ur cut (%)",
+              "type": "percent",
+              "min": 0,
+              "max": 30,
+              "default": 1,
+              "hint": "what u take per swap"
+            }
+          }
+        }
+      },
+      "abiEncode": "(address,uint16,uint16)"
+    },
+    "BuybackBurn": {
+      "version": 1,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": null,
+      "ui": {
+        "label": "✿ buy → burn",
+        "category": "hook",
+        "status": "shipped",
+        "description": "every time someone buys ur token, a slice of the buy gets destroyed. supply shrinks a lil every trade — pure deflation flywheel ~"
+      },
+      "params": {
+        "type": "object",
+        "required": ["burnBps"],
+        "properties": {
+          "burnBps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000,
+            "ui": {
+              "label": "burn (%)",
+              "type": "percent",
+              "min": 0.01,
+              "max": 20,
+              "default": 2,
+              "hint": "0.01% to 20%. slice of every buy that goes straight to dead ~"
+            }
+          }
+        }
+      },
+      "abiEncode": "(uint16)"
+    },
+    "B20PolicyAware": {
+      "version": 0,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": "Reduces decentralization — every transfer is gated by an external PolicyRegistry the launcher configures. Same tradeoff as USDC-style compliance layers.",
+      "ui": {
+        "label": "B20 — PolicyRegistry aware",
+        "category": "token",
+        "status": "planned",
+        "description": "Defers every transfer to a Base PolicyRegistry contract. The registry decides whether msg.sender / from / to are allowed to move the token — used for KYC-gated markets, jurisdictional restrictions, and sanctions checks. Base-first (mainnet + Base Sepolia); other chains would need their own PolicyRegistry equivalent."
+      },
+      "params": {
+        "type": "object",
+        "required": ["policyRegistry"],
+        "properties": {
+          "policyRegistry": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "ui": {
+              "label": "PolicyRegistry address",
+              "type": "address",
+              "hint": "On-chain compliance registry the token will consult on every transfer. Immutable in the deployed token."
+            }
+          }
+        }
+      },
+      "abiEncode": "(address)"
+    },
+    "Blocklist": {
+      "version": 0,
+      "base": ["ERC20"],
+      "requires": [],
+      "incompatibleWith": [],
+      "flagged": "Reduces decentralization — owner can freeze arbitrary addresses at any time. Same mechanism USDC + USDT use for sanctions compliance.",
+      "capabilities": { "requiresOwner": true },
+      "ui": {
+        "label": "Blocklist — freeze specific addresses",
+        "category": "token",
+        "status": "planned",
+        "description": "Owner can block any address from sending or receiving the token. Blocked addresses can still hold their balance but every transfer reverts until they're unblocked. Meant for compliance / sanctions use cases — flagged so launchers know it's a censorship vector."
+      },
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
+    },
+    "Jailable": {
+      "version": 0,
+      "base": ["ERC20"],
+      "requires": ["Blocklist"],
+      "incompatibleWith": [],
+      "flagged": "Reduces decentralization — owner can seize tokens from any address (typically already blocklisted). The strongest censorship primitive we offer.",
+      "capabilities": { "requiresOwner": true },
+      "ui": {
+        "label": "Jailable — recover seized funds",
+        "category": "token",
+        "status": "planned",
+        "description": "Owner can move tokens out of a blocklisted address into a designated recovery address. Used to reclaim funds from sanctioned wallets or compromised accounts. Requires the Blocklist module — you can only jail tokens from an already-frozen address. Flagged as the strongest censorship primitive."
+      },
+      "params": { "type": "object", "properties": {} },
+      "abiEncode": "()"
     }
   }
 }

@@ -3,41 +3,29 @@
 # the well-known chain slug. Requires DEV_PRIVATE_KEY + the chain's *_RPC_URL to be set.
 #
 # Verification runs inline via --verify so contracts are verified on the block explorer
-# during the same broadcast pass. If a contract fails to verify (typical for CREATE2-mined
-# hook addresses where forge can't match the source), re-run verify-phase1.sh.
+# during the same broadcast pass. Set SKIP_VERIFY=1 to skip and run verification later
+# manually.
 #
 # Usage:
 #   ./deploy.sh <ScriptName> <chain>
-#   CHAIN=mainnet ./deploy.sh Phase1
-#   SKIP_VERIFY=1 ./deploy.sh Phase1 sepolia    # opt out of inline verification
+#   CHAIN=robinhood ./deploy.sh RouterV2
+#   SKIP_VERIFY=1 ./deploy.sh RouterV2 robinhood
 #
-# Chains:
-#   mainnet | sepolia | base | base-sepolia | robinhood | robinhood-testnet
+# Chain (Robinhood is canonical; others available for legacy work):
+#   robinhood | robinhood-testnet | mainnet | sepolia | base | base-sepolia
 #
-# Scripts:
-#   NameRegistry         → script/DeployNameRegistry.s.sol:DeployNameRegistry
-#   Phase1               → script/DeployPhase1.s.sol:DeployPhase1
-#   Hooks                → script/DeployHooks.s.sol:DeployHooks
-#   Graduator            → script/DeployGraduator.s.sol:DeployGraduator
-#   MigrateToV2Hook      → script/MigrateToV2Hook.s.sol:MigrateToV2Hook
-#                          (new MultiHookHost with per-pool creator + new Graduator wired to it)
-#   V4SwapRouter         → script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter
-#   Flywheel             → script/DeployFlywheel.s.sol:DeployFlywheel
-#   ConfigureFlywheel    → script/ConfigureFlywheel.s.sol:ConfigureFlywheel
-#   RouterV2             → script/DeployRouterV2.s.sol:DeployRouterV2
-#                          (Robinhood-only: URU-or-ETH pay-to-deploy + FeeSplitter sink)
-#   CurveFactoryV2       → script/DeployCurveFactoryV2.s.sol:DeployCurveFactoryV2
-#                          (Whitelist-aware CurveFactory + fresh BondingCurve impl — run BEFORE RouterV2)
-#   HandoffOwnership     → script/HandoffOwnership.s.sol:HandoffOwnership
-#   PostDeploySmoke      → script/PostDeploySmoke.s.sol:PostDeploySmoke
+# Available scripts (see case block below for the target mapping):
+#   NameRegistry, V4SwapRouter, RouterV2, Flywheel, ConfigureFlywheel,
+#   HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix,
+#   PublishFirstEpoch, VerifyWiring
 #
-# Recommended deploy order for a fresh chain:
-#   Phase1 → Hooks → Graduator (WIRE_INTO_FACTORY=1) → V4SwapRouter → Flywheel
-#   → ConfigureFlywheel → node tools/sync-addresses.mjs <chain> → HandoffOwnership
+# Post-broadcast: manually update .env with the new address(es), then bump
+# the pinned constants in test/audit/RhLiveStackSnapshot.t.sol so the
+# next `forge test` catches any wiring drift.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SCRIPT="${1:?script name required (NameRegistry | Phase1 | Hooks | Graduator | MigrateToV2Hook | Flywheel | ConfigureFlywheel | HandoffOwnership | PostDeploySmoke)}"
+SCRIPT="${1:?script name required — see header for available scripts}"
 CHAIN="${2:-${CHAIN:-sepolia}}"
 
 # Chain → RPC, chain-id, and verifier settings for inline `--verify`.
@@ -76,36 +64,42 @@ if [[ -z "${RPC:-}" ]]; then
   echo "No RPC URL for $CHAIN. Set the matching *_RPC_URL env var." >&2
   exit 1
 fi
-if [[ -z "${DEV_PRIVATE_KEY:-}" ]]; then
+# NO_BROADCAST is flipped to 1 for scripts that emit an artifact for offline
+# Safe submission instead of broadcasting on-chain (e.g. ActivateRouter). Those
+# scripts intentionally require no DEV_PRIVATE_KEY and no --broadcast.
+NO_BROADCAST=0
+
+case "$SCRIPT" in
+  DeployFreshLocal|FreshLocal|Fresh)  TARGET="script/DeployFreshLocal.s.sol:DeployFreshLocal" ;;
+  NameRegistry)       TARGET="script/DeployNameRegistry.s.sol:DeployNameRegistry" ;;
+  V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
+  Router|RouterV2)    TARGET="script/DeployRouter.s.sol:DeployRouter" ;;
+  # URU-P1-B02: ActivateRouter's direct broadcast is disabled. Reroute the
+  # command to the Safe-payload builder, which produces one MultiSendCallOnly
+  # transaction for the multisig to sign — the only atomic cutover path.
+  ActivateRouter)     TARGET="script/BuildRouterCutoverSafeBatch.s.sol:BuildRouterCutoverSafeBatch"; NO_BROADCAST=1 ;;
+  Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;
+  ConfigureFlywheel)  TARGET="script/ConfigureFlywheel.s.sol:ConfigureFlywheel" ;;
+  HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
+  SetChunkyDefaults)  TARGET="script/SetChunkyDefaults.s.sol:SetChunkyDefaults" ;;
+  V6AuditFixStack)    TARGET="script/DeployV6AuditFixStack.s.sol:DeployV6AuditFixStack" ;;
+  V9StackFix)         TARGET="script/DeployV9StackFix.s.sol:DeployV9StackFix" ;;
+  PublishFirstEpoch)  TARGET="script/PublishFirstEpoch.s.sol:PublishFirstEpoch" ;;
+  VerifyWiring)       TARGET="script/VerifyWiring.s.sol:VerifyWiring" ;;
+  *)                  echo "Unknown script: $SCRIPT. Available: NameRegistry, V4SwapRouter, RouterV2, ActivateRouter, Flywheel, ConfigureFlywheel, HandoffOwnership, SetChunkyDefaults, V6AuditFixStack, V9StackFix, PublishFirstEpoch, VerifyWiring"; exit 1 ;;
+esac
+
+if [[ "$NO_BROADCAST" != "1" && -z "${DEV_PRIVATE_KEY:-}" ]]; then
   echo "DEV_PRIVATE_KEY not set. Cannot broadcast." >&2
   exit 1
 fi
-
-case "$SCRIPT" in
-  NameRegistry)       TARGET="script/DeployNameRegistry.s.sol:DeployNameRegistry" ;;
-  Phase1)             TARGET="script/DeployPhase1.s.sol:DeployPhase1" ;;
-  Hooks)              TARGET="script/DeployHooks.s.sol:DeployHooks" ;;
-  Graduator)          TARGET="script/DeployGraduator.s.sol:DeployGraduator" ;;
-  MigrateToV2Hook)    TARGET="script/MigrateToV2Hook.s.sol:MigrateToV2Hook" ;;
-  MigrateToV2Templates) TARGET="script/MigrateToV2Templates.s.sol:MigrateToV2Templates" ;;
-  FixBaseCurveFactory) TARGET="script/FixBaseCurveFactory.s.sol:FixBaseCurveFactory" ;;
-  FixV2CurveFactory) TARGET="script/FixV2CurveFactory.s.sol:FixV2CurveFactory" ;;
-  V4SwapRouter)       TARGET="script/DeployV4SwapRouter.s.sol:DeployV4SwapRouter" ;;
-  HandoffOwnership)   TARGET="script/HandoffOwnership.s.sol:HandoffOwnership" ;;
-  PostDeploySmoke)    TARGET="script/PostDeploySmoke.s.sol:PostDeploySmoke" ;;
-  Flywheel)           TARGET="script/DeployFlywheel.s.sol:DeployFlywheel" ;;
-  ConfigureFlywheel)  TARGET="script/ConfigureFlywheel.s.sol:ConfigureFlywheel" ;;
-  RouterV2)           TARGET="script/DeployRouterV2.s.sol:DeployRouterV2" ;;
-  CurveFactoryV2)     TARGET="script/DeployCurveFactoryV2.s.sol:DeployCurveFactoryV2" ;;
-  *)                  echo "Unknown script: $SCRIPT"; exit 1 ;;
-esac
 
 # Assemble inline verification args. Ownership-handoff and configure-only scripts don't
 # deploy new contracts so verification is a no-op; every other script gets --verify.
 VERIFY_ARGS=()
 if [[ "${SKIP_VERIFY:-0}" == "1" ]]; then
-  echo ">>> SKIP_VERIFY=1 → skipping inline verification. Run verify-phase1.sh $CHAIN later."
-elif [[ "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "PostDeploySmoke" ]]; then
+  echo ">>> SKIP_VERIFY=1 → skipping inline verification. Run explorer verify manually later."
+elif [[ "$NO_BROADCAST" == "1" || "$SCRIPT" == "HandoffOwnership" || "$SCRIPT" == "ConfigureFlywheel" || "$SCRIPT" == "SetChunkyDefaults" || "$SCRIPT" == "VerifyWiring" ]]; then
   : # no new contracts to verify
 elif [[ "$EXPLORER_KIND" == "etherscan" ]]; then
   if [[ -z "$EXPLORER_KEY" ]]; then
@@ -116,6 +110,17 @@ elif [[ "$EXPLORER_KIND" == "etherscan" ]]; then
   VERIFY_ARGS=(--verify --etherscan-api-key "$EXPLORER_KEY")
 elif [[ "$EXPLORER_KIND" == "blockscout" ]]; then
   VERIFY_ARGS=(--verify --verifier blockscout --verifier-url "$EXPLORER_URL")
+fi
+
+if [[ "$NO_BROADCAST" == "1" ]]; then
+  echo ">>> Building atomic Safe payload for $SCRIPT → $CHAIN (chain id $CHAIN_ID)"
+  echo ">>> RPC: $RPC"
+  forge script "$TARGET" \
+    --rpc-url "$RPC" \
+    --chain-id "$CHAIN_ID" \
+    -vvvv
+  echo ">>> Payload written locally. Submit it as ONE Safe transaction; nothing was broadcast."
+  exit 0
 fi
 
 echo ">>> Broadcasting $SCRIPT → $CHAIN (chain id $CHAIN_ID)"

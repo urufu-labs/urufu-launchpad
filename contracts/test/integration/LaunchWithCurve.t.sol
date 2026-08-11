@@ -13,6 +13,28 @@ import {CurveFactory} from "src/curve/CurveFactory.sol";
 
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. Stub is
+/// a no-op — none of the tests in this file cross graduation.
+contract MockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+
+    /// URU-A14 (round 3): Router now calls `graduator.poolManager()` directly
+    /// as part of the curve-time module-allowance grant path. Return address(this)
+    /// as a benign placeholder — the token doesn't have AntiBot installed in
+    /// these tests, so the downstream probe returns "unknown selector" and
+    /// the grant is skipped without needing a real PoolManager.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
+}
+
 interface IERC20View {
     function balanceOf(
         address
@@ -63,6 +85,9 @@ contract LaunchWithCurveTest is Test {
 
         curveImpl = new BondingCurve();
         cf = new CurveFactory(admin, address(feeReceiver), address(curveImpl));
+        // URU-A05: curve factory must have a live-contract graduator wired
+        // before any curve can be created.
+        MockGraduator mockGrad = new MockGraduator();
 
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC20, address(f20));
@@ -70,11 +95,16 @@ contract LaunchWithCurveTest is Test {
         registry.setRouter(address(router));
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        cf.setGraduator(address(mockGrad));
         // Audit remediation #3 (fail-closed sentinels).
         router.setModuleCountForConfig(BARE_ERC20, 1);
         router.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(impl20).code));
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(impl20));
 
@@ -95,7 +125,8 @@ contract LaunchWithCurveTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02 / Router__CurveMustRenounce: curve launches must renounce.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0
@@ -151,6 +182,10 @@ contract LaunchWithCurveTest is Test {
         ERC20Template implB = new ERC20Template();
         vm.prank(admin);
         bareRouter.setFactory(BaseType.ERC20, address(f20b));
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20b.setExpectedCodeHash(BARE_ERC20, keccak256(address(implB).code));
         vm.prank(registrar);
         f20b.registerImpl(BARE_ERC20, address(implB));
 
@@ -179,6 +214,10 @@ contract LaunchWithCurveTest is Test {
         bareRouter2.setFlagsForConfig(BARE_ERC20, 0);
         vm.stopPrank();
         ERC20Template implC = new ERC20Template();
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        f20c.setExpectedCodeHash(BARE_ERC20, keccak256(address(implC).code));
         vm.prank(registrar);
         f20c.registerImpl(BARE_ERC20, address(implC));
 
@@ -192,7 +231,10 @@ contract LaunchWithCurveTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02: curve launches must renounce; this test isolates the
+            // CurveFactoryUnset revert, so we use Renounce to skip past the
+            // CurveMustRenounce guard.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0

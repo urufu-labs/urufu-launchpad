@@ -61,7 +61,12 @@ contract UruDepositSinkTest is Test {
 
     function setUp() public {
         uru = new MockUru();
-        sink = new UruDepositSink(owner, address(uru), distribution, 2 days);
+        // URU-A11: production sinks REQUIRE minConfigDelay > 0 so an owner-key
+        // compromise can't instantly rotate keeper/swap-target/rate. Tests use
+        // minConfigDelay = 0 to avoid the propose-then-warp dance for every
+        // setKeeper/setSwapTarget/setMinEthPerUru call; the propose path is
+        // covered explicitly by `test_ProposeActivate_*` below.
+        sink = new UruDepositSink(owner, address(uru), distribution, 0);
         swapTarget = new MockSwapTarget(uru);
         // Prefund the swap target with ETH so it can pay out ETH proceeds.
         vm.deal(address(swapTarget), 100 ether);
@@ -97,7 +102,7 @@ contract UruDepositSinkTest is Test {
     }
 
     function test_ExecuteConversion_HappyPath() public {
-        // Push 1000 URU into the sink (as if RouterV2 did it via transferFrom).
+        // Push 1000 URU into the sink (as if Router did it via transferFrom).
         uru.mint(address(sink), 1000e18);
 
         vm.prank(owner);
@@ -202,11 +207,14 @@ contract UruDepositSinkTest is Test {
     }
 
     function test_SetDistributionSink_RevertsBeforeDelay() public {
+        // Spin up a fresh sink with a non-zero delay so the timelock is meaningful
+        // (the shared setUp uses delay = 0 for direct-setter convenience).
+        UruDepositSink delayedSink = new UruDepositSink(owner, address(uru), distribution, 2 days);
         vm.prank(owner);
-        sink.proposeDistributionSink(address(1));
+        delayedSink.proposeDistributionSink(address(1));
         vm.prank(owner);
         vm.expectRevert();
-        sink.activateDistributionSink();
+        delayedSink.activateDistributionSink();
     }
 
     function test_FlushEth_ForwardsToDistribution() public {

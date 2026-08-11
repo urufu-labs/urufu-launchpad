@@ -38,6 +38,19 @@ contract BondingCurve is ReentrancyGuard {
     error BondingCurve__Slippage(uint256 got, uint256 min);
     error BondingCurve__ExceedsSupply(uint256 requested, uint256 available);
     error BondingCurve__ZeroAddress();
+    /// GH #8 (launchAndBuy): `buyFor` requires an explicit non-zero recipient.
+    /// Distinct selector from the generic `ZeroAddress` so a caller who passed
+    /// `recipient = address(0)` sees an unambiguous error at the trade layer.
+    error BondingCurve__ZeroRecipient();
+    // NOTE: parameter-sanity checks (fee cap, non-zero reserves, reachable
+    // graduation target) live in CurveFactory.setDefaults / _validateCurveDefaults
+    // only. Mirroring them in _init was tried on 2026-07-31 and broke legitimate
+    // edge-case tests that intentionally construct curves with unreachable
+    // targets to exercise the tokenReserve-exhaustion clamp in buy(). The
+    // production path (Router → CurveFactory) still catches admin errors at
+    // the factory boundary; a curve constructed directly with hostile params
+    // could sit in an unsafe state, but the only way to reach that path is
+    // to bypass the factory entirely, which is outside the trust model.
     /// Public `buy()` called during the whitelist-exclusive window. Only
     /// `buyWithProof` works before `fallbackTs`; after it, `buy()` opens to everyone.
     /// The revert carries the timestamp so the caller knows exactly when to retry.
@@ -56,6 +69,15 @@ contract BondingCurve is ReentrancyGuard {
     /// dead-on-arrival (buyWithProof reverts as WlNotActive from block 0, buy()
     /// opens immediately with a WL that no one can use). Caller mistake guard.
     error BondingCurve__WlFallbackInPast();
+    /// URU-A05: curve was initialized (or is about to graduate) with a zero /
+    /// non-contract Graduator. Blocks the "graduate but no v4 pool" terminal
+    /// state that would strand ETH + tokens permanently.
+    error BondingCurve__GraduatorUnset();
+    /// URU-A04: graduation attempted with `tokenReserve == 0`. Would leave
+    /// the curve marked graduated but with no LP to seed the v4 pool. The
+    /// no-clamp `tokensOut > tokenReserve - 1` check in `buy` /
+    /// `buyWithProof` prevents this state from being reached during trading.
+    error BondingCurve__GraduationReserveRequired();
 
     // ============================================================
     // Events — the trade UI streams these into an OHLC chart
@@ -96,6 +118,13 @@ contract BondingCurve is ReentrancyGuard {
     );
     event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter);
     event WlClaimed(address indexed buyer, uint256 amount);
+
+    /// GH #8 (launchAndBuy): payer/recipient split emitted alongside the
+    /// standard `Trade` event when tokens flow to an address that is not the
+    /// caller. Router's `launchAndBuy` uses this path so indexers can
+    /// distinguish "Router paid on behalf of launcher" from a self-buy. The
+    /// standard `Trade` event still fires so OHLC pipelines are unchanged.
+    event BoughtFor(address indexed payer, address indexed recipient, uint256 ethAmount, uint256 tokensOut);
 
     // ============================================================
     // Immutable-after-init state (LibClone friendly — no constructor args)
@@ -274,6 +303,14 @@ contract BondingCurve is ReentrancyGuard {
         if (_initialized != 0) revert BondingCurve__AlreadyInitialized();
         _initialized = 1;
         if (token_ == address(0) || feeReceiver_ == address(0)) revert BondingCurve__ZeroAddress();
+        // URU-A05: reject zero / non-contract Graduator at init. Previously
+        // CurveFactory allowed graduator=0 (comment: "disables v4 graduation"),
+        // and BondingCurve._graduate silently no-op'd — combined effect was a
+        // curve that could mark itself graduated while permanently retaining
+        // ETH + tokens. Fail loudly at init so this state is unreachable.
+        if (graduator_ == address(0) || graduator_.code.length == 0) {
+            revert BondingCurve__GraduatorUnset();
+        }
 
         token = token_;
         feeReceiver = feeReceiver_;
@@ -355,7 +392,12 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffEth = effEth + ethAfterFee;
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
-        if (tokensOut > tokenReserve) tokensOut = tokenReserve;
+        // URU-A17 Low: match buy()'s tokenReserve-1 floor so quotes never
+        // exceed what execution will actually settle. Without this, a UI
+        // showing quoteBuy(ethIn)==tokenReserve would submit a buy that
+        // reverts BondingCurve__InsufficientReserves.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) tokensOut = available;
     }
 
     function quoteSell(
@@ -398,7 +440,16 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffEth = effEth + ethAfterFee;
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
-        if (tokensOut > tokenReserve) revert BondingCurve__ExceedsSupply(tokensOut, tokenReserve);
+        // URU-A04: a buy may NEVER consume the complete remaining token reserve.
+        // Leaving at least 1 wei-token reserved guarantees `_graduate` can always
+        // find non-zero LP inventory to hand the Graduator (which reverts
+        // `GraduationReserveRequired` on empty). Combined with the reachability
+        // safety margin in CurveFactory, prevents the terminal states in which
+        // (a) the ETH target crosses with zero tokens left, marking graduated
+        // but skipping v4 pool creation, or (b) whitelist tokens sit locked with
+        // no graduation ever possible.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) revert BondingCurve__ExceedsSupply(tokensOut, available);
         // Dust-buy guard — msg.value small enough that the curve math rounds
         // tokensOut to 0. Without this check, a griefer can push ethReserve
         // toward graduationTargetEth for near-zero tokens per tx, and any
@@ -437,6 +488,87 @@ contract BondingCurve is ReentrancyGuard {
         }
     }
 
+    /// @notice Same as `buy` but the purchased tokens go to `recipient` instead
+    ///         of `msg.sender`. Payer is still `msg.sender` (they pay the ETH).
+    ///         Introduced for GH #8 so `Router.launchAndBuy` can execute the
+    ///         creator's first buy atomically with token deployment, denying
+    ///         snipers any window between launch and first trade.
+    /// @dev    All existing guards are preserved (graduated check, WL window,
+    ///         zero-amount, dust, slippage, ExceedsSupply floor). Reserve
+    ///         updates, fee routing, and the graduation trigger are identical
+    ///         to `buy`. The only differences are:
+    ///           * the ERC20 `safeTransfer` targets `recipient`;
+    ///           * the `Trade` event's `trader` field is `recipient` (not
+    ///             `msg.sender`) so indexer / analytics attribution follows
+    ///             the actual holder rather than the Router when Router
+    ///             brokers the buy in `launchAndBuy`;
+    ///           * a `BoughtFor(msg.sender, recipient, ...)` event is
+    ///             additionally emitted so consumers that need the payer /
+    ///             recipient split still see both sides;
+    ///           * zero-recipient reverts `BondingCurve__ZeroRecipient`.
+    ///         WL state (`wlHeldForUser`, `wlSold`) is not touched — this
+    ///         path is public-window ONLY, matching `buy`'s semantics.
+    function buyFor(
+        address recipient,
+        uint256 minTokensOut
+    ) external payable nonReentrant returns (uint256 tokensOut) {
+        if (recipient == address(0)) revert BondingCurve__ZeroRecipient();
+        if (graduated) revert BondingCurve__Graduated();
+        if (msg.value == 0) revert BondingCurve__ZeroAmount();
+
+        uint256 fee = (msg.value * tradeFeeBps) / 10_000;
+        uint256 ethAfterFee = msg.value - fee;
+
+        uint256 effEth = ethReserve + virtualEthReserve;
+        uint256 effToken = tokenReserve + virtualTokenReserve;
+        uint256 k = effEth * effToken;
+        uint256 newEffEth = effEth + ethAfterFee;
+        uint256 newEffToken = k / newEffEth;
+        tokensOut = effToken - newEffToken;
+        // URU-A04: same tokenReserve-1 floor as `buy` — never let a buy consume
+        // the complete remaining reserve, so `_graduate` always has non-zero LP
+        // inventory. See `buy` for full rationale.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) revert BondingCurve__ExceedsSupply(tokensOut, available);
+        // Dust-buy guard — msg.value small enough that curve math rounds
+        // tokensOut to 0. Same as `buy`.
+        if (tokensOut == 0) revert BondingCurve__ZeroAmount();
+        if (tokensOut < minTokensOut) revert BondingCurve__Slippage(tokensOut, minTokensOut);
+
+        // Same time-gated WL window as `buy`. This is a public-buy path — during
+        // the exclusive window it MUST revert regardless of who the recipient
+        // is, otherwise `buyFor` would be a WL bypass (router-forwarded buys
+        // land ahead of the fallback timestamp with no proof required).
+        if (whitelistRoot != bytes32(0) && block.timestamp < fallbackTs) {
+            revert BondingCurve__WlWindowActive(fallbackTs);
+        }
+
+        tokenReserve -= tokensOut;
+        publicSold += tokensOut;
+        ethReserve += ethAfterFee;
+
+        if (fee > 0) SafeTransferLib.safeTransferETH(feeReceiver, fee);
+        SafeTransferLib.safeTransfer(token, recipient, tokensOut);
+
+        // Standard Trade event for OHLC pipelines. Trader = `recipient`, NOT
+        // `msg.sender`. Router.launchAndBuy is the primary caller of buyFor,
+        // and there `msg.sender == Router` while the actual trader is the
+        // launcher / whoever will end up holding the tokens. Attributing the
+        // Trade to Router would misreport every atomic first-buy as
+        // "Router bought" in indexer feeds / holder analytics. `buy()` keeps
+        // trader = msg.sender because payer and recipient are the same there.
+        // Full payer/recipient split is still surfaced via `BoughtFor` for
+        // consumers that need both sides of the split.
+        emit Trade(recipient, true, ethAfterFee, tokensOut, ethReserve, tokenReserve, block.timestamp);
+        emit BoughtFor(msg.sender, recipient, ethAfterFee, tokensOut);
+
+        // Same graduation trigger as `buy` — see comment there for why the
+        // `tokenReserve == 0` alternate was removed.
+        if (ethReserve >= graduationTargetEth) {
+            _graduate();
+        }
+    }
+
     /// @notice Whitelist-only buy. Draws from the reserved slice (bounded by
     ///         `maxWlPerAddress`), same pricing curve as `buy()`. Bought tokens are
     ///         **held on the curve** and only released to the buyer via `claimWl()`
@@ -466,10 +598,16 @@ contract BondingCurve is ReentrancyGuard {
         uint256 newEffEth = effEth + ethAfterFee;
         uint256 newEffToken = k / newEffEth;
         tokensOut = effToken - newEffToken;
-        if (tokensOut > tokenReserve) tokensOut = tokenReserve;
-        // Same dust-buy guard as buy() — a WL buyer paying vanishingly small ETH
-        // (or arriving after tokenReserve was clamped to 0) must not sink ETH
-        // into the curve for zero WL entitlement.
+        // URU-A04: previously this path CLAMPED tokensOut to tokenReserve when
+        // the curve had less inventory than the buy priced for. That produced
+        // two terminal lock states: (a) WL buyers holding tokens that graduation
+        // never fires for; (b) target crossing with zero tokens left → no v4
+        // pool + stranded ETH. Match `buy()` — never clamp, always leave at
+        // least 1 wei-token as the graduation floor.
+        uint256 available = tokenReserve > 0 ? tokenReserve - 1 : 0;
+        if (tokensOut > available) revert BondingCurve__ExceedsSupply(tokensOut, available);
+        // Dust-buy guard — same rationale as buy(); WL buyer paying vanishing
+        // ETH must not sink ETH for zero WL entitlement.
         if (tokensOut == 0) revert BondingCurve__ZeroAmount();
         if (tokensOut < minTokensOut) revert BondingCurve__Slippage(tokensOut, minTokensOut);
 
@@ -547,27 +685,40 @@ contract BondingCurve is ReentrancyGuard {
     }
 
     // ============================================================
-    // Graduation — stub. Phase 3 replaces this with a v4 pool creation call
-    // that pulls ethReserve + tokenReserve out and mints an LP position with
-    // the launcher's chosen hook attached.
+    // Graduation — atomic transfer to v4 pool via Graduator (URU-A04, URU-A05).
+    //
+    // Previously this function set `graduated = true` before the external call
+    // AND permitted the Graduator call to be silently skipped if
+    // (graduator == 0 || ethOut == 0 || tokenOut == 0). That combination let a
+    // curve reach a graduated=true state while never moving its ETH + tokens
+    // to a v4 pool, permanently stranding both.
+    //
+    // The atomic version:
+    //   * requires a non-zero, code-bearing graduator (URU-A05);
+    //   * requires tokenOut > 0 (guaranteed by the buy-side no-clamp floor);
+    //   * marks graduated + zeros reserves + calls execute in a single tx;
+    //   * if execute reverts, the outer buy tx reverts too (`nonReentrant`
+    //     protects the entrypoints); no partial state possible.
     // ============================================================
     function _graduate() internal {
-        graduated = true;
         uint256 ethOut = ethReserve;
         uint256 tokenOut = tokenReserve;
-        emit Graduated(ethOut, tokenOut, block.timestamp);
+        // Belt-and-suspenders: `buy` / `buyWithProof` now leave at least 1
+        // wei-token in reserve, so tokenOut > 0 is invariant. Explicit revert
+        // is defence in case a future change breaks that invariant.
+        if (tokenOut == 0) revert BondingCurve__GraduationReserveRequired();
+        address g = graduator;
+        if (g == address(0) || g.code.length == 0) revert BondingCurve__GraduatorUnset();
 
-        // If a graduator is wired, ship the reserves into a v4 pool + zero the on-curve
-        // state to reflect the transfer. Without a graduator, funds stay on the curve
-        // (stub behavior — the pre-v4 unit tests rely on this).
-        if (graduator != address(0) && ethOut > 0 && tokenOut > 0) {
-            ethReserve = 0;
-            tokenReserve = 0;
-            SafeTransferLib.safeApprove(token, graduator, tokenOut);
-            IGraduator(graduator).execute{value: ethOut}(
-                token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps, launcher
-            );
-        }
+        // Mark + zero BEFORE the external call so any reentry lands on
+        // `graduated == true` and reverts `Graduated()`. If the external call
+        // reverts, the whole tx unwinds and none of these writes persist.
+        graduated = true;
+        ethReserve = 0;
+        tokenReserve = 0;
+        SafeTransferLib.safeApprove(token, g, tokenOut);
+        IGraduator(g).execute{value: ethOut}(token, ethOut, tokenOut, antiSniperBlocks, buybackBurnBps, launcher);
+        emit Graduated(ethOut, tokenOut, block.timestamp);
     }
 
     // Accept refunds from failed transfers etc.

@@ -1,5 +1,8 @@
 # SPEC — Modules
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > Module fragment interface, storage safety rules, matrix schema, plus first two module specs (`FeeOnTransfer`, `AntiBot`). Fragments are audited Solidity snippets the compile service splices into a base template's injection markers.
 
 **Status:** ✅ IMPLEMENTED. 20 modules shipped across 4 categories, 5 v4 hooks, 3 more planned (B20 compliance lineup).

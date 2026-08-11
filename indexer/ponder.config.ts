@@ -82,11 +82,18 @@ export const poolManagerAbi = parseAbi([
 /// CreatorSet, ConfigSet, InitializerSet are intentionally excluded to keep the
 /// per-log DB writes lean). PoolConfigSet is kept because it maps 1:1 to per-pool
 /// UI state (anti-sniper + burn bps rendered on the trade page).
+/// GH-13: HookPolicySet is a struct-typed event — the second arg is the packed
+/// `PoolPolicy` tuple. parseAbi accepts a struct declaration in the same array
+/// and resolves the reference (order-independent), so the ABI stays
+/// human-readable and viem decodes `event.args.policy` as an object with
+/// named fields.
 export const multiHookHostAbi = parseAbi([
   'event FeeAccrued(address indexed currency, uint256 platformShare, uint256 creatorShare)',
   'event FeeClaimed(address indexed currency, address indexed to, uint256 amount)',
   'event BuybackBurned(address indexed currency, uint256 amount)',
   'event PoolConfigSet(bytes32 indexed poolId, uint32 antiSniperBlocks, uint16 buybackBurnBps)',
+  'struct PoolPolicy { uint16 antiSniperBlocks; uint16 buybackBurnBps; uint16 platformFeeBps; uint16 creatorFeeBps; address creatorRecipient; uint64 launchBlock; bool immutableAfterLaunch; }',
+  'event HookPolicySet(bytes32 indexed poolId, PoolPolicy policy)',
 ]);
 
 export const feeSplitterAbi = parseAbi([

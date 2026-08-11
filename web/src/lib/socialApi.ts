@@ -150,11 +150,82 @@ export interface RemoteProfile {
   telegram: string | null;
   discord: string | null;
   website: string | null;
+  /// Verified X (Twitter) binding — written only by the /api/auth/x/callback
+  /// server flow via the compile-service bearer path. The client `saveProfile`
+  /// below CANNOT overwrite these fields; the backend ignores them in the
+  /// signed-write path.
+  xVerifiedHandle: string | null;
+  xVerifiedId: string | null;
+  xVerifiedAt: number | null;
+  xAvatarUrl: string | null;
+  /// Privacy toggle. When true the /profile/[addr] page hides the wallet's
+  /// holdings + balances from viewers OTHER than the owner. UX-only shield —
+  /// the indexer is public. Backend normalizes NULL to false so the client
+  /// can trust the shape.
+  hideHoldings: boolean;
   updatedAt: string;
 }
 
 export async function fetchProfile(address: Address): Promise<RemoteProfile | null> {
   return getJson<RemoteProfile>(`/profile/${address}`);
+}
+
+// ---------------------------------------------------------------- profile search
+
+/// Result row from GET /profile/search. Deliberately narrower than
+/// `RemoteProfile` — the search endpoint strips bio / socials / verified id
+/// so an unauthenticated caller cannot rip a full user directory.
+export interface RemoteProfileSearchHit {
+  address: Address;
+  username: string | null;
+  avatarUrl: string | null;
+  xVerifiedHandle: string | null;
+  xAvatarUrl: string | null;
+  /// Legacy self-declared handle. Server sets this to `null` whenever
+  /// `xVerifiedHandle` is populated so the client is never asked to pick
+  /// between two handles for the same profile.
+  twitter: string | null;
+  updatedAt: string;
+}
+
+/// Distinct error shape from `searchProfiles` so a caller can decide whether
+/// to render a toast (rate-limited) vs. a soft empty state (network hiccup).
+export type SearchProfilesResult =
+  | { ok: true; results: RemoteProfileSearchHit[] }
+  | { ok: false; error: 'rate-limited' | 'aborted' | 'network' | 'server' };
+
+/// Query the user directory. Pass an `AbortSignal` from the caller so an
+/// in-flight search can be cancelled the moment the user types another
+/// character — otherwise stale responses race the current one and land
+/// out of order in the modal.
+///
+/// Returns `{ ok: false, error: 'aborted' }` on cancel so the caller can
+/// distinguish "the request was cancelled, do nothing" from "the request
+/// completed with no rows". Rate-limit responses (HTTP 429) surface as a
+/// distinct code so the UI can render a "too fast" toast instead of the
+/// generic empty state.
+export async function searchProfiles(
+  q: string,
+  opts?: { limit?: number; signal?: AbortSignal },
+): Promise<SearchProfilesResult> {
+  const params = new URLSearchParams({ q });
+  if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+  try {
+    const res = await fetch(`${BASE_URL}/profile/search?${params.toString()}`, {
+      signal: opts?.signal,
+    });
+    if (res.status === 429) return { ok: false, error: 'rate-limited' };
+    if (!res.ok) return { ok: false, error: 'server' };
+    const data = (await res.json()) as { results: RemoteProfileSearchHit[] };
+    return { ok: true, results: data.results ?? [] };
+  } catch (err) {
+    // AbortController.abort() rejects the fetch with an AbortError DOMException.
+    // Both Node undici and browser fetch use `err.name === 'AbortError'`.
+    if ((err as { name?: string }).name === 'AbortError') {
+      return { ok: false, error: 'aborted' };
+    }
+    return { ok: false, error: 'network' };
+  }
 }
 
 export async function saveProfile(
@@ -175,6 +246,10 @@ export async function saveProfile(
     telegram?: string | null;
     discord?: string | null;
     website?: string | null;
+    /// Privacy toggle for the holdings section on the public profile page.
+    /// Optional so callers that don't touch privacy don't have to pass it;
+    /// the server treats an omitted value as false at INSERT time.
+    hideHoldings?: boolean;
   },
   sign: SignFn,
 ): Promise<{ ok: true } | { ok: false; error: string }> {

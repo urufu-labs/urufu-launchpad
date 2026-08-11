@@ -11,6 +11,7 @@ import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { sizeForName } from '@/lib/nameSize';
 import styles from './trade-entry.module.css';
 
 /// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
@@ -176,7 +177,7 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
       </div>
       <div className={styles.tileBody}>
         <div className={styles.tileTitle}>
-          <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div className="uru-h2" style={{ fontSize: sizeForName(launch.name, 13), lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {launch.name}
           </div>
           <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>

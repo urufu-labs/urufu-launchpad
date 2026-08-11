@@ -4,6 +4,17 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
+/// URU-A13: GraduatorV2 does NOT inherit Solady's Ownable — it exposes a
+/// custom `setOwner(address)` (plus `owner()` view). Casting it as Ownable
+/// and calling `transferOwnership(address)` reverts. This dedicated interface
+/// lets `_handoffGraduator` call the right selector.
+interface IGraduatorOwner {
+    function owner() external view returns (address);
+    function setOwner(
+        address newOwner
+    ) external;
+}
+
 import {Router} from "src/router/Router.sol";
 import {NameRegistry} from "src/registry/NameRegistry.sol";
 import {ERC20Factory} from "src/factories/ERC20Factory.sol";
@@ -62,13 +73,30 @@ contract HandoffOwnership is Script {
         _handoff("ERC1155Factory", f1155, multisig);
         _handoff("CurveFactory", cf, multisig);
 
-        // Graduator itself has no admin surface (poolManager / defaultHook / fee /
-        // tickSpacing are all immutable ctor args, no owner) — nothing to hand off.
-        // Graduation routing changes require `CurveFactory.setGraduator(new)`, which is
-        // gated by CurveFactory ownership already handed off above.
+        // Graduator: pre-V8 the graduator had no admin surface. V8 rotated in
+        // an Ownable Graduator with an owner + sweep() escape hatch (after the
+        // V7 4-ETH stranding incident). Handoff is now required. Read from the
+        // fresh-deploy JSON if present (has explicit `graduator` key);
+        // fall-back is to pull it from CurveFactory.graduator() at chain
+        // (works for legacy Phase 1 books that don't record it).
+        string memory freshPath = string.concat("deployment-fresh.", vm.toString(block.chainid), ".json");
+        address graduator;
+        if (vm.exists(freshPath)) {
+            string memory freshBook = vm.readFile(freshPath);
+            graduator = vm.parseJsonAddress(freshBook, ".graduator");
+        }
+        if (graduator == address(0) && cf != address(0)) {
+            // Fall back to chain read.
+            (bool ok, bytes memory ret) = cf.staticcall(abi.encodeWithSignature("graduator()"));
+            if (ok && ret.length >= 32) graduator = abi.decode(ret, (address));
+        }
+        // URU-A13: Graduator uses `setOwner` not `transferOwnership`. Route
+        // through the dedicated helper — if we call `_handoff` here the tx
+        // reverts and the whole multisig handoff halts partway through.
+        _handoffGraduator(graduator, multisig);
 
-        // Flywheel Ownables: same pattern — skip when the flywheel isn't deployed on this
-        // chain (URU + gemu NFT only live on Base today, so mainnet/sepolia never have this).
+        // Flywheel Ownables: pull from deployment-flywheel.<chainid>.json which
+        // DeployFreshLocal now writes as part of its 4-file address-book fan-out.
         string memory flyPath = string.concat("deployment-flywheel.", vm.toString(block.chainid), ".json");
         if (vm.exists(flyPath)) {
             string memory flyBook = vm.readFile(flyPath);
@@ -81,11 +109,37 @@ contract HandoffOwnership is Script {
         } else {
             console2.log("  skip Flywheel (no deployment-flywheel.<chainid>.json)");
         }
+
+        // UruDepositSink: owner-controlled distribution sink for URU fees.
+        // Not in the legacy Phase 1 or flywheel books (added later), so read
+        // from either deployment-fresh (fresh deploy) or deployment-routerv2
+        // (Router rotation) — both formats include it.
+        address uruSink = _resolveUruSink(freshPath);
+        _handoff("UruDepositSink", uruSink, multisig);
+
         vm.stopBroadcast();
 
         console2.log("---------------------------------------------------------");
         console2.log("Done. All ownership now sits at:", multisig);
         console2.log("Verify: cast call <contract> 'owner()(address)' --rpc-url ...");
+    }
+
+    /// Pulls UruDepositSink address from whichever address book has it.
+    /// Fresh deploys write both deployment-fresh (key `uruDepositSink`) and
+    /// deployment-routerv2 (key `UruDepositSink`); Router rotations write
+    /// only the latter. Returns address(0) if neither book has the sink;
+    /// _handoff then logs a skip.
+    function _resolveUruSink(
+        string memory freshPath
+    ) internal view returns (address) {
+        if (vm.exists(freshPath)) {
+            return vm.parseJsonAddress(vm.readFile(freshPath), ".uruDepositSink");
+        }
+        string memory rvPath = string.concat("deployment-routerv2.", vm.toString(block.chainid), ".json");
+        if (vm.exists(rvPath)) {
+            return vm.parseJsonAddress(vm.readFile(rvPath), ".UruDepositSink");
+        }
+        return address(0);
     }
 
     function _handoff(
@@ -104,5 +158,26 @@ contract HandoffOwnership is Script {
         }
         console2.log("  transfer", name);
         Ownable(target).transferOwnership(newOwner);
+    }
+
+    /// URU-A13: Graduator-specific handoff. `GraduatorV2.setOwner` is the
+    /// actual selector; casting to Ownable and calling `transferOwnership`
+    /// reverts because the selectors differ. Kept idempotent (skip if already
+    /// handed off) so re-running the script post-partial-migration works.
+    function _handoffGraduator(
+        address target,
+        address newOwner
+    ) internal {
+        if (target == address(0)) {
+            console2.log("  skip Graduator");
+            return;
+        }
+        address current = IGraduatorOwner(target).owner();
+        if (current == newOwner) {
+            console2.log("  already handed off: Graduator");
+            return;
+        }
+        console2.log("  setOwner Graduator");
+        IGraduatorOwner(target).setOwner(newOwner);
     }
 }

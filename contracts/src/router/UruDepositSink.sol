@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 interface IERC20Minimal {
@@ -16,7 +17,7 @@ interface IERC20Minimal {
 
 /// @title  UruDepositSink
 /// @notice Holding pool for URU paid as launchpad deploy fees. Deposits push URU here
-///         (RouterV2 does the transferFrom); an off-chain keeper periodically drains
+///         (Router does the transferFrom); an off-chain keeper periodically drains
 ///         the URU balance by swapping URU → ETH on an allowlisted swap target and
 ///         forwarding the resulting ETH to `distributionSink` (typically the
 ///         `FeeSplitter` — which then splits ETH into buyback + NFT + treasury).
@@ -30,7 +31,7 @@ interface IERC20Minimal {
 ///         (multisig) manages the keeper list and the swap-target allowlist. There is
 ///         NO admin function to move URU or ETH to arbitrary destinations — proceeds
 ///         only forward to the fixed `distributionSink`.
-contract UruDepositSink is Ownable {
+contract UruDepositSink is Ownable, ReentrancyGuard {
     error UruDepositSink__ZeroAddress();
     error UruDepositSink__NotKeeper();
     error UruDepositSink__TargetNotAllowed(address target);
@@ -44,6 +45,13 @@ contract UruDepositSink is Ownable {
     error UruDepositSink__ConfigDelayNotPassed(uint256 readyAt);
     /// No proposal exists (or was reset).
     error UruDepositSink__NoPendingSink();
+    /// URU-A11: keeper / swap-target / rate change was applied without a
+    /// matured proposal. Previously these were immediate — a compromised owner
+    /// could route ETH through a malicious `swapTarget` and set `minEthPerUru`
+    /// to 0 in the same tx, draining the vault. Now each change is a two-step
+    /// propose + wait cycle keyed by `changeId`.
+    error UruDepositSink__AdminChangeNotProposed(bytes32 changeId);
+    error UruDepositSink__AdminChangeNotReady(bytes32 changeId, uint256 readyAt);
 
     event Deposited(address indexed from, uint256 amount);
     event KeeperSet(address indexed keeper, bool allowed);
@@ -52,6 +60,14 @@ contract UruDepositSink is Ownable {
     event DistributionSinkProposed(address indexed sink, uint256 readyAt);
     event MinEthPerUruSet(uint256 minEthPerUru);
     event ConversionExecuted(uint256 uruIn, uint256 ethOut);
+    /// URU-A11: telemetry for propose/activate/cancel of admin changes.
+    event AdminChangeProposed(bytes32 indexed changeId, uint256 readyAt);
+    event AdminChangeCancelled(bytes32 indexed changeId);
+    /// URU-A11 AC #4: emitted when `_consumeAdminChange` succeeds against a
+    /// matured proposal. Together with `AdminChangeProposed`/`Cancelled`,
+    /// off-chain monitoring can enumerate every pending admin change by
+    /// joining the log stream (`Proposed - Cancelled - Applied`).
+    event AdminChangeApplied(bytes32 indexed changeId);
 
     IERC20Minimal public immutable uru;
     address public distributionSink;
@@ -77,6 +93,11 @@ contract UruDepositSink is Ownable {
 
     mapping(address => bool) public isKeeper;
     mapping(address => bool) public isSwapTarget;
+    /// URU-A11: propose/activate state for keeper / swapTarget / rate changes.
+    /// Change identity computed by `keeperChangeId` / `swapTargetChangeId` /
+    /// `rateChangeId`. Non-zero readyAt = proposed; must be >= block.timestamp
+    /// before consumption. Reset to 0 either on cancellation or consumption.
+    mapping(bytes32 => uint256) public adminChangeReadyAt;
 
     constructor(
         address initialOwner,
@@ -93,7 +114,7 @@ contract UruDepositSink is Ownable {
         minConfigDelay = minConfigDelay_;
     }
 
-    /// @notice Optional explicit deposit path — RouterV2 uses direct transferFrom() into
+    /// @notice Optional explicit deposit path — Router uses direct transferFrom() into
     ///         this contract, but external integrators can call this to log attribution.
     function deposit(
         uint256 amount
@@ -114,7 +135,11 @@ contract UruDepositSink is Ownable {
         uint256 uruIn,
         bytes calldata swapData,
         uint256 minEthOut
-    ) external {
+    ) external nonReentrant {
+        // URU-A14 additional-defect close (matches UruBuybackVault.executeBuyback):
+        // pre/post balance-delta pattern + arbitrary external call needs a
+        // guard so a reentrant token or hostile swapTarget can't inflate
+        // `ethOut` mid-call.
         if (!isKeeper[msg.sender]) revert UruDepositSink__NotKeeper();
         if (!isSwapTarget[swapTarget]) revert UruDepositSink__TargetNotAllowed(swapTarget);
         if (uruIn == 0) revert UruDepositSink__ZeroSwap();
@@ -127,11 +152,12 @@ contract UruDepositSink is Ownable {
         }
 
         // Reset approval to zero first, then set to `uruIn` — belt-and-braces against
-        // routers that read residual allowance non-idempotently.
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, 0);
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, uruIn);
+        // routers that read residual allowance non-idempotently. URU-A17 Low:
+        // safeApproveWithRetry enforces standard ERC-20 return-value semantics
+        // AND handles the USDT-style tokens that require zero-first, in a
+        // single call — kept as two calls here for zero-then-value clarity.
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, 0);
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, uruIn);
 
         uint256 ethBefore = address(this).balance;
         (bool ok,) = swapTarget.call(swapData);
@@ -142,8 +168,7 @@ contract UruDepositSink is Ownable {
 
         // Clear any residual allowance so a compromised swapTarget can't drain URU
         // between conversion runs.
-        // slither-disable-next-line unchecked-transfer
-        uru.approve(swapTarget, 0);
+        SafeTransferLib.safeApproveWithRetry(address(uru), swapTarget, 0);
 
         SafeTransferLib.safeTransferETH(distributionSink, ethOut);
         emit ConversionExecuted(uruIn, ethOut);
@@ -156,6 +181,9 @@ contract UruDepositSink is Ownable {
         address keeper,
         bool allowed
     ) external onlyOwner {
+        // URU-A11: propose/activate for keeper changes. `_consumeAdminChange`
+        // is a no-op when `minConfigDelay == 0` (test path).
+        _consumeAdminChange(keeperChangeId(keeper, allowed));
         isKeeper[keeper] = allowed;
         emit KeeperSet(keeper, allowed);
     }
@@ -164,6 +192,7 @@ contract UruDepositSink is Ownable {
         address target,
         bool allowed
     ) external onlyOwner {
+        _consumeAdminChange(swapTargetChangeId(target, allowed));
         isSwapTarget[target] = allowed;
         emit SwapTargetSet(target, allowed);
     }
@@ -197,8 +226,73 @@ contract UruDepositSink is Ownable {
     function setMinEthPerUru(
         uint256 rate
     ) external onlyOwner {
+        // URU-A11: propose/activate the rate change too. Previously immediate,
+        // which let a compromised owner set rate=0 in the same block as
+        // routing swap through a malicious target.
+        _consumeAdminChange(rateChangeId(rate));
         minEthPerUru = rate;
         emit MinEthPerUruSet(rate);
+    }
+
+    // ============================================================
+    // URU-A11 propose/activate — changeId helpers
+    // ============================================================
+
+    /// Change identity for a keeper allowlist toggle. Hash includes the target
+    /// bool so proposing "true" and later applying "false" requires two separate
+    /// proposals — an owner can't propose an add and then flip it to a remove.
+    function keeperChangeId(
+        address keeper,
+        bool allowed
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("KEEPER", keeper, allowed));
+    }
+
+    function swapTargetChangeId(
+        address target,
+        bool allowed
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("SWAP_TARGET", target, allowed));
+    }
+
+    function rateChangeId(
+        uint256 rate
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode("MIN_ETH_PER_URU", rate));
+    }
+
+    /// URU-A11: stage a specific change by its ID. Overwriting a pending
+    /// proposal's readyAt is allowed (reproposal resets the timer).
+    function proposeAdminChange(
+        bytes32 changeId
+    ) external onlyOwner {
+        uint256 readyAt = block.timestamp + minConfigDelay;
+        adminChangeReadyAt[changeId] = readyAt;
+        emit AdminChangeProposed(changeId, readyAt);
+    }
+
+    function cancelAdminChange(
+        bytes32 changeId
+    ) external onlyOwner {
+        delete adminChangeReadyAt[changeId];
+        emit AdminChangeCancelled(changeId);
+    }
+
+    /// Internal: called by each `set*` mutator. When `minConfigDelay == 0`
+    /// (test / bootstrap mode), skip the check entirely so tests can wire
+    /// keepers + rates without dance. In production, requires a matured
+    /// proposal for the exact `changeId`.
+    function _consumeAdminChange(
+        bytes32 changeId
+    ) internal {
+        if (minConfigDelay == 0) return;
+        uint256 readyAt = adminChangeReadyAt[changeId];
+        if (readyAt == 0) revert UruDepositSink__AdminChangeNotProposed(changeId);
+        if (block.timestamp < readyAt) {
+            revert UruDepositSink__AdminChangeNotReady(changeId, readyAt);
+        }
+        delete adminChangeReadyAt[changeId];
+        emit AdminChangeApplied(changeId);
     }
 
     /// Escape hatch for stranded ETH (residual from rounding, or direct sends before a

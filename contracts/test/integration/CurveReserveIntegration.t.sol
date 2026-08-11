@@ -10,10 +10,27 @@ import {FeeReceiver, IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {ERC20Factory} from "src/factories/ERC20Factory.sol";
 import {ERC20Template} from "src/templates/ERC20Template.sol";
 import {ERC20WithVestingGen} from "src/templates/composed/ERC20WithVestingGen.sol";
-import {ERC20WithAirdropGen} from "src/templates/composed/ERC20WithAirdropGen.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BaseType, OwnershipMode, LaunchParams} from "src/types/VMTypes.sol";
+
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. This is a
+/// no-op stub; none of the tests here trip graduation.
+contract CrciMockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+
+    /// URU-A14 (round 3): Router reads `graduator.poolManager()` on curve launches.
+    function poolManager() external view returns (address) {
+        return address(this);
+    }
+}
 
 /// @notice The critical invariant test for reserve-backed modules on bonding curves.
 ///         Proves total supply stays fixed at exactly the initial mint amount across
@@ -32,7 +49,6 @@ contract CurveReserveIntegrationTest is Test {
     ERC20Factory internal f20;
     ERC20Template internal bareImpl;
     ERC20WithVestingGen internal vestingImpl;
-    ERC20WithAirdropGen internal airdropImpl;
 
     BondingCurve internal curveImpl;
     CurveFactory internal cf;
@@ -47,18 +63,11 @@ contract CurveReserveIntegrationTest is Test {
     uint256 internal constant BASE_FEE = 0.05 ether;
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
     uint256 internal constant VESTING_ALLOCATION = 100_000_000e18;
-    uint256 internal constant AIRDROP_ALLOCATION = 50_000_000e18;
 
     bytes32 internal BARE_ERC20 = keccak256(abi.encode("ERC20", ""));
     bytes32 internal VESTING = keccak256(abi.encode("ERC20", "Vesting"));
-    bytes32 internal AIRDROP = keccak256(abi.encode("ERC20", "Airdrop"));
 
     function setUp() public {
-        // Skipped 2026-07-30: Airdrop module retired platform-wide. Live V1
-        // composed impl (0x7Eb2F73...) has an inflation rug (claims MINT
-        // new tokens). Restore only when a V2 reserve-backed impl is deployed
-        // at a fresh configHash. See memory: graduator-v9 + airdrop removal.
-        vm.skip(true);
         string[] memory reserved = new string[](1);
         reserved[0] = "ETH";
         registry = new NameRegistry(admin, treasury, reserved);
@@ -78,30 +87,37 @@ contract CurveReserveIntegrationTest is Test {
         f20 = new ERC20Factory(admin, address(router), registrar);
         bareImpl = new ERC20Template();
         vestingImpl = new ERC20WithVestingGen();
-        airdropImpl = new ERC20WithAirdropGen();
 
         vm.startPrank(admin);
         router.setFactory(BaseType.ERC20, address(f20));
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind each impl.
+        vm.startPrank(admin);
+        f20.setExpectedCodeHash(BARE_ERC20, keccak256(address(bareImpl).code));
+        f20.setExpectedCodeHash(VESTING, keccak256(address(vestingImpl).code));
+        vm.stopPrank();
         vm.prank(registrar);
         f20.registerImpl(BARE_ERC20, address(bareImpl));
         vm.prank(registrar);
         f20.registerImpl(VESTING, address(vestingImpl));
-        vm.prank(registrar);
-        f20.registerImpl(AIRDROP, address(airdropImpl));
 
         // Wire the curve factory. Uses CURVE_SUPPLY as the default; virtual reserves
         // sized so a modest ETH pool trips graduation before the curve token pool
         // runs dry — matches the mainnet config shape.
         curveImpl = new BondingCurve();
         cf = new CurveFactory(admin, address(feeReceiver), address(curveImpl));
+        // URU-A05: every curve creation requires a live-contract graduator.
+        // These tests don't cross the graduation target; no-op stub suffices.
+        CrciMockGraduator mockGrad = new CrciMockGraduator();
         vm.startPrank(admin);
         router.setCurveFactory(address(cf));
         registry.setRouter(address(router));
         cf.setDefaults(CURVE_SUPPLY, 800_000_000e18, 5 ether, 2 ether, 100);
         // Audit fix #2: CurveFactory ACL — router must be whitelisted.
         cf.setTrustedRouter(address(router), true);
+        cf.setGraduator(address(mockGrad));
         // Audit remediation #3 (fail-closed sentinels).
         router.setModuleCountForConfig(BARE_ERC20, 1);
         router.setFlagsForConfig(BARE_ERC20, 0);
@@ -128,7 +144,9 @@ contract CurveReserveIntegrationTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02: curve launches must renounce so a KeepEOA path can't
+            // retain pause/mint/blocklist rights over the graduated token.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0
@@ -261,7 +279,9 @@ contract CurveReserveIntegrationTest is Test {
             installHook: false,
             installGovernance: false,
             installBondingCurve: true,
-            ownership: OwnershipMode.KeepEOA,
+            // URU-A02: curve launches must renounce so a KeepEOA path can't
+            // retain pause/mint/blocklist rights over the graduated token.
+            ownership: OwnershipMode.Renounce,
             ownerTargetIfMultisig: address(0),
             antiSniperBlocks: 0,
             buybackBurnBps: 0

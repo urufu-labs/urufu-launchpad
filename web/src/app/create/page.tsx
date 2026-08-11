@@ -16,6 +16,7 @@ import {
   encodeAbiParameters,
   formatEther,
   isAddress,
+  parseEther,
   parseUnits,
   zeroAddress,
   type Address,
@@ -56,6 +57,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 import styles from './create-studio.module.css';
 
 type OwnershipMode = 'Renounce' | 'TransferToMultisig' | 'KeepEOA';
@@ -128,6 +130,11 @@ function CreatePageContent() {
   const [multisigTarget, setMultisigTarget] = useState('');
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [moduleParams, setModuleParams] = useState<Record<string, Record<string, unknown>>>({});
+  // Atomic first-buy at launch — deployer takes the very first curve trade so
+  // no mempool bot can front-run them. Empty string = disabled (plain launch).
+  // Parsed to bigint at simulate time via parseEther; a bad string just leaves
+  // initialBuyEthWei === 0n and the flow falls back to plain launch.
+  const [initialBuyEthInput, setInitialBuyEthInput] = useState('');
   const [metadata, setMetadata] = useState<TokenMetadata>({ savedAt: 0 });
   const [logoError, setLogoError] = useState<string | null>(null);
   const [logoNotice, setLogoNotice] = useState<string | null>(null);
@@ -434,10 +441,16 @@ function CreatePageContent() {
   });
   const curveSupplyWei = (curveDefaultSupplyQuery.data as bigint | undefined) ?? 800_000_000n * 10n ** 18n;
   const useCurve = base === 'ERC20';
-  /// Quick-launch defaults, evaluated once. Sniper gate is hardcoded to 5
-  /// blocks; buyback-burn is intentionally 0 per product decision (users can
-  /// still opt in via customizable curve).
+  /// Quick-launch defaults, evaluated once. Sniper gate hardcoded to 5 L1
+  /// blocks (~60 sec on RH — one Ethereum block cadence); buyback-burn is
+  /// intentionally 0 per product decision (users can still opt in via
+  /// customizable curve).
   const QUICK_ANTI_SNIPER_BLOCKS = 5;
+  /// L1 block cadence used to translate the launcher's seconds input into
+  /// the blocks-based `params.antiSniperBlocks` the MHH gate uses. RH is on
+  /// Arbitrum stack: `block.number` inside a contract returns the L1 block
+  /// number, not the L2 fast block. Verified 2026-08-09 across ~275 blocks.
+  const SEC_PER_L1_BLOCK = 12;
   const isQuick = mechanic === 'quick' && base === 'ERC20';
 
   const initialSupplyWei = useMemo(() => {
@@ -480,17 +493,19 @@ function CreatePageContent() {
   // Per-launch hook config — read straight out of the ModulePicker's param state.
   // Only meaningful when useCurve is true (Router revert-guards on non-bonding-curve
   // launches too, but the frontend should send zeros to keep the invariant obvious).
+  //
+  // Unit conversion: the UI accepts SECONDS (what a launcher understands) but the
+  // MHH gate compares against `block.number`, which on Robinhood (an Arbitrum-stack
+  // chain) returns the Ethereum L1 block number — ~12 sec cadence, verified
+  // empirically. Convert seconds → blocks by ceil(seconds / SEC_PER_L1_BLOCK).
   const antiSniperBlocks = useMemo<number>(() => {
     if (!useCurve) return 0;
-    // Quick launch bakes in a 5-block sniper gate — the pump.fun-style default
-    // that keeps snipers from consuming the first swap. The shelf is hidden so
-    // the AntiSniper module is never selected here, but we hardcode the value
-    // regardless of module basket contents in quick mode.
     if (isQuick) return QUICK_ANTI_SNIPER_BLOCKS;
     if (!selectedModules.includes('AntiSniper')) return 0;
     const raw = moduleParams['AntiSniper']?.gateBlocks;
-    const n = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    const seconds = raw === undefined || raw === null || raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+    return Math.ceil(seconds / SEC_PER_L1_BLOCK);
   }, [useCurve, isQuick, selectedModules, moduleParams]);
 
   const buybackBurnBps = useMemo<number>(() => {
@@ -553,6 +568,15 @@ function CreatePageContent() {
     if (gross === 0n) return 0;
     return Number(((gross - net) * 10_000n) / gross);
   }, [grossQuote.data, discountedQuote.data]);
+  // Layer-3 release gate — the receipt "loyalty discount: -N%" line only
+  // renders when the on-chain loyalty wiring is verified live. The router
+  // still charges the discounted quote either way (quoteFor is what we
+  // pay and simulate against), so degrading here is purely a copy safety
+  // measure: we never advertise a specific % that isn't backed by live
+  // read. If ready is false the receipt falls back to the plain net
+  // total with no strikethrough / no callout — same UX as an unconnected
+  // wallet or a chain without loyalty wiring.
+  const loyaltyReady = useLoyaltyDiscountReady();
 
   // Live fee schedule — the receipt breakdown reads from these so the display always
   // matches what Router.quote() actually charges, even after owner-side setFee /
@@ -864,18 +888,54 @@ function CreatePageContent() {
     // allowance already approved. The approve button unlocks first, then launch.
     && (payToken === 'ETH' || (typeof uruAmount === 'bigint' && !needsUruApprove));
 
-  // Simulate branches over both the pay token (ETH vs URU) and the WL-enabled flag.
-  // Four possible entrypoints on RouterV2: launch, launchWithURU, launchWithWhitelist,
-  // launchWithURUAndWhitelist. Args + value are assembled below to match each.
-  const simulateFn: 'launch' | 'launchWithURU' | 'launchWithWhitelist' | 'launchWithURUAndWhitelist' =
-    wlStruct
-      ? (payToken === 'URU' ? 'launchWithURUAndWhitelist' : 'launchWithWhitelist')
-      : (payToken === 'URU' ? 'launchWithURU' : 'launch');
+  // Parse the initial-buy input to a bigint. Only meaningful on the plain
+  // ETH-paid non-WL curve launch — the URU + WL variants don't have a
+  // *_AndBuy Router entrypoint (would need Router redeploy to add), so
+  // gate the whole feature behind that combo.
+  const initialBuyEthWei = useMemo<bigint>(() => {
+    if (!useCurve || payToken !== 'ETH' || wlStruct) return 0n;
+    const trimmed = initialBuyEthInput.trim();
+    if (!trimmed) return 0n;
+    try {
+      const v = parseEther(trimmed);
+      return v > 0n ? v : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [initialBuyEthInput, useCurve, payToken, wlStruct]);
+  const initialBuyEnabled = initialBuyEthWei > 0n;
+
+  // Simulate branches over the pay token, the WL flag, AND (for plain ETH
+  // curve launches) whether the user asked for an atomic first buy. Five
+  // possible entrypoints today: launch, launchAndBuy, launchWithURU,
+  // launchWithWhitelist, launchWithURUAndWhitelist. Args + value assembled
+  // below to match each.
+  const simulateFn:
+    | 'launch'
+    | 'launchAndBuy'
+    | 'launchWithURU'
+    | 'launchWithWhitelist'
+    | 'launchWithURUAndWhitelist' = wlStruct
+    ? payToken === 'URU'
+      ? 'launchWithURUAndWhitelist'
+      : 'launchWithWhitelist'
+    : payToken === 'URU'
+      ? 'launchWithURU'
+      : initialBuyEnabled
+        ? 'launchAndBuy'
+        : 'launch';
   const simulateArgs = (() => {
     const uAmt = typeof uruAmount === 'bigint' ? uruAmount : 0n;
     if (wlStruct && payToken === 'URU') return [params, uAmt, wlStruct] as const;
     if (wlStruct) return [params, wlStruct] as const;
     if (payToken === 'URU') return [params, uAmt] as const;
+    if (initialBuyEnabled && address) {
+      // minTokensOut = 0 because launch + first buy are atomic — no other
+      // trade can wedge in between to shift the curve pricing. Slippage
+      // only matters relative to other in-flight trades. Recipient is the
+      // launcher's own wallet so they hold the initial position directly.
+      return [params, initialBuyEthWei, 0n, address] as const;
+    }
     return [params] as const;
   })();
 
@@ -920,11 +980,14 @@ function CreatePageContent() {
     abi: routerAbi,
     address: contracts?.Router,
     functionName: simulateFn,
-    // wagmi's typed args don't unify across four different function shapes — the
+    // wagmi's typed args don't unify across five different function shapes — the
     // cast is safe because we branch on simulateFn to match args to signature.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: simulateArgs as any,
-    value: payToken === 'URU' ? 0n : ((quote.data as bigint | undefined) ?? 0n),
+    value:
+      payToken === 'URU'
+        ? 0n
+        : ((quote.data as bigint | undefined) ?? 0n) + initialBuyEthWei,
     account: address,
     query: { enabled: canLaunchLive },
   });
@@ -1216,7 +1279,7 @@ function CreatePageContent() {
               <div>
                 <div className="uru-h2" style={{ fontSize: 15 }}>oh no,, contracts arent live on this chain yet ~~</div>
                 <div style={{ fontSize: 12, marginTop: 4, color: 'var(--anchor-soft)' }}>
-                  u can browse everything, but launch stays disabled til DeployPhase1 broadcasts and addresses
+                  u can browse everything, but launch stays disabled til Router deploy broadcasts and addresses
                   land in <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>web/src/lib/config.ts</code>.
                 </div>
               </div>
@@ -1245,6 +1308,12 @@ function CreatePageContent() {
             </div>
           </div>
         )}
+
+        {/* Small "launch with an agent" strip — alternative entry point for
+            humans who'd rather let an AI walk them through it. Two buttons:
+            copy the paste-ready prompt for their agent, or view the raw skill
+            file. Kept small on purpose so it doesn't dominate the main flow. */}
+        <AgentLaunchStrip />
 
         <div className={styles.workbench}>
           <nav className={styles.progressRail} aria-label="Create progress">
@@ -1294,15 +1363,16 @@ function CreatePageContent() {
                     <div style={{ fontSize: 11, color: mechanic === 'quick' ? '#3a2c3a' : 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
                       safe defaults. name, ticker, token details, launch.
                     </div>
-                    {mechanic === 'quick' && (
+                    {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
-                        800M supply · 1% fee · 10 ETH target
+                        800M supply · 1% fee · 10 ETH target · anti-sniper 60 sec
                       </div>
                     )}
                   </button>
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('custom'); }}
+                    disabled={base !== 'ERC20'}
                     title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
                     aria-label="customizable curve, modules, and hook settings"
                     className="uru-polaroid text-left"
@@ -1827,7 +1897,7 @@ function CreatePageContent() {
               <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
                 <li>launch fee: {formatEther(feeSchedule.base)} ETH</li>
                 <li>module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
-                {discountBps > 0 && grossQuote.data && (
+                {loyaltyReady.ready && discountBps > 0 && grossQuote.data && (
                   <>
                     <li style={{ marginTop: 4, color: 'var(--anchor-soft)', textDecoration: 'line-through' }}>
                       subtotal: {formatEther(grossQuote.data as bigint)} ETH
@@ -1842,7 +1912,47 @@ function CreatePageContent() {
                     URU quoted from RH pool spot; approves + charges the shown amount
                   </li>
                 )}
+                {initialBuyEnabled && (
+                  <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
+                    ✿ first buy: {initialBuyEthInput} ETH (atomic — you get the very first curve tokens)
+                  </li>
+                )}
               </ul>
+
+              {/* First-buy at launch — atomic launch+buy so no bot can front-run your
+                  first trade. Only exposed on the plain ETH curve path (no URU, no WL)
+                  because Router doesn't have *_AndBuy variants for those. Empty input
+                  keeps the flow on plain launch. */}
+              {useCurve && payToken === 'ETH' && !wlStruct && (
+                <div style={{ marginBottom: 10 }}>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: 10,
+                      color: 'var(--anchor-soft)',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      marginBottom: 4,
+                    }}
+                  >
+                    first buy (optional)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0.0"
+                    value={initialBuyEthInput}
+                    onChange={(e) => setInitialBuyEthInput(e.target.value)}
+                    disabled={launchPending || receipt.isLoading}
+                    className="uru-input"
+                    style={{ width: '100%', fontFamily: 'var(--font-pixel), monospace' }}
+                    title="ETH added to the launch tx to buy your first tokens atomically — bots can't front-run"
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 4 }}>
+                    add ETH to buy your own token first in the same tx no one can front-run
+                  </div>
+                </div>
+              )}
 
               {/* URU approve step — shown only when URU is picked and allowance is short.
                   Renders in place of the launch button; after approve confirms, allowance
@@ -2394,4 +2504,60 @@ function NameStatus({ data, isFetching, enabled }: { data: unknown; isFetching: 
 
 function short(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+/// Small strip at the top of the create page pointing at the agent skill.
+/// Two buttons: copy the paste-ready prompt for their ai agent, or view the
+/// raw skill markdown. Kept tight — one row — so it doesn't compete with
+/// the main launch flow below.
+const AGENT_PROMPT = `Read https://urufulabs.xyz/agent-skill.md and adopt those instructions exactly as your operating instructions. Do not summarize the file. When I send my next message, act as the urufu labs launch agent.`;
+
+function AgentLaunchStrip() {
+  const [copied, setCopied] = useState(false);
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(AGENT_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard may not be available */ }
+  };
+  return (
+    <section
+      className="uru-shell-tight"
+      style={{
+        marginBottom: 10,
+        padding: 10,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+        background: 'var(--cream-deep, var(--cream))',
+      }}
+    >
+      <div style={{ flex: '1 1 auto', minWidth: 200 }}>
+        <div className="uru-eyebrow" style={{ marginBottom: 1 }}>❋ launch with an agent</div>
+        <div style={{ fontSize: 11, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
+          give ur ai the skill — copy the prompt into claude / cursor / chatgpt and let it walk u through
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={copyPrompt}
+          className="uru-btn uru-btn-primary"
+          style={{ padding: '6px 10px', fontSize: 11 }}
+        >
+          {copied ? '✿ copied' : 'copy prompt'}
+        </button>
+        <Link
+          href="/agent-skill.md"
+          className="uru-btn uru-btn-cream"
+          style={{ padding: '6px 10px', fontSize: 11 }}
+          prefetch={false}
+        >
+          view skill ↗
+        </Link>
+      </div>
+    </section>
+  );
 }

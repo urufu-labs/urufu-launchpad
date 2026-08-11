@@ -46,6 +46,9 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { Mascot } from '@/components/Mascot';
 import { TradeChart, type TradePoint } from '@/components/TradeChart';
+import { TokenHolderModules } from '@/components/TokenHolderModules';
+import { PoolPolicyCard } from '@/components/PoolPolicyCard';
+import type { WagmiChainId } from '@/lib/wagmi';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
 import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { MockTradeView } from './MockTradeView';
@@ -1097,6 +1100,28 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         {/* MAIN — chart + recent trades */}
         <div className={`${styles.mainStack} space-y-3`}>
           <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
+
+          {/* Per-token holder actions — renders only if the token was launched
+              with Staking, Vesting, or Votes modules installed (probes marker
+              view functions with allowFailure). Bare-ERC20 tokens render nothing.
+              readChainId is undefined until the token's home chain resolves —
+              fall back to the current wallet chain to avoid mount thrash. */}
+          <TokenHolderModules
+            token={tokenAddress}
+            chainId={(readChainId ?? chainId) as WagmiChainId}
+          />
+
+          {/* Post-graduation pool rules — creator fee %, anti-sniper remaining,
+              buyback-burn %. Renders nothing pre-graduation (poolPolicy tuple
+              is all zeros). poolId + hookAddr are computed above from the
+              indexer's graduation row (or derived from the wired hook for
+              pre-graduation launches — those get filtered out server-side). */}
+          <PoolPolicyCard
+            poolId={poolId as Hex | null}
+            hookAddress={hookAddr as Address | null}
+            chainId={(readChainId ?? chainId) as WagmiChainId}
+          />
+
 
           {/* Recent trades — dense table with header row */}
           <div className={`uru-shell-tight ${styles.tradeCard}`}>

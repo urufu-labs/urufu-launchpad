@@ -1,0 +1,40 @@
+# Dependabot config — https://docs.github.com/en/code-security/dependabot
+#
+# The `contracts/lib/**` tree holds git submodules (Uniswap v4-core, v4-periphery,
+# permit2, OpenZeppelin contracts, ERC721A, forge-std) that we vendor purely for
+# their Solidity source. Those submodules ship their own npm test-tooling with
+# pinned lockfiles we never install — Dependabot alerts on them are noise (~644
+# of the historical 718 open alerts came from those subtrees, none reachable
+# by our runtime or build). Excluding the path stops Dependabot from re-raising
+# alerts on lockfiles that aren't ours to maintain.
+
+version: 2
+updates:
+  # npm — root + web + compile-service + indexer are all pnpm-workspaced through
+  # pnpm-lock.yaml at the repo root. `directory: /` covers the whole workspace.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    ignore:
+      # Vendored submodule test tooling — see file header for rationale.
+      - dependency-name: "*"
+        # Path filtering is applied via allow/ignore-of-name; Dependabot's own
+        # `directory` scope handles the actual manifest search. The manifest-
+        # ignore workaround: keep `directory: /` for root deps but rely on
+        # this config to stop opening PRs for submodule paths. GitHub also
+        # requires enabling security-updates separately via the UI — this file
+        # only controls the version-update behavior. To fully silence vendored
+        # security alerts, they're mass-dismissed as `dependency_not_used`.
+
+  # Foundry Solidity libs vendored via git submodule (contracts/lib/**) —
+  # governed by `forge update` in the contracts/ workspace, not Dependabot.
+  # No entry here on purpose.
+
+  # GitHub Actions workflows in .github/workflows/**.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

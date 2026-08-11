@@ -6,7 +6,7 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "ponder.config.ts", "ponder.schema.ts", "ponder-env.d.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts", "ponder.config.ts", "ponder.schema.ts", "ponder-env.d.ts"],
   "exclude": ["dist", "node_modules", ".ponder", "generated"]
 }
 

@@ -15,6 +15,7 @@ import { TokenTicker } from '@/components/TokenTicker';
 import { PriceUnitToggle } from '@/components/PriceUnitToggle';
 import { WelcomeModal } from '@/components/WelcomeModal';
 import { MobileNavigation } from '@/components/MobileNavigation';
+import { UserSearchLauncher } from '@/components/UserSearchModal';
 
 const yusei = Yusei_Magic({
   variable: '--font-display',
@@ -218,6 +219,7 @@ export default function RootLayout({
               <Link href="/discover" className="hover:underline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
+              <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/profile" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
               <a
                 href="https://www.urufu.xyz"
@@ -231,6 +233,13 @@ export default function RootLayout({
               <PriceUnitToggle />
               <ThemeToggle />
               <AudioToggle />
+              {/* Directory search — opens a modal keyed to GET /profile/search
+                  on the compile service. `/` global shortcut is wired inside
+                  the component so a bare-page keyboard user can jump in
+                  without going through the header. Rendered before the chain
+                  switcher so it sits with the utility toggles rather than
+                  the wallet stack. */}
+              <UserSearchLauncher />
               <ChainSwitcher />
               <WalletButton />
             </nav>
@@ -260,6 +269,7 @@ export default function RootLayout({
             >
               <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ modules</Link>
               <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
+              <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>
               <a
                 href="https://x.com/urugemu"

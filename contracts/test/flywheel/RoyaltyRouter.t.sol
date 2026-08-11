@@ -20,7 +20,7 @@ contract RoyaltyRouterTest is Test {
 
     function setUp() public {
         impl = new RoyaltyRouterImpl();
-        factory = new RoyaltyRouterFactory(owner, address(impl), platform, PLATFORM_BPS);
+        factory = new RoyaltyRouterFactory(owner, address(impl), keccak256(address(impl).code), platform, PLATFORM_BPS);
         // Test uses EOAs for `collection`, so the factory's owner()-based auth
         // check can't pass. Whitelist the test contract as a trusted deployer
         // so per-test deployFor calls succeed the way the launch Router will
@@ -65,11 +65,39 @@ contract RoyaltyRouterTest is Test {
     }
 
     function test_Factory_Constructor_RevertsOnBadPlatformBps() public {
+        bytes32 pin = keccak256(address(impl).code);
         vm.expectRevert(abi.encodeWithSelector(RoyaltyRouterFactory.RoyaltyRouterFactory__BadBps.selector, 0));
-        new RoyaltyRouterFactory(owner, address(impl), platform, 0);
+        new RoyaltyRouterFactory(owner, address(impl), pin, platform, 0);
 
         vm.expectRevert(abi.encodeWithSelector(RoyaltyRouterFactory.RoyaltyRouterFactory__BadBps.selector, 10_000));
-        new RoyaltyRouterFactory(owner, address(impl), platform, 10_000);
+        new RoyaltyRouterFactory(owner, address(impl), pin, platform, 10_000);
+    }
+
+    /// Additional-defect closure (audit page 10): the constructor must reject
+    /// an impl whose runtime codehash doesn't match the audited pin. A rogue
+    /// deployer cannot silently point IMPLEMENTATION at compromised bytecode.
+    function test_Factory_Constructor_RevertsOnImplCodehashMismatch() public {
+        RoyaltyRouterImpl other = new RoyaltyRouterImpl();
+        // Both `impl` and `other` are the SAME source-compiled bytecode, so
+        // pinning to a fabricated hash proves the check fires when the pin
+        // doesn't match.
+        bytes32 badPin = keccak256("not-the-impl-code");
+        bytes32 actual = keccak256(address(other).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RoyaltyRouterFactory.RoyaltyRouterFactory__ImplCodehashMismatch.selector, badPin, actual
+            )
+        );
+        new RoyaltyRouterFactory(owner, address(other), badPin, platform, PLATFORM_BPS);
+    }
+
+    /// Additional-defect closure: EOA impl (no runtime code) is rejected with
+    /// a distinct error rather than passing through to the codehash mismatch.
+    function test_Factory_Constructor_RevertsOnImplEOA() public {
+        address eoa = makeAddr("eoa-impl");
+        // extcodehash of an EOA is 0. Constructor rejects with ImplNotAContract.
+        vm.expectRevert(RoyaltyRouterFactory.RoyaltyRouterFactory__ImplNotAContract.selector);
+        new RoyaltyRouterFactory(owner, eoa, keccak256("anything"), platform, PLATFORM_BPS);
     }
 
     function test_Factory_SetPlatformSink_OwnerOnly() public {

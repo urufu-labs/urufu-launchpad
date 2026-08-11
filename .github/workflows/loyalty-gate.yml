@@ -1,0 +1,76 @@
+name: loyalty-gate
+# Release gate — Layer 2 of the loyalty-discount readiness stack (GH #10).
+#
+# Runs the fork test at contracts/test/audit/LoyaltyDiscountReadinessFork.t.sol
+# against the LIVE RH mainnet on every push / PR to `main`. Blocks merge if
+# the fork test fails.
+#
+# What this proves before letting a discount-mentioning commit land on main:
+#   1. Router.loyaltyOracle() is non-zero and points at the canonical pin.
+#   2. LoyaltyOracle.uruToken / gemuNft match post-migration RH addresses.
+#   3. Tier constants on-chain (20/40/50 caps + 80% hard cap) still match
+#      the tiers we ship in product copy.
+#   4. discountBpsFor returns the right value for four holder profiles.
+#
+# Why a dedicated workflow (not folded into contracts.yml):
+#   - Runs even when only `web/src/lib/config.ts` or discount-copy pages
+#     change, since drift there can silently misalign live wiring with what
+#     the UI promises.
+#   - Failure is unambiguous in PR review: the "loyalty-gate" required check
+#     going red points reviewers straight at the wiring / copy mismatch,
+#     rather than getting lost in the wider contracts test log.
+#   - contracts.yml continues to run the same test as part of its full suite;
+#     this workflow is the additive gate that also fires on web-side edits.
+#
+# Skip semantics: the fork test itself vm.skip()s when the RPC is unreachable
+# (same pattern as every other fork test in test/audit/). We PREFER the
+# ROBINHOOD_RPC_URL secret for reliability; if it's not set, the test falls
+# back to the public https://rpc.mainnet.chain.robinhood.com URL. A hard
+# revert on any wiring/tier assertion is a failed check.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  fork-test:
+    name: LoyaltyDiscountReadinessFork (live RH)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+        env:
+          # GitHub-runners share IPs — anonymous foundryup calls hit HTTP 403
+          # rate-limits without this. Same pattern as contracts.yml.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Warn if RPC secret is missing
+        # The fork test falls back to the public RH RPC if the secret is
+        # absent — this warns loudly so a genuinely unreachable RPC (which
+        # would cause vm.skip) is distinguishable from a real pass in the
+        # log. Never fails the job on its own.
+        if: ${{ env.ROBINHOOD_RPC_URL == '' }}
+        env:
+          ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
+        run: |
+          echo "::warning::ROBINHOOD_RPC_URL secret not set; fork test will use the public RH RPC. Set the secret for reliability."
+
+      - name: Run loyalty release-gate fork test
+        env:
+          # Prefer the repo secret; the test falls back to the public URL if
+          # empty (see setUp() in LoyaltyDiscountReadinessFork.t.sol).
+          ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
+        # -vvv so a failing assertion prints the descriptive revert message
+        # inline (assertEq messages name the specific wiring / tier that
+        # drifted). --match-contract keeps the run scoped to the gate; other
+        # fork tests are covered by the wider contracts.yml suite.
+        run: forge test --match-contract LoyaltyDiscountReadinessForkTest -vvv

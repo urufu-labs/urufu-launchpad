@@ -53,6 +53,30 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // Graduator pair.
   '4663:0x4b44ecc4d83b50495b641bff8cc04a7fa99b754d',
   '4663:0xdaad3893f3a12eacd2809b8da37ad6b8715f1ef3',
+  // PROOF (AllowlistProof) — V9 production-MHH graduation proof for Uniswap
+  // Labs hook allowlist submission. Not a real launch; do not surface.
+  '4663:0xab353c75f1025fb5a38900976f1927cd21516673',
+  // Post-audit smoke tests of Router entrypoints (2026-08-09). WlTest exercises
+  // launchWithWhitelist, UruPayTest exercises launchWithURU, PlainTest exercises
+  // the plain launch() path. Kept off feeds; not real launches.
+  '4663:0x54a78c6e50ba973f6fca90e1ad26300d6213eb7d', // WlTest / WLT
+  '4663:0x976faed1371f8d023ff9f9196d59525390ee9871', // UruPayTest / URUP
+  '4663:0xa203d536d0dae1af5c849060e29933c9cbd8792a', // PlainTest / PLAIN
+  // Second smoke round (2026-08-09): real enforcement tests for WL, ownership
+  // modes, URU+WL combined, pause, anti-sniper, buyback-burn. All burner-signed,
+  // all proven working; none real launches.
+  '4663:0x97884fd38714e1b04e7ca8478efabe94eb9bcb1b', // WlEnforce / WLE
+  '4663:0x69d8d8bfd7047aff2e797fcf8d0976c48b625174', // OwnMulti / OMS (TransferToMultisig)
+  '4663:0x103f2091436484d544b7219b73dafd01e66c0a52', // OwnKeep / OKP (KeepEOA)
+  '4663:0x6cc69af91c5319e166fcc450642476fa0a7bb23e', // UruWlTest / URUWL
+  '4663:0x9f84a56f43e9b4866705a3795720bf6d33482112', // ShouldFail / NOPE (pause round-trip proof)
+  '4663:0xa363f7613ac1f26620416cd87b62e819cb8fc581', // AntiSniperTest / AST (buybackBurn=500)
+  '4663:0x4d265f95c736901236414aae0fa732033a72d353', // SniperGate / SGATE (antiSniperBlocks=200)
+  '4663:0xf3da40a10af1d16d9bc0686c86cbb6c6bfae2334', // SniperOne / SGONE (antiSniperBlocks=1)
+  '4663:0x75320e4b9811054c07baf24e368097d9e4c2517c', // Sniper60 / S60 (antiSniperBlocks=5 = ~60s gate, verified 49-64s empirical)
+  '4663:0x58dd2e72f87717a130091b93f7e490233e8bc8bd', // AgentSmoke / ASMK (end-to-end test of /api/agent/* — real calldata from /quote, verified via /verify)
+  '4663:0x4839868e2f20bb69842436a3f960356e987248cf', // AgentPicTest / APIC (full pipeline w/ real image + description + socials attached via agent APIs)
+  '4663:0x95e46f69291f063897e0dbfaf70555c1a8b1a0f5', // FlywheelSplitTest / FWS (verified 40/35/25 landing in UruBuybackVault + NftRevenueVault + treasury post activateConfig)
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {

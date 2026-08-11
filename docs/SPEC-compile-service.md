@@ -1,5 +1,8 @@
 # SPEC — Compile Service
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > The backend that turns a user's shop config into deployable bytecode. Reads `shared/matrix.json`, validates the composition, splices template + module fragments, invokes pinned Foundry, runs the merged test suite, caches by config hash, and registers new impls with the correct factory.
 
 **Status:** ⚠️ PARTIAL. Splicer + matrix + CLI shipped and used ahead-of-time to generate the 33 curated composed impls (via `pnpm splice`). **Dynamic runtime splice-then-register from user config is deferred to Phase 6** (`URU-601`) — needs backend infra + a security review of the on-demand registration path.

@@ -10,7 +10,7 @@ import {NameRegistry} from "src/registry/NameRegistry.sol";
 ///   REGISTRY_OWNER (or ADMIN)         — initial owner. Post-deploy, transfer to a 2-of-3 multisig.
 ///   REGISTRY_TREASURY (or TREASURY)   — treasury address for future sweeps.
 ///
-/// Both names are read for compatibility with `DeployPhase1.s.sol`, which uses ADMIN
+/// Both names are read for compatibility with `Router deploy.s.sol`, which uses ADMIN
 /// and TREASURY; if you're running both scripts and want a single set of env vars, set
 /// ADMIN + TREASURY and leave the REGISTRY_* names unset.
 ///
@@ -26,7 +26,7 @@ contract DeployNameRegistry is Script {
     function run() external returns (NameRegistry registry) {
         address deployer = msg.sender;
         // Prefer the REGISTRY_* names (more specific); fall back to ADMIN/TREASURY (the
-        // DeployPhase1 names) so operators can share env vars across scripts.
+        // Router deploy names) so operators can share env vars across scripts.
         address owner = vm.envOr("REGISTRY_OWNER", vm.envOr("ADMIN", deployer));
         address treasury = vm.envOr("REGISTRY_TREASURY", vm.envOr("TREASURY", deployer));
 

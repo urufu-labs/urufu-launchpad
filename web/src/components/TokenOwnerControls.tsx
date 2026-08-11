@@ -73,8 +73,10 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
     (async () => {
       const rows = await fetchLaunchesByCreator(visibleFor, 100);
       if (cancelled) return;
-      // Filter to ERC20 (base 0) tokens on the target chain — owner controls are
-      // ERC20-specific for now. NFT owner ops (setDefaultRoyalty etc) can land later.
+      // Filter to ERC20 (base 0) tokens on the target chain. NFT bases aren't
+      // in launchpad scope right now, so this filter is effectively a no-op
+      // today; kept explicit so if NFTs ship later the shelf doesn't start
+      // rendering rows for tokens it has no controls for.
       setLaunches((rows ?? []).filter((r) => r.chainId === targetChainId && r.base === 0));
       setLaunchesReady(true);
     })();

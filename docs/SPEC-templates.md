@@ -1,5 +1,8 @@
 # SPEC — Base Templates
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 > Three cloneable base contracts (ERC-20, ERC-721A, ERC-1155) with injection markers where the compile service splices audited module fragments. Each launched token is a normal, single-file contract — verifiable on Etherscan as itself.
 
 **Status:** ✅ IMPLEMENTED. Three base templates (ERC-20, ERC-721A, ERC-1155) + `ERC20VotesTemplate` for governance-enabled launches (uses Solady `ERC20Votes` base).

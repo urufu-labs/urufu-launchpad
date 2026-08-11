@@ -1,5 +1,8 @@
 # NFT launch activation checklist
 
+> **Status:** proposal
+> _last updated: 2026-08-05_
+
 The NFT (ERC-721A) and multi-item (ERC-1155) bases are wired end-to-end in the
 contracts + tests but grayed out in the shop UI while we prove the flywheel on
 fungibles first. This doc is the exhaustive punch list to unlock them.

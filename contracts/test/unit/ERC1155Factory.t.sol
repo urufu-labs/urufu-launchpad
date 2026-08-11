@@ -22,6 +22,8 @@ contract ERC1155FactoryTest is Test {
     function setUp() public {
         factory = new ERC1155Factory(owner, router, registrar);
         impl = new ERC1155Template();
+        vm.prank(owner);
+        factory.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         factory.registerImpl(BARE_CONFIG, address(impl));
     }
@@ -46,6 +48,8 @@ contract ERC1155FactoryTest is Test {
     // registerImpl
     function test_RegisterImpl_HappyPath() public {
         ERC1155Factory fresh = new ERC1155Factory(owner, router, registrar);
+        vm.prank(owner);
+        fresh.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         fresh.registerImpl(BARE_CONFIG, address(impl));
         assertEq(fresh.implFor(BARE_CONFIG), address(impl));

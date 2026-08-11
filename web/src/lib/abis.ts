@@ -70,6 +70,13 @@ export const routerAbi = parseAbi([
   `function launchWithWhitelist(LaunchParams params, WhitelistInit wl) payable returns (address token)`,
   `function launchWithURUAndWhitelist(LaunchParams params, uint256 uruAmount, WhitelistInit wl) returns (address token)`,
   `event LaunchedWithWhitelist(address indexed token, address indexed launchedBy, bytes32 whitelistRoot, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId)`,
+  /// GH-8: atomic launch + first buy. Router deploys the token, opens the
+  /// curve, then IMMEDIATELY calls BondingCurve.buyFor(recipient, minTokensOut)
+  /// with `initialBuyEth` — all in one tx so no mempool bot can front-run the
+  /// launcher's first purchase. msg.value must equal fee + initialBuyEth.
+  /// Only exists on the plain ETH-paid non-WL path.
+  `function launchAndBuy(LaunchParams params, uint256 initialBuyEth, uint256 minTokensOut, address recipient) payable returns (address token)`,
+  `event LaunchedWithInitialBuy(address indexed token, address indexed launchedBy, address recipient, uint256 initialBuyEth, uint256 tokensOut)`,
 ] as const);
 
 export const erc20FactoryAbi = parseAbi([
@@ -133,6 +140,9 @@ export const curveFactoryAbi = parseAbi([
   `function predictCurveAddress(address token) view returns (address)`,
   `function defaultCurveSupply() view returns (uint256)`,
   `function defaultGraduationTargetEth() view returns (uint256)`,
+  `function defaultVirtualTokenReserve() view returns (uint256)`,
+  `function defaultVirtualEthReserve() view returns (uint256)`,
+  `function defaultTradeFeeBps() view returns (uint16)`,
 ] as const);
 
 /// Same shape as `erc20FactoryAbi.predictAddress` — used for both ERC-721A + ERC-1155 factories.
@@ -213,6 +223,91 @@ export const tokenOwnerAbi = parseAbi([
   `function setAntiWhaleExcluded(address who, bool excluded)`,
 ] as const);
 
+/// Public holder-facing module functions probed by `TokenHolderModules.tsx`.
+/// Every marker view has a matching action write; the panel shows only the
+/// modules whose marker view succeeds (allowFailure: true). Bare-ERC20 tokens
+/// return failure across the board and the panel renders nothing.
+///
+/// Modules covered:
+///   - Staking  → stakingRewardRate marker, stake/withdraw/claim actions
+///   - Vesting  → vestingBeneficiary marker, vestingRelease action (beneficiary-only)
+///   - Votes    → getVotes marker, delegate action
+export const tokenHolderModulesAbi = parseAbi([
+  // Staking module — Synthetix-style reward pool held at address(this).
+  `function stakingRewardRate() view returns (uint256)`,
+  `function stakingBalanceOf(address user) view returns (uint256)`,
+  `function stakingEarned(address user) view returns (uint256)`,
+  `function stakingTotalStaked() view returns (uint256)`,
+  `function stakingPeriodFinish() view returns (uint64)`,
+  `function stake(uint256 amount)`,
+  `function stakingWithdraw(uint256 amount)`,
+  `function stakingClaim()`,
+  // Vesting module — single-beneficiary, linear cliff → end release.
+  `function vestingBeneficiary() view returns (address)`,
+  `function vestingTotal() view returns (uint256)`,
+  `function vestingReleased() view returns (uint256)`,
+  `function vestingReleasable() view returns (uint256)`,
+  `function vestingCliffTimestamp() view returns (uint64)`,
+  `function vestingEndTimestamp() view returns (uint64)`,
+  `function vestingRelease()`,
+  // ERC20Votes module — self-delegation required to activate voting power.
+  `function getVotes(address account) view returns (uint256)`,
+  `function delegates(address account) view returns (address)`,
+  `function delegate(address delegatee)`,
+  // Owner-restrictable module markers — surfaced by the risk banner so
+  // buyers know the deployer still holds a lever. Not user actions; the
+  // matching owner-writes live in tokenOwnerAbi and TokenOwnerControls.
+  `function owner() view returns (address)`,
+  `function pausablePaused() view returns (bool)`,
+  `function antiBotIsGated() view returns (bool)`,
+  `function antiWhaleIsActive() view returns (bool)`,
+] as const);
+
+/// GraduatorV2 — pull-based refund path. Every graduation credits any LP
+/// residual to `claimableRefunds[launcher]`. Launchers pull with
+/// `claimRefund()` (delivers to msg.sender) or `claimRefundTo(recipient)`
+/// (for Safe-owned launchers that can't receive ETH directly). See the
+/// `GraduatorRefund.tsx` panel on the profile page.
+export const graduatorAbi = parseAbi([
+  `function claimableRefunds(address launcher) view returns (uint256)`,
+  `function totalClaimable() view returns (uint256)`,
+  `function claimRefund()`,
+  `function claimRefundTo(address recipient)`,
+  `event RefundCredited(address indexed token, address indexed launcher, uint256 amount)`,
+  `event RefundClaimed(address indexed launcher, address indexed recipient, uint256 amount)`,
+] as const);
+
+/// FeeSplitter — public status reads for the /flywheel dashboard. Sinks +
+/// bps show where every launch fee goes; pendingConfig surfaces owner
+/// proposals still in the URU-A11 2-day timelock. No write path (activation
+/// is a multisig op via the safe UI, not urufulabs.xyz).
+export const feeSplitterAbi = parseAbi([
+  `function uruBuybackSink() view returns (address)`,
+  `function nftRevenueSink() view returns (address)`,
+  `function treasurySink() view returns (address)`,
+  `function uruBuybackBps() view returns (uint16)`,
+  `function nftRevenueBps() view returns (uint16)`,
+  `function treasuryBps() view returns (uint16)`,
+  `function minConfigDelay() view returns (uint256)`,
+  `function pendingConfig() view returns (address uruBuybackSink, address nftRevenueSink, address treasurySink, uint16 uruBuybackBps, uint16 nftRevenueBps, uint16 treasuryBps, uint64 readyAt)`,
+  `event Distributed(uint256 total, uint256 toBuyback, uint256 toNft, uint256 toTreasury)`,
+] as const);
+
+/// UruBuybackVault — public activity read for the flywheel dashboard.
+/// `BuybackExecuted(ethIn, uruOut)` fires when the keeper routes accumulated
+/// buyback ETH through the Universal Router into URU; totals prove the
+/// flywheel is actually turning.
+export const uruBuybackVaultAbi = parseAbi([
+  `event BuybackExecuted(uint256 ethIn, uint256 uruOut)`,
+] as const);
+
+/// UruDepositSink — accumulates URU paid via launchWithURU + converts to
+/// ETH periodically. Same dashboard read pattern as the buyback vault.
+export const uruDepositSinkAbi = parseAbi([
+  `event Deposited(address indexed from, uint256 amount)`,
+  `event ConversionExecuted(uint256 uruIn, uint256 ethOut)`,
+] as const);
+
 /// Subset of `MultiHookHost` — the read + claim path the profile "creator
 /// earnings" widget needs. `owed(currency, recipient)` is the accumulator the hook
 /// credits during afterSwap; `claim(currency)` pulls msg.sender's whole balance
@@ -223,4 +318,9 @@ export const multiHookHostAbi = parseAbi([
   `function claim(address currency)`,
   `function platform() view returns (address)`,
   `function creator() view returns (address)`,
+  /// GH-9 canonical per-pool rules. Populated at graduation-time
+  /// `beforeInitialize`; `immutableAfterLaunch = true` freezes further
+  /// writes. Read on the trade page to disclose creator fee %, anti-sniper
+  /// remaining, and buyback-burn bps to post-graduation buyers.
+  `function poolPolicy(bytes32 poolId) view returns (uint16 antiSniperBlocks, uint16 buybackBurnBps, uint16 platformFeeBps, uint16 creatorFeeBps, address creatorRecipient, uint64 launchBlock, bool immutableAfterLaunch)`,
 ] as const);

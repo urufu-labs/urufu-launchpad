@@ -1,5 +1,8 @@
 # Security posture
 
+> **Status:** current
+> _last updated: 2026-08-05_
+
 Where we sit on the risk gradient today, what's been checked, and what a real production launch still needs.
 
 ## Reporting a vulnerability
@@ -18,11 +21,11 @@ Timelines: acknowledgment within 72h, triage decision within 7 days, coordinated
 | Tool | Status | Owner |
 |---|---|---|
 | **Foundry tests** | ✅ 548 unit + integration + fork + invariant, all green | in-tree |
-| **MultiHookHost post-graduation fork test** | ✅ `MultiHookGraduationForkTest` — drives a curve to graduation on a real chain fork, then asserts LP-lock revert + fee-redirect accrual on the resulting v4 pool. Env-driven (`FORK_RPC_URL` / `BASE_SEPOLIA_RPC_URL`). | in-tree |
+| **MultiHookHost post-graduation fork test** | ✅ `MultiHookGraduationForkTest` — drives a curve to graduation on a real chain fork, then asserts structural LP-lock (Graduator holds the position NFT, no removal path) + fee-redirect accrual on the resulting v4 pool. Env-driven (`FORK_RPC_URL` / `BASE_SEPOLIA_RPC_URL`). | in-tree |
 | **Deploy wiring check** | ✅ `forge script VerifyWiring` — chain-parameterized read-only script that asserts every deployed contract is wired end-to-end (Router↔factories, CurveFactory.graduator, Graduator ctor args, MultiHookHost flag mask, ownership eyeball). Run via `pnpm contracts:verify:wiring`. | in-tree |
 | **Foundry fuzz** | ✅ 1,000 runs per property (default) | in-tree |
 | **Invariant tests** | ✅ `test/invariant/` — 7 curve invariants + 4 router invariants, 256 runs × 8192 calls each, 0 reverts | in-tree |
-| **Fork tests** | ✅ LPLockedHook init + full graduation against real Sepolia v4 + Graduator wire path | in-tree |
+| **Fork tests** | ✅ MultiHookHost init + full graduation against real RH v4 + Graduator wire path (post-F5: structural LP lock via Graduator NFT custody, LP removal hook gate dropped) | in-tree |
 | **Slither** | ✅ `bash contracts/security.sh` — 2H, 36M, 28L, 94I (see triage) | in-tree |
 | **Solhint / linter** | ⚠️ Not wired | future |
 | **Coverage** | ⚠️ Foundry `forge coverage` runs but no CI gate | future |
@@ -86,7 +89,7 @@ Bulk are:
 - **Router pause**: `Router.setPaused(true)` reverts every `launch()`. Test path: `test/unit/Router.t.sol::test_Paused_RevertsLaunch`.
 - **Ownership**: after `HandoffOwnership.s.sol`, every admin action requires the multisig. Pause + fee updates + factory swaps + curve-factory + flywheel Ownables (FeeSplitter, LoyaltyOracle, NftRevenueVault, UruBuybackVault, RoyaltyRouterFactory) all gated by the multisig after handoff. `Graduator` has no admin surface — its config is immutable at construction, so no handoff applies; graduation-routing changes go through `CurveFactory.setGraduator(new)`.
 - **Curve funds when graduator not wired**: `_graduate()` leaves ETH + tokens on the BondingCurve, callable by owner via post-deploy adapter (not yet built — TODO if we launch without a graduator).
-- **v4 hook custody**: `LPLockedHook` reverts every `beforeRemoveLiquidity`. Even the deployer can't unlock. This is a feature, not a bug — if a hook needs to be swapped, deploy a new pool with the new hook.
+- **v4 hook custody**: Post-F5 the graduation LP is locked structurally — the Graduator holds the position NFT and has no burn, transfer, or withdraw path. Even the deployer can't unlock. Third-party LPs who add liquidity to the same pool via Uniswap keep normal add/remove rights. If a hook needs to be swapped, deploy a new pool with the new hook. NOTE: the currently-deployed RH MHH at `0xed09…A2C4` predates F5 and still reverts on removal via `beforeRemoveLiquidity`; the belt-and-suspenders hook gate goes away only when the MHH + Graduator pair is rotated to the F5 codebase.
 
 ## Contacts
 

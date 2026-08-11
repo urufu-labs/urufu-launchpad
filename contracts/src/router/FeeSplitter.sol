@@ -42,6 +42,15 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     error FeeSplitter__BadSum(uint256 total);
     error FeeSplitter__TooSoon(uint256 currentTs, uint256 earliestTs);
     error FeeSplitter__ZeroBalance();
+    /// URU-A11: previous `setConfig` was a cooldown-since-last-change gate,
+    /// not a proposal delay. Once matured, an owner could redirect the entire
+    /// future fee stream instantly with no public warning. New model: production
+    /// deploys (minConfigDelay > 0) use `proposeConfig` + `activateConfig`;
+    /// direct `setConfig` reverts. Test deploys (minConfigDelay == 0) keep the
+    /// direct path.
+    error FeeSplitter__DirectConfigDisabled();
+    error FeeSplitter__NoPendingConfig();
+    error FeeSplitter__PendingConfigNotReady(uint256 readyAt);
 
     // ============================================================
     // Events — one per config change + one per fee-received (broken down per sink)
@@ -63,6 +72,11 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     /// indexers doing sum-of-slices reconciliation can account for it without
     /// losing the invariant total = buyback + nft + treasury.
     event TreasuryDistributionFailed(address indexed treasury, uint256 stuck);
+    /// URU-A11: propose/activate telemetry. `configId` is a stable hash of the
+    /// pending values so monitoring can enumerate pending proposals + spot
+    /// re-proposals of the exact same shape.
+    event ConfigProposed(bytes32 indexed configId, uint256 readyAt);
+    event ConfigProposalCancelled(bytes32 indexed configId);
 
     // ============================================================
     // State
@@ -76,6 +90,20 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     uint16 public uruBuybackBps;
     uint16 public nftRevenueBps;
     uint16 public treasuryBps;
+
+    /// URU-A11: pending config staged via `proposeConfig`. `readyAt == 0`
+    /// means no pending. Only one may be in flight at a time.
+    struct PendingConfig {
+        address uruBuybackSink;
+        address nftRevenueSink;
+        address treasurySink;
+        uint16 uruBuybackBps;
+        uint16 nftRevenueBps;
+        uint16 treasuryBps;
+        uint64 readyAt;
+    }
+
+    PendingConfig public pendingConfig;
 
     // ============================================================
     // Constructor
@@ -113,6 +141,9 @@ contract FeeSplitter is IFeeReceiver, Ownable {
     // ============================================================
     // Owner config — timelock-gated
     // ============================================================
+    /// @notice Direct config-set. Test / bootstrap only. Production deploys pass
+    ///         `minConfigDelay > 0` and this reverts — the only path is
+    ///         `proposeConfig` → wait → `activateConfig` (URU-A11).
     function setConfig(
         address uruBuybackSink_,
         address nftRevenueSink_,
@@ -121,12 +152,87 @@ contract FeeSplitter is IFeeReceiver, Ownable {
         uint16 nftRevenueBps_,
         uint16 treasuryBps_
     ) external onlyOwner {
-        uint256 earliest = lastConfigChange + minConfigDelay;
-        if (block.timestamp < earliest) revert FeeSplitter__TooSoon(block.timestamp, earliest);
+        if (minConfigDelay != 0) revert FeeSplitter__DirectConfigDisabled();
+        _applyConfig(uruBuybackSink_, nftRevenueSink_, treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_);
+    }
+
+    /// @notice URU-A11: stage a config change. Owner proposes the exact final
+    ///         values; activation is blocked until `block.timestamp >= readyAt`.
+    ///         Only one proposal in flight — this reverts if there's already
+    ///         one pending (call `cancelPendingConfig` first).
+    function proposeConfig(
+        address uruBuybackSink_,
+        address nftRevenueSink_,
+        address treasurySink_,
+        uint16 uruBuybackBps_,
+        uint16 nftRevenueBps_,
+        uint16 treasuryBps_
+    ) external onlyOwner {
+        _validateConfig(treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_);
+        uint64 readyAt = uint64(block.timestamp + minConfigDelay);
+        pendingConfig = PendingConfig({
+            uruBuybackSink: uruBuybackSink_,
+            nftRevenueSink: nftRevenueSink_,
+            treasurySink: treasurySink_,
+            uruBuybackBps: uruBuybackBps_,
+            nftRevenueBps: nftRevenueBps_,
+            treasuryBps: treasuryBps_,
+            readyAt: readyAt
+        });
+        emit ConfigProposed(
+            keccak256(
+                abi.encode(
+                    uruBuybackSink_, nftRevenueSink_, treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_
+                )
+            ),
+            readyAt
+        );
+    }
+
+    /// @notice URU-A11: activate a matured pending config.
+    function activateConfig() external onlyOwner {
+        PendingConfig memory p = pendingConfig;
+        if (p.readyAt == 0) revert FeeSplitter__NoPendingConfig();
+        if (block.timestamp < p.readyAt) revert FeeSplitter__PendingConfigNotReady(p.readyAt);
+        delete pendingConfig;
+        _applyConfig(
+            p.uruBuybackSink, p.nftRevenueSink, p.treasurySink, p.uruBuybackBps, p.nftRevenueBps, p.treasuryBps
+        );
+    }
+
+    /// @notice URU-A11: cancel a pending proposal (e.g. wrong values proposed).
+    function cancelPendingConfig() external onlyOwner {
+        PendingConfig memory p = pendingConfig;
+        if (p.readyAt == 0) revert FeeSplitter__NoPendingConfig();
+        bytes32 id = keccak256(
+            abi.encode(
+                p.uruBuybackSink, p.nftRevenueSink, p.treasurySink, p.uruBuybackBps, p.nftRevenueBps, p.treasuryBps
+            )
+        );
+        delete pendingConfig;
+        emit ConfigProposalCancelled(id);
+    }
+
+    function _validateConfig(
+        address treasurySink_,
+        uint16 uruBuybackBps_,
+        uint16 nftRevenueBps_,
+        uint16 treasuryBps_
+    ) internal pure {
         if (treasurySink_ == address(0)) revert FeeSplitter__ZeroAddress();
         uint256 total = uint256(uruBuybackBps_) + uint256(nftRevenueBps_) + uint256(treasuryBps_);
         if (total != 10_000) revert FeeSplitter__BadSum(total);
+    }
 
+    function _applyConfig(
+        address uruBuybackSink_,
+        address nftRevenueSink_,
+        address treasurySink_,
+        uint16 uruBuybackBps_,
+        uint16 nftRevenueBps_,
+        uint16 treasuryBps_
+    ) internal {
+        _validateConfig(treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_);
         uruBuybackSink = uruBuybackSink_;
         nftRevenueSink = nftRevenueSink_;
         treasurySink = treasurySink_;
@@ -134,7 +240,6 @@ contract FeeSplitter is IFeeReceiver, Ownable {
         nftRevenueBps = nftRevenueBps_;
         treasuryBps = treasuryBps_;
         lastConfigChange = block.timestamp;
-
         emit ConfigSet(uruBuybackSink_, nftRevenueSink_, treasurySink_, uruBuybackBps_, nftRevenueBps_, treasuryBps_);
     }
 

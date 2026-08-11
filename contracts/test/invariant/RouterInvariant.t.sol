@@ -126,6 +126,10 @@ contract RouterInvariantTest is StdInvariant, Test {
         router.setFlagsForConfig(BARE_CONFIG, 0);
         vm.stopPrank();
 
+        // URU-A08 (round 3): pin the audited codehash before the registrar
+        // can bind the impl.
+        vm.prank(admin);
+        factory.setExpectedCodeHash(BARE_CONFIG, keccak256(address(impl).code));
         vm.prank(registrar);
         factory.registerImpl(BARE_CONFIG, address(impl));
 

@@ -68,6 +68,30 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS tiktok text`;
+  // Verified X (Twitter) binding — written only by the /profile/:address/x-verified
+  // endpoint (bearer-auth, server-to-server from web callback). The signed-write
+  // /profile/:address path IGNORES these columns so a client cannot claim a
+  // handle they didn't OAuth-prove ownership of.
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_handle text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_id text`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_verified_at timestamptz`;
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS x_avatar_url text`;
+  // Uniqueness: one wallet per X id. Prevents an attacker from re-binding the
+  // same X account to multiple wallets after the fact. Partial index skips
+  // rows where the binding was cleared (x_verified_id IS NULL).
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_profile_x_verified_id_uq
+            ON app.user_profile (x_verified_id) WHERE x_verified_id IS NOT NULL`;
+  // "Hide holdings" privacy toggle. UX-only shield: it hides the holdings +
+  // balances section on the /profile/[addr] page when someone OTHER than the
+  // owner is viewing. It does NOT hide anything on-chain — the indexer is
+  // public and anyone querying it by address can still see balances. The
+  // frontend surfaces this caveat in the toggle copy. Default false so every
+  // pre-existing profile keeps its current visibility.
+  await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS hide_holdings BOOLEAN NOT NULL DEFAULT false`;
+  // NFT-profile-avatar binding — populated by /profile/:address (signed write)
+  // when the user picks an NFT they own from another chain as their pfp.
+  // Redundant with the create-table block above (which only fires for fresh
+  // installs); these ADD COLUMN IF NOT EXISTS lines catch existing databases.
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_chain_id integer`;
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_chain text`;
   await sql`ALTER TABLE app.user_profile ADD COLUMN IF NOT EXISTS avatar_nft_contract_address text`;
@@ -116,6 +140,58 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS rewards_leaves_holder_idx ON app.rewards_leaves (chain_id, holder, epoch_id DESC)`;
+
+  // URU-A06: durable publication journal. Tree + leaves are committed here
+  // BEFORE the on-chain transaction is broadcast so startup reconciliation can
+  // recover a tx that confirmed after the process crashed (or a race that
+  // pushed us onto a different epoch id than the tree was built for).
+  //
+  // status enum:
+  //   pending    — leaves persisted, tx not yet sent
+  //   broadcast  — tx sent, receipt not yet observed
+  //   confirmed  — receipt observed, rewards_epochs row inserted
+  //   conflict   — on-chain state at this epoch id disagrees with our tree
+  //                (a stale publisher landed a different root); requires
+  //                manual intervention
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.rewards_publications (
+      chain_id      integer     NOT NULL,
+      epoch_id      integer     NOT NULL,
+      vault_addr    text        NOT NULL,
+      merkle_root   text        NOT NULL,
+      total_amount  text        NOT NULL,
+      holder_count  integer     NOT NULL,
+      status        text        NOT NULL CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict', 'reverted')),
+      tx_hash       text,
+      block_number  bigint,
+      created_at    timestamptz NOT NULL DEFAULT now(),
+      updated_at    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (chain_id, epoch_id)
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS rewards_publications_status_idx
+    ON app.rewards_publications (chain_id, status, epoch_id)
+  `;
+  // Round-2 audit FINDING 1: 'reverted' status is now valid. A broadcast row
+  // whose on-chain proposal was cancelled / dropped gets flipped so the next
+  // publish tick can retry at the same epoch id. Existing databases carry the
+  // narrower constraint from the initial CREATE, so drop + re-add it here.
+  await sql`ALTER TABLE app.rewards_publications DROP CONSTRAINT IF EXISTS rewards_publications_status_check`;
+  await sql`
+    ALTER TABLE app.rewards_publications ADD CONSTRAINT rewards_publications_status_check
+    CHECK (status IN ('pending', 'broadcast', 'confirmed', 'conflict', 'reverted'))
+  `;
+  // Round-2 audit FINDING 4 provenance columns. snapshot_block records the
+  // exact head block that anchored the holder snapshot; expected_holder_count
+  // records the size the paginator observed. Both nullable so pre-migration
+  // rows keep working; new rows carry both.
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS snapshot_block bigint`;
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS expected_holder_count integer`;
+  // Round-6 audit H3: separate final provenance for the activation tx of a
+  // propose/activate epoch (the existing `tx_hash` column carries the propose
+  // tx). Nullable so pre-activation rows + addEpoch-path rows both stay valid.
+  await sql`ALTER TABLE app.rewards_publications ADD COLUMN IF NOT EXISTS activation_tx_hash text`;
 
   // Auto-backfill: any epoch-N JSON that shipped in contracts/tmp/epoch/ gets
   // seeded on startup if the corresponding (chain_id, epoch_id) row doesn't

@@ -24,8 +24,39 @@ export interface UserProfile {
   telegram?: string;
   discord?: string;
   website?: string;
+  /// Verified X (Twitter) binding — populated ONLY by the /api/auth/x/callback
+  /// server-side flow. Never editable from the profile modal. If set, the UI
+  /// renders a checkmark next to the handle + links out to twitter.com; if
+  /// unset, `twitter` above is treated as unverified (grayed, no link).
+  xVerifiedHandle?: string;
+  /// X user id (numeric string). Persisted so a handle rename on X doesn't
+  /// silently transfer the badge to a squatter.
+  xVerifiedId?: string;
+  /// ms since epoch — timestamp of the last successful X verification.
+  xVerifiedAt?: number;
+  /// X profile avatar URL — cached for search results / hover cards.
+  xAvatarUrl?: string;
+  /// When true, viewers OTHER than the owner do not see the holdings +
+  /// balances section on this profile. UX-only shield — the indexer is public
+  /// and anyone querying it by address can still see balances. Default false
+  /// so every pre-existing profile keeps its current visibility.
+  hideHoldings?: boolean;
   /// ms since epoch — last save.
   savedAt: number;
+}
+
+/// Small pure helper — kept next to the type so any surface that renders
+/// holdings on a profile page can share the same rule. Own profile always
+/// wins: even with the toggle ON, the owner sees their own holdings so they
+/// can act on them. Only viewers OTHER than the owner get the placeholder.
+export function shouldHideHoldingsFromView({
+  isOwn,
+  hideHoldings,
+}: {
+  isOwn: boolean;
+  hideHoldings: boolean | undefined;
+}): boolean {
+  return !isOwn && hideHoldings === true;
 }
 
 const KEY_PREFIX = 'uru-profile-';
@@ -73,6 +104,17 @@ export function saveProfile(profile: UserProfile): { ok: true } | { ok: false; e
     telegram: profile.telegram?.trim() || undefined,
     discord: profile.discord?.trim() || undefined,
     website: profile.website?.trim() || undefined,
+    // Verified X fields are server-authoritative; preserve verbatim if the
+    // caller passed them in (e.g. the modal re-saves after a hydrate). NEVER
+    // mint or edit them here — the /api/auth/x/callback flow is the only
+    // legitimate writer.
+    xVerifiedHandle: profile.xVerifiedHandle,
+    xVerifiedId: profile.xVerifiedId,
+    xVerifiedAt: profile.xVerifiedAt,
+    xAvatarUrl: profile.xAvatarUrl,
+    // Coerce to a strict boolean or drop the key entirely so we don't
+    // persist `false` verbosely in every localStorage snapshot.
+    hideHoldings: profile.hideHoldings === true ? true : undefined,
     savedAt: Date.now(),
   };
   const json = JSON.stringify(trimmed);

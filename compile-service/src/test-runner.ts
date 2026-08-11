@@ -1,5 +1,11 @@
-import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+
+import {
+  defaultTestMaxOutputBytes,
+  defaultTestTimeoutMs,
+  spawnForge,
+  withIsolatedWorkDir,
+} from './isolated-build.ts';
 
 export interface TestCase {
   name: string;
@@ -23,11 +29,37 @@ export interface TestRunOptions {
   /// Glob passed to forge --match-path (e.g. "test/composed/ERC20WithAntiBotGen.t.sol").
   matchPath: string;
   /// If true, use the CI profile (heavier fuzz + invariant budgets).
+  ///
+  /// Round-2 FINDING 2: the /test HTTP handler previously derived this
+  /// from a caller-supplied header (`x-vm-deep-test`), letting a public
+  /// attacker crank fuzz runs from 1k to 10k per test — a trivial DoS.
+  /// The handler now defaults `ci` to false and only sets it true when
+  /// the operator opts in via `ALLOW_DEEP_TESTS=1`. This flag stays on
+  /// the runner API so internal callers (CLI, cron) can still request
+  /// the heavy profile explicitly.
   ci?: boolean;
   /// Extra environment (e.g. RPC keys for fork tests). Merged over process.env.
   env?: Record<string, string>;
-  /// Timeout in ms (default: 90s).
+  /// Hard wall-clock ceiling for the `forge test` invocation. On expiry
+  /// the child is SIGKILLed and the returned payload has `timedOut=true`.
+  /// Defaults to `defaultTestTimeoutMs()` (180s).
   timeoutMs?: number;
+  /// Aborts the `forge test` invocation when fired (e.g. HTTP client
+  /// disconnected mid-run). SIGKILL sent to the child; returned payload
+  /// has `aborted=true`. Callers that don't propagate a signal get the
+  /// default behavior (only the wall-clock timeout can end the run).
+  signal?: AbortSignal;
+  /// Override the forge binary path — used by unit tests to inject a
+  /// hanging Node one-liner for deterministic timeout/abort assertions
+  /// without needing a real Forge on PATH.
+  forgeBin?: string;
+  /// Combined stdout+stderr byte ceiling. Defaults to
+  /// `defaultTestMaxOutputBytes()` (2 MiB). Overshoots are dropped and
+  /// the returned payload's `truncated` flag is set.
+  maxOutputBytes?: number;
+  /// Override the temp-directory base — same escape hatch as
+  /// `runIsolatedForgeBuild`. Only useful for tests.
+  baseDir?: string;
 }
 
 export interface TestRunResult {
@@ -36,6 +68,12 @@ export interface TestRunResult {
   stdout: string;
   stderr: string;
   suites: TestSuite[];
+  /// True when the wall-clock timeout SIGKILLed the child.
+  timedOut: boolean;
+  /// True when the supplied `signal` aborted the child.
+  aborted: boolean;
+  /// True when combined output exceeded `maxOutputBytes`.
+  truncated: boolean;
 }
 
 /// Run `forge test` for a given match-path and return parsed results.
@@ -43,52 +81,100 @@ export interface TestRunResult {
 /// This shells out to the local `forge` binary. Caller must ensure `forge` is on PATH.
 /// Prefers `--json` output for structured parsing; falls back to human-readable output if the
 /// JSON parse fails (older forge versions used a different shape).
+///
+/// Round-2 FINDING 2 admission-control surface:
+///   * A caller-supplied `AbortSignal` SIGKILLs the child mid-run so a
+///     dropped HTTP connection immediately releases the /test
+///     semaphore slot instead of hanging on to it for the full test
+///     wall-clock ceiling.
+///   * `timeoutMs` bounds the child's lifetime; on expiry the child is
+///     SIGKILLed and `timedOut` is set on the returned payload so the
+///     HTTP handler can return 504.
+///   * Every invocation runs against a fresh isolated cache/output
+///     directory (`FOUNDRY_CACHE_PATH` + `FOUNDRY_OUT` redirected into
+///     an `mkdtemp`'d dir). The dir is removed in `finally` on success
+///     AND on any failure (timeout, abort, spawn error) so a long-lived
+///     service never leaks disk. Contract sources still resolve out of
+///     the shared `contractsDir` (they're read-only for the test run).
+///   * Combined stdout+stderr is capped at `maxOutputBytes` (default
+///     2 MiB) so a chatty test run can't OOM the process.
 export async function runForgeTests(opts: TestRunOptions): Promise<TestRunResult> {
-  const args = ['test', '--match-path', opts.matchPath, '--json'];
-  const env = { ...process.env, ...(opts.env ?? {}) } as NodeJS.ProcessEnv;
-  if (opts.ci) env['FOUNDRY_PROFILE'] = 'ci';
+  const contractsDir = resolve(opts.contractsDir);
+  const forgeBin = opts.forgeBin ?? process.env.TEST_FORGE_BIN ?? 'forge';
+  const timeoutMs = opts.timeoutMs ?? defaultTestTimeoutMs();
+  const maxOutputBytes = opts.maxOutputBytes ?? defaultTestMaxOutputBytes();
 
-  const stdoutChunks: Buffer[] = [];
-  const stderrChunks: Buffer[] = [];
+  return withIsolatedWorkDir(
+    async (workDir) => {
+      // Redirect forge's write-heavy paths into the per-invocation
+      // tempdir so concurrent (or back-to-back) runs never race on the
+      // shared `contracts/cache/` and `contracts/out/`. Source lookup
+      // still comes out of `contractsDir` (read-only for the test).
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...(opts.env ?? {}),
+        FOUNDRY_CACHE_PATH: join(workDir, 'cache'),
+        FOUNDRY_OUT: join(workDir, 'out'),
+      };
+      if (opts.ci) env.FOUNDRY_PROFILE = 'ci';
 
-  const result = await new Promise<{ code: number }>((resolveP, rejectP) => {
-    const proc = spawn('forge', args, {
-      cwd: resolve(opts.contractsDir),
-      env,
-      windowsHide: true,
-    });
+      // Test-only injection hatch: when TEST_FORGE_ARGS_JSON is set to
+      // a JSON string-array, it REPLACES the normal forge args. The
+      // smoke suite pairs this with TEST_FORGE_BIN=<node> and args
+      // like `["-e", "setTimeout(()=>{},60_000)"]` to spawn a
+      // guaranteed-hanging child so the timeout/abort/capacity ACs
+      // don't have to rely on a real slow test run. Ignored (falls
+      // back to the real forge args) unless both variables are set,
+      // and the value must parse as a JSON string array.
+      const args = parseArgsOverride(process.env.TEST_FORGE_ARGS_JSON) ??
+        ['test', '--match-path', opts.matchPath, '--json'];
+      const spawned = await spawnForge(
+        forgeBin,
+        args,
+        timeoutMs,
+        opts.signal,
+        {
+          cwd: contractsDir,
+          env,
+          maxOutputBytes,
+        },
+      );
 
-    const timeout = setTimeout(
-      () => {
-        proc.kill('SIGKILL');
-        rejectP(new Error(`forge test timeout after ${opts.timeoutMs ?? 90_000}ms`));
-      },
-      opts.timeoutMs ?? 90_000,
-    );
+      const suites = parseForgeJson(spawned.stdout);
+      return {
+        // `forge test` returns non-zero when any test case fails. The
+        // /test HTTP layer still surfaces those as `ok: false` with
+        // parsed per-case results — only a truly broken harness (empty
+        // suites + non-zero exit) becomes a 500.
+        ok: spawned.code === 0,
+        exitCode: spawned.code,
+        stdout: spawned.stdout,
+        stderr: spawned.stderr,
+        suites,
+        timedOut: spawned.timedOut,
+        aborted: spawned.aborted,
+        truncated: spawned.truncated,
+      };
+    },
+    { prefix: 'urufu-test-', baseDir: opts.baseDir },
+  );
+}
 
-    proc.stdout.on('data', (b: Buffer) => stdoutChunks.push(b));
-    proc.stderr.on('data', (b: Buffer) => stderrChunks.push(b));
-    proc.on('error', (e) => {
-      clearTimeout(timeout);
-      rejectP(e);
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timeout);
-      resolveP({ code: code ?? -1 });
-    });
-  });
-
-  const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-  const stderr = Buffer.concat(stderrChunks).toString('utf8');
-
-  const suites = parseForgeJson(stdout);
-  return {
-    ok: result.code === 0,
-    exitCode: result.code,
-    stdout,
-    stderr,
-    suites,
-  };
+/// Parse the TEST_FORGE_ARGS_JSON test-injection env variable. Returns
+/// undefined for any malformed / missing value so the runner falls back
+/// to real forge args unconditionally in production (nothing sets this
+/// variable there).
+function parseArgsOverride(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+      return parsed as string[];
+    }
+  } catch {
+    // Malformed JSON — fall back to real forge args below.
+  }
+  return undefined;
 }
 
 /// Parse the JSON emitted by `forge test --json`. Structure varies by forge version so this

@@ -25,6 +25,20 @@ contract InvariantToken is ERC20 {
     }
 }
 
+/// URU-A05: BondingCurve._init requires `graduator.code.length > 0`. No-op stub
+/// suffices for the invariant harness — the fuzz targets are `buy` + `sell`,
+/// neither of which crosses graduation.
+contract InvariantMockGraduator {
+    function execute(
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external payable {}
+}
+
 /// @notice Handler wraps `BondingCurve.buy` / `sell` in bounded fuzz-friendly entry points.
 ///         Foundry's invariant engine picks random calls on the target contract with random
 ///         parameters — the Handler ensures inputs stay in the realm where the property
@@ -138,6 +152,8 @@ contract BondingCurveInvariantTest is StdInvariant, Test {
         curve = BondingCurve(payable(LibClone.clone(address(impl))));
         token = new InvariantToken();
         token.mint(address(curve), CURVE_SUPPLY);
+        // URU-A05: graduator must be a live contract on init.
+        InvariantMockGraduator mockGrad = new InvariantMockGraduator();
         curve.initialize(
             address(token),
             feeReceiver,
@@ -146,7 +162,7 @@ contract BondingCurveInvariantTest is StdInvariant, Test {
             VIRTUAL_ETH,
             GRAD_TARGET,
             FEE_BPS,
-            address(0),
+            address(mockGrad),
             0,
             0,
             address(0)

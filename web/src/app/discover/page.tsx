@@ -22,6 +22,7 @@ import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
+import { sizeForName, isLongName } from '@/lib/nameSize';
 
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all';
 
@@ -264,7 +265,9 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
 
       <div className={styles.releaseInfo}>
         <div className={styles.nameRow}>
-          <h2>{launch.name}</h2>
+          <h2 style={isLongName(launch.name) ? { fontSize: sizeForName(launch.name, 18), lineHeight: 1.1 } : undefined}>
+            {launch.name}
+          </h2>
           <span>${launch.ticker}</span>
         </div>
         {launch.description && <p>{launch.description}</p>}

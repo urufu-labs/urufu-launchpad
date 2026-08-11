@@ -9,6 +9,7 @@ import { NotLiveYet } from '@/components/NotLiveYet';
 import { CultureHeroArt } from '@/components/CultureHeroArt';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { sizeForName, isLongName } from '@/lib/nameSize';
 import {
   allMockLaunches,
   MOCK_LAUNCHES,
@@ -724,7 +725,12 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
         </div>
         <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
       </div>
-      <span className="uru-launch-ticket-name">{name}</span>
+      <span
+        className="uru-launch-ticket-name"
+        style={isLongName(name) ? { fontSize: sizeForName(name, 24), lineHeight: 1.05 } : undefined}
+      >
+        {name}
+      </span>
       <span className="uru-launch-ticket-symbol">${ticker}</span>
       <div className="uru-launch-ticket-meta">
         <span>
@@ -774,7 +780,7 @@ function CultureBulletin({
   const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
   const creator = launch
     ? (preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`)
-    : 'waiting for a first release';
+    : 'waiting for a first token launch';
 
   return (
     <section className="uru-home-bulletin" aria-labelledby="bulletin-title">
@@ -785,7 +791,7 @@ function CultureBulletin({
 
       <div className="uru-home-bulletin-art">
         {launch ? (
-          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} release`}>
+          <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} token`}>
             <div
               className="uru-home-bulletin-artwork"
               role="img"
@@ -805,7 +811,7 @@ function CultureBulletin({
         <span className="uru-home-bulletin-kicker">token details</span>
         {launch ? (
           <>
-            <h2>{launch.name}</h2>
+            <h2 style={isLongName(launch.name) ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
             <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
             <p className="uru-home-bulletin-byline">by {creator}</p>
             <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">

@@ -33,7 +33,10 @@ import { keccak_256 } from '@noble/hashes/sha3';
 
 const RPC = 'https://rpc.mainnet.chain.robinhood.com';
 const CHAIN_ID = 4663;
-const VAULT: Address = '0x93CFF459d5019eEc82fE9335013e265F1eD659c7';
+// V9 NftRevenueVault (2026-08-06 fresh stack). Broadcasts addEpoch against
+// this address; a stale pin would revert (owner check) or credit a dead vault.
+const VAULT: Address = '0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8';
+// gemu NFT is canonical (unchanged across launchpad rotations).
 const NFT: Address = '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17';
 // From memory (project_robinhood_addresses): urufu gemu nft deployed block 18349728
 // on Robinhood. We start scanning from a bit before it as a safety buffer.
