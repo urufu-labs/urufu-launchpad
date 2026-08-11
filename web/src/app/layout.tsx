@@ -13,7 +13,6 @@ import { AudioToggle } from '@/components/AudioToggle';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
 import { PriceUnitToggle } from '@/components/PriceUnitToggle';
-import { WelcomeModal } from '@/components/WelcomeModal';
 import { MobileNavigation } from '@/components/MobileNavigation';
 import { UserSearchLauncher } from '@/components/UserSearchModal';
 
@@ -182,7 +181,6 @@ export default function RootLayout({
         <Providers>
           <CursorMascot />
           <AudioBindings />
-          <WelcomeModal />
           <header
             className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2"
             style={{ borderBottom: '1.5px solid var(--anchor)', background: 'var(--cream)', color: 'var(--anchor)' }}

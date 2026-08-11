@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 
-/// Pre-launch splash, rendered by app/page.tsx + app/create/page.tsx when
-/// LAUNCHPAD_LIVE is false. Redesigned to match the culture-first altar
-/// aesthetic (double-border frame, tape corners, altar art bleed, 3D
-/// display type) so a flip back to `false` for maintenance / staging
-/// stays on-brand instead of reverting to a plain kawaii card.
+import { CultureHeroArt } from './CultureHeroArt';
+
+/// Pre-launch splash rendered by app/page.tsx + app/create/page.tsx when
+/// LAUNCHPAD_LIVE is false. Uses the exact same hero shell + video-driven
+/// altar art the live home renders, so a flip back to `false` for staging
+/// or maintenance reads as "same site, doors closed for a minute" rather
+/// than a different product.
 ///
 /// Copy rules from memory:
 ///   - no em dashes (commas / periods)
@@ -24,10 +26,6 @@ export function NotLiveYet() {
         padding: 'clamp(20px, 4vw, 48px)',
       }}
     >
-      {/* Reuse the home page's hero frame classes so this shell reads as
-          part of the same design system. Same double-border, dashed inner
-          rule, tape corner, drop shadow — everything just points at
-          different content. */}
       <section
         className="uru-home-hero-frame"
         style={{
@@ -38,8 +36,9 @@ export function NotLiveYet() {
       >
         <span className="uru-home-tape uru-home-tape-top" aria-hidden />
 
-        {/* JP eyebrow tag, matches the "準備中 / 卒業 / 報酬" pattern used across
-            the site's tape-and-polaroid components. */}
+        {/* JP eyebrow tag matches the 準備中 / 卒業 / 報酬 pattern used across the
+            site's tape-and-polaroid components. Keeps this splash inside the
+            same visual grammar as everything the visitor will see later. */}
         <span
           style={{
             position: 'absolute',
@@ -85,14 +84,11 @@ export function NotLiveYet() {
             </div>
           </div>
 
-          {/* Reuse the altar art panel — same background image the live home
-              uses, so this splash reads as "same site, doors closed for a
-              minute" rather than a different product. */}
-          <div className="uru-home-hero-art" aria-hidden>
-            <span className="uru-home-art-label">
-              urufu altar · 準備中
-            </span>
-          </div>
+          {/* Same video-driven altar the live home uses. Swaps light/dark
+              per theme, silent, autoplays after first paint. Reusing the real
+              hero art keeps the splash visually indistinguishable from the
+              open site instead of falling back to a static placeholder. */}
+          <CultureHeroArt />
         </div>
       </section>
     </main>
