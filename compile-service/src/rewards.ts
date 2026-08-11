@@ -55,7 +55,7 @@ export interface ChainConfig {
 /// was retired during the RH migration. If the keeper ever needs to publish
 /// epochs on another chain, add its slug + env-var block here and widen the
 /// union above. Missing env vars → returns null (route responds 501).
-function chainConfigFor(slug: string): ChainConfig | null {
+export function chainConfigFor(slug: string): ChainConfig | null {
   if (slug !== 'robinhood') return null;
   const rpcUrl = process.env.ROBINHOOD_RPC_URL;
   const vaultAddress = process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS as Address | undefined;

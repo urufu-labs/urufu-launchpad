@@ -20,7 +20,7 @@ import type { FastifyInstance } from 'fastify';
 import { isAddress, type Address } from 'viem';
 import { z } from 'zod';
 
-import { publishEpoch, vaultSummary, proofFor, epochsForHolder } from '../rewards.ts';
+import { publishEpoch, vaultSummary, proofFor, epochsForHolder, fetchGemuHoldersFromBlockscout } from '../rewards.ts';
 
 const CHAIN_PATH = z.enum(['robinhood']);
 const ADDRESS_PATH = z.string().refine(isAddress, { message: 'invalid address' });
@@ -34,6 +34,40 @@ export async function registerRewardsRoutes(app: FastifyInstance): Promise<void>
     const summary = await vaultSummary(parsed.data);
     if (!summary) return reply.code(404).send({ code: 'CHAIN_NOT_CONFIGURED' });
     return reply.send(summary);
+  });
+
+  // GET /rewards/:chain/_probe/blockscout — DIAGNOSTIC. Calls the Blockscout
+  // holder fetcher directly and reports what it saw. Lets an operator confirm
+  // whether the Railway container can actually reach Blockscout (some hosts
+  // block outbound to public block explorers) instead of guessing from a
+  // silently-fallen-back publish result. Public because it exposes only
+  // counts, not addresses.
+  app.get<{ Params: { chain: string } }>('/rewards/:chain/_probe/blockscout', async (req, reply) => {
+    const parsed = CHAIN_PATH.safeParse(req.params.chain);
+    if (!parsed.success) return reply.code(400).send({ code: 'BAD_CHAIN' });
+    const { chainConfigFor } = await import('../rewards.ts');
+    const cfg = chainConfigFor(parsed.data);
+    if (!cfg) return reply.code(404).send({ code: 'CHAIN_NOT_CONFIGURED' });
+    if (!cfg.blockscoutUrl) return reply.send({ ok: false, reason: 'no blockscoutUrl in cfg' });
+    const t0 = Date.now();
+    try {
+      const holders = await fetchGemuHoldersFromBlockscout(cfg);
+      const totalNfts = holders.reduce((s, h) => s + h.balance, 0n);
+      return reply.send({
+        ok: true,
+        blockscoutUrl: cfg.blockscoutUrl,
+        holderCount: holders.length,
+        totalNfts: totalNfts.toString(),
+        elapsedMs: Date.now() - t0,
+      });
+    } catch (err) {
+      return reply.send({
+        ok: false,
+        blockscoutUrl: cfg.blockscoutUrl,
+        error: err instanceof Error ? err.message : String(err),
+        elapsedMs: Date.now() - t0,
+      });
+    }
   });
 
   // GET /rewards/:chain/epochs/:address — list every epoch this address has an
