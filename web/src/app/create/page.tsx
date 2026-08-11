@@ -213,6 +213,25 @@ function CreatePageContent() {
     [base, mechanic],
   );
 
+  // Keep the relationship as data, rather than only a sentence on a disabled
+  // shelf tile. A selected module can block a candidate from either side of an
+  // incompatibility declaration, and one candidate may be blocked by several
+  // selected modules at once.
+  const conflictBlockers = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const mod of available) {
+      if (selectedModules.includes(mod.id)) continue;
+      map[mod.id] = selectedModules.filter((selectedId) => {
+        const selected = moduleById(selectedId);
+        return !!selected && (
+          selected.incompatibleWith.includes(mod.id)
+          || mod.incompatibleWith.includes(selectedId)
+        );
+      });
+    }
+    return map;
+  }, [available, selectedModules]);
+
   /// True blockers only — module can't coexist with something already in the basket
   /// OR the module's post-launch admin functions would be uncallable in the current
   /// launch config. Missing `requires` is NOT a block; picking a module auto-adds
@@ -222,11 +241,12 @@ function CreatePageContent() {
     const labelOf = (id: string) => moduleById(id)?.label ?? id;
     for (const mod of available) {
       if (mod.status !== 'shipped') { map[mod.id] = 'not shipped yet ~~'; continue; }
-      if (selectedModules.includes(mod.id)) { map[mod.id] = 'already selected'; continue; }
-      const blocker = selectedModules.find((sid) => moduleById(sid)?.incompatibleWith.includes(mod.id));
-      if (blocker) { map[mod.id] = `cannot be used with ${labelOf(blocker)}`; continue; }
-      const conflict = mod.incompatibleWith.find((iid) => selectedModules.includes(iid));
-      if (conflict) { map[mod.id] = `cannot be used with ${labelOf(conflict)}`; continue; }
+      if (selectedModules.includes(mod.id)) { map[mod.id] = 'already in basket ✿'; continue; }
+      const blockers = conflictBlockers[mod.id] ?? [];
+      if (blockers.length > 0) {
+        map[mod.id] = `blocked by ${blockers.map(labelOf).join(' + ')}`;
+        continue;
+      }
       // Curve mechanic auto-renounces ownership (Router forces OwnershipMode.Renounce
       // when installBondingCurve is true — see create page's launch payload). That
       // means every `onlyOwner` function on the token becomes dead after launch.
@@ -248,7 +268,7 @@ function CreatePageContent() {
       map[mod.id] = '';
     }
     return map;
-  }, [available, selectedModules, mechanic, base]);
+  }, [available, selectedModules, conflictBlockers, mechanic, base]);
 
   /// Selected modules that would silently break on curve mechanic:
   ///   - `requiresOwner`: admin functions dead (curve auto-renounces)
@@ -334,7 +354,28 @@ function CreatePageContent() {
     });
   }
   function removeModule(id: string) {
-    setSelectedModules((prev) => prev.filter((m) => m !== id));
+    // A dependency is added automatically with the module that needs it. If the
+    // creator removes that dependency later, remove dependent selections too so
+    // the cart can never be left in an invalid, launch-blocking state.
+    const toRemove = new Set<string>([id]);
+    let foundDependent = true;
+    while (foundDependent) {
+      foundDependent = false;
+      for (const selectedId of selectedModules) {
+        const selected = moduleById(selectedId);
+        if (selected && !toRemove.has(selectedId) && selected.requires.some((required) => toRemove.has(required))) {
+          toRemove.add(selectedId);
+          foundDependent = true;
+        }
+      }
+    }
+
+    setSelectedModules((prev) => prev.filter((selectedId) => !toRemove.has(selectedId)));
+    setModuleParams((prev) => {
+      const next = { ...prev };
+      for (const removedId of toRemove) delete next[removedId];
+      return next;
+    });
   }
   function onDragStart(e: DragStartEvent) {
     const modId = e.active.data.current?.moduleId as string | undefined;
@@ -1231,29 +1272,6 @@ function CreatePageContent() {
       )}
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className={styles.studio}>
-        <header className={styles.studioHeader} aria-labelledby="create-title">
-          <span className={styles.tapeTop} aria-hidden="true" />
-          <div className={styles.headerCopy}>
-            <div className={styles.brandLockup}>
-              <Mascot size={48} mood={mascotMood} className="uru-idle-bob" />
-              <div>
-                <p className={styles.eyebrow}>urufu labs token creator</p>
-                <h1 id="create-title" className={styles.title}>
-                  The culture-first token launchpad.
-                </h1>
-              </div>
-            </div>
-            <p className={styles.subtitle}>
-              Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and a safe launch.
-            </p>
-          </div>
-          <div className={styles.headerFacts} aria-label="Current launch settings">
-            <span>ERC-20 token</span>
-            <span>{isQuick ? 'quick defaults' : 'advanced curve'}</span>
-            <span>{mounted && isConnected ? CHAIN_LABELS[targetChain] : 'wallet pending'}</span>
-          </div>
-        </header>
-
         {mounted && !contracts && (
           <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
             <div className="flex items-start gap-3">
@@ -1400,27 +1418,30 @@ function CreatePageContent() {
               </div>
 
               <div className="uru-shell-inner">
-                {!isQuick && available.length === 0 && (
-                  <div style={{ padding: 20, textAlign: 'center' }}>
-                    <Mascot size={40} mood="sleepy" />
-                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                      no modules available for this launch yet~~
-                    </div>
-                  </div>
-                )}
                 {!isQuick && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {available.map((mod, i) => (
-                      <ShelfItem
-                        key={mod.id}
-                        mod={mod}
-                        tilt={TILTS[(i + 2) % TILTS.length]!}
-                        blockedReason={blockedReasons[mod.id] ?? ''}
-                        bundleWith={bundleHints[mod.id] ?? []}
-                        onQuickAdd={() => addModule(mod.id)}
-                        draggable={!coarsePointer}
-                      />
-                    ))}
+                  <div className={styles.moduleShelf}>
+                    {available.length === 0 && (
+                      <div style={{ padding: 20, textAlign: 'center' }}>
+                        <Mascot size={40} mood="sleepy" />
+                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
+                          no modules available for this launch yet~~
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {available.map((mod, i) => (
+                        <ShelfItem
+                          key={mod.id}
+                          mod={mod}
+                          tilt={TILTS[(i + 2) % TILTS.length]!}
+                          blockedReason={blockedReasons[mod.id] ?? ''}
+                          blockingModuleIds={conflictBlockers[mod.id] ?? []}
+                          bundleWith={bundleHints[mod.id] ?? []}
+                          onQuickAdd={() => addModule(mod.id)}
+                          draggable={!coarsePointer}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
                 {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
@@ -1653,7 +1674,7 @@ function CreatePageContent() {
                   travels with it wherever it&apos;s indexed ~
                 </div>
 
-                <Field label="logo">
+                <Field label={<MetadataFieldLabel icon="image" label="logo" />}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <div
                       style={{
@@ -1750,19 +1771,19 @@ function CreatePageContent() {
                   />
                 </Field>
                 <FieldGrid>
-                  <Field label="website">
+                  <Field label={<MetadataFieldLabel icon="website" label="website" />}>
                     <input className="uru-input" value={metadata.website ?? ''} onChange={(e) => setMetadata({ ...metadata, website: e.target.value })} placeholder="https://…" />
                   </Field>
-                  <Field label="twitter">
+                  <Field label={<MetadataFieldLabel icon="x" label="twitter" />}>
                     <input className="uru-input" value={metadata.twitter ?? ''} onChange={(e) => setMetadata({ ...metadata, twitter: e.target.value })} placeholder="https://x.com/…" />
                   </Field>
-                  <Field label="telegram">
+                  <Field label={<MetadataFieldLabel icon="telegram" label="telegram" />}>
                     <input className="uru-input" value={metadata.telegram ?? ''} onChange={(e) => setMetadata({ ...metadata, telegram: e.target.value })} placeholder="https://t.me/…" />
                   </Field>
-                  <Field label="discord">
+                  <Field label={<MetadataFieldLabel icon="discord" label="discord" />}>
                     <input className="uru-input" value={metadata.discord ?? ''} onChange={(e) => setMetadata({ ...metadata, discord: e.target.value })} placeholder="https://discord.gg/…" />
                   </Field>
-                  <Field label="tiktok">
+                  <Field label={<MetadataFieldLabel icon="tiktok" label="tiktok" />}>
                     <input className="uru-input" value={metadata.tiktok ?? ''} onChange={(e) => setMetadata({ ...metadata, tiktok: e.target.value })} placeholder="https://tiktok.com/@…" />
                   </Field>
                 </FieldGrid>
@@ -1772,6 +1793,34 @@ function CreatePageContent() {
 
           {/* SIDEBAR — cart + widgets + webring */}
           <aside id="launch-review" className={styles.launchRail}>
+            {!isQuick && (
+              <div className={styles.sidebarModuleCartDock}>
+                <CartDropZone
+                  className={styles.sidebarModuleCart}
+                  selectedModules={selectedModules}
+                  moduleParams={moduleParams}
+                  conflictBlockers={conflictBlockers}
+                  onRemove={removeModule}
+                  onParamsChange={(id, v) => setModuleParams((prev) => ({ ...prev, [id]: v }))}
+                />
+
+                {/* Curve + owner-module conflict warning stays with the selected
+                    module cart, where the creator can resolve it immediately. */}
+                {ownerlessDeadModules.length > 0 && (
+                  <div className={styles.moduleWarning}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>~~ heads up ✿</div>
+                    <span>
+                      selected modules:{' '}
+                      <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
+                      {' '}— these have owner-only functions (pause, allowlist, etc). every
+                      ERC-20 curve here auto-renounces ownership so those buttons would be dead
+                      forever. remove these modules if u need the launch button back.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <section className={styles.previewPanel} aria-label="Token preview">
               <div className={styles.previewTopline}>
                 <span>token preview</span>
@@ -1799,49 +1848,14 @@ function CreatePageContent() {
                 ) : isQuick ? (
                   <>quick launch mode · safe defaults locked in ~</>
                 ) : selectedModules.length === 0 ? (
-                  <>advanced curve open · add modules only when the launch needs them</>
+                  <>advanced curve open · drag modules into the selected cart above</>
                 ) : selectedModules.length === 1 ? (
-                  <>1 module selected. Add more or launch below.</>
+                  <>1 module selected · configure it in the selected cart above</>
                 ) : (
-                  <>{selectedModules.length} modules selected. They will be ordered alphabetically.</>
+                  <>{selectedModules.length} modules selected · configure them in the cart above</>
                 )}
               </div>
             </div>
-
-            {!isQuick && (
-              <CartDropZone
-                selectedModules={selectedModules}
-                moduleParams={moduleParams}
-                onRemove={removeModule}
-                onParamsChange={(id, v) => setModuleParams((prev) => ({ ...prev, [id]: v }))}
-              />
-            )}
-
-            {/* Curve + owner-module conflict warning. Renders only when the basket
-                has a requiresOwner module while curve mechanic is on. The launch
-                button is already gated on this in canLaunch, so this is the
-                "why is my launch button greyed out?" explanation. */}
-            {ownerlessDeadModules.length > 0 && (
-              <div
-                style={{
-                  background: 'var(--pink-warm)',
-                  border: '1.5px solid var(--pink-hot)',
-                  padding: 10,
-                  fontFamily: 'var(--font-round), Klee One, cursive',
-                  fontSize: 12,
-                  lineHeight: 1.5,
-                }}
-              >
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>~~ heads up ✿</div>
-                <span>
-                  selected modules:{' '}
-                  <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
-                  {' '}— these have owner-only functions (pause, allowlist, etc). every
-                  ERC-20 curve here auto-renounces ownership so those buttons would be dead
-                  forever. drop these modules if u need the launch button back.
-                </span>
-              </div>
-            )}
 
             {/* Receipt + launch */}
             <div className="uru-shell uru-shell-tight">
@@ -2071,6 +2085,7 @@ function ShelfItem({
   mod,
   tilt,
   blockedReason,
+  blockingModuleIds,
   bundleWith,
   onQuickAdd,
   draggable,
@@ -2078,6 +2093,7 @@ function ShelfItem({
   mod: ModuleSpec;
   tilt: 'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2';
   blockedReason: string;
+  blockingModuleIds: string[];
   bundleWith: string[];
   onQuickAdd: () => void;
   /// Desktop = true; touch = false. When false the card renders as plain UI (no drag
@@ -2156,6 +2172,12 @@ function ShelfItem({
           }}
         >
           ~~ {blockedReason}
+          {blockingModuleIds.length > 0 && (
+            <div style={{ marginTop: 3, color: 'var(--anchor-soft)' }}>
+              selected blocker{blockingModuleIds.length === 1 ? '' : 's'}:{' '}
+              {blockingModuleIds.map((id) => moduleById(id)?.label ?? id).join(' + ')}
+            </div>
+          )}
         </div>
       )}
       {!planned && (
@@ -2201,22 +2223,41 @@ function ShelfItem({
 }
 
 function CartDropZone({
-  selectedModules, moduleParams, onRemove, onParamsChange,
+  selectedModules, moduleParams, conflictBlockers, onRemove, onParamsChange, className,
 }: {
   selectedModules: string[];
   moduleParams: Record<string, Record<string, unknown>>;
+  conflictBlockers: Record<string, string[]>;
   onRemove: (id: string) => void;
   onParamsChange: (id: string, v: Record<string, unknown>) => void;
+  className?: string;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: 'cart' });
+  const blockedCandidates = Object.entries(conflictBlockers).filter(([, blockers]) => blockers.length > 0);
   return (
-    <div ref={setNodeRef} className="uru-cart" data-active={isOver}>
+    <div ref={setNodeRef} className={`uru-cart ${className ?? ''}`} data-active={isOver}>
       <div className="flex items-center justify-between mb-3">
         <div className="uru-eyebrow">selected modules</div>
         <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
           {selectedModules.length} module{selectedModules.length === 1 ? '' : 's'}
         </span>
       </div>
+      {blockedCandidates.length > 0 && (
+        <div
+          style={{
+            margin: '-2px 0 10px',
+            border: '1.5px solid var(--pink-hot)',
+            background: 'var(--pink-warm)',
+            padding: '6px 7px',
+            color: 'var(--anchor)',
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            lineHeight: 1.45,
+          }}
+        >
+          ✿ highlighted selections block {blockedCandidates.length} shelf module{blockedCandidates.length === 1 ? '' : 's'}
+        </div>
+      )}
       {selectedModules.length === 0 ? (
         <div style={{ padding: 18, textAlign: 'center' }}>
           <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
@@ -2230,9 +2271,19 @@ function CartDropZone({
             const mod = moduleById(id);
             if (!mod) return null;
             const tilt = TILTS[(i + 4) % TILTS.length]!;
+            const blockedModuleLabels = blockedCandidates
+              .filter(([, blockers]) => blockers.includes(id))
+              .map(([blockedId]) => moduleById(blockedId)?.label ?? blockedId);
             return (
               <li key={id}>
-                <CartItem mod={mod} params={moduleParams[id] ?? {}} tilt={tilt} onRemove={() => onRemove(id)} onParamsChange={(v) => onParamsChange(id, v)} />
+                <CartItem
+                  mod={mod}
+                  params={moduleParams[id] ?? {}}
+                  tilt={tilt}
+                  blockedModuleLabels={blockedModuleLabels}
+                  onRemove={() => onRemove(id)}
+                  onParamsChange={(v) => onParamsChange(id, v)}
+                />
               </li>
             );
           })}
@@ -2243,25 +2294,58 @@ function CartDropZone({
 }
 
 function CartItem({
-  mod, params, tilt, onRemove, onParamsChange,
+  mod, params, tilt, blockedModuleLabels, onRemove, onParamsChange,
 }: {
   mod: ModuleSpec;
   params: Record<string, unknown>;
   tilt: 'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2';
+  blockedModuleLabels: string[];
   onRemove: () => void;
   onParamsChange: (v: Record<string, unknown>) => void;
 }) {
+  const blocksShelfModules = blockedModuleLabels.length > 0;
   return (
-    <div className="uru-polaroid uru-pop" data-tilt={tilt} style={{ padding: '8px 8px 14px 8px' }}>
+    <div
+      className="uru-polaroid uru-pop"
+      data-tilt={tilt}
+      style={{
+        padding: '8px 8px 14px 8px',
+        ...(blocksShelfModules
+          ? { borderColor: 'var(--pink-hot)', boxShadow: '3px 3px 0 var(--pink-hot)' }
+          : undefined),
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
         <div className="uru-h2" style={{ fontSize: 12 }}>✿ {mod.label}</div>
         <button
           type="button"
           onClick={onRemove}
-          style={{ background: 'transparent', border: 'none', color: 'var(--anchor)', fontSize: 14, cursor: 'pointer', lineHeight: 1 }}
-          aria-label="remove"
-        >✕</button>
+          onPointerDown={(event) => event.stopPropagation()}
+          className="uru-btn"
+          style={{
+            minHeight: 28,
+            padding: '3px 7px',
+            background: 'var(--pink-warm)',
+            color: 'var(--anchor)',
+            fontSize: 10,
+            lineHeight: 1,
+          }}
+          aria-label={`Remove ${mod.label}`}
+        >remove</button>
       </div>
+      {blocksShelfModules && (
+        <div
+          style={{
+            marginTop: 6,
+            color: 'var(--pink-hot)',
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            lineHeight: 1.4,
+          }}
+        >
+          blocks: {blockedModuleLabels.join(' + ')}
+        </div>
+      )}
       {mod.params.length > 0 && (
         <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
           {mod.params.map((p) => {
@@ -2357,7 +2441,48 @@ function FieldGrid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>{children}</div>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+type MetadataIconName = 'image' | 'website' | 'x' | 'telegram' | 'discord' | 'tiktok';
+
+function MetadataFieldLabel({ icon, label }: { icon: MetadataIconName; label: string }) {
+  return (
+    <span className={styles.metadataFieldLabel}>
+      <MetadataIcon icon={icon} />
+      {label}
+    </span>
+  );
+}
+
+function MetadataIcon({ icon }: { icon: MetadataIconName }) {
+  const common = {
+    className: styles.metadataFieldIcon,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  };
+
+  if (icon === 'x') {
+    return <svg {...common}><path d="M5 4 19 20M19 4 5 20" /></svg>;
+  }
+  if (icon === 'telegram') {
+    return <svg {...common}><path d="m21 3-8.2 18-3.3-7.7L2 10.5 21 3Z" /><path d="m9.5 13.3 4.8-4.7" /></svg>;
+  }
+  if (icon === 'discord') {
+    return <svg {...common}><path d="M7 6.5C9.7 5.3 14.3 5.3 17 6.5c1.4 2 2.1 4.4 2 7.1-1.4 1.7-3.2 3-5.3 3.8l-1.1-1.5h-1.2l-1.1 1.5A11.9 11.9 0 0 1 5 13.6c-.1-2.7.6-5.1 2-7.1Z" /><path d="M8.5 13h.01M15.5 13h.01" strokeWidth="2.8" /></svg>;
+  }
+  if (icon === 'tiktok') {
+    return <svg {...common}><path d="M14 4v9.2a3.8 3.8 0 1 1-3-3.7" /><path d="M14 4c.8 2.4 2.3 3.7 4.5 4" /></svg>;
+  }
+  if (icon === 'image') {
+    return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="1.5" /><circle cx="8.2" cy="9" r="1.3" fill="currentColor" stroke="none" /><path d="m4 17 5.1-4.8 3.2 2.8 2.1-1.9L20 17" /></svg>;
+  }
+  return <svg {...common}><circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.4 3.2 5.2 3.2 8.5S14.1 18.1 12 20.5C9.9 18.1 8.8 15.3 8.8 12S9.9 5.9 12 3.5Z" /></svg>;
+}
+
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
       <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>{label}</span>

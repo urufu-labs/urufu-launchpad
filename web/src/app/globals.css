@@ -125,9 +125,19 @@
    the page width and let users pan left/right across the whole layout. Individual widgets
    that legitimately need to scroll (chart canvas, code blocks) opt back in via
    `overflow-x: auto` on their own container. */
-html, body {
+html {
   max-width: 100vw;
-  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+body {
+  max-width: 100vw;
+  /* `hidden` creates a body scroll container, which prevents descendants such
+     as the advanced module cart from sticking to the viewport. `clip` keeps
+     the same no-horizontal-scroll guard without becoming that container. The
+     explicit visible y-axis prevents CSS from coercing `clip` back to `hidden`. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 html { scroll-behavior: smooth; }
 :focus-visible {
