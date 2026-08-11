@@ -1038,9 +1038,17 @@ export async function reconcilePendingForConfig(
     // Case C: no on-chain epoch at this id. Interpretation depends on the
     // journal-row status.
     if (row.status === 'pending') {
-      // Never-broadcast row (insert-then-crash). Stale → clean up so retry
-      // can succeed; fresh → throw so a concurrent publish doesn't clobber.
-      if (Date.now() - new Date(row.created_at).getTime() > 30 * 60 * 1000 && !row.tx_hash) {
+      // Never-broadcast row (insert-then-crash). If tx_hash is null, the
+      // broadcast never happened — nothing on-chain to reconcile against, so
+      // we can safely drop the row. We hold `pg_advisory_lock` here and every
+      // publish path takes the same lock, so no concurrent publisher can be
+      // mid-flight with this same epoch id. Only rows that DID reach broadcast
+      // (tx_hash set) get the throw-guard.
+      //
+      // Previously required both "30 min stale" AND "no tx_hash", which meant
+      // any crash inside publishEpoch stuck the boot loop for half an hour.
+      // The tx_hash check alone is the real safety signal.
+      if (!row.tx_hash) {
         await db.begin(async (tx: any) => {
           await tx`DELETE FROM app.rewards_leaves WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
           await tx`DELETE FROM app.rewards_publications WHERE chain_id = ${cfg.chainId} AND epoch_id = ${row.epoch_id}`;
