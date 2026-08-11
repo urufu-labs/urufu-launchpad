@@ -77,6 +77,11 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   '4663:0x58dd2e72f87717a130091b93f7e490233e8bc8bd', // AgentSmoke / ASMK (end-to-end test of /api/agent/* — real calldata from /quote, verified via /verify)
   '4663:0x4839868e2f20bb69842436a3f960356e987248cf', // AgentPicTest / APIC (full pipeline w/ real image + description + socials attached via agent APIs)
   '4663:0x95e46f69291f063897e0dbfaf70555c1a8b1a0f5', // FlywheelSplitTest / FWS (verified 40/35/25 landing in UruBuybackVault + NftRevenueVault + treasury post activateConfig)
+  // Pre-launch tokens accidentally deployed during the "live for a second"
+  // window on 2026-08-10 when metadata wasn't attached. Hidden from feeds so
+  // they don't appear alongside real production launches.
+  '4663:0xacb8d3dc8d1ebe7794fb1a925092651995ef5e4b', // animemangawaifuurufuhentaikawaii / URURUFU
+  '4663:0x55223e1b32d11adc3351f74abf365d6cbbe7caec', // launched pre-live, no metadata
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
