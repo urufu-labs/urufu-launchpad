@@ -529,7 +529,13 @@ function ensureRobinhoodEnv(): void {
 // URU-A06 AC #4: crash-recovery paths
 // ================================================================
 
-test('URU-A06 reconcile keeps a fresh pending row retry-able when no tx has landed', async () => {
+test('URU-A06 reconcile cleans a fresh pending row with no tx_hash so retry can proceed', async () => {
+  // Previously threw and required an operator to manually clean the DB to
+  // unstick the keeper on boot. Reconcile now holds pg_advisory_lock (which
+  // every publish path also takes), so no concurrent publisher can be
+  // mid-flight for this same epoch id. A row without tx_hash never touched
+  // the chain, so purging it is safe and lets the next scheduled publish
+  // insert a fresh tree without operator intervention.
   const state = makeFakeState();
   state.publications.push({
     chain_id: CFG.chainId,
@@ -541,7 +547,7 @@ test('URU-A06 reconcile keeps a fresh pending row retry-able when no tx has land
     status: 'pending',
     tx_hash: null,
     block_number: null,
-    created_at: new Date(), // fresh: reconcile must NOT purge it
+    created_at: new Date(), // fresh, but still purged because tx_hash is null
   });
   state.leaves.push({ chain_id: CFG.chainId, epoch_id: 0, holder: '0xa', amount: '500', proof: [] });
   state.leaves.push({ chain_id: CFG.chainId, epoch_id: 0, holder: '0xb', amount: '500', proof: [] });
@@ -549,15 +555,13 @@ test('URU-A06 reconcile keeps a fresh pending row retry-able when no tx has land
   const pub = makeFakePub({}); // no on-chain landing
   const db = makeFakeDb(state);
 
-  await assert.rejects(
-    () => reconcilePendingForConfig(CFG, pub, db),
-    /already pending/,
-  );
+  // Reconcile succeeds silently — the fresh row + its leaves are purged.
+  await reconcilePendingForConfig(CFG, pub, db);
 
-  // Journal + leaves must be preserved so a later publish can retry safely.
-  assert.equal(state.publications.length, 1);
-  assert.equal(state.publications[0]!.status, 'pending');
-  assert.equal(state.leaves.length, 2);
+  // Journal + leaves cleared. Next publishEpoch will insert a fresh tree at
+  // epoch_id 0 without a PK conflict.
+  assert.equal(state.publications.length, 0);
+  assert.equal(state.leaves.length, 0);
   assert.equal(state.epochs.length, 0);
 });
 
