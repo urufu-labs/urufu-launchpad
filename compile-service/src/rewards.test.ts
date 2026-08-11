@@ -477,7 +477,10 @@ function makeFakePubForPublish(opts: FakePubOpts = {}): any {
 /// (e.g. is the tx an `activateEpoch()` vs `proposeEpoch(...)`?).
 interface FakeWalletRecorder {
   wallet: any;
-  account: Address;
+  // Production returns a viem LocalAccount; the fake is deliberately loose
+  // (typed `any`) so tests don't need to construct a full signing object.
+  // The real walletClientFor return type is the compile-time contract.
+  account: any;
   calls: Array<{ to: Address; data: Hex }>;
 }
 
@@ -495,7 +498,10 @@ function makeFakeWallet(): FakeWalletRecorder {
   };
   return {
     wallet,
-    account: '0x000000000000000000000000000000000000dEaD' as Address,
+    // Minimal LocalAccount-shaped fake — just enough to satisfy the type at
+    // the boundary. Real signing methods aren't called because the fake
+    // wallet's sendTransaction is fully mocked.
+    account: { address: '0x000000000000000000000000000000000000dEaD' as Address, type: 'local' },
     calls,
   };
 }

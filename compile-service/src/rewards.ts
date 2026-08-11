@@ -32,7 +32,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { privateKeyToAccount, type LocalAccount } from 'viem/accounts';
 
 import { sql } from './db.ts';
 
@@ -98,7 +98,14 @@ function publicClientFor(cfg: ChainConfig): PublicClient {
 
 /// Wallet client for the on-chain publish. Reads keeper key from env; throws if
 /// unset because a publish without a signer would silently no-op.
-function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Address } {
+///
+/// Returns the LocalAccount object as `account`, not just its address string.
+/// Callers pass `account` into `wallet.sendTransaction({ account, … })`; if
+/// they get a bare address string back, viem treats it as a json-rpc account
+/// (no signing keys) and tries `eth_sendTransaction` on the RPC provider —
+/// which Alchemy + every other public node refuses. Passing the LocalAccount
+/// routes through local sign + `eth_sendRawTransaction`.
+function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: LocalAccount } {
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
   if (!rawKey) throw new Error('KEEPER_PRIVATE_KEY not set on compile-service');
   const key = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as Hex;
@@ -108,7 +115,7 @@ function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Add
     transport: http(cfg.rpcUrl),
     chain: { id: cfg.chainId, name: cfg.slug, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [cfg.rpcUrl] } } },
   });
-  return { wallet, account: account.address };
+  return { wallet, account };
 }
 
 // ---------------------------------------------------------------- test-only DI
@@ -142,7 +149,7 @@ function walletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Add
 export interface RewardsTestOverrides {
   sql?: unknown;
   publicClientFor?: (cfg: ChainConfig) => PublicClient;
-  walletClientFor?: (cfg: ChainConfig) => { wallet: WalletClient; account: Address };
+  walletClientFor?: (cfg: ChainConfig) => { wallet: WalletClient; account: LocalAccount };
   fetchHolders?: (cfg: ChainConfig, pub: PublicClient) => Promise<Holder[]>;
 }
 
@@ -167,7 +174,7 @@ function _resolvePublicClientFor(cfg: ChainConfig): PublicClient {
   const store = _testOverridesAls.getStore();
   return (store?.publicClientFor ?? publicClientFor)(cfg);
 }
-function _resolveWalletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: Address } {
+function _resolveWalletClientFor(cfg: ChainConfig): { wallet: WalletClient; account: LocalAccount } {
   const store = _testOverridesAls.getStore();
   return (store?.walletClientFor ?? walletClientFor)(cfg);
 }
