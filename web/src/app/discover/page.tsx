@@ -92,57 +92,55 @@ export default function DiscoverPage() {
   const graduatedCount = source.filter((l) => l.graduated).length;
   const whitelistCount = source.filter((l) => l.hasWhitelist).length;
   const totalTrades = source.reduce((sum, launch) => sum + tradeCountOf(launch), 0);
-  const totalRaised = source.reduce((sum, launch) => sum + launch.ethReserve, 0n);
+  const activeFilter = FILTERS.find((item) => item.id === filter)!;
 
   return (
     <main className={styles.page}>
       <header className={styles.masthead}>
         <div className={styles.identity}>
-          <p>token market · {CHAIN_LABELS[activeChain]}</p>
+          <p>release index · {CHAIN_LABELS[activeChain]}</p>
           <h1>Discover</h1>
         </div>
-        <div className={styles.marketReadout} aria-label="Market status">
-          <Readout label="tokens" value={String(source.length)} />
-          <Readout label="showing" value={String(filtered.length)} />
-          <Readout label="trades" value={String(totalTrades)} />
-          <Readout label="raised" value={`${Number(formatEther(totalRaised)).toFixed(2)}Ξ`} />
+        <label className={styles.searchBox}>
+          <span>search releases</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            type="search"
+            placeholder="name, ticker, or address"
+            aria-label="Search name, ticker, or token address"
+          />
+        </label>
+        <div className={styles.headerActions}>
+          <div
+            className={classNames(styles.sourceBadge, isIndexer ? styles.sourceLive : styles.sourcePreview)}
+            title={mockData.enabled
+              ? 'Fixture launches are enabled for local review.'
+              : isIndexer
+                ? 'Launches are supplied by the live indexer.'
+                : 'This preview chain uses local fixture launches.'}
+          >
+            {mockData.enabled ? (
+              <><b>demo releases</b><span>{source.length} fixtures</span></>
+            ) : isIndexer && feed.ready ? (
+              <><b>live index</b><span>{source.length} releases</span></>
+            ) : isIndexer ? (
+              <><b>live index</b><span>checking</span></>
+            ) : (
+              <><b>preview chain</b><span>{source.length} fixtures</span></>
+            )}
+          </div>
+          <Link href="/create" className="uru-btn uru-btn-primary">
+            launch a token <span className="uru-arrow">→</span>
+          </Link>
         </div>
-        <Link href="/create" className="uru-btn uru-btn-primary">
-          launch a token <span className="uru-arrow">→</span>
-        </Link>
       </header>
 
-      <div className={classNames(styles.sourceBar, isIndexer ? styles.sourceLive : styles.sourcePreview)}>
-        {mockData.enabled ? (
-          <>
-            <b>◐ demo data</b>
-            <span>fixture launches are enabled across the market, trade list, and ticker</span>
-          </>
-        ) : isIndexer && feed.ready ? (
-          <>
-            <b>● live indexer</b>
-            <span>
-              {source.length} token{source.length === 1 ? '' : 's'} on {CHAIN_LABELS[activeChain]}
-            </span>
-          </>
-        ) : isIndexer ? (
-          <>
-            <b>◐ live indexer</b>
-            <span>checking deployed-chain tokens before rendering market rows</span>
-          </>
-        ) : (
-          <>
-            <b>◐ preview chain</b>
-            <span>mock tokens only where contracts are not deployed; live chains stay honest</span>
-          </>
-        )}
-      </div>
-
       <section className={styles.browser} aria-label="Token browser">
-        <aside className={styles.controls} aria-label="Browse controls">
-          <div className={styles.controlHeader}>
-            <span>filters</span>
-            <small>{FILTERS.find((f) => f.id === filter)?.jp}</small>
+        <div className={styles.browseBar}>
+          <div className={styles.resultsSummary}>
+            <span>browse releases</span>
+            <b>{activeFilter.label} <small>{activeFilter.jp}</small></b>
           </div>
           <div className={styles.filterRail} role="tablist" aria-label="Token filters">
             {FILTERS.map((f) => (
@@ -160,34 +158,26 @@ export default function DiscoverPage() {
               </button>
             ))}
           </div>
-          <label className={styles.searchBox}>
-            <span>search</span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              type="search"
-              placeholder="name / ticker / address"
-              aria-label="Search name, ticker, or token address"
-            />
-          </label>
-          <div className={styles.sideFacts}>
+          <div className={styles.marketFacts} aria-label="Market facts">
+            <span>{source.length} releases</span>
+            <span>{totalTrades} trades</span>
             <span>{graduatedCount} graduated</span>
-            <span>{whitelistCount} whitelist</span>
+            {whitelistCount > 0 && <span>{whitelistCount} whitelist</span>}
           </div>
-        </aside>
+        </div>
 
         <section className={styles.marketBoard} aria-label="Token results">
           <div className={styles.boardHeader}>
             <div>
-              <span>{filter.replace('-', ' ')}</span>
+              <span>{activeFilter.label} releases</span>
               <b>{filtered.length} result{filtered.length === 1 ? '' : 's'}</b>
             </div>
-            <p>price, market cap, curve progress, age, and trade count stay visible for scanning.</p>
+            <p>open a release to trade, inspect its curve, and see its pool state.</p>
           </div>
           {filtered.length > 0 ? (
             <div className={styles.mosaic}>
-              {filtered.map((launch, index) => (
-                <LaunchCard key={launch.address} launch={launch} index={index} />
+              {filtered.map((launch) => (
+                <LaunchCard key={launch.address} launch={launch} />
               ))}
             </div>
           ) : (
@@ -196,15 +186,6 @@ export default function DiscoverPage() {
         </section>
       </section>
     </main>
-  );
-}
-
-function Readout({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.readout}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
   );
 }
 
@@ -239,7 +220,7 @@ function MarketEmpty({
   );
 }
 
-function LaunchCard({ launch, index }: { launch: MockLaunch; index: number }) {
+function LaunchCard({ launch }: { launch: MockLaunch }) {
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   const spotPriceWei = useMemo(() => mockSpotPriceWei(launch), [launch]);
@@ -256,13 +237,10 @@ function LaunchCard({ launch, index }: { launch: MockLaunch; index: number }) {
   const image = launch.imageUrl ?? localImage;
   const raised = `${Number(formatEther(launch.ethReserve)).toFixed(2)}Ξ`;
   const target = `${Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ`;
-  const featured = index === 0 || index % 7 === 0;
-
   return (
     <Link
       href={`/trade/${launch.address}`}
       className={styles.releaseCard}
-      data-featured={featured ? 'true' : undefined}
     >
       <div className={styles.releaseArtWrap}>
         {image ? (
@@ -274,7 +252,7 @@ function LaunchCard({ launch, index }: { launch: MockLaunch; index: number }) {
           />
         ) : (
           <div className={styles.missingArt}>
-            <span>metadata image pending</span>
+            <span>art pending</span>
           </div>
         )}
         <div className={styles.badges}>
