@@ -426,7 +426,11 @@ export async function fetchGemuHoldersFromBlockscout(
   fetchImpl: IndexerFetch = (globalThis as { fetch: IndexerFetch }).fetch,
 ): Promise<Holder[]> {
   if (!cfg.blockscoutUrl) return [];
-  const base = cfg.blockscoutUrl.replace(/\/$/, '');
+  // Accept either form of blockscoutUrl: the bare host
+  // (https://robinhoodchain.blockscout.com) or the pre-suffixed
+  // (https://robinhoodchain.blockscout.com/api/v2). Normalize by stripping a
+  // trailing /api/v[0-9]+ so we always append exactly one /api/v2 below.
+  const base = cfg.blockscoutUrl.replace(/\/$/, '').replace(/\/api\/v\d+$/, '');
   const holders: Holder[] = [];
   let params: Record<string, string> | null = null;
   const cap = holderCap();
