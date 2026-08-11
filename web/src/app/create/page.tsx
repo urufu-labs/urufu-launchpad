@@ -1376,7 +1376,7 @@ function CreatePageContent() {
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
-                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 10 ETH graduation target, 5-block sniper gate."
+                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 4.2 ETH graduation target, 5-block sniper gate."
                     aria-label="quick launch, safe defaults"
                     className="uru-polaroid text-left"
                     style={{
@@ -1395,7 +1395,7 @@ function CreatePageContent() {
                     </div>
                     {mechanic === 'quick' && base === 'ERC20' && (
                       <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
-                        800M supply · 1% fee · 10 ETH target · anti-sniper 60 sec
+                        800M supply · 1% fee · 4.2 ETH target · anti-sniper 60 sec
                       </div>
                     )}
                   </button>

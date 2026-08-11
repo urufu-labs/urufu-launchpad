@@ -303,7 +303,7 @@ launch tx and the metadata envelope must be signed by the same key.
   explorer:  <links.blockscout>
 
 the curve holds the initial liquidity. it graduates to a uniswap v4 pool
-once ~10 ETH of buys have gone through. anti-sniper freeze lifts ~60 sec
+once ~4.2 ETH of buys have gone through. anti-sniper freeze lifts ~60 sec
 after graduation.
 
 <if first buy > 0>: u already own <expected tokens> tokens from ur first
@@ -445,7 +445,7 @@ agent: ✿ launched!
   explorer:  https://robinhoodchain.blockscout.com/token/0x...
 
 u already own about 8.9M FLUFY from ur 0.01 ETH first buy — sitting in
-the curve until graduation (~10 ETH of buys). anti-sniper freeze lifts
+the curve until graduation (~4.2 ETH of buys). anti-sniper freeze lifts
 ~60 sec after that.
 ```
 

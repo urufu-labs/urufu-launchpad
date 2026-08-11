@@ -114,7 +114,7 @@ export function launchKind(l: MockLaunch): LaunchKind {
 const CURVE_SUPPLY = parseEther('800000000');
 const VIRTUAL_TOKEN = parseEther('800000000');
 const VIRTUAL_ETH = parseEther('17');
-const GRAD_TARGET = parseEther('10');
+const GRAD_TARGET = parseEther('4.2');
 const TOTAL_SUPPLY = parseEther('1000000000');
 
 const USER_MOCK_STORAGE_KEY = 'uru:mock-launches:v1';
