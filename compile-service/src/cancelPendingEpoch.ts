@@ -20,7 +20,7 @@ const RPC = 'https://rpc.mainnet.chain.robinhood.com';
 const CHAIN_ID = 4663;
 // NftRevenueVault (unchanged across V9/V10; not rotated with launchpad stack).
 const VAULT: Address = (process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS
-    ?? '0x93CFF459d5019eEc82fE9335013e265F1eD659c7') as Address;
+    ?? '0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8') as Address;
 
 const key = process.env.DEV_PRIVATE_KEY;
 if (!key) throw new Error('DEV_PRIVATE_KEY not set');
