@@ -548,10 +548,17 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
   started.push('activate-epoch (30min)');
   // URU buyback: reads UruBuybackVault balance and, if above the threshold,
   // executes a swap on the URU/WETH v4 pool via UniversalRouter. Received URU
-  // auto-forwards to NftRevenueVault (distributionSink) for gemu holders.
+  // auto-forwards to UruBuybackVault.distributionSink for downstream handling.
   // Depends on ROBINHOOD_URU_BUYBACK_VAULT_ADDRESS + KEEPER_PRIVATE_KEY +
   // ROBINHOOD_RPC_URL; skips a cycle if any is missing.
-  if (buybackConfig()) {
+  // Also gated by URU_BUYBACK_ENABLED to prevent stranding URU while the
+  // distributionSink is being rotated (proposeDistributionSink → 2-day
+  // timelock → activateDistributionSink). Enable only after the target sink
+  // has a functional URU-handling path (either 0xdEaD for burn, or a
+  // distribution vault). Default off for safety.
+  if (process.env.URU_BUYBACK_ENABLED !== 'true') {
+    skipped.push('uru-buyback (URU_BUYBACK_ENABLED != true — set after distributionSink rotation activates)');
+  } else if (buybackConfig()) {
     startBuybackLoop();
     started.push('uru-buyback (24h)');
   } else {
