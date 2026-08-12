@@ -26,11 +26,12 @@ import {RhConfigManifest} from "script/manifest/RhConfigManifest.sol";
 ///             1. Every pinned address holds live code on RH.
 ///             2. Router.curveFactory == CF pin.
 ///             3. CF.trustedRouters[Router] == true.
-///             4. CF.graduator == GRADUATOR pin.
-///             5. Graduator.curveFactory == CF pin.
-///             6. Graduator.defaultHook == MHH pin.
-///             7. MHH.initializer == GRADUATOR pin.
-///             8. Every owner matches the deployer pin.
+///             4. CF.implementation == BONDING_CURVE_IMPL pin.
+///             5. CF.graduator == GRADUATOR pin.
+///             6. Graduator.curveFactory == CF pin.
+///             7. Graduator.defaultHook == MHH pin.
+///             8. MHH.initializer == GRADUATOR pin.
+///             9. Every owner matches the deployer pin.
 ///
 ///         WHEN THIS FIRES
 ///           You changed .env for a redeploy but didn't update the pins here
@@ -44,16 +45,20 @@ contract RhLiveStackSnapshotTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
     // ------ PINNED LIVE ADDRESSES (must match .env AND on-chain wiring) ----
-    // V9 fresh stack, broadcast 2026-08-06.
-    // Source of truth: contracts/deployment-fresh.4663.json.
-    // DEPLOYER unchanged across rotations (deployer identity, not a rotated slot).
-    // ROUTER_V7 kept as a legacy variable name; value is now the V9 Router.
+    // V10 stack: BondingCurve impl + CurveFactory + Graduator + MultiHookHost
+    // rotated 2026-08-12 for the WL immediate-tokens redesign + LP-math fix.
+    // Router (0xb41e0Bd) is unchanged since V9; on 2026-08-12 the V10 CF was
+    // wired to it via V10CF.setTrustedRouter(Router, true) (tx at block
+    // 34612101) and Router.setCurveFactory(V10CF) (tx at block 34612112).
+    // A second Router at 0x84C72d...B596 also holds V10 CF as its curveFactory
+    // — that Router is orphaned staging and is NOT the production entrypoint.
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant NAME_REGISTRY = 0x965Aa2420635Ca0431888c6752b9aE8Bbe8d1F05;
-    address internal constant ROUTER_V7 = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
-    address internal constant CURVE_FACTORY = 0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805;
-    address internal constant MULTI_HOOK_HOST = 0xc282245A22b602c90d04283B22E414f75AFc20c4;
-    address internal constant GRADUATOR = 0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB;
+    address internal constant ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
+    address internal constant BONDING_CURVE_IMPL = 0x616462099AE1a40DA8327D2af2797c540507DBB2;
+    address internal constant MULTI_HOOK_HOST = 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4;
+    address internal constant GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant FEE_SPLITTER = 0x60835C422a3671b5F01E6806Fd96b27c90941C83;
     address internal constant V4_SWAP_ROUTER = 0xDb3D1C43225faEe04551b663E5aA0969937beEa4;
@@ -79,8 +84,9 @@ contract RhLiveStackSnapshotTest is Test {
 
     function test_Snapshot_EveryPinnedAddressHasLiveCode() public view {
         assertGt(NAME_REGISTRY.code.length, 0, "NameRegistry pin has no code");
-        assertGt(ROUTER_V7.code.length, 0, "Router pin has no code");
+        assertGt(ROUTER.code.length, 0, "Router pin has no code");
         assertGt(CURVE_FACTORY.code.length, 0, "CurveFactory pin has no code");
+        assertGt(BONDING_CURVE_IMPL.code.length, 0, "BondingCurve impl pin has no code");
         assertGt(MULTI_HOOK_HOST.code.length, 0, "MHH pin has no code");
         assertGt(GRADUATOR.code.length, 0, "Graduator pin has no code");
         assertGt(POOL_MANAGER.code.length, 0, "PoolManager pin has no code");
@@ -90,13 +96,20 @@ contract RhLiveStackSnapshotTest is Test {
     }
 
     function test_Snapshot_Router_PointsAtCurveFactoryPin() public view {
-        assertEq(Router(payable(ROUTER_V7)).curveFactory(), CURVE_FACTORY, "Router.curveFactory != pin");
+        assertEq(Router(payable(ROUTER)).curveFactory(), CURVE_FACTORY, "Router.curveFactory != pin");
     }
 
     function test_Snapshot_CurveFactory_TrustsRouterAndPointsAtGraduatorPin() public view {
         CurveFactory cf = CurveFactory(CURVE_FACTORY);
-        assertTrue(cf.trustedRouters(ROUTER_V7), "CF trustedRouters[Router] false");
+        assertTrue(cf.trustedRouters(ROUTER), "CF trustedRouters[Router] false");
         assertEq(cf.graduator(), GRADUATOR, "CF.graduator != pin");
+    }
+
+    /// The 2026-08-12 root cause: V10 CF was deployed correctly but pointed at
+    /// a stale (orphaned) BondingCurve impl in an early build. Anchor here so
+    /// a future rotation that forgets to redeploy the impl fails loud.
+    function test_Snapshot_CurveFactory_ImplementationPinMatches() public view {
+        assertEq(CurveFactory(CURVE_FACTORY).implementation(), BONDING_CURVE_IMPL, "CF.implementation != pin");
     }
 
     function test_Snapshot_Graduator_PointsAtCFAndMhhPins() public view {
@@ -117,7 +130,7 @@ contract RhLiveStackSnapshotTest is Test {
 
     function test_Snapshot_Owners_AllMatchDeployer() public view {
         assertEq(CurveFactory(CURVE_FACTORY).owner(), DEPLOYER, "CF.owner != deployer");
-        assertEq(Router(payable(ROUTER_V7)).owner(), DEPLOYER, "Router.owner != deployer");
+        assertEq(Router(payable(ROUTER)).owner(), DEPLOYER, "Router.owner != deployer");
         assertEq(GraduatorV2(payable(GRADUATOR)).owner(), DEPLOYER, "Graduator.owner != deployer");
         assertEq(LoyaltyOracle(LOYALTY_ORACLE).owner(), DEPLOYER, "LoyaltyOracle.owner != deployer");
         assertEq(
@@ -137,7 +150,7 @@ contract RhLiveStackSnapshotTest is Test {
     /// Router must be wired to the LoyaltyOracle pin. Zero means every launch
     /// runs at full fee even when the caller qualifies for a discount.
     function test_Snapshot_Router_WiredToLoyaltyOracle() public view {
-        assertEq(Router(payable(ROUTER_V7)).loyaltyOracle(), LOYALTY_ORACLE, "Router.loyaltyOracle != pin");
+        assertEq(Router(payable(ROUTER)).loyaltyOracle(), LOYALTY_ORACLE, "Router.loyaltyOracle != pin");
     }
 
     // NOTE: no `trustedDeployer[Router] == true` assertion on RoyaltyRouterFactory.
@@ -150,9 +163,10 @@ contract RhLiveStackSnapshotTest is Test {
     /// Router.minUruFee must be non-zero. On 2026-08-01 an audit caught this
     /// left at 0 on live production, meaning any URU launch entrypoint would
     /// accept 1 wei of URU (only the amount==0 check remained). Fixed by
-    /// setting to 1000 URU. Fail loud if it ever drifts back to 0.
+    /// setting to type(uint256).max as a live DoS mitigation while URU-A10
+    /// implementation ships. Fail loud if it ever drifts back to 0.
     function test_Snapshot_MinUruFee_NonZero() public view {
-        uint256 floor = Router(payable(ROUTER_V7)).minUruFee();
+        uint256 floor = Router(payable(ROUTER)).minUruFee();
         assertGt(floor, 0, "Router.minUruFee is zero, spam gate wide open");
     }
 
@@ -174,7 +188,7 @@ contract RhLiveStackSnapshotTest is Test {
     /// includes the Pausable V1 rug too). Read the ban set dynamically so a
     /// future manifest addition is picked up automatically.
     function test_Snapshot_RetiredAirdropHashesPoisoned() public view {
-        Router r = Router(payable(ROUTER_V7));
+        Router r = Router(payable(ROUTER));
         bytes32[] memory retired = RhConfigManifest.retiredAirdropHashes();
         for (uint256 i = 0; i < retired.length; i++) {
             assertTrue(
@@ -193,7 +207,7 @@ contract RhLiveStackSnapshotTest is Test {
     /// legit canonicals with 3 retired hashes that live under
     /// `retiredAirdropHashes` on V8.
     function test_Snapshot_AllConfigHashesSeededOnRouter() public view {
-        Router r = Router(payable(ROUTER_V7));
+        Router r = Router(payable(ROUTER));
         (bytes32[] memory hashes,) = RhConfigManifest.hashesAndCounts();
         for (uint256 i = 0; i < hashes.length; i++) {
             assertTrue(r.moduleCountConfigured(hashes[i]), "moduleCountConfigured false for canonical hash");

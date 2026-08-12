@@ -24,7 +24,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 const RPC = process.env.ROBINHOOD_RPC_URL ?? process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com';
 const CHAIN_ID = 4663;
-const FACTORY = (process.env.ROBINHOOD_CURVE_FACTORY_ADDRESS ?? '0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805') as Address;
+// V10 CF (rotated 2026-08-12). Fallback is only for local test runs; production
+// always sets ROBINHOOD_CURVE_FACTORY_ADDRESS via .env / Railway.
+const FACTORY = (process.env.ROBINHOOD_CURVE_FACTORY_ADDRESS ?? '0xEC96D023426167e68598FF9ea946882b7f0AE91f') as Address;
 
 // Target: only change the graduation target. Everything else preserved.
 const NEW_GRADUATION_TARGET = parseEther('4.2');
