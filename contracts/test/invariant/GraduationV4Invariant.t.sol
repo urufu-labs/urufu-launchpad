@@ -263,9 +263,7 @@ contract GraduationV4InvariantTest is StdInvariant, Test {
             // Under the immediate-transfer WL design (post-2026-08-11) tokens
             // go straight to the buyer's wallet, so the curve's balance
             // equals tokenReserve exactly — no held-slice to add.
-            assertEq(
-                t.balanceOf(address(c)), c.tokenReserve(), "curve token balance != tokenReserve"
-            );
+            assertEq(t.balanceOf(address(c)), c.tokenReserve(), "curve token balance != tokenReserve");
         }
     }
 
