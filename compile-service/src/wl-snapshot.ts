@@ -1,40 +1,78 @@
 /// Holder snapshotting for whitelisted-curve launches.
 ///
-/// Given a source token/NFT contract on Robinhood, fetches the holder set at the
-/// latest block, filters by a min-balance threshold, and returns a Merkle root
-/// plus the sorted holder list. The frontend embeds the root in the WL launch
-/// tx; buyers fetch their proof from `/wl/proof?listId=…&addr=…` at buy time.
+/// Given a source token/NFT contract on ANY supported EVM chain, fetches the
+/// current holder set, filters by a min-balance threshold, and returns a Merkle
+/// root plus the sorted holder list. The frontend embeds the root in the WL
+/// launch tx (which lands on Robinhood); buyers fetch their proof from
+/// `/wl/proof?listId=…&addr=…` at buy time.
 ///
-/// Scope for v1:
-///   - Robinhood mainnet only (chainId 4663). Adding other chains = adding an RPC
-///     mapping below + testing there.
-///   - ERC-20 and ERC-721 supported via Transfer-event replay. ERC-1155 = follow-up
-///     (per-tokenId semantics complicate the "holder" abstraction).
-///   - Block-range cap of 1_500_000 blocks (~= 30 days on RH) so ancient tokens
-///     don't hang the request. Callers can bump this when we have paging.
-///   - In-memory cache keyed on (token, blockNumber) — a re-request within a few
-///     minutes of the same snapshot returns instantly. Cleared on process restart.
+/// Multi-chain by design: the WL source doesn't have to live on Robinhood.
+/// A launcher can gate their new curve on holders of any Ethereum / Base /
+/// Arbitrum / Optimism / Polygon / BNB / Avalanche / Gnosis / Linea NFT
+/// (via Alchemy's NFT API — see ALCHEMY_NETWORKS below). Blockscout + RPC
+/// event-replay fallbacks remain for chains Alchemy doesn't cover or for
+/// ERC-20 sources where Alchemy's NFT endpoint doesn't apply.
+///
+/// Source priority (first success wins):
+///   1. Alchemy NFT API `getOwnersForContract` — one credential, uniform
+///      shape across every supported chain, returns full owner set + balances
+///      in one paginated call.
+///   2. Blockscout `/tokens/:addr/holders` — per-chain URL, NFT + ERC-20.
+///   3. RPC Transfer-event replay — bounded window, last-resort fallback.
 ///
 /// The Merkle tree uses sorted-pair hashing (Solady + OpenZeppelin convention)
 /// with leaves `keccak256(abi.encodePacked(address))` — matches
 /// `BondingCurve.buyWithProof`'s `MerkleProofLib.verify` layout exactly.
+/// In-memory cache keyed on the FULL policy tuple (see `_computeCacheKey`) so
+/// a stricter same-block caller never gets a permissive cached result.
 
 import { createPublicClient, http, parseAbiItem, parseAbi, type Address, type Hex, keccak256, encodePacked } from 'viem';
 
-/// Chains this snapshot service can read from. Extend when we open beyond RH.
+/// Alchemy network slugs, keyed by chainId. When the ALCHEMY_API_KEY env is
+/// set AND the source token's chain is here, `snapshotHolders` uses Alchemy's
+/// NFT API `getOwnersForContract` as its PRIMARY source. Rationale:
+///   - Works uniformly across every major EVM chain (WL sources on the
+///     launchpad don't have to live on Robinhood).
+///   - Blockscout-per-chain plumbing broke down as we added chains; Alchemy
+///     is one credential + one base URL pattern.
+///   - Returns the FULL holder set with balances in a paginated call, no
+///     event-replay math, no drift-window fudge.
+/// Non-Alchemy chains still fall through to Blockscout + RPC-event-replay.
+const ALCHEMY_NETWORKS: Record<number, string> = {
+  1: 'eth-mainnet',
+  10: 'opt-mainnet',
+  56: 'bnb-mainnet',
+  100: 'gnosis-mainnet',
+  137: 'polygon-mainnet',
+  4663: 'robinhood-mainnet',
+  8453: 'base-mainnet',
+  42161: 'arb-mainnet',
+  43114: 'avax-mainnet',
+  59144: 'linea-mainnet',
+};
+
+/// Chains this snapshot service can read from (secondary RPC + Alchemy paths).
+/// Robinhood explicit because we control its RPC URL directly; every other
+/// chain is only reachable via Alchemy (needs ALCHEMY_API_KEY on the compile
+/// service).
 const RPC_URLS: Record<number, string> = {
   4663: process.env.ROBINHOOD_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com',
 };
 
-/// Blockscout v2 API base URLs, keyed by chainId. When set, `snapshotHolders`
-/// pulls the holder list from Blockscout instead of replaying Transfer events
-/// off the RPC. This is BOTH faster AND correct: event replay is bounded by
-/// `MAX_SCAN_BLOCKS` and misses holders whose only Transfers happened before
-/// the cutoff — on fast-block chains like RH that cutoff can hide the majority
-/// of a token's holder set (URU showed 27/334 via replay).
+/// Blockscout v2 API base URLs, keyed by chainId. Fallback source. Kept for
+/// chains where Alchemy is unavailable or fails. On chains served by both,
+/// Alchemy is tried first because it doesn't require the drift-window
+/// gymnastics blockscout does.
 const EXPLORER_APIS: Record<number, string> = {
   4663: process.env.ROBINHOOD_BLOCKSCOUT_URL ?? 'https://robinhoodchain.blockscout.com/api/v2',
 };
+
+function alchemyBase(chainId: number): string | null {
+  const slug = ALCHEMY_NETWORKS[chainId];
+  const key = process.env.ALCHEMY_API_KEY;
+  if (!slug || !key) return null;
+  return `https://${slug}.g.alchemy.com/nft/v3/${key}`;
+}
 
 /// Hard-cap the RPC event-replay range (fallback path only). Bumped from 1.5M to
 /// something that covers most token lifetimes on chains where blockscout isn't
@@ -53,9 +91,28 @@ export const BLOCKSCOUT_MAX_PAGES = 100;
 /// START" and "read latest at snapshot END" reads. If the chain tip moves more
 /// than this while we're fetching the holder list, the snapshot may already be
 /// stale relative to Blockscout's current-holder truth, so we reject rather
-/// than silently return a moving-target result. Tuned for RH (~1s blocks); on
-/// slower chains the caller should pass a smaller `maxBlockDrift`.
-export const DEFAULT_MAX_BLOCK_DRIFT = 25n;
+/// than silently return a moving-target result.
+///
+/// Tuned for Robinhood Chain's ~100ms block cadence: walking Blockscout for a
+/// typical WL source (400-2000 holders) takes ~10-30s, i.e. ~100-300 blocks.
+/// Cap at 600 (60s of wall-clock drift) so we still catch pathological
+/// slow snapshots but don't false-positive on normal ones. On chains with
+/// slower blocks (12s Ethereum) 600 blocks is ~2 hours — safe upper bound.
+///
+/// Overridable per-call via `SnapshotRequest.maxBlockDrift` and process-wide
+/// via `WL_MAX_BLOCK_DRIFT` env var.
+export const DEFAULT_MAX_BLOCK_DRIFT = 600n;
+/// Env override so operators can tune drift tolerance without a redeploy.
+export function defaultMaxBlockDrift(): bigint {
+  const raw = process.env.WL_MAX_BLOCK_DRIFT;
+  if (!raw) return DEFAULT_MAX_BLOCK_DRIFT;
+  try {
+    const parsed = BigInt(raw);
+    return parsed > 0n ? parsed : DEFAULT_MAX_BLOCK_DRIFT;
+  } catch {
+    return DEFAULT_MAX_BLOCK_DRIFT;
+  }
+}
 /// FINDING 3 (HIGH): hard-cap the number of holders a single snapshot will
 /// process. Above this we throw `WlHolderCountExceedsCap` rather than silently
 /// truncate — the Merkle build is O(N log N) and the eligible list gets pinned
@@ -406,15 +463,40 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  // Prefer blockscout when available — it has the full holder set indexed and
-  // returns current balances directly, sidestepping the event-replay cutoff
-  // problem entirely (see `EXPLORER_APIS` note above).
+  // Source priority (first success wins):
+  //   1. Alchemy NFT API `getOwnersForContract` — works on every chain we
+  //      list in ALCHEMY_NETWORKS with one credential; returns the full
+  //      current holder set with per-address balances; no event-replay math;
+  //      no drift-window fudge; NFT-only.
+  //   2. Blockscout /tokens/:addr/holders — per-chain URL; NFT + ERC-20; drift
+  //      window applies here.
+  //   3. RPC event replay — bounded by MAX_SCAN_BLOCKS; may miss holders
+  //      whose only Transfers landed pre-cutoff; last-resort fallback.
   let eligible: Address[] | null = null;
   let partial = false;
   let pagesFetched: number | undefined;
   let fromRpcFallback = false;
+
+  const alchemy = alchemyBase(req.chainId);
+  if (alchemy) {
+    try {
+      const holders = await fetchHoldersViaAlchemyNft(
+        alchemy, req.tokenAddress, minBal, { signal, maxHolderCount },
+      );
+      if (holders !== null) {
+        eligible = holders;
+      }
+    } catch (err) {
+      if (err instanceof WlHolderCountExceedsCap) throw err;
+      if (signal?.aborted) throw signal.reason ?? err;
+      if ((err as { name?: string }).name === 'AbortError') throw err;
+      // eslint-disable-next-line no-console
+      console.warn(`wl-snapshot: alchemy NFT fetch failed for ${req.tokenAddress} on chain ${req.chainId}, falling back to blockscout/rpc`, err);
+    }
+  }
+
   const explorerApi = EXPLORER_APIS[req.chainId];
-  if (explorerApi) {
+  if (!eligible && explorerApi) {
     let bs: BlockscoutHoldersResult | null = null;
     try {
       bs = await fetchHoldersViaBlockscout(
@@ -703,6 +785,80 @@ async function _replayBalances(
     }
   }
   return balances;
+}
+
+/// Fetch the current NFT owner set from Alchemy NFT API v3. Returns lowercased
+/// addresses whose ownership count meets `minBalance`. Uses `getOwnersForContract`
+/// with `withTokenBalances=true` and paginates through `pageKey`.
+///
+/// Returns `null` (not throws) when the contract isn't an NFT — signaling to
+/// the caller that this source can't handle it and it should fall through to
+/// the next path. Any real error (network, cap-exceeded, timeout) throws.
+///
+/// Alchemy's `getOwnersForContract` returns the CURRENT owner set with balances
+/// in one paginated call — no Transfer-event replay, no block-drift window, no
+/// blockscout coverage variance. Works uniformly on every chain in
+/// `ALCHEMY_NETWORKS`.
+async function fetchHoldersViaAlchemyNft(
+  alchemyBase: string,
+  token: Address,
+  minBalance: bigint,
+  opts?: { signal?: AbortSignal; maxHolderCount?: number },
+): Promise<Address[] | null> {
+  const cap = opts?.maxHolderCount ?? defaultMaxHolderCount();
+  const holders = new Map<string, bigint>();
+  let pageKey: string | undefined;
+  // Alchemy caps pageSize at 50k for this endpoint; 100 keeps memory tight
+  // and matches the pagination step we use everywhere else.
+  const pageSize = 100;
+  for (let page = 0; page < 2000; page++) {
+    const url = new URL(`${alchemyBase}/getOwnersForContract`);
+    url.searchParams.set('contractAddress', token);
+    url.searchParams.set('withTokenBalances', 'true');
+    url.searchParams.set('pageSize', String(pageSize));
+    if (pageKey) url.searchParams.set('pageKey', pageKey);
+    const res = await fetch(url.toString(), {
+      headers: { accept: 'application/json' },
+      signal: opts?.signal,
+    });
+    if (!res.ok) {
+      // 400 on a non-NFT contract — Alchemy returns something like
+      // `{ error: 'Contract is not an NFT contract' }`. Signal "not our job"
+      // by returning null so caller falls through to Blockscout/RPC.
+      if (res.status === 400) {
+        try {
+          const body = await res.json() as { error?: string };
+          const msg = (body?.error ?? '').toLowerCase();
+          if (msg.includes('not an nft') || msg.includes('erc-721') || msg.includes('erc-1155')) {
+            return null;
+          }
+        } catch { /* fall through to error */ }
+      }
+      throw new Error(`alchemy nft api ${res.status} for ${token}`);
+    }
+    const body = await res.json() as {
+      owners?: Array<{ ownerAddress?: string; tokenBalances?: Array<{ balance?: string | number }> }>;
+      pageKey?: string | null;
+    };
+    for (const o of body.owners ?? []) {
+      const addr = o.ownerAddress?.toLowerCase();
+      if (!addr) continue;
+      // Sum balances across tokenBalances (an owner can hold multiple tokenIds).
+      let bal = 0n;
+      for (const b of o.tokenBalances ?? []) {
+        try { bal += BigInt(b.balance ?? '0'); } catch { /* skip garbage */ }
+      }
+      if (bal >= minBalance) holders.set(addr, bal);
+    }
+    if (holders.size > cap) {
+      throw new WlHolderCountExceedsCap(holders.size, cap, 'blockscout');
+    }
+    if (!body.pageKey) break;
+    pageKey = body.pageKey;
+  }
+  // Sorted for determinism — matches blockscout path so the same holder set
+  // produces the same Merkle root across sources.
+  return [...holders.keys()].sort() as Address[];
 }
 
 /// Fetch the current holder set from Blockscout, paginated. Returns lowercased
