@@ -262,6 +262,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'fallbackTs' },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'reservedTokens' },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'wlSold' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'sourceTokenAddress' },
         ]
       : [],
     ...(readChainId ? { chainId: readChainId } : {}),
@@ -271,7 +272,25 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const wlFallbackTs = wlState.data?.[1]?.result as bigint | undefined;
   const wlReservedTokens = wlState.data?.[2]?.result as bigint | undefined;
   const wlSoldTokens = wlState.data?.[3]?.result as bigint | undefined;
+  const wlSourceToken = wlState.data?.[4]?.result as Address | undefined;
   const wlEnabled = !!wlRoot && wlRoot !== `0x${'0'.repeat(64)}`;
+
+  // Resolve the WL source token's name + symbol so the WL panel can label
+  // WHICH community is eligible (e.g. "whitelist for holders of $KAWAII").
+  // Skipped when the WL source is unset (zero-address = no source recorded).
+  const wlSourceValid = wlEnabled && !!wlSourceToken && wlSourceToken !== '0x0000000000000000000000000000000000000000';
+  const wlSourceMeta = useReadContracts({
+    contracts: wlSourceValid
+      ? [
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'name' },
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'symbol' },
+        ]
+      : [],
+    ...(readChainId ? { chainId: readChainId } : {}),
+    query: { enabled: wlSourceValid },
+  });
+  const wlSourceName = wlSourceMeta.data?.[0]?.result as string | undefined;
+  const wlSourceSymbol = wlSourceMeta.data?.[1]?.result as string | undefined;
   const graduated = csResults[5]?.result as boolean | undefined;
   // tradeFeeBps() returns uint16 → wagmi maps to `number`, not `bigint`. Reading it as
   // bigint made the fee row render '—' because `typeof feeBps === 'bigint'` was never true.
@@ -1439,6 +1458,20 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     <div style={{ fontFamily: 'var(--font-pixel), monospace', fontWeight: 700, marginBottom: 4 }}>
                       ✿ community whitelist active
                     </div>
+                    {wlSourceValid && (wlSourceSymbol || wlSourceName) && (
+                      <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 6 }}>
+                        holders of{' '}
+                        <a
+                          href={explorerAddressUrl(activeChain, wlSourceToken!)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                        >
+                          <b>${wlSourceSymbol ?? wlSourceName}</b>
+                          {wlSourceSymbol && wlSourceName && wlSourceSymbol !== wlSourceName ? ` (${wlSourceName})` : ''}
+                        </a>
+                      </div>
+                    )}
                     {(() => {
                       // Fill-% bar for the WL reserved slice — visual signal of how
                       // close the WL slice is to filling before the 1h public window
