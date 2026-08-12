@@ -41,6 +41,7 @@ import {
   fetchLaunchesByTokens,
   fetchTradesForCurve,
   fetchV4SwapsForToken,
+  fetchV4SwapsForPoolId,
   fetchV4RouterSwapsForToken,
 } from '@/lib/indexer';
 import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
@@ -569,16 +570,40 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     // The indexer already parses sqrtPriceX96, blockTimestamp, amounts on ingest —
     // so this replaces ~100 lines of RPC chunking + block-lookup with one query.
     const load = async () => {
-      // Two queries, joined by txHash. v4Swapss (from PoolManager.Swap) has
-      // sqrtPriceX96 + amounts but sender=V4SwapRouter (not the user).
-      // v4RouterSwapss (from V4SwapRouter.Swapped) has the actual user but no
-      // sqrtPriceX96. Every user swap emits BOTH events in the same tx, so
-      // matching by txHash gives us the full picture: price move + real user.
-      const [rows, routerRows] = await Promise.all([
+      // Three queries, all joined post-fetch:
+      //   1. v4Swapss by tokenAddress — the primary path; returns rows where the
+      //      indexer's `graduations.poolId → tokenAddress` reverse-lookup landed.
+      //   2. v4Swapss by poolId — the rescue path; catches legacy tokens whose
+      //      rows have tokenAddress=null because the indexer's join failed at
+      //      ingest time (early graduations, indexer env drift, etc). LUV +
+      //      the other two pre-V3 tokens hit this case — without the poolId
+      //      query their recent trades panel would stay empty forever.
+      //   3. v4RouterSwapss by tokenAddress — real user attribution via
+      //      V4SwapRouter.Swapped(user, ...). Joined onto (1)+(2) by txHash so
+      //      each row shows the actual wallet instead of the router address.
+      // Promise.allSettled so one query's failure doesn't kill the whole load.
+      // The Ponder schema may not have every table (e.g. v4RouterSwapss added
+      // late) — a hard throw there previously blanked the entire recent-trades
+      // panel. Now each query resolves independently and we use whatever came
+      // back.
+      const settled = await Promise.allSettled([
         fetchV4SwapsForToken(tokenAddress, 500),
+        poolId ? fetchV4SwapsForPoolId(poolId, 500) : Promise.resolve(null),
         fetchV4RouterSwapsForToken(tokenAddress, 500),
       ]);
-      if (cancelled || !rows) return;
+      if (cancelled) return;
+      const rowsByToken = settled[0].status === 'fulfilled' ? settled[0].value : null;
+      const rowsByPool = settled[1].status === 'fulfilled' ? settled[1].value : null;
+      const routerRows = settled[2].status === 'fulfilled' ? settled[2].value : null;
+      // Merge + dedupe (v4Swaps.id is unique — chainId-txHash-logIndex).
+      const seenIds = new Set<string>();
+      const rows: NonNullable<typeof rowsByToken> = [];
+      for (const r of [...(rowsByToken ?? []), ...(rowsByPool ?? [])]) {
+        if (seenIds.has(r.id)) continue;
+        seenIds.add(r.id);
+        rows.push(r);
+      }
+      if (rows.length === 0) return;
       // Build txHash → user lookup for trader attribution.
       const userByTx: Record<string, Address> = {};
       for (const r of routerRows ?? []) userByTx[r.txHash.toLowerCase()] = r.user;

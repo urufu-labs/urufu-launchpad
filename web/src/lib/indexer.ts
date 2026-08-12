@@ -374,6 +374,36 @@ export async function fetchV4SwapsForToken(
   return data?.v4Swapss.items ?? null;
 }
 
+/// Same-source-different-filter variant of fetchV4SwapsForToken keyed by poolId.
+/// Rescues legacy tokens whose v4Swaps rows have tokenAddress=null because the
+/// indexer's `graduations.poolId → tokenAddress` join failed at ingest time (e.g.
+/// early rows where the graduations row hadn't landed yet, or MHH-env drift on
+/// the indexer host during a rotation). The trade page computes poolId
+/// client-side from token+hook, so it can rescue the swap history without
+/// waiting for a full indexer reindex.
+export async function fetchV4SwapsForPoolId(
+  poolId: `0x${string}`,
+  limit = 500,
+): Promise<IndexerV4Swap[] | null> {
+  const data = await gqlFanout<{ v4Swapss: { items: IndexerV4Swap[] } }>(
+    `query V4SwapsForPoolId($poolId: String!, $limit: Int!) {
+      v4Swapss(
+        where: { poolId: $poolId },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
+          tick fee priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { poolId: poolId.toLowerCase(), limit },
+  );
+  return data?.v4Swapss.items ?? null;
+}
+
 /// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to
 /// enrich graduated launches on the /discover feed so mcap + tx count reflect post-grad
 /// pool activity, not the frozen curve-side snapshot. Cheap enough to call per launch;
