@@ -193,6 +193,10 @@ export const nftRevenueVaultAbi = parseAbi([
   `function epochs(uint256) view returns (bytes32 merkleRoot, uint256 totalAmount, uint256 unclaimed)`,
   `function isClaimed(uint256 epochId, address holder) view returns (bool)`,
   `function claim(uint256 epochId, uint256 amount, bytes32[] calldata proof)`,
+  // URU-A11: production vault uses propose/activate for epochs. Frontend reads
+  // pendingEpoch to render "unlocks in Xh Ym" for allocations whose tree is
+  // published off-chain but on-chain activation is still in the timelock window.
+  `function pendingEpoch() view returns (uint256 expectedEpochId, bytes32 merkleRoot, uint256 totalAmount, uint64 readyAt)`,
 ] as const);
 
 /// Ownable + module-specific owner reads/writes probed by the profile page's
