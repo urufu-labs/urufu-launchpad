@@ -40,8 +40,14 @@ const SOCIAL_PREVIEW_BOTS = [
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      // Social crawlers — allowed everywhere so link previews render.
-      { userAgent: SOCIAL_PREVIEW_BOTS, allow: '/' },
+      // Social crawlers — one block PER bot rather than a shared multi-UA
+      // group. RFC-compliant parsers (Google) handle shared blocks fine, but
+      // Twitter's/X's parser silently ignores the shared Allow when multiple
+      // User-Agent lines are stacked and falls through to the wildcard block,
+      // producing "denied by robots.txt" on /trade and /profile even with
+      // Twitterbot listed. Emitting one { userAgent, allow } per bot gives
+      // every parser the same explicit rule.
+      ...SOCIAL_PREVIEW_BOTS.map((ua) => ({ userAgent: ua, allow: '/' })),
       // Everyone else — dynamic paths blocked from indexing.
       {
         userAgent: '*',
