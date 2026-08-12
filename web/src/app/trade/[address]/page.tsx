@@ -425,15 +425,20 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         }
         setTradePoints(pts);
         setRecentTrades(rec.reverse().slice(0, 200));
-      } catch (err) {
-        console.warn('trade log fetch failed', err);
+      } catch {
+        // Silent — transient RPC / indexer hiccups happen constantly and
+        // this poll retries every 30s anyway. Filling the console with
+        // hundreds of "trade log fetch failed" entries during a long
+        // page-open session helped nobody.
       }
     })();
     return () => { cancelled = true; };
   }, [publicClient, curveAddress, virtualEthReserve, virtualTokenReserve]);
 
   // Background poll so the recent-trades list + chart tick even without the current tab
-  // firing a tx. 15s is a friendly interval — catches other users' trades on the same curve.
+  // firing a tx. 30s is a friendly interval — catches other users' trades on the same curve
+  // without hammering the indexer over long-lived sessions (was 15s; hitting Vercel + Ponder
+  // rate limits after several thousand ticks in the same tab).
   useEffect(() => {
     if (!curveAddress) return;
     if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
@@ -584,7 +589,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (newest) setV4LatestSqrt(newest.sqrtPriceX96);
     };
     load();
-    const id = setInterval(load, 15_000);
+    const id = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [graduated, tokenAddress, v4RefetchTick]);
 
