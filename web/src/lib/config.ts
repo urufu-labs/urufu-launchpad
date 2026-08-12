@@ -159,8 +159,12 @@ export const CONTRACTS: Record<ChainKey, ContractSet | null> = {
     // Same caveat as ERC20With* — ERC1155TemplateImpl is pre-V9 pending
     // impl-registration confirmation.
     ERC1155TemplateImpl: '0x8728FFEB1E017B123408209f2ae7f7207741Be5b',
-    CurveFactory: '0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805',
-    BondingCurveImpl: '0xCcb44387275E95609Ffa368F2FcbCA5eD0eAeb40',
+    // V10 stack (broadcast 2026-08-12) — WL immediate-transfer redesign.
+    // Buyers of a WL curve receive tokens in their wallet at buy time (no
+    // more claimWl / hold-until-graduation), so a stalled WL curve is never
+    // a funds-stuck failure mode. Existing curves stay on V9 impl.
+    CurveFactory: '0xEC96D023426167e68598FF9ea946882b7f0AE91f',
+    BondingCurveImpl: '0x616462099AE1a40DA8327D2af2797c540507DBB2',
   },
   'robinhood-testnet': null,
 };
@@ -199,9 +203,10 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // MHH — V9 fresh stack, broadcast 2026-08-06 (mask 0x20C4 verified).
-    // Paired with Graduator 0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB.
-    MultiHookHost: '0xc282245A22b602c90d04283B22E414f75AFc20c4',
+    // MHH — V10 fresh stack, broadcast 2026-08-12 (mask 0x20C4 verified).
+    // Paired with Graduator 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1
+    // and CurveFactory 0xEC96D023426167e68598FF9ea946882b7f0AE91f (V10).
+    MultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -214,10 +219,11 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  // Graduator — V9 fresh stack, broadcast 2026-08-06. Retains V8-final LP-math
-  // fix (raw real ratio pricing) + owner + sweep() escape hatch.
-  // Paired with MHH 0xc282245A22b602c90d04283B22E414f75AFc20c4.
-  robinhood: '0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB',
+  // Graduator — V10 fresh stack, broadcast 2026-08-12. Retains V8-final LP-math
+  // fix (raw real ratio pricing) + owner + sweep() escape hatch. Bound to the
+  // new V10 CurveFactory (0xEC96D023426167e68598FF9ea946882b7f0AE91f).
+  // Paired with MHH 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4.
+  robinhood: '0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1',
   'robinhood-testnet': null,
 };
 
