@@ -496,15 +496,32 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // poolId + hookAddr are re-used by the market-cap section further down; compute once
   // here so the effect can reference them before that section runs.
   //
-  // Per-token hook resolution: prefer the hook address the indexer recorded at
-  // graduation time. That way a future hook redeploy (MultiHookHost v2 with per-pool
-  // creator revenue, etc.) doesn't break trade pages for tokens that graduated
-  // against the OLD hook — every token remembers its own hook forever. Falls back to
-  // the chain's current config hook for (a) tokens indexed before this column existed
-  // and (b) freshly-graduated tokens the indexer hasn't caught up on yet.
+  // Per-token hook resolution, in priority order:
+  //   1. Hardcoded LEGACY_HOOK_OVERRIDES pin — the belt-and-suspenders map for
+  //      tokens graduated against a MHH that is no longer the current default.
+  //      Populated by hand when a MHH rotation happens; guarantees the trade
+  //      page never routes them at the new hook by accident.
+  //   2. Indexer's graduations.hookAddress — the truth for any graduation
+  //      indexed after the column was added.
+  //   3. Config default (HOOKS[chain]?.MultiHookHost) — last-resort fallback
+  //      for tokens indexed before the column existed AND not on the override
+  //      list. Kept pointing at the current default hook (V10 MHH on RH) so a
+  //      freshly-graduated token can still resolve while the indexer catches
+  //      up. New V3 graduations get their V11 hook straight from the indexer.
+  const LEGACY_HOOK_OVERRIDES: Record<string, Address> = {
+    // Tokens that graduated on RH's V10 MHH (0x48C22af8) BEFORE the V11 MHH +
+    // GraduatorV3 rotation on 2026-08-12. Their v4 pools are permanently
+    // keyed at V10 — the poolId literally embeds the hook address on-chain,
+    // so nothing off-chain can move them. Pinning here so the trade page
+    // never derives a V11 poolId for them regardless of indexer state.
+    '0x985ec2c71ffebf4822b6c877bb87229923813c63': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
+    '0xf382db5729bcbc61bc2fbc63f0b6ba93049cbb4a': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
+    '0x99f6d9b3284ce9c11cef0802539a4ba81070e875': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
+  };
+  const overrideHookAddr = LEGACY_HOOK_OVERRIDES[(tokenAddress as string).toLowerCase()] as Address | undefined;
   const [indexedHookAddr, setIndexedHookAddr] = useState<Address | undefined>();
   useEffect(() => {
-    if (!tokenAddress) return;
+    if (!tokenAddress || overrideHookAddr) return;
     let cancelled = false;
     (async () => {
       const g = await fetchGraduationForToken(tokenAddress);
@@ -512,9 +529,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (g?.hookAddress) setIndexedHookAddr(g.hookAddress as Address);
     })();
     return () => { cancelled = true; };
-  }, [tokenAddress]);
+  }, [tokenAddress, overrideHookAddr]);
   const configHookAddr = activeChain ? HOOKS[activeChain]?.MultiHookHost : undefined;
-  const hookAddr = indexedHookAddr ?? configHookAddr;
+  const hookAddr = overrideHookAddr ?? indexedHookAddr ?? configHookAddr;
   const poolManagerAddr = activeChain ? HOOKS[activeChain]?.PoolManager : undefined;
   const poolId = useMemo(() => {
     if (!hookAddr) return undefined;
