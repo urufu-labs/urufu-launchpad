@@ -158,18 +158,25 @@ contract GraduatorV8LpMathForkTest is Test {
     }
 
     /// Owner sweep works — safety net for a future regression.
+    /// sweep() only drains `balance - totalClaimable` by design (FINDING 6:
+    /// launcher refunds live in a pull-based ledger that sweep must never
+    /// silently drain). So post-sweep, `balance == totalClaimable`, not 0.
+    /// On a fork of the live Graduator, `totalClaimable` may be non-zero
+    /// from prior graduations that credited launcher refunds — we snapshot
+    /// it and assert against the snapshot instead of the literal 0 the old
+    /// version of this test expected (which held only when the fork's live
+    /// Graduator had no credited refunds yet).
     function test_V8_OwnerCanSweepAccidentalEth() public {
-        // Set us as owner (already is via constructor above), fund the
-        // graduator directly (simulating a hypothetical future bug that
-        // ended up leaving ETH here), then sweep.
-        vm.deal(address(newGrad), 3.14 ether);
-        assertEq(address(newGrad).balance, 3.14 ether);
+        uint256 reserved = newGrad.totalClaimable();
+
+        vm.deal(address(newGrad), 3.14 ether + reserved);
+        assertEq(address(newGrad).balance, 3.14 ether + reserved);
 
         address payable recipient = payable(makeAddr("sweep-recipient"));
         uint256 balBefore = recipient.balance;
         newGrad.sweep(recipient);
-        assertEq(address(newGrad).balance, 0, "graduator drained");
-        assertEq(recipient.balance - balBefore, 3.14 ether, "recipient credited");
+        assertEq(address(newGrad).balance, reserved, "sweep leaves credited refunds behind");
+        assertEq(recipient.balance - balBefore, 3.14 ether, "recipient credited exactly the sweepable portion");
     }
 
     /// Non-owner cannot sweep.
