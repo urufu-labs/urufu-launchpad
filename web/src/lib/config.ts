@@ -203,15 +203,24 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // MHH — V11 fresh host, broadcast 2026-08-12 alongside GraduatorV3 (mask 0x20C4).
-    // Rotation reason: V10 MHH.initializer was one-shot locked to the V10 Graduator
-    // (raw-ratio LP seed → 50% price cliff post-graduation). GraduatorV3 seeds the
-    // pool at the curve's marginal price (pump.fun style) and burns excess tokens,
-    // so early curve buyers stay up when trading opens on Uniswap v4. Because
-    // setInitializer is one-shot, rotating the Graduator required a fresh MHH.
-    // Paired with Graduator 0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23
-    // and CurveFactory 0xEC96D023426167e68598FF9ea946882b7f0AE91f (unchanged).
-    MultiHookHost: '0x83d6fa59BEF503112887b16277CF559fDC93E0C4',
+    // MHH — this field is the CLIENT-SIDE FALLBACK the trade page uses when the
+    // indexer's `graduations.hookAddress` row is null (legacy tokens indexed
+    // before the column existed). It MUST point at whatever MHH existing pools
+    // actually use, or every legacy graduation stops resolving to its pool.
+    //
+    // Currently: V10 MHH (0x48C22af8). All three graduated tokens live now
+    // (LUV, plus 2) were graduated by the V10 Graduator against V10 MHH.
+    //
+    // On 2026-08-12 we deployed a V11 MHH (0x83d6fa59) paired with
+    // GraduatorV3 (0xB5aA5Fb4) so that NEW graduations use pump.fun-style
+    // LP seeding. But V3 records its hook in graduations.hookAddress at
+    // graduation time, so the trade page reads V11 straight from the indexer
+    // for new pools — this fallback never applies to them. For legacy pools,
+    // the fallback stays on V10 so they keep working.
+    //
+    // If you ever fully retire V10 MHH (no pools left, or all rows have
+    // hookAddress populated), you can move this to V11.
+    MultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
