@@ -15,8 +15,8 @@ interface ICurveFactoryLookup {
 /// Graduator__NotAuthorizedCurve.
 contract GraduatorV8AccessCheckForkTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
-    address internal constant LIVE_GRADUATOR = 0x0Db63b8Af346c5edabF79b16A236AEDA0428e712;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant LIVE_GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant LIVE_OWNER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
 
     function setUp() public {

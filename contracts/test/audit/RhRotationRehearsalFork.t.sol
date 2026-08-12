@@ -76,7 +76,7 @@ contract RhRotationRehearsalForkTest is Test {
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant OLD_ROUTER = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
     address internal constant LIVE_NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant FEE_SPLITTER = 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA;
     address internal constant LOYALTY_ORACLE = 0xd13A1fb6d9c209B56044464269fce66Ed417AC2E;
     address internal constant ERC20_FACTORY = 0x14c1f066b91760565d5eEc8Cf4696A4648b552F2;

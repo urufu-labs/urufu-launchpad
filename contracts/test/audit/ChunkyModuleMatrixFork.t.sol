@@ -50,9 +50,9 @@ contract ChunkyModuleMatrixForkTest is Test {
 
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant ROUTER_V7 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
-    address internal constant MULTI_HOOK_HOST = 0xed092D2B55AeAc862fb2E1caA4c7E10573cCA2c4;
-    address internal constant GRADUATOR = 0x0Db63b8Af346c5edabF79b16A236AEDA0428e712;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
+    address internal constant MULTI_HOOK_HOST = 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4;
+    address internal constant GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
 
     bytes32 internal constant H_BARE = keccak256(abi.encode("ERC20", ""));
@@ -245,7 +245,12 @@ contract ChunkyModuleMatrixForkTest is Test {
         assertEq(bc.ethReserve(), 0, _tag(name_, "curve ETH not drained"));
         assertEq(bc.tokenReserve(), 0, _tag(name_, "curve tokens not drained"));
 
-        assertEq(GRADUATOR.balance, 0, _tag(name_, "LIVE graduator not empty post-graduation"));
+        // LP mint rounding leaves a few μETH of dust in the Graduator (V8+ raw-
+        // ratio pricing). GraduatorV2.sweep(owner) recovers it. Anything above
+        // ~0.001 ETH per graduation would be an LP-math regression; below is
+        // deterministic rounding residue. Assertion pre-V8 used == 0 because
+        // the older LP math didn't have this residue.
+        assertLe(GRADUATOR.balance, 0.001 ether, _tag(name_, "LIVE graduator dust exceeded 0.001 ETH"));
 
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0)),

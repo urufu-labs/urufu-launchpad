@@ -63,7 +63,7 @@ contract GraduatorV2Test is Test {
     // rotations. Hardcoded live-stack addresses have been repeatedly
     // stale-address footguns; dynamic reads are the only safe pattern.
     address internal constant NAME_REGISTRY = 0x60b797f18292d941E72B2b59916C0afC1A81118C;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
 

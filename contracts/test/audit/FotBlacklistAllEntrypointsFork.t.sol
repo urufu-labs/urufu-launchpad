@@ -45,7 +45,7 @@ contract FotBlacklistAllEntrypointsForkTest is Test {
 
     // Live V7 stack pins (matches RhLiveStackSnapshot.t.sol)
     address internal constant ROUTER = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
 

@@ -58,7 +58,7 @@ interface IERC20Like {
 contract GraduatorV8LpMathForkTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
     address internal constant ROUTER_V7 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
-    address internal constant CURVE_FACTORY = 0x1c340f092c89d018d7F6410B0A418253FB522c70;
+    address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     // MHH is read dynamically from Graduator.defaultHook() in setUp — do not
     // hardcode. Every graduator rotation potentially changes the paired MHH.
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
