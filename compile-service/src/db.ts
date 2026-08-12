@@ -205,6 +205,45 @@ export async function migrate(): Promise<void> {
   // and stays untouched. Never destructive.
   await _seedShippedEpochs();
 
+  // ────────────────────────────────────────────────────────────────
+  // One-shot vault_addr fix (2026-08-12 pre-launch consolidation).
+  //
+  // The compile-service's env briefly pointed at NftRevenueVault 0x93CFF459
+  // and published tree data with that vault_addr. Post-consolidation, env
+  // is back to 0x375337c4 (the OLD vault) and its pending epoch's on-chain
+  // Merkle root (0xb7115cb4…) matches the tree the DB stores. Without this
+  // migration, rewards.proofFor filters by vault_addr and returns
+  // NOT_ELIGIBLE — the claim button would break silently after tomorrow's
+  // epoch activation.
+  //
+  // Idempotent: 0-row update after first run. Only touches rows where the
+  // stale vault_addr is our specific NEW-vault mistake — every other
+  // vault_addr value (any past rotation, any other chain) stays untouched.
+  {
+    const STALE = '0x93cff459d5019eec82fe9335013e265f1ed659c7';
+    const TARGET = '0x375337c4c3b85a44948e7d98d7c05256deff0ea8';
+    const beforeRows = await sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n FROM app.rewards_epochs
+      WHERE chain_id = 4663 AND lower(vault_addr) = ${STALE}
+    `;
+    const stale = Number(beforeRows[0]?.n ?? '0');
+    if (stale > 0) {
+      const updEpochs = await sql`
+        UPDATE app.rewards_epochs SET vault_addr = ${TARGET}
+        WHERE chain_id = 4663 AND lower(vault_addr) = ${STALE}
+      `;
+      const updPubs = await sql`
+        UPDATE app.rewards_publications SET vault_addr = ${TARGET}
+        WHERE chain_id = 4663 AND lower(vault_addr) = ${STALE}
+      `;
+      console.log(
+        `[migrate] vault_addr fix: rewards_epochs updated ${updEpochs.count} rows, ` +
+        `rewards_publications updated ${updPubs.count} rows (${STALE} → ${TARGET})`,
+      );
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
+
   /// Social graph — one row per (follower, followee) edge. Both cols lowercased
   /// so lookups by either direction stay case-insensitive without indexing on
   /// a lower() functional expression. `followed_at` powers "recent followers"
