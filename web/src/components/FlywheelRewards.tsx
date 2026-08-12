@@ -37,6 +37,19 @@ interface Props {
 const REWARDS_CHAIN: ChainKey = 'robinhood';
 const REWARDS_CHAIN_ID = CHAIN_KEY_TO_ID[REWARDS_CHAIN];
 
+/// Short "unlocks in Xh Ym" / "unlocks in Xm" / "unlocks now" label from a
+/// unix timestamp (seconds). Rendered inline instead of the claim button when
+/// an epoch's tree exists off-chain but on-chain activation is still pending.
+function _relativeUnlock(unixSec: number): string {
+  const delta = unixSec - Math.floor(Date.now() / 1000);
+  if (delta <= 0) return 'unlocks now';
+  const h = Math.floor(delta / 3600);
+  const m = Math.floor((delta % 3600) / 60);
+  if (h >= 24) return 'unlocks in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+  if (h > 0) return 'unlocks in ' + h + 'h ' + m + 'm';
+  return 'unlocks in ' + m + 'm';
+}
+
 export function FlywheelRewards({ visibleFor }: Props) {
   const { address: wallet, chainId: walletChainId } = useAccount();
   const isSelf = wallet?.toLowerCase() === visibleFor.toLowerCase();
@@ -86,15 +99,47 @@ export function FlywheelRewards({ visibleFor }: Props) {
     query: { enabled: epochs.length > 0 && !!vaultAddress },
   });
 
+  // The compile-service happily returns proofs for epochs whose tree it has,
+  // even if the corresponding on-chain epoch is still pending (not yet
+  // activated). Reading `nextEpochId` from the vault tells us the highest
+  // activated index — any epochId >= nextEpochId is un-claimable (would
+  // revert with EpochUnknown), so we gate the claim button on it.
+  const vaultReads = useReadContracts({
+    contracts: vaultAddress
+      ? [
+          {
+            abi: nftRevenueVaultAbi,
+            address: vaultAddress,
+            functionName: 'nextEpochId' as const,
+            chainId: REWARDS_CHAIN_ID,
+          },
+          {
+            abi: nftRevenueVaultAbi,
+            address: vaultAddress,
+            functionName: 'pendingEpoch' as const,
+            chainId: REWARDS_CHAIN_ID,
+          },
+        ]
+      : [],
+    query: { enabled: !!vaultAddress },
+  });
+  const nextEpochId = (vaultReads.data?.[0]?.result as bigint | undefined) ?? 0n;
+  const pendingEpochTuple = vaultReads.data?.[1]?.result as
+    | readonly [bigint, `0x${string}`, bigint, bigint]
+    | undefined;
+  const pendingReadyAtSec = pendingEpochTuple ? Number(pendingEpochTuple[3]) : 0;
+
   const rows = useMemo(() => {
     return epochs.map((e, i) => {
       const claimed = (claimedReads.data?.[i]?.result as boolean | undefined) ?? false;
-      return { ...e, claimed };
+      const activated = BigInt(e.epochId) < nextEpochId;
+      const isPending = !activated && pendingEpochTuple && Number(pendingEpochTuple[0]) === e.epochId;
+      return { ...e, claimed, activated, isPending };
     });
-  }, [epochs, claimedReads.data]);
+  }, [epochs, claimedReads.data, nextEpochId, pendingEpochTuple]);
 
   const unclaimedTotal = useMemo(
-    () => rows.filter((r) => !r.claimed).reduce((sum, r) => sum + BigInt(r.amount), 0n),
+    () => rows.filter((r) => !r.claimed && r.activated).reduce((sum, r) => sum + BigInt(r.amount), 0n),
     [rows],
   );
 
@@ -185,6 +230,12 @@ export function FlywheelRewards({ visibleFor }: Props) {
         </div>
       )}
 
+      {loaded && rows.length > 0 && rows.every((r) => !r.activated) && (
+        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)', lineHeight: 1.5, marginBottom: 6 }}>
+          your allocation is pending — claim unlocks after the epoch's timelock activates on-chain.
+        </div>
+      )}
+
       {loaded && rows.length > 0 && (
         <>
           <div
@@ -227,6 +278,19 @@ export function FlywheelRewards({ visibleFor }: Props) {
                 </span>
                 {r.claimed ? (
                   <span style={{ color: 'var(--anchor-soft)', fontSize: 10 }}>✓ claimed</span>
+                ) : !r.activated ? (
+                  <span
+                    style={{ color: 'var(--anchor-soft)', fontSize: 10 }}
+                    title={
+                      r.isPending && pendingReadyAtSec > 0
+                        ? 'unlocks ' + new Date(pendingReadyAtSec * 1000).toLocaleString()
+                        : 'epoch not yet published'
+                    }
+                  >
+                    {r.isPending && pendingReadyAtSec > 0
+                      ? _relativeUnlock(pendingReadyAtSec)
+                      : 'unpublished'}
+                  </span>
                 ) : (
                   <button
                     type="button"
