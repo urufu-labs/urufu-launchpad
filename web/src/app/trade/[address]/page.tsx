@@ -1734,6 +1734,14 @@ function EditMetadataModal({
           telegram: inputs.telegram ?? null,
           discord: inputs.discord ?? null,
           tiktok: inputs.tiktok ?? null,
+          // Preserve the WL list CID across edits. Without this, a launcher
+          // who opens the edit modal to add / fix their image would clobber
+          // the wlListCid to null and the WL becomes unfetchable for every
+          // other browser. `initial.wlListCid` comes from either the local
+          // snapshot (launcher's browser has it cached from create) or the
+          // remote fetch — whichever is present is the source of truth we
+          // want to keep intact.
+          wlListCid: initial?.wlListCid ?? null,
         },
         ({ message }) => signMessageAsync({ message }),
       );
