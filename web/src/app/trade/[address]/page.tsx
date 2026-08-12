@@ -1093,13 +1093,12 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               </span>
             )}
             <span className={styles.statusPill}>{graduated ? 'v4 pool' : 'curve live'}</span>
-            {/* Legacy pill — surfaces the fact that this token's pool was seeded
-                by the old raw-ratio graduator (pre-V3), so its post-graduation
-                pricing behaviour differs from newer launches. Read from the
-                same LEGACY_HOOK_OVERRIDES map that pins their hook so the two
-                stay in sync. */}
-            {overrideHookAddr && (
-              <span className={styles.legacyPill} title="graduated on the older MHH + Graduator pair (pre-2026-08-12). Trading works normally; pool was seeded at the old raw ratio instead of the curve marginal.">
+            {/* Legacy pill — surfaces that this token's v4 pool was seeded by
+                the old raw-ratio graduator (pre-V3). Only shows once the token
+                has actually graduated — pre-graduation curves have no pool yet
+                and the pill would be misleading. */}
+            {overrideHookAddr && graduated && (
+              <span className={styles.legacyPill} title="graduated on the older MHH + Graduator pair. Trading works normally; pool was seeded at the old raw ratio instead of the curve marginal.">
                 legacy
               </span>
             )}
