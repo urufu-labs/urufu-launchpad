@@ -4,6 +4,7 @@ import { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   useAccount,
+  useBalance,
   useChainId,
   usePublicClient,
   useReadContract,
@@ -302,6 +303,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const tokenTotalSupply = tokenTotalSupplyQ.data;
   const walletBal = walletBalQ.data;
   const curveAllowance = curveAllowanceQ.data;
+
+  // Native ETH balance of the connected wallet on the token's chain. Displayed
+  // next to the amount input so users can eyeball what's in their wallet before
+  // typing / hitting max. Refetch matches walletBalQ so the two feel in sync.
+  const walletEthBalQ = useBalance({
+    address: wallet,
+    chainId: readChainId,
+    query: { enabled: !!wallet, refetchInterval: 15_000 },
+  });
+  const walletEthBal = walletEthBalQ.data?.value;
 
   // ---------- Metadata (local snapshot + remote hydrate) ----------
   // Keyed by `readChainId` (the resolved read chain) NOT the wallet's `chainId` — a
@@ -1271,8 +1282,37 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             ) : (
               <>
                 <label style={{ display: 'block' }}>
-                  <span className={styles.fieldLabel}>
-                    you pay
+                  <span className={styles.fieldLabel} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span>you pay</span>
+                    {/* Wallet balance for the asset being spent — ETH on buy, the
+                        token on sell. Only shown when connected. Clicking sets
+                        the input to max. */}
+                    {wallet && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (side === 'buy' && walletEthBal !== undefined) {
+                            setInputAmount(formatEther(walletEthBal));
+                          } else if (side === 'sell' && walletBal !== undefined) {
+                            setInputAmount(formatUnits(walletBal as bigint, 18));
+                          }
+                        }}
+                        style={{
+                          fontFamily: 'var(--font-pixel), monospace',
+                          fontSize: 10,
+                          color: 'var(--anchor-soft)',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                        title="click to set max"
+                      >
+                        {side === 'buy'
+                          ? `balance: ${walletEthBal !== undefined ? Number(formatEther(walletEthBal)).toFixed(4) : '—'} ETH`
+                          : `balance: ${walletBal !== undefined ? Number(formatUnits(walletBal as bigint, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'} ${(tokenSymbol as string) ?? ''}`}
+                      </button>
+                    )}
                   </span>
                   <div className={styles.inputRow}>
                     <input
