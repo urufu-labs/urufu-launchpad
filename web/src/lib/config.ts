@@ -262,8 +262,14 @@ export const FLYWHEEL: Record<ChainKey, FlywheelSet | null> = {
     // V9 fresh stack, broadcast 2026-08-06.
     FeeSplitter: '0x60835C422a3671b5F01E6806Fd96b27c90941C83',
     LoyaltyOracle: '0xDcAd73EB96Bd0573b6ed0Ac3FFA32b1A7e0C0b52',
-    NftRevenueVault: '0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8',
-    UruBuybackVault: '0x78E388F9B1bABAa61BB17Bbd41A2B499CfE503a1',
+    // 2026-08-12 pre-launch fix: point at the vaults FeeSplitter actually
+    // routes to (its config on-chain uses these addresses). Previous entries
+    // (0x375337c4 NFT / 0x78E388 buyback) were the frontend-visible pair but
+    // never received live fees; the deployed FeeSplitter's sinks were older.
+    // Aligning frontend + keepers with FeeSplitter's live sinks avoids a
+    // "wrong-vault" divergence at launch.
+    NftRevenueVault: '0x93CFF459d5019eEc82fE9335013e265F1eD659c7',
+    UruBuybackVault: '0x68c5Ec467027fCe56f158eB1ff34cF89d0929354',
     RoyaltyRouterImpl: '0x6344Efa1d3A0Cb5a75E9eDA308bDe3E7A4594F90',
     RoyaltyRouterFactory: '0xd9439BA974108af90E84fABFc206b63f6b70cAF1',
   },

@@ -37,7 +37,7 @@ const CHAIN_ID = 4663;
 // Broadcasts addEpoch against this address; a stale pin would revert (owner
 // check) or credit a dead vault.
 const VAULT: Address = (process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS
-    ?? '0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8') as Address;
+    ?? '0x93CFF459d5019eEc82fE9335013e265F1eD659c7') as Address;
 // gemu NFT is canonical (unchanged across launchpad rotations).
 const NFT: Address = '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17';
 // From memory (project_robinhood_addresses): urufu gemu nft deployed block 18349728

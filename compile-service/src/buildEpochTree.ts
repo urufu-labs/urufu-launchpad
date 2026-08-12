@@ -27,7 +27,7 @@ const RPC = 'https://rpc.mainnet.chain.robinhood.com';
 // writes the tree JSON that BroadcastFirstEpoch consumes so a stale VAULT pin
 // would build a proof set against a dead contract.
 const VAULT: Address = (process.env.ROBINHOOD_NFT_REVENUE_VAULT_ADDRESS
-    ?? '0x375337c4c3B85a44948e7D98d7C05256DEFf0eA8') as Address;
+    ?? '0x93CFF459d5019eEc82fE9335013e265F1eD659c7') as Address;
 // gemu NFT is canonical (unchanged across V7 / V8 launchpad rotations).
 const NFT: Address = '0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17';
 const NFT_DEPLOY_BLOCK = 18_349_000n;
