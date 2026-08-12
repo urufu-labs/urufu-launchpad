@@ -15,8 +15,15 @@ import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 interface IHookConfig {
-    function setPoolConfig(PoolId id, uint32 antiSniperBlocks, uint16 buybackBurnBps) external;
-    function setCreator(PoolId id, address creator) external;
+    function setPoolConfig(
+        PoolId id,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps
+    ) external;
+    function setCreator(
+        PoolId id,
+        address creator
+    ) external;
     function creator() external view returns (address);
     function creators(
         PoolId id
@@ -301,10 +308,7 @@ contract GraduatorV3 is IUnlockCallback {
         (BalanceDelta callerDelta,) = poolManager.modifyLiquidity(
             key,
             ModifyLiquidityParams({
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                liquidityDelta: int256(liquidity),
-                salt: bytes32(0)
+                tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: int256(liquidity), salt: bytes32(0)
             }),
             ""
         );

@@ -89,9 +89,7 @@ contract DeployV3StackAndTest is Script {
             | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory mhhCreation = type(MultiHookHost).creationCode;
         // MHH ctor: (IPoolManager, feeSplitter, operator, platformBps, creatorBps, deployer)
-        bytes memory mhhArgs = abi.encode(
-            IPoolManager(POOL_MANAGER), FEE_SPLITTER, me, uint16(100), uint16(100), me
-        );
+        bytes memory mhhArgs = abi.encode(IPoolManager(POOL_MANAGER), FEE_SPLITTER, me, uint16(100), uint16(100), me);
         // Foundry's `new X{salt}` routes through the canonical CREATE2 deployer
         // (0x4e59...4956C), not the signing wallet. Mine with that address.
         // Bump past any salt whose predicted address already has code — V10
@@ -115,14 +113,7 @@ contract DeployV3StackAndTest is Script {
         console2.log("V11 MHH deployed:  ", address(mhh));
 
         // ---- 2. Deploy V3 Graduator ----
-        GraduatorV3 v3 = new GraduatorV3(
-            IPoolManager(POOL_MANAGER),
-            IHooks(address(mhh)),
-            3000,
-            60,
-            CURVE_FACTORY,
-            me
-        );
+        GraduatorV3 v3 = new GraduatorV3(IPoolManager(POOL_MANAGER), IHooks(address(mhh)), 3000, 60, CURVE_FACTORY, me);
         console2.log("V3 Graduator:      ", address(v3));
 
         // ---- 3. Wire ----
@@ -152,8 +143,8 @@ contract DeployV3StackAndTest is Script {
         p.ownership = OwnershipMode.Renounce;
 
         uint256 launchFee = Router(payable(ROUTER)).quote(p);
-        address token = Router(payable(ROUTER))
-            .launchAndBuy{value: launchFee + TEST_INITIAL_BUY}(p, TEST_INITIAL_BUY, 1, me);
+        address token =
+            Router(payable(ROUTER)).launchAndBuy{value: launchFee + TEST_INITIAL_BUY}(p, TEST_INITIAL_BUY, 1, me);
         address curve = cf.curveFor(token);
         require(curve != address(0), "curve missing");
         require(BondingCurve(payable(curve)).graduated(), "did not graduate");

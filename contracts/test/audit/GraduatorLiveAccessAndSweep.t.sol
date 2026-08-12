@@ -5,7 +5,9 @@ import {Test, console2} from "forge-std/Test.sol";
 import {GraduatorV2} from "src/curve/GraduatorV2.sol";
 
 interface ICurveFactoryLookup {
-    function curveFor(address token) external view returns (address);
+    function curveFor(
+        address token
+    ) external view returns (address);
 }
 
 /// @title  Graduator LIVE access-check + owner + sweep audit
@@ -49,16 +51,10 @@ contract GraduatorLiveAccessAndSweepForkTest is Test {
         assertEq(resolved, address(0), "sanity: fake token must be unregistered");
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                GraduatorV2.Graduator__NotAuthorizedCurve.selector,
-                attacker,
-                address(0)
-            )
+            abi.encodeWithSelector(GraduatorV2.Graduator__NotAuthorizedCurve.selector, attacker, address(0))
         );
         vm.prank(attacker);
-        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 1}(
-            fakeToken, 1, 1, 0, 0, address(0)
-        );
+        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 1}(fakeToken, 1, 1, 0, 0, address(0));
     }
 
     /// Attacker with mocked CF that names a DIFFERENT curve address must
@@ -69,23 +65,11 @@ contract GraduatorLiveAccessAndSweepForkTest is Test {
         address realCurve = makeAddr("realCurveAddr");
         vm.deal(attacker, 1 ether);
 
-        vm.mockCall(
-            LIVE_CURVE_FACTORY,
-            abi.encodeWithSignature("curveFor(address)", fakeToken),
-            abi.encode(realCurve)
-        );
+        vm.mockCall(LIVE_CURVE_FACTORY, abi.encodeWithSignature("curveFor(address)", fakeToken), abi.encode(realCurve));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                GraduatorV2.Graduator__NotAuthorizedCurve.selector,
-                attacker,
-                realCurve
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(GraduatorV2.Graduator__NotAuthorizedCurve.selector, attacker, realCurve));
         vm.prank(attacker);
-        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 1}(
-            fakeToken, 1, 1, 0, 0, address(0)
-        );
+        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 1}(fakeToken, 1, 1, 0, 0, address(0));
     }
 
     // ----- 2. Legitimate curve passes the auth check ------------------------
@@ -101,30 +85,24 @@ contract GraduatorLiveAccessAndSweepForkTest is Test {
         vm.deal(spoofedCurve, 1 ether);
 
         vm.mockCall(
-            LIVE_CURVE_FACTORY,
-            abi.encodeWithSignature("curveFor(address)", fakeToken),
-            abi.encode(spoofedCurve)
+            LIVE_CURVE_FACTORY, abi.encodeWithSignature("curveFor(address)", fakeToken), abi.encode(spoofedCurve)
         );
 
         // Path (a): pass ethAmount=0 → hits Graduator__ZeroAmount (past auth).
         vm.expectRevert(GraduatorV2.Graduator__ZeroAmount.selector);
         vm.prank(spoofedCurve);
-        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 0}(
-            fakeToken, 0, 0, 0, 0, address(0)
-        );
+        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 0}(fakeToken, 0, 0, 0, 0, address(0));
 
         // Path (b): msg.value != ethAmount → hits Graduator__EthMismatch (past auth).
         vm.expectRevert(
             abi.encodeWithSelector(
                 GraduatorV2.Graduator__EthMismatch.selector,
                 uint256(2), // msg.value
-                uint256(1)  // ethAmount
+                uint256(1) // ethAmount
             )
         );
         vm.prank(spoofedCurve);
-        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 2}(
-            fakeToken, 1, 1, 0, 0, address(0)
-        );
+        GraduatorV2(payable(LIVE_GRADUATOR)).execute{value: 2}(fakeToken, 1, 1, 0, 0, address(0));
     }
 
     // ----- 3. Owner path: owner() non-zero AND owner can sweep --------------

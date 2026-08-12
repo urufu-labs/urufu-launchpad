@@ -86,6 +86,11 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // V10 stack minted this pool to prove the hook works for Uniswap Labs — it
   // is NOT a real launch. AllowlistV10RehearsalFlow.s.sol reference.
   '4663:0x3e9c0f32a818205f166b9bf32ad308fa938061f5', // V10 Allowlist Rehearsal / V10AL
+  // V3 Test Coin (V3TC) — the graduation test launched by DeployV3StackAndTest
+  // on 2026-08-12 to prove GraduatorV3 seeds the pool at the curve marginal
+  // and burns leftover tokens. Real on-chain graduation + LP mint; not a real
+  // launch. Hidden from feeds so it doesn't clutter discover / marquee.
+  '4663:0x21f2b2d48f1a1166f29853ac869fdb0c0667c1f1',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {

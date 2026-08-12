@@ -79,14 +79,8 @@ contract GraduatorV3PricingForkTest is Test {
         // Etch V3 over the live Graduator so the CF → Graduator chain routes
         // to V3 without needing to touch CurveFactory.setGraduator on the
         // fork. Storage preserved (owner, claimableRefunds).
-        GraduatorV3 v3Impl = new GraduatorV3(
-            IPoolManager(POOL_MANAGER),
-            IHooks(V10_MHH),
-            3000,
-            60,
-            CURVE_FACTORY,
-            DEPLOYER
-        );
+        GraduatorV3 v3Impl =
+            new GraduatorV3(IPoolManager(POOL_MANAGER), IHooks(V10_MHH), 3000, 60, CURVE_FACTORY, DEPLOYER);
         vm.etch(V10_GRADUATOR, address(v3Impl).code);
 
         vm.deal(launcher, 10 ether);
@@ -157,8 +151,8 @@ contract GraduatorV3PricingForkTest is Test {
         //    marginal_wei = (virtEth + realEth_at_grad) / (virtTok + realTok_at_grad)
         //    ≈ (virtEth + gradTarget) / (virtTok + tokenReserveAtGrad)
         //    Both curve state values are queryable AFTER graduation as 0 (curve wiped),
-        //    but we can reconstruct: tokenReserve at grad = (v_eth * curveSupply) / (v_eth + realEth) - v_tok / (constant product)
-        //    Simpler: use the poolManager balance of the token BEFORE any swaps to see how much LP got.
+        //    but we can reconstruct: tokenReserve at grad = (v_eth * curveSupply) / (v_eth + realEth) - v_tok /
+        // (constant product) Simpler: use the poolManager balance of the token BEFORE any swaps to see how much LP got.
 
         // Post-graduation:
         //   PoolManager holds SOME of `tokenAmount` handed to Graduator.

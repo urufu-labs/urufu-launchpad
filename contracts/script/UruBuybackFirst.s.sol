@@ -19,11 +19,20 @@ interface IERC20V {
 }
 
 interface IUniversalRouter {
-    function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
+    function execute(
+        bytes calldata commands,
+        bytes[] calldata inputs,
+        uint256 deadline
+    ) external payable;
 }
 
 interface IUruBuybackVault {
-    function executeBuyback(address swapTarget, uint256 ethIn, bytes calldata swapData, uint256 minUruOut) external;
+    function executeBuyback(
+        address swapTarget,
+        uint256 ethIn,
+        bytes calldata swapData,
+        uint256 minUruOut
+    ) external;
     function distributionSink() external view returns (address);
     function minUruPerEth() external view returns (uint256);
     function isSwapTarget(
