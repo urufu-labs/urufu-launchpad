@@ -2129,16 +2129,43 @@ function GraduatedPanel({
     ? `https://app.uniswap.org/swap?chain=${chain}&inputCurrency=NATIVE&outputCurrency=${tokenAddress}&exactField=input`
     : `https://app.uniswap.org/swap?outputCurrency=${tokenAddress}`;
 
+  // Uniswap only surfaces hooks that are on its allowlist in the UI. Off-allowlist
+  // hooks (both V10 and V11 MHH on RH today) render as bare v4 pools with no
+  // metadata — someone can seed 0.001 ETH of "LP" as bait, our deep-link routes
+  // buyers there, and they get robbed on slippage. Until each chain's hook is
+  // allowlisted, hide the "open on Uniswap" affordance entirely on that chain.
+  //
+  // Flip a chain's entry to `true` once its hook is confirmed on the Uniswap
+  // allowlist. Explorer link stays available so people can always inspect
+  // the pool address directly.
+  const HOOK_UNISWAP_ALLOWLISTED: Partial<Record<string, boolean>> = {
+    mainnet: true,
+    base: true,
+    'base-sepolia': true,
+    sepolia: true,
+    robinhood: false, // V11 MHH submission pending. Flip when Uniswap Labs confirms.
+    'robinhood-testnet': false,
+  };
+  const uniswapLinkSafe = chain ? HOOK_UNISWAP_ALLOWLISTED[chain] ?? false : false;
+
   if (!v4Router) {
     return (
       <div style={{ padding: 16, textAlign: 'center', background: 'var(--pink-warm)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 13 }}>
         ✿ graduated ✿<br />
-        <span style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
-          V4SwapRouter not deployed on this chain yet — trade on Uniswap:
-        </span><br />
-        <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-          ✦ open Uniswap →
-        </a>
+        {uniswapLinkSafe ? (
+          <>
+            <span style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
+              V4SwapRouter not deployed on this chain yet — trade on Uniswap:
+            </span><br />
+            <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+              ✦ open Uniswap →
+            </a>
+          </>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
+            in-app swap not available on this chain yet.
+          </span>
+        )}
       </div>
     );
   }
@@ -2300,11 +2327,19 @@ function GraduatedPanel({
         }}
       >
         <div><b>prefer external UIs?</b></div>
-        <div style={{ marginTop: 4 }}>
-          <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-            open on Uniswap →
-          </a>
-        </div>
+        {uniswapLinkSafe ? (
+          <div style={{ marginTop: 4 }}>
+            <a href={uniswapUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+              open on Uniswap →
+            </a>
+          </div>
+        ) : (
+          <div style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
+            uniswap link hidden: hook is not on Uniswap&apos;s allowlist yet, so their
+            UI would route you to any dust-LP pool with the same token address.
+            trade here instead.
+          </div>
+        )}
         {chain && (
           <div style={{ marginTop: 2 }}>
             <a

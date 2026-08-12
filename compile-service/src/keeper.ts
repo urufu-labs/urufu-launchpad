@@ -60,19 +60,38 @@ const MHH_ABI = parseAbi([
 interface SweepConfig {
   chainId: number;
   rpcUrl: string;
-  multiHookHost: Address;
+  /// Every live MHH we still need to sweep. After a MHH rotation, keep the OLD
+  /// address in this list until every pool on it is drained (or user is fine
+  /// with residual fees stranded there).
+  multiHookHosts: Address[];
   feeSplitter: Address;
   keeperKey: Hex;
 }
 
+/// Parse `ROBINHOOD_MULTI_HOOK_HOST_ADDRESS` as either a single address (the
+/// legacy shape) or comma-separated addresses. The keeper sweeps each one
+/// independently every tick so a MHH rotation doesn't strand fees on the old
+/// hook.
+///
+/// Example values on RH today:
+///   "0x83d6fa59...E0C4,0x48C22af8...E0C4"   (V11 + V10 — sweep both)
+///   "0x83d6fa59...E0C4"                       (V11 only — legacy pool fees strand)
+function parseMultiHookHosts(raw: string | undefined): Address[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0) as Address[];
+}
+
 function sweepConfig(): SweepConfig | null {
   const rpcUrl = process.env.ROBINHOOD_RPC_URL;
-  const multiHookHost = process.env.ROBINHOOD_MULTI_HOOK_HOST_ADDRESS as Address | undefined;
+  const multiHookHosts = parseMultiHookHosts(process.env.ROBINHOOD_MULTI_HOOK_HOST_ADDRESS);
   const feeSplitter = process.env.ROBINHOOD_FEE_SPLITTER_ADDRESS as Address | undefined;
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
-  if (!rpcUrl || !multiHookHost || !feeSplitter || !rawKey) return null;
+  if (!rpcUrl || multiHookHosts.length === 0 || !feeSplitter || !rawKey) return null;
   const keeperKey = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as Hex;
-  return { chainId: 4663, rpcUrl, multiHookHost, feeSplitter, keeperKey };
+  return { chainId: 4663, rpcUrl, multiHookHosts, feeSplitter, keeperKey };
 }
 
 const ETH_CURRENCY: Address = '0x0000000000000000000000000000000000000000';
@@ -82,17 +101,16 @@ const ETH_CURRENCY: Address = '0x0000000000000000000000000000000000000000';
 /// Tune down if trading picks up and you want faster reflection in the vault.
 const MHH_SWEEP_THRESHOLD_WEI = 10_000_000_000_000n; // 0.00001 ETH ~= a few cents
 
-async function sweepMhhToFeeSplitterOnce(cfg: SweepConfig): Promise<void> {
-  const pub = createPublicClient({ transport: http(cfg.rpcUrl) });
+async function sweepOneMhh(cfg: SweepConfig, mhh: Address, pub: ReturnType<typeof createPublicClient>): Promise<void> {
   const owed = (await pub.readContract({
-    address: cfg.multiHookHost,
+    address: mhh,
     abi: MHH_ABI,
     functionName: 'owed',
     args: [ETH_CURRENCY, cfg.feeSplitter],
   })) as bigint;
 
   if (owed < MHH_SWEEP_THRESHOLD_WEI) {
-    console.log(JSON.stringify({ keeper: 'sweep-mhh', action: 'skip', owed: owed.toString(), threshold: MHH_SWEEP_THRESHOLD_WEI.toString() }));
+    console.log(JSON.stringify({ keeper: 'sweep-mhh', mhh, action: 'skip', owed: owed.toString(), threshold: MHH_SWEEP_THRESHOLD_WEI.toString() }));
     return;
   }
 
@@ -109,13 +127,30 @@ async function sweepMhhToFeeSplitterOnce(cfg: SweepConfig): Promise<void> {
   });
 
   const hash = await wallet.writeContract({
-    address: cfg.multiHookHost,
+    address: mhh,
     abi: MHH_ABI,
     functionName: 'pushOwed',
     args: [ETH_CURRENCY, cfg.feeSplitter],
   });
   const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 90_000 });
-  console.log(JSON.stringify({ keeper: 'sweep-mhh', action: 'swept', owed: owed.toString(), tx: hash, status: receipt.status }));
+  console.log(JSON.stringify({ keeper: 'sweep-mhh', mhh, action: 'swept', owed: owed.toString(), tx: hash, status: receipt.status }));
+}
+
+async function sweepMhhToFeeSplitterOnce(cfg: SweepConfig): Promise<void> {
+  const pub = createPublicClient({ transport: http(cfg.rpcUrl) });
+  // Sweep each MHH independently — one MHH's failure (NothingToClaim,
+  // transient RPC blip, etc) never blocks another MHH's sweep this tick.
+  for (const mhh of cfg.multiHookHosts) {
+    try {
+      await sweepOneMhh(cfg, mhh, pub);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes('NothingToClaim')) {
+        continue;
+      }
+      console.log(JSON.stringify({ keeper: 'sweep-mhh', mhh, action: 'error', error: msg }));
+    }
+  }
 }
 
 /// Publish an epoch if the vault has enough balance to be worth distributing.
