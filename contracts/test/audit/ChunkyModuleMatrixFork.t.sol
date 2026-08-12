@@ -51,8 +51,8 @@ contract ChunkyModuleMatrixForkTest is Test {
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant ROUTER_V7 = 0x84C72d6882f10833bD4eBD7c45D4353FDf20B596;
     address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
-    address internal constant MULTI_HOOK_HOST = 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4;
-    address internal constant GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
+    address internal constant MULTI_HOOK_HOST = 0x83d6fa59BEF503112887b16277CF559fDC93E0C4;
+    address internal constant GRADUATOR = 0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
 
     bytes32 internal constant H_BARE = keccak256(abi.encode("ERC20", ""));

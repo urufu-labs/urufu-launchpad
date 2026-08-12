@@ -5,7 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {Router} from "src/router/Router.sol";
-import {GraduatorV2} from "src/curve/GraduatorV2.sol";
+import {GraduatorV3} from "src/curve/GraduatorV3.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {LoyaltyOracle} from "src/flywheel/LoyaltyOracle.sol";
 import {RoyaltyRouterFactory} from "src/flywheel/RoyaltyRouterFactory.sol";
@@ -45,20 +45,20 @@ contract RhLiveStackSnapshotTest is Test {
     uint256 internal constant RH_CHAIN_ID = 4663;
 
     // ------ PINNED LIVE ADDRESSES (must match .env AND on-chain wiring) ----
-    // V10 stack: BondingCurve impl + CurveFactory + Graduator + MultiHookHost
-    // rotated 2026-08-12 for the WL immediate-tokens redesign + LP-math fix.
-    // Router (0xb41e0Bd) is unchanged since V9; on 2026-08-12 the V10 CF was
-    // wired to it via V10CF.setTrustedRouter(Router, true) (tx at block
-    // 34612101) and Router.setCurveFactory(V10CF) (tx at block 34612112).
-    // A second Router at 0x84C72d...B596 also holds V10 CF as its curveFactory
-    // — that Router is orphaned staging and is NOT the production entrypoint.
+    // V10 CurveFactory + BondingCurve impl + Router are unchanged since 2026-08-12.
+    // MHH + Graduator rotated later that day: V11 MHH (0x83d6fa59) + GraduatorV3
+    // (0xB5aA5Fb4) replaced V10 MHH (0x48C22af8) + V10 Graduator (0xA29Ee1DB).
+    // GraduatorV3 seeds the v4 pool at the curve marginal price and burns excess
+    // tokens (pump.fun style) so early curve buyers don't see a ~50% cliff when
+    // trading opens on Uniswap. Because MHH.setInitializer is one-shot locked,
+    // rotating the Graduator required a fresh MHH deployment too.
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant NAME_REGISTRY = 0x965Aa2420635Ca0431888c6752b9aE8Bbe8d1F05;
     address internal constant ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
     address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant BONDING_CURVE_IMPL = 0x616462099AE1a40DA8327D2af2797c540507DBB2;
-    address internal constant MULTI_HOOK_HOST = 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4;
-    address internal constant GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
+    address internal constant MULTI_HOOK_HOST = 0x83d6fa59BEF503112887b16277CF559fDC93E0C4;
+    address internal constant GRADUATOR = 0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant FEE_SPLITTER = 0x60835C422a3671b5F01E6806Fd96b27c90941C83;
     address internal constant V4_SWAP_ROUTER = 0xDb3D1C43225faEe04551b663E5aA0969937beEa4;
@@ -113,7 +113,7 @@ contract RhLiveStackSnapshotTest is Test {
     }
 
     function test_Snapshot_Graduator_PointsAtCFAndMhhPins() public view {
-        GraduatorV2 g = GraduatorV2(payable(GRADUATOR));
+        GraduatorV3 g = GraduatorV3(payable(GRADUATOR));
         assertEq(address(g.curveFactory()), CURVE_FACTORY, "Graduator.curveFactory != pin");
         assertEq(address(g.defaultHook()), MULTI_HOOK_HOST, "Graduator.defaultHook != pin");
         // GH-9 audit LOW #1: pool params must match what the GH-13 indexer
@@ -131,7 +131,7 @@ contract RhLiveStackSnapshotTest is Test {
     function test_Snapshot_Owners_AllMatchDeployer() public view {
         assertEq(CurveFactory(CURVE_FACTORY).owner(), DEPLOYER, "CF.owner != deployer");
         assertEq(Router(payable(ROUTER)).owner(), DEPLOYER, "Router.owner != deployer");
-        assertEq(GraduatorV2(payable(GRADUATOR)).owner(), DEPLOYER, "Graduator.owner != deployer");
+        assertEq(GraduatorV3(payable(GRADUATOR)).owner(), DEPLOYER, "Graduator.owner != deployer");
         assertEq(LoyaltyOracle(LOYALTY_ORACLE).owner(), DEPLOYER, "LoyaltyOracle.owner != deployer");
         assertEq(
             RoyaltyRouterFactory(ROYALTY_ROUTER_FACTORY).owner(), DEPLOYER, "RoyaltyRouterFactory.owner != deployer"

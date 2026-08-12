@@ -506,6 +506,33 @@ export interface IndexerV4RouterSwap {
   txHash: `0x${string}`;
 }
 
+/// Post-graduation swaps ON A SPECIFIC TOKEN, keyed by the actual user wallet.
+/// Same source (v4RouterSwapss) as fetchV4SwapsByTrader — trade page uses this
+/// to render the recent-trades list with real traders instead of the router
+/// address (which is what PoolManager.Swap.sender always resolves to).
+export async function fetchV4RouterSwapsForToken(
+  tokenAddress: Address,
+  limit = 200,
+): Promise<IndexerV4RouterSwap[] | null> {
+  const data = await gqlFanout<{ v4RouterSwapss: { items: IndexerV4RouterSwap[] } }>(
+    `query V4RouterSwapsForToken($token: String!, $limit: Int!) {
+      v4RouterSwapss(
+        where: { tokenAddress: $token },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId user tokenAddress isBuy amountIn amountOut
+          blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { token: tokenAddress.toLowerCase(), limit },
+  );
+  return (data?.v4RouterSwapss.items ?? []).filter(notHidden);
+}
+
 export async function fetchV4SwapsByTrader(
   trader: Address,
   limit = 200,

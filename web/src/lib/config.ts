@@ -203,10 +203,15 @@ export const HOOKS: Record<ChainKey, HookSet | null> = {
     LPLockedHook: '0x6c8B8C72bf0047CEb6ed24C67A928bf8126EC200',
     FeeRedirectHook: '0x852Ba4d70b88834406bDC6b987C1869De217C044',
     AntiSniperHook: '0x836131f7Dbf2dAC65b9de6e6B5e8bD4331F9A080',
-    // MHH — V10 fresh stack, broadcast 2026-08-12 (mask 0x20C4 verified).
-    // Paired with Graduator 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1
-    // and CurveFactory 0xEC96D023426167e68598FF9ea946882b7f0AE91f (V10).
-    MultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
+    // MHH — V11 fresh host, broadcast 2026-08-12 alongside GraduatorV3 (mask 0x20C4).
+    // Rotation reason: V10 MHH.initializer was one-shot locked to the V10 Graduator
+    // (raw-ratio LP seed → 50% price cliff post-graduation). GraduatorV3 seeds the
+    // pool at the curve's marginal price (pump.fun style) and burns excess tokens,
+    // so early curve buyers stay up when trading opens on Uniswap v4. Because
+    // setInitializer is one-shot, rotating the Graduator required a fresh MHH.
+    // Paired with Graduator 0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23
+    // and CurveFactory 0xEC96D023426167e68598FF9ea946882b7f0AE91f (unchanged).
+    MultiHookHost: '0x83d6fa59BEF503112887b16277CF559fDC93E0C4',
     BuybackBurnHook: '0xd46e8DA6A66B1513d8CE7aeC6a29929B59f4c044',
   },
   'robinhood-testnet': null,
@@ -219,11 +224,13 @@ export const GRADUATORS: Record<ChainKey, Address | null> = {
   sepolia: null,
   base: '0xfB55944f70c5ba2bc8962eBB75934e9D8ab40715',
   'base-sepolia': '0xdb0FD0eA7a80Cc3fB74D3A5E5ec12343682134a3',
-  // Graduator — V10 fresh stack, broadcast 2026-08-12. Retains V8-final LP-math
-  // fix (raw real ratio pricing) + owner + sweep() escape hatch. Bound to the
-  // new V10 CurveFactory (0xEC96D023426167e68598FF9ea946882b7f0AE91f).
-  // Paired with MHH 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4.
-  robinhood: '0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1',
+  // GraduatorV3 — pump.fun-style LP seed, broadcast 2026-08-12. Seeds v4 pool
+  // at the curve's marginal price (virtEth+ethIn) / (virtTok+tokenIn) and burns
+  // any leftover tokens after LP mint so post-graduation spot ≈ curve last-buy
+  // price. Replaces V10 Graduator's raw-real-ratio seed that produced a ~50%
+  // price cliff at graduation. Bound to CurveFactory 0xEC96D0...E91f (unchanged)
+  // and paired with MHH 0x83d6fa59BEF503112887b16277CF559fDC93E0C4.
+  robinhood: '0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23',
   'robinhood-testnet': null,
 };
 

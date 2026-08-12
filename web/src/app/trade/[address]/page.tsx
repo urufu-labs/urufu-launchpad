@@ -41,6 +41,7 @@ import {
   fetchLaunchesByTokens,
   fetchTradesForCurve,
   fetchV4SwapsForToken,
+  fetchV4RouterSwapsForToken,
 } from '@/lib/indexer';
 import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -551,8 +552,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     // The indexer already parses sqrtPriceX96, blockTimestamp, amounts on ingest —
     // so this replaces ~100 lines of RPC chunking + block-lookup with one query.
     const load = async () => {
-      const rows = await fetchV4SwapsForToken(tokenAddress, 500);
+      // Two queries, joined by txHash. v4Swapss (from PoolManager.Swap) has
+      // sqrtPriceX96 + amounts but sender=V4SwapRouter (not the user).
+      // v4RouterSwapss (from V4SwapRouter.Swapped) has the actual user but no
+      // sqrtPriceX96. Every user swap emits BOTH events in the same tx, so
+      // matching by txHash gives us the full picture: price move + real user.
+      const [rows, routerRows] = await Promise.all([
+        fetchV4SwapsForToken(tokenAddress, 500),
+        fetchV4RouterSwapsForToken(tokenAddress, 500),
+      ]);
       if (cancelled || !rows) return;
+      // Build txHash → user lookup for trader attribution.
+      const userByTx: Record<string, Address> = {};
+      for (const r of routerRows ?? []) userByTx[r.txHash.toLowerCase()] = r.user;
       // Rows arrive newest-first (order: blockTimestamp desc). For the chart we want
       // oldest-first so the line reads left-to-right chronologically.
       const enriched = rows
@@ -571,6 +583,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           // ETH(currency0)/token(currency1) pools a BUY is +token (amount1 > 0),
           // a SELL is +ETH (amount0 > 0). abs the values so recent-trades reads clean.
           const isBuy = amt1 > 0n;
+          // Prefer the real user address from V4SwapRouter.Swapped(user, ...).
+          // Fall back to r.sender (router address) only if the router swap event
+          // is missing for this tx — that would only happen for swaps submitted
+          // directly to PoolManager, which the front-end never generates.
+          const trader = (userByTx[r.txHash.toLowerCase()] ?? r.sender) as Address;
           return {
             timestamp: Number(r.blockTimestamp),
             priceWeiPerToken: weiPerToken,
@@ -578,7 +595,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             isBuy,
             eth: abs(amt0),
             tokens: abs(amt1),
-            trader: r.sender,
+            trader,
             blockNumber: BigInt(r.blockNumber),
           };
         })
