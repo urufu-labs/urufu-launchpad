@@ -68,25 +68,37 @@ interface SweepConfig {
   keeperKey: Hex;
 }
 
-/// Parse `ROBINHOOD_MULTI_HOOK_HOST_ADDRESS` as either a single address (the
-/// legacy shape) or comma-separated addresses. The keeper sweeps each one
-/// independently every tick so a MHH rotation doesn't strand fees on the old
-/// hook.
+/// Resolve the list of MHH addresses the keeper should sweep every tick.
 ///
-/// Example values on RH today:
-///   "0x83d6fa59...E0C4,0x48C22af8...E0C4"   (V11 + V10 — sweep both)
-///   "0x83d6fa59...E0C4"                       (V11 only — legacy pool fees strand)
-function parseMultiHookHosts(raw: string | undefined): Address[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0) as Address[];
+/// Reads in priority order:
+///   1. `ROBINHOOD_MULTI_HOOK_HOSTS` — comma-separated, plural, sweep-only.
+///      Use this to sweep BOTH the current MHH and the previous one during
+///      a rotation window until the old pools have no pool activity worth
+///      draining. Example:
+///        "0x83d6fa59...E0C4,0x48C22af8...E0C4"
+///   2. `ROBINHOOD_MULTI_HOOK_HOST_ADDRESS` — singular, shared with the
+///      indexer. Fallback for the common case where only one MHH exists.
+///      Must be a single address; DO NOT put a comma-list here or the
+///      indexer's `readAddress()` will treat the whole string as one
+///      malformed address.
+///
+/// Whitespace tolerated around each address. Empty/missing = no sweep.
+function parseMultiHookHosts(): Address[] {
+  const plural = process.env.ROBINHOOD_MULTI_HOOK_HOSTS;
+  if (plural && plural.trim().length > 0) {
+    return plural
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0) as Address[];
+  }
+  const single = process.env.ROBINHOOD_MULTI_HOOK_HOST_ADDRESS;
+  if (single && single.trim().length > 0) return [single.trim() as Address];
+  return [];
 }
 
 function sweepConfig(): SweepConfig | null {
   const rpcUrl = process.env.ROBINHOOD_RPC_URL;
-  const multiHookHosts = parseMultiHookHosts(process.env.ROBINHOOD_MULTI_HOOK_HOST_ADDRESS);
+  const multiHookHosts = parseMultiHookHosts();
   const feeSplitter = process.env.ROBINHOOD_FEE_SPLITTER_ADDRESS as Address | undefined;
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
   if (!rpcUrl || multiHookHosts.length === 0 || !feeSplitter || !rawKey) return null;
@@ -572,7 +584,7 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
     startSweepLoop(sweep);
     started.push('sweep-mhh (60min)');
   } else {
-    skipped.push('sweep-mhh (missing env: ROBINHOOD_RPC_URL / _MULTI_HOOK_HOST_ADDRESS / _FEE_SPLITTER_ADDRESS / KEEPER_PRIVATE_KEY)');
+    skipped.push('sweep-mhh (missing env: ROBINHOOD_RPC_URL / _MULTI_HOOK_HOSTS or _MULTI_HOOK_HOST_ADDRESS / _FEE_SPLITTER_ADDRESS / KEEPER_PRIVATE_KEY)');
   }
   // Publish + activation loops reuse env from rewards.ts (chainConfigFor)
   // and don't need a separate config here. If any required env is missing,
