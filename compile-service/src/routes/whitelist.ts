@@ -188,19 +188,27 @@ export async function registerWhitelistRoutes(
     // OR the WL_OPERATION_TIMEOUT_MS wall clock. The controller's signal
     // is threaded into `snapshotHolders` and every fetch it makes.
     const abort = _snapshotAbortController(
-      // request.raw is the Node http.IncomingMessage; `aborted` fires when
-      // the client half-closes the connection. Fastify plumbs this into a
-      // request-scoped listener without ours needing to do bookkeeping.
+      // Only listen for `aborted` — the real client-disconnect signal from
+      // node's http server (fires when the client half-closes the TCP
+      // connection). Previously we ALSO listened for `close` with a
+      // `writableEnded` guard, but on Railway the edge proxy closes the
+      // backend connection at its own request-timeout well before we've
+      // sent response headers, which triggered `close` as a false-positive
+      // and aborted every real snapshot mid-flight.
+      //
+      // Losing `close` means: if a client bails after `aborted` never fires
+      // (rare — most disconnects DO emit aborted), the snapshot runs to
+      // completion instead of stopping early. That completed snapshot
+      // populates the cache, so a retry from any client hits the cache
+      // instantly. Net effect: a bit of wasted compute on client bail,
+      // but no false-positive aborts on real requests. Trade is worth it.
+      //
+      // Wall-clock timeout (WL_OPERATION_TIMEOUT_MS) still bounds runaway
+      // snapshots.
       (function reqSignal(): AbortSignal {
         const ac = new AbortController();
         const onAborted = () => ac.abort(new Error('client disconnected'));
         request.raw.once('aborted', onAborted);
-        request.raw.once('close', () => {
-          // `close` fires after the response finishes too — only abort if
-          // the response was NOT finished (i.e. the client bailed early).
-          // Fastify sets `res.writableEnded` after we send our reply.
-          if (!reply.raw.writableEnded) onAborted();
-        });
         return ac.signal;
       })(),
       WL_OPERATION_TIMEOUT_MS,
