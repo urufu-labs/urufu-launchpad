@@ -553,6 +553,15 @@
     gap: 4px;
   }
 
+  /* WCAG 2.5.5 minimum touch target on mobile — filter chips render ~24px
+     tall in the base style which is too small for a reliable thumb tap.
+     Bumping to 44px on ≤760px keeps the desktop-tight styling but makes
+     the mobile browser experience tap-friendly. */
+  .filterButton {
+    min-height: 44px;
+    padding-block: 8px;
+  }
+
   .mosaic {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

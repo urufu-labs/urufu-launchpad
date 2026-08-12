@@ -172,6 +172,16 @@
   transform: translate(2px, 2px);
 }
 
+/* Active route — drawer flags the current page so users can orient. Applied
+   via `data-active="true"` from usePathname in MobileNavigation.tsx. */
+.primaryLink[data-active],
+.primaryLinkSecondary[data-active],
+.linkSection nav a[data-active] {
+  background: var(--mint-hot, #2fbf6a);
+  color: var(--cream);
+  box-shadow: 3px 3px 0 var(--anchor);
+}
+
 .controlSection,
 .linkSection {
   border-top: 1px solid color-mix(in srgb, var(--anchor) 35%, transparent);

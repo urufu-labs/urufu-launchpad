@@ -17,7 +17,21 @@ export function CultureHeroArt() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [theme, setTheme] = useState<Theme>('light');
   const [videoReady, setVideoReady] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const videoSource = VIDEO_BY_THEME[theme];
+
+  // Track prefers-reduced-motion at runtime, not just on mount. A user who
+  // enables "reduce motion" in system settings after the page loads should
+  // see the autoplaying video pause + revert to the static poster art,
+  // without having to reload. matchMedia has both a .matches read for the
+  // initial value and a 'change' event for live toggles.
+  useEffect(() => {
+    const mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReducedMotion(mql.matches);
+    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -31,8 +45,10 @@ export function CultureHeroArt() {
 
   useEffect(() => {
     const video = videoRef.current;
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     setVideoReady(false);
+    // reducedMotion is now state-tracked (see the matchMedia effect above),
+    // so this effect re-runs when the user toggles the OS setting and pauses
+    // an already-playing video via the cleanup below.
     if (!video || !videoSource || reducedMotion) return;
 
     let cancelled = false;
@@ -59,7 +75,7 @@ export function CultureHeroArt() {
       video.removeAttribute('src');
       video.load();
     };
-  }, [videoSource]);
+  }, [videoSource, reducedMotion]);
 
   return (
     <div

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 import { AudioToggle } from '@/components/AudioToggle';
 import { ChainSwitcher } from '@/components/ChainSwitcher';
@@ -34,6 +35,12 @@ export function MobileNavigation() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef(true);
+  const pathname = usePathname();
+  // Match root strictly, but treat everything else as "this section is active"
+  // when the pathname starts with the href. So /trade/0xabc… highlights the
+  // /trade link, /profile/xyz highlights /profile, etc.
+  const isActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/');
 
   const closeMenu = (restoreFocus = true) => {
     restoreFocusRef.current = restoreFocus;
@@ -146,6 +153,8 @@ export function MobileNavigation() {
                   key={link.href}
                   href={link.href}
                   className={link.primary ? styles.primaryLink : styles.primaryLinkSecondary}
+                  data-active={isActive(link.href) || undefined}
+                  aria-current={isActive(link.href) ? 'page' : undefined}
                   onClick={() => closeMenu(false)}
                 >
                   {link.label}
@@ -171,7 +180,13 @@ export function MobileNavigation() {
               <h3 id="mobile-tools-title">tools</h3>
               <nav aria-label="Mobile utility navigation">
                 {utilityLinks.map((link) => (
-                  <Link key={link.href} href={link.href} onClick={() => closeMenu(false)}>
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    data-active={isActive(link.href) || undefined}
+                    aria-current={isActive(link.href) ? 'page' : undefined}
+                    onClick={() => closeMenu(false)}
+                  >
                     {link.label}
                   </Link>
                 ))}

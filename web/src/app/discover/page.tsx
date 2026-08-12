@@ -143,16 +143,27 @@ export default function DiscoverPage() {
             <span>browse releases</span>
             <b>{activeFilter.label} <small>{activeFilter.jp}</small></b>
           </div>
-          <div className={styles.filterRail} role="tablist" aria-label="Token filters">
+          <div
+            className={styles.filterRail}
+            role="tablist"
+            aria-label="Token filters"
+            aria-controls="release-results"
+          >
             {FILTERS.map((f) => (
               <button
                 key={f.id}
+                id={`filter-${f.id}`}
                 type="button"
                 onClick={() => setFilter(f.id)}
                 className={styles.filterButton}
                 data-active={filter === f.id}
                 role="tab"
                 aria-selected={filter === f.id}
+                aria-controls="release-results"
+                // Non-selected tabs are removed from sequential tab order per
+                // the WAI-ARIA tabs pattern — arrow keys are meant to move
+                // between tabs, tab key advances past the whole tablist.
+                tabIndex={filter === f.id ? 0 : -1}
               >
                 <span>{f.label}</span>
                 <small>{f.jp}</small>
@@ -167,7 +178,12 @@ export default function DiscoverPage() {
           </div>
         </div>
 
-        <section className={styles.marketBoard} aria-label="Token results">
+        <section
+          id="release-results"
+          className={styles.marketBoard}
+          role="tabpanel"
+          aria-labelledby={`filter-${filter}`}
+        >
           <div className={styles.boardHeader}>
             <div>
               <span>{activeFilter.label} releases</span>
