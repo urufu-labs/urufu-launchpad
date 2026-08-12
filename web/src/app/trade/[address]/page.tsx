@@ -1482,6 +1482,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         )}
                       </div>
                     )}
+                    {wlFallbackTs && wlFallbackTs > 0n && (
+                      <WlCountdown fallbackTs={wlFallbackTs} />
+                    )}
                     {(() => {
                       // Fill-% bar for the WL reserved slice — visual signal of how
                       // close the WL slice is to filling before the 1h public window
@@ -2239,6 +2242,37 @@ function GraduatedPanel({
       {/* Silence unused ref warnings for tokenTotalSupply — kept in the API for a future
           "your position vs float" line. */}
       <span style={{ display: 'none' }}>{tokenTotalSupply.toString()}</span>
+    </div>
+  );
+}
+
+/// Live "public window opens in Xm YYs" countdown for the WL exclusive
+/// window. Ticks once a second so users can see it move. Once fallbackTs
+/// passes, flips to "WL window ended — public buys open" (the parent's
+/// wlPreFallback gate should hide this block once that happens anyway, but
+/// the label is here as a defensive fallback in case the parent takes a
+/// second to re-render).
+function WlCountdown({ fallbackTs }: { fallbackTs: bigint }) {
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const delta = Number(fallbackTs) - now;
+  if (delta <= 0) {
+    return (
+      <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 6 }}>
+        WL window ended — public buys open ~
+      </div>
+    );
+  }
+  const m = Math.floor(delta / 60);
+  const s = delta % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return (
+    <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--pink-hot)', marginBottom: 6 }}>
+      public window opens in <b>{mm}:{ss}</b> ~
     </div>
   );
 }
