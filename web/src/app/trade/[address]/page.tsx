@@ -1211,21 +1211,27 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         {/* SIDEBAR — buy/sell panel */}
         <aside className={`${styles.sideRail} space-y-3 lg:sticky lg:top-4 lg:h-fit`}>
           <div className={`uru-shell-tight ${styles.tradeCard}`}>
-            {/* buy/sell toggle — full-bleed tabs, bolder pump-style */}
-            <div className={styles.tabGrid}>
-              {(['buy', 'sell'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => { setSide(s); setInputAmount(''); }}
-                  className={styles.tabButton}
-                  data-active={side === s}
-                  data-side={s}
-                >
-                  {s === 'buy' ? 'buy' : 'sell'}
-                </button>
-              ))}
-            </div>
+            {/* buy/sell toggle — full-bleed tabs, bolder pump-style. Hidden
+                once the curve graduates: the GraduatedPanel has its own
+                buy/sell control and this outer state stops driving anything,
+                so leaving both visible was just duplicate UI (2 stacked
+                tab rows). Pre-graduation this drives the curve trade side. */}
+            {!graduated && (
+              <div className={styles.tabGrid}>
+                {(['buy', 'sell'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => { setSide(s); setInputAmount(''); }}
+                    className={styles.tabButton}
+                    data-active={side === s}
+                    data-side={s}
+                  >
+                    {s === 'buy' ? 'buy' : 'sell'}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className={styles.tradeCardBody}>
 
             {graduated ? (

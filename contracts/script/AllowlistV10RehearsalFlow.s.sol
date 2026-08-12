@@ -20,7 +20,10 @@ interface IERC20V {
     function balanceOf(
         address
     ) external view returns (uint256);
-    function approve(address, uint256) external returns (bool);
+    function approve(
+        address,
+        uint256
+    ) external returns (bool);
 }
 
 /// @title  AllowlistV10RehearsalFlow
@@ -92,8 +95,7 @@ contract AllowlistV10RehearsalFlow is Script {
         p.ownership = OwnershipMode.Renounce;
 
         uint256 launchFee = Router(payable(ROUTER)).quote(p);
-        address token =
-            Router(payable(ROUTER)).launchAndBuy{value: launchFee + INITIAL_BUY}(p, INITIAL_BUY, 1, me);
+        address token = Router(payable(ROUTER)).launchAndBuy{value: launchFee + INITIAL_BUY}(p, INITIAL_BUY, 1, me);
         address curve = cf.curveFor(token);
         require(curve != address(0), "curve missing");
         require(BondingCurve(payable(curve)).graduated(), "did not graduate");
@@ -106,9 +108,7 @@ contract AllowlistV10RehearsalFlow is Script {
             tickSpacing: 60,
             hooks: IHooks(MULTI_HOOK_HOST)
         });
-        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactETHForToken{value: SWAP_SIZE}(
-            key, 1, me, block.timestamp + 300
-        );
+        V4SwapRouter(payable(V4_SWAP_ROUTER)).swapExactETHForToken{value: SWAP_SIZE}(key, 1, me, block.timestamp + 300);
 
         // ---- (5) restore original CF defaults ----
         cf.setDefaults(origSupply, origVTok, origVEth, origGrad, origFee);
