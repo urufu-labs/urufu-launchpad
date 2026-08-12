@@ -1461,15 +1461,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     {wlSourceValid && (wlSourceSymbol || wlSourceName) && (
                       <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 6 }}>
                         holders of{' '}
-                        <a
-                          href={explorerAddressUrl(activeChain, wlSourceToken!)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-                        >
+                        {activeChain ? (
+                          <a
+                            href={explorerAddressUrl(activeChain, wlSourceToken!)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                          >
+                            <b>${wlSourceSymbol ?? wlSourceName}</b>
+                            {wlSourceSymbol && wlSourceName && wlSourceSymbol !== wlSourceName ? ` (${wlSourceName})` : ''}
+                          </a>
+                        ) : (
                           <b>${wlSourceSymbol ?? wlSourceName}</b>
-                          {wlSourceSymbol && wlSourceName && wlSourceSymbol !== wlSourceName ? ` (${wlSourceName})` : ''}
-                        </a>
+                        )}
                       </div>
                     )}
                     {(() => {
