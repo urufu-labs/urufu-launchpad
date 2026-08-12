@@ -264,22 +264,63 @@ contract BondingCurveWhitelistTest is Test {
     // buyWithProof — happy path + hold-on-curve semantics
     // =========================================================
 
-    function test_BuyWithProof_HoldsTokensOnCurve() public {
+    function test_BuyWithProof_TransfersTokensImmediately() public {
         uint256 curveBalBefore = token.balanceOf(address(curve));
         uint256 aliceBalBefore = token.balanceOf(alice);
 
         vm.prank(alice);
         uint256 out = curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
 
-        // Tokens NEVER left the curve — this is the lock.
-        assertEq(token.balanceOf(alice), aliceBalBefore, "alice got tokens directly");
-        assertEq(token.balanceOf(address(curve)), curveBalBefore, "curve token balance changed");
+        // Tokens land in alice's wallet immediately — identical to `buy()`.
+        assertEq(token.balanceOf(alice), aliceBalBefore + out, "alice didn't receive tokens");
+        assertEq(token.balanceOf(address(curve)), curveBalBefore - out, "curve balance didn't decrease");
 
-        // Curve accounting reflects the buy.
-        assertEq(curve.wlHeldForUser(alice), out, "wlHeldForUser not tracked");
+        // wlBought is the per-address cap counter — never decrements.
+        assertEq(curve.wlBought(alice), out, "wlBought not tracked");
         assertEq(curve.wlSold(), out);
-        assertEq(curve.wlHeldTotal(), out);
         assertGt(curve.ethReserve(), 0, "eth not accrued");
+    }
+
+    function test_BuyWithProof_WlBoughtNeverDecrementsOnSell() public {
+        // Alice WL-buys, then sells the tokens back to the curve. wlBought
+        // must stay at the buy amount so she can't round-trip through the
+        // reserved slice to bypass maxWlPerAddress without paying net ETH.
+        vm.prank(alice);
+        uint256 out = curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
+        assertEq(curve.wlBought(alice), out);
+
+        // Approve + sell every token back.
+        vm.startPrank(alice);
+        token.approve(address(curve), out);
+        curve.sell(out, 0);
+        vm.stopPrank();
+
+        assertEq(token.balanceOf(alice), 0, "alice still holds tokens after full sell");
+        // Critical: wlBought does NOT decrement on sell — cap protection stays.
+        assertEq(curve.wlBought(alice), out, "wlBought decremented on sell (cap bypass!)");
+    }
+
+    function test_BuyWithProof_ImmediateSellRoundTrip_LiquidExit() public {
+        // Prove the "curve stalls, WL buyer isn't stuck" property. Alice
+        // WL-buys, curve never reaches graduation, alice sells back and
+        // walks away with roughly her ETH (minus fees).
+        uint256 aliceEthBefore = alice.balance;
+        vm.prank(alice);
+        uint256 out = curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
+
+        // Curve never graduates — no other buyers. Alice sells everything.
+        vm.startPrank(alice);
+        token.approve(address(curve), out);
+        uint256 ethOut = curve.sell(out, 0);
+        vm.stopPrank();
+
+        // She should recover most of her ETH — 2% fee round-trip (1% on buy,
+        // 1% on sell) plus a tiny sliver of AMM slippage on the round trip.
+        // Assert she recovers > 97% of what she put in, definitely NOT stuck.
+        assertGt(ethOut, 0, "sell returned zero eth");
+        uint256 aliceEthAfter = alice.balance;
+        // aliceEthBefore - 0.1 ETH + ethOut; want > aliceEthBefore - 0.005 ETH
+        assertGt(aliceEthAfter + 0.005 ether, aliceEthBefore, "alice recovered less than 95% of buy ETH");
     }
 
     function test_BuyWithProof_RevertsOnInvalidProof() public {
@@ -321,7 +362,7 @@ contract BondingCurveWhitelistTest is Test {
         // First buy: small enough to stay under the 40M cap.
         vm.prank(alice);
         curve.buyWithProof{value: 0.05 ether}(aliceProof, 0);
-        uint256 held = curve.wlHeldForUser(alice);
+        uint256 held = curve.wlBought(alice);
         require(held > 0 && held < MAX_WL_PER_ADDR, "test setup: first buy overshot cap");
 
         // Second buy is large enough to push tokensOut past the remaining cap. The
@@ -404,47 +445,28 @@ contract BondingCurveWhitelistTest is Test {
     }
 
     // =========================================================
-    // claimWl — post-graduation withdrawal
+    // Post-graduation — WL buyers already hold their tokens, no claim step.
+    // (Previous claimWl / wlHeldForUser / wlHeldTotal design deprecated
+    //  2026-08-11: hold-until-graduation was replaced with immediate
+    //  transfer to eliminate the funds-stuck failure mode on stalled
+    //  curves. See BondingCurve.sol `buyWithProof` docstring.)
     // =========================================================
 
-    function test_ClaimWl_RevertsPreGraduation() public {
+    function test_BuyWithProof_ThenGraduation_NoClaimStepNeeded() public {
+        // WL buyer's tokens are ALREADY in their wallet when the curve
+        // graduates — no post-graduation claimWl action required.
         vm.prank(alice);
-        curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
-        vm.expectRevert(BondingCurve.BondingCurve__NotGraduated.selector);
-        vm.prank(alice);
-        curve.claimWl();
-    }
+        uint256 out = curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
+        assertEq(token.balanceOf(alice), out, "alice didn't receive tokens on buy");
 
-    function test_ClaimWl_TransfersHeldPostGraduation() public {
-        vm.prank(alice);
-        curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
-        uint256 held = curve.wlHeldForUser(alice);
-
-        // Warp past fallback so public buy can graduate the curve without WL blocking.
+        // Warp past fallback so public buy can graduate the curve.
         vm.warp(FALLBACK_TS + 1);
         vm.prank(bob);
         curve.buy{value: 3 ether}(0);
         require(curve.graduated(), "test precondition: curve did not graduate");
 
-        uint256 aliceBefore = token.balanceOf(alice);
-        vm.prank(alice);
-        uint256 claimed = curve.claimWl();
-        assertEq(claimed, held);
-        assertEq(token.balanceOf(alice) - aliceBefore, held, "claim didn't transfer");
-        assertEq(curve.wlHeldForUser(alice), 0);
-    }
-
-    function test_ClaimWl_RevertsOnDoubleClaim() public {
-        vm.prank(alice);
-        curve.buyWithProof{value: 0.1 ether}(aliceProof, 0);
-        vm.warp(FALLBACK_TS + 1);
-        vm.prank(bob);
-        curve.buy{value: 3 ether}(0);
-
-        vm.prank(alice);
-        curve.claimWl();
-        vm.expectRevert(BondingCurve.BondingCurve__WlNothingToClaim.selector);
-        vm.prank(alice);
-        curve.claimWl();
+        // Post-graduation: alice's balance is unchanged from her buy — no
+        // separate release step. She could have sold/transferred already.
+        assertEq(token.balanceOf(alice), out, "graduation altered alice's balance");
     }
 }

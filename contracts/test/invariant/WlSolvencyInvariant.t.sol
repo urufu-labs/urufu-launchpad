@@ -7,20 +7,22 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BondingCurve} from "src/curve/BondingCurve.sol";
 
-/// @notice URU-A04 AC #4 — WL solvency + LP-bound stateful invariant.
+/// @notice Whitelist invariants after the immediate-transfer redesign
+///         (2026-08-11). Previous incarnation covered the hold-until-graduation
+///         solvency property (`token.balanceOf(curve) >= wlHeldTotal`), which
+///         no longer applies: WL buyers receive tokens directly in their
+///         wallets, so the curve holds nothing on their behalf and there is
+///         no funds-stuck failure mode on stalled curves.
 ///
-///         Covers the four properties the auditor requires:
-///           (1) `token.balanceOf(curve) >= wlHeldTotal` — the curve always
-///               holds enough real tokens to pay outstanding WL claims.
-///               (Literal AC spec `wlHeldTotal <= tokenReserve + wlHeldTotal`
-///               is trivially true; the real solvency check is against the
-///               actual token balance, which drops to `wlHeldTotal` after
-///               the Graduator pulls its LP inventory.)
-///           (2) `tokenReserve >= 1` at all pre-graduation states (URU-A04
-///               no-clamp floor).
-///           (3) If `graduated`, then the Graduator's `execute` was invoked
-///               with non-zero `tokenOut` (mock records the call).
-///           (4) `sum(wlHeldForUser) == wlHeldTotal` across all actors.
+///         Properties still worth pinning under fuzz:
+///           (1) Post-graduation curve token balance == 0 (nothing held back).
+///           (2) Pre-graduation `tokenReserve >= 1` (URU-A04 no-clamp floor).
+///           (3) Graduation implies `execute(tokenOut > 0)` was called on the
+///               graduator exactly once (defense against the pre-fix
+///               "graduate + strand LP" state).
+///           (4) `wlBought[user]` is monotonic — never decrements — so a WL
+///               buyer cannot round-trip through the reserved slice to bypass
+///               `maxWlPerAddress`.
 contract WlToken is ERC20 {
     function name() public pure override returns (string memory) {
         return "WlSolvency";
@@ -39,10 +41,8 @@ contract WlToken is ERC20 {
 }
 
 /// Records graduation-call metadata so invariant #3 can assert non-zero
-/// token flow. Also mimics the real Graduator by pulling its approved
-/// token allotment from the curve — this way the curve's post-graduation
-/// balance actually equals `wlHeldTotal` (the only tokens left on-curve
-/// are the WL-locked slice).
+/// token flow. Pulls the LP inventory the way a real Graduator would, so
+/// the curve's post-graduation balance drops to zero (matching invariant #1).
 contract RecordingGraduator {
     uint256 public lastTokenOut;
     uint256 public lastEthOut;
@@ -63,26 +63,22 @@ contract RecordingGraduator {
         lastEthOut = ethAmount;
         lastCalledAt = block.number;
         ++callCount;
-        // Pull the LP inventory the way a real Graduator would.
         if (tokenAmount > 0) {
             IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
         }
     }
 
-    // Allow the mock to receive whatever ETH the curve forwards.
     receive() external payable {}
 }
 
-/// Handler drives WL buy, public buy, sell, and claimWl. Every action is
-/// bounded so it either succeeds legitimately or reverts inside a try/catch
-/// (invariants must hold across reverts too).
+/// Handler drives WL buy, public buy, and sell. Every action is bounded
+/// so it either succeeds legitimately or reverts inside a try/catch —
+/// invariants must hold across reverts too.
 contract WlSolvencyHandler is Test {
     BondingCurve public immutable curve;
     WlToken public immutable token;
 
     address[] public actors;
-    // Mirror of `whitelisted[actor]` cached from setUp; proofs indexed the
-    // same way so the handler can look up proof for any actor cheaply.
     mapping(address => bool) public isWhitelisted;
     mapping(address => bytes32[]) internal _proofs;
 
@@ -91,7 +87,8 @@ contract WlSolvencyHandler is Test {
     uint256 public wlBuyCount;
     uint256 public publicBuyCount;
     uint256 public sellCount;
-    uint256 public claimCount;
+    // Tracks max wlBought[actor] we've ever seen for the monotonicity check.
+    mapping(address => uint256) public maxSeenWlBought;
 
     constructor(
         BondingCurve _curve,
@@ -118,7 +115,25 @@ contract WlSolvencyHandler is Test {
         return _proofs[a];
     }
 
-    /// WL buy — WL window must be active, actor must be on the tree.
+    function _snapshotWlBought() internal {
+        for (uint256 i; i < actors.length; ++i) {
+            uint256 cur = curve.wlBought(actors[i]);
+            if (cur > maxSeenWlBought[actors[i]]) {
+                maxSeenWlBought[actors[i]] = cur;
+            }
+        }
+    }
+
+    function actorAt(
+        uint256 i
+    ) external view returns (address) {
+        return actors[i];
+    }
+
+    function actorsLength() external view returns (uint256) {
+        return actors.length;
+    }
+
     function wlBuy(
         uint256 actorSeed,
         uint256 ethIn
@@ -134,14 +149,10 @@ contract WlSolvencyHandler is Test {
         vm.prank(actor);
         try curve.buyWithProof{value: ethIn}(_proofs[actor], 0) {
             ++wlBuyCount;
+            _snapshotWlBought();
         } catch {}
     }
 
-    /// Public buy — WL window MUST be elapsed (BondingCurve reverts
-    /// WlWindowActive otherwise). If we're still in the window, warp past it
-    /// so this call has a chance to succeed. Warping is one-way: subsequent
-    /// WL buys will fail — that's fine, `fail_on_revert = false` swallows
-    /// them and the invariants still hold.
     function publicBuy(
         uint256 actorSeed,
         uint256 ethIn
@@ -161,7 +172,6 @@ contract WlSolvencyHandler is Test {
         } catch {}
     }
 
-    /// Sell — only pre-graduation, only if the actor holds tokens.
     function sellSome(
         uint256 actorSeed,
         uint256 tokensIn
@@ -178,19 +188,6 @@ contract WlSolvencyHandler is Test {
             ++sellCount;
         } catch {}
     }
-
-    /// claimWl — only post-graduation, only if the actor has WL held.
-    function claim(
-        uint256 actorSeed
-    ) public {
-        if (!curve.graduated()) return;
-        address actor = actors[actorSeed % actors.length];
-        if (curve.wlHeldForUser(actor) == 0) return;
-        vm.prank(actor);
-        try curve.claimWl() {
-            ++claimCount;
-        } catch {}
-    }
 }
 
 contract WlSolvencyInvariantTest is StdInvariant, Test {
@@ -202,25 +199,17 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
     address internal feeReceiver = makeAddr("feeReceiver");
     address internal launcher = makeAddr("launcher");
 
-    // 4 actors — alice, bob, dave whitelisted; carol not.
     address internal alice;
     address internal bob;
     address internal carol;
     address internal dave;
 
-    // Small enough that the fuzz sequence can actually cross the graduation
-    // target via a handful of WL / public buys, exercising the post-grad
-    // claim path. Max reachable at these reserves is
-    //   maxEth = 800M * 5 / 800M = 5 ETH
-    // Safe reachable at default 500 bps margin = 4.75 ETH.
     uint256 internal constant CURVE_SUPPLY = 800_000_000e18;
     uint256 internal constant VIRTUAL_TOKEN = 800_000_000e18;
     uint256 internal constant VIRTUAL_ETH = 5 ether;
     uint256 internal constant GRAD_TARGET = 2 ether;
     uint16 internal constant FEE_BPS = 100;
 
-    // Generous WL slice + per-address cap so WL buys can accumulate enough
-    // ETH to actually cross the graduation target during a fuzz run.
     uint256 internal constant RESERVED_TOKENS = 400_000_000e18;
     uint256 internal constant MAX_WL_PER_ADDR = 200_000_000e18;
     uint64 internal FALLBACK_TS;
@@ -239,7 +228,6 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
 
         FALLBACK_TS = uint64(block.timestamp + 7 days);
 
-        // 4-leaf Merkle tree of {alice, bob, dave, dummy}; carol is NOT in it.
         address dummy = address(0xdead);
         bytes32 lA = keccak256(abi.encodePacked(alice));
         bytes32 lB = keccak256(abi.encodePacked(bob));
@@ -304,11 +292,10 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
         handler = new WlSolvencyHandler(curve, token, actors, whitelisted, proofs, FALLBACK_TS);
 
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](4);
+        bytes4[] memory selectors = new bytes4[](3);
         selectors[0] = WlSolvencyHandler.wlBuy.selector;
         selectors[1] = WlSolvencyHandler.publicBuy.selector;
         selectors[2] = WlSolvencyHandler.sellSome.selector;
-        selectors[3] = WlSolvencyHandler.claim.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -320,19 +307,15 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
     }
 
     // ------------------------------------------------------------
-    // Invariant #1 — WL claim solvency
+    // Invariant #1 — post-graduation the curve holds no tokens
     // ------------------------------------------------------------
-    /// The curve MUST always hold at least `wlHeldTotal` real tokens so
-    /// every outstanding `claimWl()` call is guaranteed to succeed. Before
-    /// graduation this is trivially satisfied (all curveSupply is on-curve);
-    /// after graduation the Graduator pulls `tokenReserve` and only the
-    /// WL-locked slice remains, so the equality is tight.
-    function invariant_WlClaimSolvency() public view {
-        uint256 heldOnCurve = token.balanceOf(address(curve));
-        assertGe(heldOnCurve, curve.wlHeldTotal(), "curve cannot satisfy outstanding WL claims");
-        // Literal AC restatement (tautology) — kept so the property line
-        // in the auditor spec has a matching assertion in the tests.
-        assertLe(curve.wlHeldTotal(), curve.tokenReserve() + curve.wlHeldTotal(), "wlHeldTotal overflow");
+    /// Immediate-transfer design: WL buyers already have their tokens in
+    /// wallet, so the curve hands the entire remaining tokenReserve to the
+    /// Graduator at graduation and the curve's post-grad balance is zero.
+    function invariant_PostGradCurveHoldsNothing() public view {
+        if (curve.graduated()) {
+            assertEq(token.balanceOf(address(curve)), 0, "curve should hold no tokens post-graduation");
+        }
     }
 
     // ------------------------------------------------------------
@@ -350,9 +333,6 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
     // ------------------------------------------------------------
     // Invariant #3 — graduation implies non-zero graduator call
     // ------------------------------------------------------------
-    /// If the curve reached `graduated == true`, then the Graduator's
-    /// `execute` MUST have been called with `tokenOut > 0`. This is the
-    /// contract that prevented the pre-fix "graduate + strand LP" bug.
     function invariant_GraduationCallsGraduator() public view {
         if (curve.graduated()) {
             assertEq(graduator.callCount(), 1, "graduator not called exactly once at graduation");
@@ -362,14 +342,19 @@ contract WlSolvencyInvariantTest is StdInvariant, Test {
     }
 
     // ------------------------------------------------------------
-    // Invariant #4 — wlHeldForUser sums to wlHeldTotal
+    // Invariant #4 — wlBought is monotonic per address
     // ------------------------------------------------------------
-    /// Per-user WL held balances always sum to `wlHeldTotal`. This catches
-    /// any accounting drift between individual buys, claims, and the
-    /// aggregate tally that the Graduator uses to size its LP transfer.
-    function invariant_WlPerUserSumsToTotal() public view {
-        uint256 sum = curve.wlHeldForUser(alice) + curve.wlHeldForUser(bob) + curve.wlHeldForUser(carol)
-            + curve.wlHeldForUser(dave);
-        assertEq(sum, curve.wlHeldTotal(), "per-user WL held drifted from wlHeldTotal");
+    /// Critical for the immediate-transfer design: `wlBought[user]` MUST
+    /// never decrement, otherwise a WL wallet could round-trip through the
+    /// reserved slice (buy → sell → buy again) to bypass `maxWlPerAddress`
+    /// without paying net ETH. The handler snapshots `wlBought` after each
+    /// successful wlBuy; this invariant checks the current value never
+    /// dropped below that snapshot for any actor.
+    function invariant_WlBoughtMonotonic() public view {
+        uint256 n = handler.actorsLength();
+        for (uint256 i; i < n; ++i) {
+            address a = handler.actorAt(i);
+            assertGe(curve.wlBought(a), handler.maxSeenWlBought(a), "wlBought decremented for an actor");
+        }
     }
 }

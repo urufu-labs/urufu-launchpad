@@ -298,14 +298,14 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         address token = routerV2.launchWithWhitelist{value: fee}(p, wl);
         BondingCurve bc = BondingCurve(payable(newCurveFactory.curveFor(token)));
 
-        // Alice (on WL) buys via proof — tokens should be held on the curve, not in her wallet.
+        // Alice (on WL) buys via proof — tokens transfer to her wallet immediately.
         uint256 tokenBalBefore = IERC20Metadata(token).balanceOf(alice);
         vm.prank(alice);
         uint256 out = bc.buyWithProof{value: 0.05 ether}(aliceProof, 0);
 
         assertGt(out, 0, "no tokens bought");
-        assertEq(IERC20Metadata(token).balanceOf(alice), tokenBalBefore, "alice got tokens directly");
-        assertEq(bc.wlHeldForUser(alice), out, "wl held not tracked");
+        assertEq(IERC20Metadata(token).balanceOf(alice), tokenBalBefore + out, "alice didn't receive tokens");
+        assertEq(bc.wlBought(alice), out, "wl bought counter not tracked");
         assertEq(bc.wlSold(), out);
     }
 
@@ -369,11 +369,11 @@ contract RhWhitelistLaunchE2eForkTest is Test {
     // Full WL lifecycle: launch → WL buy → graduate → claim → post-grad swap
     // =========================================================
 
-    /// Proves the held-on-curve WL design survives graduation cleanly:
-    ///   1. LP mint at graduation sends only tokenReserve (not wlHeldTotal) to Uniswap
-    ///   2. Curve's post-grad token balance == wlHeldTotal (the WL slice)
-    ///   3. claimWl transfers those tokens to the WL buyer's wallet
-    ///   4. Post-grad swaps on the graduated pool still work (hook fires, tokens flow)
+    /// Proves the immediate-transfer WL design survives graduation cleanly:
+    ///   1. WL buyer receives tokens directly at buy time — same as buy()
+    ///   2. Graduation consumes the full tokenReserve into the LP mint
+    ///   3. Curve's post-grad token balance is 0 (nothing held back)
+    ///   4. WL buyer still holds their tokens post-graduation, can sell on v4
     function test_WlCurve_GraduatesAndClaimsWork() public {
         if (IFactoryOwned(ERC20_FACTORY).implFor(BARE_ERC20_CONFIG) == address(0)) return;
 
@@ -392,13 +392,12 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         address token = routerV2.launchWithWhitelist{value: fee}(p, wl);
         BondingCurve bc = BondingCurve(payable(newCurveFactory.curveFor(token)));
 
-        // Alice WL-buys — a small amount so we don't hit the per-address cap. Tokens
-        // are held on the curve, NOT transferred to her wallet.
+        // Alice WL-buys — tokens land in her wallet immediately.
         vm.prank(alice);
-        bc.buyWithProof{value: 0.05 ether}(aliceProof, 0);
-        uint256 wlHeld = bc.wlHeldForUser(alice);
-        assertGt(wlHeld, 0, "alice's WL buy didn't register");
-        assertEq(IERC20Metadata(token).balanceOf(alice), 0, "alice should have zero tokens pre-graduation");
+        uint256 wlBought = bc.buyWithProof{value: 0.05 ether}(aliceProof, 0);
+        assertGt(wlBought, 0, "alice's WL buy didn't register");
+        assertEq(IERC20Metadata(token).balanceOf(alice), wlBought, "alice didn't receive tokens on WL buy");
+        assertEq(bc.wlBought(alice), wlBought, "wlBought counter not tracked");
 
         // Warp past the fallback timestamp so bob can drain the whole tokenReserve
         // (curve pricing puts a 5 ETH buy at ~707M tokens, which exceeds the 600M
@@ -414,23 +413,14 @@ contract RhWhitelistLaunchE2eForkTest is Test {
         vm.deal(bob, buyValue + 5 ether);
         vm.prank(bob);
         bc.buy{value: buyValue}(0);
-        assertTrue(bc.graduated(), "curve failed to graduate with WL held tokens");
+        assertTrue(bc.graduated(), "curve failed to graduate");
 
-        // The LP mint at graduation should have consumed tokenReserve; the WL-held
-        // slice stays on the curve for claiming. Curve's balance == wlHeldTotal.
-        uint256 curveBalPostGrad = IERC20Metadata(token).balanceOf(address(bc));
-        assertEq(bc.wlHeldTotal(), wlHeld, "wlHeldTotal drifted from alice's held");
-        assertEq(curveBalPostGrad, wlHeld, "curve's post-grad balance != wlHeldTotal");
+        // The LP mint at graduation should have consumed tokenReserve entirely
+        // (WL buyer's tokens were already in her wallet, not held on the curve).
+        assertEq(IERC20Metadata(token).balanceOf(address(bc)), 0, "curve should hold no tokens post-grad");
 
-        // Alice claims — tokens land in her wallet.
-        uint256 aliceBefore = IERC20Metadata(token).balanceOf(alice);
-        vm.prank(alice);
-        uint256 claimed = bc.claimWl();
-        assertEq(claimed, wlHeld, "claim returned wrong amount");
-        assertEq(IERC20Metadata(token).balanceOf(alice) - aliceBefore, wlHeld, "alice didn't receive tokens");
-        assertEq(bc.wlHeldForUser(alice), 0, "alice's WL held not zeroed");
-        assertEq(bc.wlHeldTotal(), 0, "wlHeldTotal not zeroed after claim");
-        assertEq(IERC20Metadata(token).balanceOf(address(bc)), 0, "curve balance not zero after claim");
+        // Alice still holds her tokens — no claim step needed.
+        assertEq(IERC20Metadata(token).balanceOf(alice), wlBought, "alice's tokens vanished after grad");
 
         // Post-grad swap on the graduated pool via the deployed V4SwapRouter — the
         // pool wires the existing RH MultiHookHost since we reused RH_GRADUATOR.

@@ -64,7 +64,6 @@ contract BondingCurve is ReentrancyGuard {
     error BondingCurve__WlPerAddressCapHit(uint256 requested, uint256 remainingCap);
     /// Buy would push `wlSold` past the total reserved slice.
     error BondingCurve__WlReservedExhausted(uint256 requested, uint256 reservedRemaining);
-    error BondingCurve__WlNothingToClaim();
     /// Whitelist configured with `fallbackTs <= block.timestamp` — the WL window is
     /// dead-on-arrival (buyWithProof reverts as WlNotActive from block 0, buy()
     /// opens immediately with a WL that no one can use). Caller mistake guard.
@@ -117,7 +116,6 @@ contract BondingCurve is ReentrancyGuard {
         uint32 declaredHolderCount
     );
     event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter);
-    event WlClaimed(address indexed buyer, uint256 amount);
 
     /// GH #8 (launchAndBuy): payer/recipient split emitted alongside the
     /// standard `Trade` event when tokens flow to an address that is not the
@@ -197,16 +195,16 @@ contract BondingCurve is ReentrancyGuard {
     /// Declared at init, emitted for transparency. Not enforced on-chain (the sorted
     /// holder list is off-chain); UI can surface this alongside the pinned list URL.
     uint32 public declaredHolderCount;
-    /// WL purchases are held on the curve until graduation — user calls `claimWl()`
-    /// post-graduation to withdraw. This is the structural lock-until-graduation:
-    /// tokens simply aren't in the buyer's wallet during the lock period, so no
-    /// transfer-hook / template modification is needed.
-    mapping(address => uint256) public wlHeldForUser;
-    /// Sum of `wlHeldForUser` values. Invariant: token balance on curve equals
-    /// `tokenReserve + wlHeldTotal` (minus any accidentally-transferred-in tokens).
-    /// Kept explicitly so `_graduate()` can send only `tokenReserve` to the LP mint
-    /// and leave the WL-held slice on the curve for later claiming.
-    uint256 public wlHeldTotal;
+    /// Per-address lifetime WL-purchase counter. Only ever increments — used
+    /// exclusively to enforce `maxWlPerAddress` during the exclusive window.
+    /// WL buyers receive their tokens immediately in their wallet (same as
+    /// `buy`), so we can't rely on the ERC20 balance for cap enforcement (the
+    /// wallet might already hold non-WL tokens from elsewhere). This mapping
+    /// is the source of truth for "how much has this address bought via WL"
+    /// and never decrements — a WL buyer who sells their tokens back to the
+    /// curve does NOT free up cap space (which would let a whale round-trip
+    /// through the reserved slice without spending real ETH).
+    mapping(address => uint256) public wlBought;
 
     /// Whitelist init payload — kept as a struct so the parameter list on
     /// `initializeWithWhitelist` stays readable. Set `root = bytes32(0)` to disable
@@ -506,8 +504,8 @@ contract BondingCurve is ReentrancyGuard {
     ///             additionally emitted so consumers that need the payer /
     ///             recipient split still see both sides;
     ///           * zero-recipient reverts `BondingCurve__ZeroRecipient`.
-    ///         WL state (`wlHeldForUser`, `wlSold`) is not touched — this
-    ///         path is public-window ONLY, matching `buy`'s semantics.
+    ///         WL state (`wlBought`, `wlSold`) is not touched — this path is
+    ///         public-window ONLY, matching `buy`'s semantics.
     function buyFor(
         address recipient,
         uint256 minTokensOut
@@ -570,12 +568,23 @@ contract BondingCurve is ReentrancyGuard {
     }
 
     /// @notice Whitelist-only buy. Draws from the reserved slice (bounded by
-    ///         `maxWlPerAddress`), same pricing curve as `buy()`. Bought tokens are
-    ///         **held on the curve** and only released to the buyer via `claimWl()`
-    ///         after graduation — the structural lock-until-graduation.
+    ///         `maxWlPerAddress`), same pricing curve as `buy()`. Tokens are
+    ///         transferred to the buyer's wallet immediately (identical to
+    ///         `buy()`), so a WL buyer can `sell()` on the curve or transfer
+    ///         out whenever they want — no post-graduation claim step needed.
+    ///
+    ///         Anti-dump is a curation decision, not an on-chain lock: launchers
+    ///         who care that WL buyers hold should whitelist a real community
+    ///         (existing NFT holders, DAO members) rather than an anonymous
+    ///         list. The previous hold-until-graduation design created a
+    ///         funds-stuck failure mode on stalled curves that the immediate-
+    ///         transfer design avoids entirely — a WL buyer whose curve doesn't
+    ///         graduate just `sell()`s their tokens back like any other holder.
     /// @dev    Reverts if no whitelist is configured, if `fallbackTs` has elapsed
     ///         (post-fallback, callers should use `buy()`), if the proof doesn't
-    ///         verify, or if any bucket / cap is exhausted.
+    ///         verify, or if any bucket / cap is exhausted. `wlBought` never
+    ///         decrements on sells so a whale can't round-trip through the
+    ///         reserved slice without spending net ETH.
     function buyWithProof(
         bytes32[] calldata proof,
         uint256 minTokensOut
@@ -618,20 +627,25 @@ contract BondingCurve is ReentrancyGuard {
         }
 
         // Per-address cap. Revert (not clamp) so the caller understands they overshot.
-        uint256 alreadyBought = wlHeldForUser[msg.sender];
+        // `wlBought` (never decrements) is the correct source of truth here —
+        // token balance would let a WL buyer sell + rebuy within the exclusive
+        // window to bypass the per-address cap.
+        uint256 alreadyBought = wlBought[msg.sender];
         uint256 remainingCap = alreadyBought >= maxWlPerAddress ? 0 : maxWlPerAddress - alreadyBought;
         if (tokensOut > remainingCap) revert BondingCurve__WlPerAddressCapHit(tokensOut, remainingCap);
 
-        // Effects: reduce tokenReserve (same pricing curve as public), record WL-held
-        // balance (tokens stay on curve until claimWl post-graduation).
+        // Effects: reduce tokenReserve (same pricing curve as public), bump the
+        // per-address WL counter for cap enforcement, credit ETH to the reserve.
         tokenReserve -= tokensOut;
         wlSold += tokensOut;
-        wlHeldForUser[msg.sender] = alreadyBought + tokensOut;
-        wlHeldTotal += tokensOut;
+        wlBought[msg.sender] = alreadyBought + tokensOut;
         ethReserve += ethAfterFee;
 
-        // Interactions: ETH fee forward only — token transfer intentionally skipped.
+        // Interactions: ETH fee forward + token transfer to buyer's wallet.
+        // Immediate transfer means the buyer can `sell()` or move the tokens
+        // like any non-WL holder — no post-graduation claim step, no lock.
         if (fee > 0) SafeTransferLib.safeTransferETH(feeReceiver, fee);
+        SafeTransferLib.safeTransfer(token, msg.sender, tokensOut);
 
         emit WlBought(msg.sender, ethAfterFee, tokensOut, alreadyBought + tokensOut);
         emit Trade(msg.sender, true, ethAfterFee, tokensOut, ethReserve, tokenReserve, block.timestamp);
@@ -641,18 +655,6 @@ contract BondingCurve is ReentrancyGuard {
         if (ethReserve >= graduationTargetEth) {
             _graduate();
         }
-    }
-
-    /// @notice Post-graduation withdrawal of WL-held tokens. Callable exactly once
-    ///         per buyer per curve — sets their held balance to zero on the way out.
-    function claimWl() external nonReentrant returns (uint256 amount) {
-        if (!graduated) revert BondingCurve__NotGraduated();
-        amount = wlHeldForUser[msg.sender];
-        if (amount == 0) revert BondingCurve__WlNothingToClaim();
-        wlHeldForUser[msg.sender] = 0;
-        wlHeldTotal -= amount;
-        SafeTransferLib.safeTransfer(token, msg.sender, amount);
-        emit WlClaimed(msg.sender, amount);
     }
 
     function sell(

@@ -124,15 +124,13 @@ export const bondingCurveAbi = parseAbi([
   `function sourceTokenAddress() view returns (address)`,
   `function sourceChainId() view returns (uint32)`,
   `function declaredHolderCount() view returns (uint32)`,
-  `function wlHeldForUser(address) view returns (uint256)`,
-  `function wlHeldTotal() view returns (uint256)`,
+  `function wlBought(address) view returns (uint256)`,
   `function buyWithProof(bytes32[] proof, uint256 minTokensOut) payable returns (uint256 tokensOut)`,
-  `function claimWl() returns (uint256 amount)`,
-  /// Whitelist lifecycle events — emitted by WL-aware curves for
-  /// configuration, per-purchase, and hold-until-graduation claim.
+  /// Whitelist lifecycle events — emitted for configuration + per-purchase.
+  /// WL buyers receive tokens immediately in their wallet (no post-graduation
+  /// claim step), so no separate Claimed event is needed.
   `event WhitelistConfigured(bytes32 root, uint256 reservedTokens, uint256 maxWlPerAddress, uint64 fallbackTs, address sourceTokenAddress, uint32 sourceChainId, uint32 declaredHolderCount)`,
   `event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter)`,
-  `event WlClaimed(address indexed buyer, uint256 amount)`,
 ] as const);
 
 export const curveFactoryAbi = parseAbi([

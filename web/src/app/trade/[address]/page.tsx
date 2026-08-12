@@ -745,27 +745,6 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     },
   });
 
-  // Post-graduation claim of WL-held tokens. Only meaningful when the user holds a
-  // non-zero balance in wlHeldForUser and the curve is graduated.
-  const wlHeldQ = useReadContract({
-    abi: bondingCurveAbi,
-    address: curveAddress ?? undefined,
-    functionName: 'wlHeldForUser',
-    args: wallet ? [wallet] : undefined,
-    chainId: readChainId,
-    query: { enabled: !!curveAddress && !!wallet && wlEnabled, refetchInterval: 15_000 },
-  });
-  const wlHeldForUser = (wlHeldQ.data as bigint | undefined) ?? 0n;
-
-  const wlClaimSim = useSimulateContract({
-    abi: bondingCurveAbi,
-    address: curveAddress ?? undefined,
-    functionName: 'claimWl',
-    account: wallet,
-    chainId: readChainId,
-    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && graduated && wlHeldForUser > 0n },
-  });
-
   const { writeContract, isPending: writePending, data: txHash } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash as Hex | undefined });
 
@@ -1249,31 +1228,6 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             </div>
             <div className={styles.tradeCardBody}>
 
-            {graduated && wlEnabled && wlHeldForUser > 0n && connectedForRender && (
-              <div style={{ marginBottom: 10, padding: 10, background: 'var(--mint)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 12 }}>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                  whitelist tokens are ready to claim
-                </div>
-                <div style={{ fontSize: 11, marginBottom: 8, color: 'var(--anchor-soft)' }}>
-                  {`${Number(formatUnits(wlHeldForUser, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${(tokenSymbol as string) ?? ''}`}
-                  {' '}held on the curve — one click to move them to ur wallet
-                </div>
-                <button
-                  type="button"
-                  onClick={() => wlClaimSim.data && writeContract(wlClaimSim.data.request)}
-                  disabled={!wlClaimSim.data || writePending || receipt.isLoading}
-                  className="uru-btn uru-btn-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  {writePending ? 'confirming ~~' : '✿ claim'}
-                </button>
-                {wlClaimSim.error && (
-                  <div style={{ marginTop: 6, fontSize: 10, color: 'var(--pink-hot)' }}>
-                    claim sim failed: {wlClaimSim.error.message.slice(0, 120)}
-                  </div>
-                )}
-              </div>
-            )}
             {graduated ? (
               <GraduatedPanel
                 chain={activeChain}
@@ -1426,7 +1380,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 {/* Whitelist buy — shown only pre-graduation while a WL is active on the
                     curve, the fallback window hasn't elapsed, and the connected wallet
                     resolves to a valid proof. WL buys draw from the reserved slice at the
-                    same curve price; tokens stay on-curve until claimWl post-graduation. */}
+                    same curve price; tokens land in the buyer's wallet immediately so
+                    they can sell or transfer like any non-WL holder — no post-graduation
+                    claim step. */}
                 {wlEnabled && wlPreFallback && side === 'buy' && connectedForRender && (
                   <div style={{ marginTop: 10, padding: 8, background: 'var(--cream-deep)', border: '1.5px solid var(--anchor)', fontSize: 11 }}>
                     <div style={{ fontFamily: 'var(--font-pixel), monospace', fontWeight: 700, marginBottom: 4 }}>

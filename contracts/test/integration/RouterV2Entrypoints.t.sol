@@ -208,13 +208,12 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         vm.expectRevert(abi.encodeWithSelector(BondingCurve.BondingCurve__WlWindowActive.selector, curve.fallbackTs()));
         curve.buy{value: 1 ether}(0);
 
-        // A whitelisted wallet can buy, and the tokens are HELD on the curve
-        // until graduation rather than delivered immediately.
+        // A whitelisted wallet can buy — tokens transfer to their wallet immediately.
         vm.prank(wlAlice);
         uint256 got = curve.buyWithProof{value: 0.1 ether}(proofAlice, 0);
         assertGt(got, 0, "whitelist buy returned nothing");
-        assertEq(StackToken(token).balanceOf(wlAlice), 0, "WL tokens should be locked until graduation");
-        assertEq(curve.wlHeldForUser(wlAlice), got, "WL holding not recorded");
+        assertEq(StackToken(token).balanceOf(wlAlice), got, "WL tokens should transfer to buyer immediately");
+        assertEq(curve.wlBought(wlAlice), got, "wlBought counter not recorded");
 
         // A non-whitelisted wallet cannot use the proof path.
         vm.prank(buyer);
@@ -226,15 +225,8 @@ contract RouterV2EntrypointsTest is LocalV4Stack {
         _graduate(curve);
         _assertPoolLive(token);
 
-        // Post-graduation the WL buyer claims exactly what was held.
-        vm.prank(wlAlice);
-        uint256 claimed = curve.claimWl();
-        assertEq(claimed, got, "claimed amount != held amount");
-        assertEq(StackToken(token).balanceOf(wlAlice), got, "WL tokens not delivered on claim");
-
-        vm.prank(wlAlice);
-        vm.expectRevert(BondingCurve.BondingCurve__WlNothingToClaim.selector);
-        curve.claimWl();
+        // Post-graduation the WL buyer already holds their tokens — no claim step.
+        assertEq(StackToken(token).balanceOf(wlAlice), got, "WL tokens vanished after graduation");
     }
 
     // =====================================================================
