@@ -320,6 +320,23 @@
   text-transform: uppercase;
 }
 
+/* Legacy pill — already graduated on pre-V3 stack. Same warm gradient
+   as the trade-page pill so a user recognizes the tag across surfaces. */
+.legacyBadge {
+  background: linear-gradient(135deg, var(--cream-deep) 0%, var(--pink-warm) 100%) !important;
+  letter-spacing: 0.06em;
+}
+
+/* Cliff-risk pill — pre-graduation curve on the old graduator. Warmer
+   / more attention-getting than the legacy pill because the outcome is
+   still in the buyer's future and they can avoid it. */
+.cliffBadge {
+  background: var(--yolk) !important;
+  color: var(--anchor) !important;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
 .releaseInfo {
   min-width: 0;
   padding: 10px 10px 0;

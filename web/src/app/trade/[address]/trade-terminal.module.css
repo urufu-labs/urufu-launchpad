@@ -154,6 +154,46 @@
   opacity: 0.7;
 }
 
+/* Cliff-warning banner: pre-graduation curves baked to the pre-V3
+   raw-ratio graduator. Same warm/anchor palette as the legacy pill so
+   the two read as one visual family, but full-width with a heavy left
+   rail so it isn't easy to miss. */
+.legacyBanner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border: 1.5px solid var(--anchor);
+  border-left-width: 6px;
+  background: linear-gradient(135deg, var(--cream-deep) 0%, var(--pink-warm) 100%);
+  color: var(--anchor);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.legacyBannerIcon {
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0.7;
+  padding-top: 1px;
+}
+
+.legacyBannerCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.legacyBannerCopy b {
+  font-family: var(--font-pixel), monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
 .metaLine {
   display: flex;
   gap: 10px;

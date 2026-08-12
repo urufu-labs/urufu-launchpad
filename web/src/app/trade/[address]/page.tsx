@@ -45,6 +45,7 @@ import {
   fetchV4RouterSwapsForToken,
 } from '@/lib/indexer';
 import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
+import { legacyHookOverride, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { Mascot } from '@/components/Mascot';
@@ -498,28 +499,18 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // here so the effect can reference them before that section runs.
   //
   // Per-token hook resolution, in priority order:
-  //   1. Hardcoded LEGACY_HOOK_OVERRIDES pin — the belt-and-suspenders map for
-  //      tokens graduated against a MHH that is no longer the current default.
-  //      Populated by hand when a MHH rotation happens; guarantees the trade
-  //      page never routes them at the new hook by accident.
+  //   1. legacyHookOverride(token) — belt-and-suspenders for tokens whose v4
+  //      pool is on the pre-V3 (V10) MHH. Includes both already-graduated and
+  //      pre-graduation curves that will graduate through V10. See
+  //      web/src/lib/legacyGraduations.ts for the set.
   //   2. Indexer's graduations.hookAddress — the truth for any graduation
   //      indexed after the column was added.
   //   3. Config default (HOOKS[chain]?.MultiHookHost) — last-resort fallback
   //      for tokens indexed before the column existed AND not on the override
-  //      list. Kept pointing at the current default hook (V10 MHH on RH) so a
-  //      freshly-graduated token can still resolve while the indexer catches
-  //      up. New V3 graduations get their V11 hook straight from the indexer.
-  const LEGACY_HOOK_OVERRIDES: Record<string, Address> = {
-    // Tokens that graduated on RH's V10 MHH (0x48C22af8) BEFORE the V11 MHH +
-    // GraduatorV3 rotation on 2026-08-12. Their v4 pools are permanently
-    // keyed at V10 — the poolId literally embeds the hook address on-chain,
-    // so nothing off-chain can move them. Pinning here so the trade page
-    // never derives a V11 poolId for them regardless of indexer state.
-    '0x985ec2c71ffebf4822b6c877bb87229923813c63': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
-    '0xf382db5729bcbc61bc2fbc63f0b6ba93049cbb4a': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
-    '0x99f6d9b3284ce9c11cef0802539a4ba81070e875': '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
-  };
-  const overrideHookAddr = LEGACY_HOOK_OVERRIDES[(tokenAddress as string).toLowerCase()] as Address | undefined;
+  //      list. Kept pointing at the current default hook so a freshly-graduated
+  //      token can still resolve while the indexer catches up.
+  const overrideHookAddr = legacyHookOverride(tokenAddress);
+  const pendingLegacyCliff = willGraduateLegacy(tokenAddress, graduated);
   const [indexedHookAddr, setIndexedHookAddr] = useState<Address | undefined>();
   useEffect(() => {
     if (!tokenAddress || overrideHookAddr) return;
@@ -1051,6 +1042,26 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           >
             {switchPending ? 'switching…' : `switch to ${CHAIN_LABELS[tokenHomeChain]} →`}
           </button>
+        </div>
+      )}
+      {/* Legacy-graduator cliff warning: shown on pre-graduation curves whose
+          `graduator` is baked to the pre-V3 (raw-ratio) graduator. When these
+          hit their graduation target, the LP will be seeded at the wrong
+          price and buyers who bought late on the curve will see a price cliff
+          on Uniswap (same thing that happened to LUV). Buyers should see this
+          coming BEFORE they buy. */}
+      {pendingLegacyCliff && (
+        <div className={styles.legacyBanner}>
+          <div className={styles.legacyBannerIcon} aria-hidden>✿</div>
+          <div className={styles.legacyBannerCopy}>
+            <b>heads up: this curve is on the old graduator.</b>
+            <span>
+              when it hits target, the v4 pool will be seeded at the old raw
+              ratio (not the curve marginal). expect a price drop on Uniswap
+              right after graduation. buying on the curve is fine; just don&apos;t
+              expect the graduation price to hold.
+            </span>
+          </div>
         </div>
       )}
       {/* ================================================================

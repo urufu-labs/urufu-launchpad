@@ -23,6 +23,7 @@ import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { sizeForName, isLongName } from '@/lib/nameSize';
+import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all';
 
@@ -276,6 +277,21 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
           <span>{launch.graduated ? 'graduated' : 'curve'}</span>
           {launch.hasWhitelist && <span>whitelist</span>}
           {launch.payToken === 'URU' && <span>uru paid</span>}
+          {/* Legacy pill — already graduated on the pre-V3 (V10) stack. Same
+              cliff LUV had; tag lets buyers know before they click through. */}
+          {isLegacyGraduated(launch.address, launch.graduated) && (
+            <span className={styles.legacyBadge} title="graduated on the older MHH + Graduator (pre-V3). Pool was seeded at raw ratio.">
+              ✿ legacy
+            </span>
+          )}
+          {/* Cliff-warning pill — will graduate through the pre-V3 graduator.
+              Different color from `legacy` so the "coming vs done" distinction
+              reads at a glance. */}
+          {willGraduateLegacy(launch.address, launch.graduated) && (
+            <span className={styles.cliffBadge} title="curve is on the old graduator; expect a price cliff on Uniswap after graduation.">
+              ⚠ cliff risk
+            </span>
+          )}
         </div>
       </div>
 
