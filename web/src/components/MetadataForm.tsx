@@ -114,7 +114,7 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml,image/avif"
               onChange={(e) => void handleLogo(e.target.files?.[0] ?? null)}
               style={{
                 display: 'block',

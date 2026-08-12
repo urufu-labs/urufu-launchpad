@@ -131,7 +131,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Could not read this image. Try a PNG, JPEG, WebP, or SVG.'));
+      reject(new Error('Could not read this image. Try a PNG, JPEG, WebP, SVG, or AVIF.'));
     };
     image.src = url;
   });
@@ -142,7 +142,7 @@ function canvasToWebp(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
     canvas.toBlob(
       (blob) => {
         if (!blob) {
-          reject(new Error('Could not optimize this image. Try a PNG, JPEG, WebP, or SVG.'));
+          reject(new Error('Could not optimize this image. Try a PNG, JPEG, WebP, SVG, or AVIF.'));
           return;
         }
         if (blob.type !== 'image/webp') {
@@ -166,7 +166,7 @@ async function optimizeLogo(file: File): Promise<Blob> {
 
   const image = await loadImage(file);
   if (image.naturalWidth === 0 || image.naturalHeight === 0) {
-    throw new Error('Could not read this image. Try a PNG, JPEG, WebP, or SVG.');
+    throw new Error('Could not read this image. Try a PNG, JPEG, WebP, SVG, or AVIF.');
   }
 
   const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
