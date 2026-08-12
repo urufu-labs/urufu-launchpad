@@ -154,7 +154,11 @@ contract SetChunkyDefaultsForkTest is Test {
         // V7 could strand full graduation-ETH amounts (multi-ether). V8+ LP-math
         // fix leaves μETH-scale rounding dust that owner.sweep() recovers. If
         // this ever exceeds 0.001 ETH per graduation, real stranding is back.
-        assertLe(GRADUATOR.balance, 0.001 ether, "phase2: LIVE graduator dust exceeded 0.001 ETH (real stranding regression?)");
+        assertLe(
+            GRADUATOR.balance,
+            0.001 ether,
+            "phase2: LIVE graduator dust exceeded 0.001 ETH (real stranding regression?)"
+        );
 
         // ------------------------------------------------------ chunky LP shape
         uint256 lpTokens = IERC20V(token).balanceOf(POOL_MANAGER);
