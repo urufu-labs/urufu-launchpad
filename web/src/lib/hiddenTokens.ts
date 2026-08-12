@@ -82,6 +82,10 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // they don't appear alongside real production launches.
   '4663:0xacb8d3dc8d1ebe7794fb1a925092651995ef5e4b', // animemangawaifuurufuhentaikawaii / URURUFU
   '4663:0x55223e1b32d11adc3351f74abf365d6cbbe7caec', // launched pre-live, no metadata
+  // V10 MHH allowlist rehearsal (2026-08-12). Real graduation + swap through the
+  // V10 stack minted this pool to prove the hook works for Uniswap Labs — it
+  // is NOT a real launch. AllowlistV10RehearsalFlow.s.sol reference.
+  '4663:0x3e9c0f32a818205f166b9bf32ad308fa938061f5', // V10 Allowlist Rehearsal / V10AL
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
