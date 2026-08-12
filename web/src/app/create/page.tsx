@@ -1040,43 +1040,40 @@ function CreatePageContent() {
   }, [receipt.data, contracts]);
   const displayedLaunchAddress = mockData.enabled ? mockLaunchedAddress : launchedTokenAddress;
 
-  // useRef, not useMemo — React 19 compiler treats memoized values as immutable; mutable
-  // "did this happen already" flags belong in a ref. Refs also don't trigger re-renders.
-  const savedRef = useRef(false);
+  // Metadata save is a SECOND step after the launch tx — a wallet sig + Pinata
+  // pin + compile-service POST. Silent failure (user cancels sig, tab closes,
+  // wallet disconnects, popup blocked) was leaving multiple launches with no
+  // server-side metadata (BAA, GEMUSE). Now: track error state + surface a
+  // blocking modal with a retry button so launchers can't miss it.
   const { signMessageAsync } = useSignMessage();
-  if (!mockData.enabled && launchedTokenAddress && !savedRef.current) {
+  const [metadataSaved, setMetadataSaved] = useState(false);
+  const [metadataSaveError, setMetadataSaveError] = useState<Error | null>(null);
+  const [metadataRetryTick, setMetadataRetryTick] = useState(0);
+  const [metadataSaving, setMetadataSaving] = useState(false);
+
+  useEffect(() => {
+    if (mockData.enabled) return;
+    if (!launchedTokenAddress) return;
+    if (metadataSaved) return;
+    if (!address) return;
     const wlCid = wlSnapshot?.listCid;
     const hasAny =
       metadata.logoDataUrl || metadata.description || metadata.website || metadata.twitter || wlCid;
-    if (hasAny) {
-      savedRef.current = true;
-      // Two-phase persist:
-      //   1. persistMetadata — writes localStorage synchronously + kicks off Pinata pin (if
-      //      NEXT_PUBLIC_PINATA_JWT is set). Returns the { cid, gatewayUrl } once pinned.
-      //   2. saveTokenMetadata — POSTs the resulting gateway URL to compile-service so every
-      //      other browser can render the image. Requires one wallet signature; if the user
-      //      cancels, the local snapshot is still there so THEIR view is unaffected.
-      // Merged with wlListCid when a whitelist was applied so the trade page can
-      // fetch the pinned holder list + build proofs. Cross-device propagation of
-      // wlListCid via the backend metadata endpoint is a v2 follow-up (needs a
-      // schema addition); for now WL trades work on the deployer's browser +
-      // any browser that visited the create flow.
-      const metadataToSave = wlCid ? { ...metadata, wlListCid: wlCid } : metadata;
-      void (async () => {
+    if (!hasAny) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setMetadataSaving(true);
+      setMetadataSaveError(null);
+      try {
+        // Phase 1: local snapshot + Pinata pin. Errors here bubble to catch.
+        const metadataToSave = wlCid ? { ...metadata, wlListCid: wlCid } : metadata;
         const pinned = await persistMetadata(chainId, launchedTokenAddress, metadataToSave);
-        // Loud console signal so a launcher can see why their share card is
-        // empty. Pinata failure isn't always the user's fault — it usually
-        // means PINATA_JWT isn't set on the compile-service; either way it's
-        // worth surfacing rather than swallowing.
-        if (metadata.logoDataUrl && !pinned.gatewayUrl) {
-          console.warn(
-            '[urufu] logo pin failed — image lives only in this browser. ' +
-              'Check PINATA_JWT on the compile-service so share cards + other browsers can see it.',
-          );
-        }
-        if (!address) return;
-        // One retry on transient network failures. Wallet-sig rejection still
-        // throws AFTER retry so the user gets one shot to catch it.
+        if (cancelled) return;
+
+        // Phase 2: sign + POST to compile-service. One retry on network-ish
+        // failures; user-rejection short-circuits so we don't spam wallet
+        // prompts.
         let lastError: unknown = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
@@ -1092,8 +1089,6 @@ function CreatePageContent() {
                 telegram: metadata.telegram ?? null,
                 discord: metadata.discord ?? null,
                 tiktok: metadata.tiktok ?? null,
-                // WL list CID lands here so any browser (not just the deployer's)
-                // can fetch the pinned holder list + build proofs at trade time.
                 wlListCid: wlCid ?? null,
               },
               ({ message }) => signMessageAsync({ message }),
@@ -1102,24 +1097,28 @@ function CreatePageContent() {
             break;
           } catch (err) {
             lastError = err;
-            // Don't retry on user rejection — a second wallet prompt would
-            // read as buggy behavior. Only retry on network-ish messages.
             const msg = err instanceof Error ? err.message.toLowerCase() : '';
             if (msg.includes('rejected') || msg.includes('cancel') || msg.includes('denied')) break;
           }
         }
+        if (cancelled) return;
         if (lastError) {
-          console.warn(
-            '[urufu] token metadata save failed — the token launched fine, but ' +
-              'the trade page will only show what this browser has cached. Anyone ' +
-              'else opening the link will not see the logo / description / socials. ' +
-              'Reopen the token trade page + hit "edit metadata" to try again.',
-            lastError,
-          );
+          setMetadataSaveError(lastError instanceof Error ? lastError : new Error(String(lastError)));
+        } else {
+          setMetadataSaved(true);
         }
-      })();
-    }
-  }
+      } catch (err) {
+        if (!cancelled) {
+          setMetadataSaveError(err instanceof Error ? err : new Error(String(err)));
+        }
+      } finally {
+        if (!cancelled) setMetadataSaving(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchedTokenAddress, metadataRetryTick, address, mockData.enabled]);
 
   const mascotMood = displayedLaunchAddress
     ? 'gasp'
@@ -1299,6 +1298,84 @@ function CreatePageContent() {
           </div>
           </div>
         </>
+      )}
+      {/* Metadata save failure modal — kawaii shell over dim backdrop. Fires
+          when the sig / Pinata / compile-service POST fails (or the launcher
+          canceled the sig). Blocking-ish: dismiss is allowed but users can
+          also retry inline. Without this, metadata silently doesn't save. */}
+      {metadataSaveError && launchedTokenAddress && (
+        <div
+          onClick={() => setMetadataSaveError(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(58,44,58,0.35)',
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: 20,
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="uru-shell"
+            style={{ width: 'min(520px, 100%)', marginTop: 32, background: 'var(--paper-base)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <Mascot size={44} mood="gasp" />
+              <div>
+                <div className="uru-h2" style={{ fontSize: 16 }}>metadata didn&apos;t save ~~</div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-pixel), monospace',
+                    fontSize: 10,
+                    color: 'var(--anchor-soft)',
+                    marginTop: 2,
+                  }}
+                >
+                  ur token launched fine! but the image + info + WL list stayed local.
+                </div>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, lineHeight: 1.55, marginBottom: 10 }}>
+              anyone else opening the trade page will see a blank card. hit retry to try
+              the wallet signature again ~ or dismiss and re-do it later from the trade
+              page&apos;s edit modal.
+            </p>
+            <div
+              style={{
+                padding: 8,
+                border: '1px dashed var(--anchor)',
+                background: 'var(--cream-deep)',
+                fontFamily: 'var(--font-pixel), monospace',
+                fontSize: 10,
+                marginBottom: 12,
+                wordBreak: 'break-word',
+              }}
+            >
+              {metadataSaveError.message.slice(0, 220)}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="uru-btn uru-btn-primary"
+                disabled={metadataSaving}
+                onClick={() => setMetadataRetryTick((n) => n + 1)}
+              >
+                {metadataSaving ? 'retrying ~~' : '✿ retry save'}
+              </button>
+              <button
+                type="button"
+                className="uru-btn uru-btn-cream"
+                onClick={() => setMetadataSaveError(null)}
+              >
+                dismiss for now
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className={styles.studio}>
