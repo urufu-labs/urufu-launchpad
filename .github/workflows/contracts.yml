@@ -22,7 +22,10 @@ jobs:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          # `stable` instead of `nightly` — nightly attestation downloads
+          # hit intermittent HTTP 502s from GitHub's CDN. Stable skips the
+          # attestation step entirely, so CI stays unaffected by GH blips.
+          version: stable
         env:
           # foundryup calls GitHub API to fetch latest release tags. Anonymous calls
           # get 60/hr — the GH runners share IPs so we hit HTTP 403 rate-limits on

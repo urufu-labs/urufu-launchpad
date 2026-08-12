@@ -47,7 +47,12 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          # `stable` instead of `nightly` because nightly downloads pull a
+          # signed attestation artifact from GitHub whose endpoint returns
+          # intermittent HTTP 502s (bricked this workflow on 2026-08-13).
+          # Stable releases skip the attestation step, so a GitHub CDN blip
+          # can no longer take down the loyalty release gate.
+          version: stable
         env:
           # GitHub-runners share IPs — anonymous foundryup calls hit HTTP 403
           # rate-limits without this. Same pattern as contracts.yml.
