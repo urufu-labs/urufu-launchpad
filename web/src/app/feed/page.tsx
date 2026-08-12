@@ -13,6 +13,7 @@ import { formatEther, type Address } from 'viem';
 import { Mascot } from '@/components/Mascot';
 import {
   fetchLaunchesByCreator,
+  fetchLaunchesByTokens,
   fetchTradesByTrader,
   type IndexerLaunch,
   type IndexerTrade,
@@ -34,12 +35,21 @@ const KINDS: Array<{ id: Kind; label: string; jp: string }> = [
   { id: 'sells', label: 'sells', jp: '売り' },
 ];
 
+/// Compact name+ticker for a token address, resolved from the launch record.
+/// Falls back to a truncated address when the indexer has no launch row for
+/// that token (e.g. pre-launchpad tokens someone traded through the site).
+interface TokenMeta {
+  name: string;
+  ticker: string;
+}
+
 export default function FeedPage() {
   const [following, setFollowing] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [items, setItems] = useState<FeedItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [kind, setKind] = useState<Kind>('all');
+  const [tokenMeta, setTokenMeta] = useState<Record<string, TokenMeta>>({});
 
   useEffect(() => {
     const refresh = () => setFollowing(getFollowing());
@@ -82,8 +92,24 @@ export default function FeedPage() {
       merged.sort((a, b) => b.ts - a.ts);
 
       setProfiles(profileMap);
-      setItems(merged.slice(0, 100));
+      const capped = merged.slice(0, 100);
+      setItems(capped);
       setLoading(false);
+
+      // Second-pass enrichment: pull launch metadata for every token address
+      // referenced by a trade row so the ledger renders "into $TICKER (name)"
+      // instead of the raw contract address. Runs async so it doesn't gate the
+      // initial paint — rows show the address fallback until this fills in.
+      const tradeTokens = new Set<string>();
+      for (const it of capped) {
+        if (it.kind === 'trade') tradeTokens.add(it.data.tokenAddress.toLowerCase());
+      }
+      if (tradeTokens.size === 0) return;
+      const launches = await fetchLaunchesByTokens(Array.from(tradeTokens) as Address[]);
+      if (cancelled || !launches) return;
+      const meta: Record<string, TokenMeta> = {};
+      for (const l of launches) meta[l.tokenAddress.toLowerCase()] = { name: l.name, ticker: l.ticker };
+      setTokenMeta(meta);
     })();
     return () => { cancelled = true; };
   }, [following]);
@@ -212,7 +238,7 @@ export default function FeedPage() {
               <ol className={styles.ledgerList}>
                 {filteredItems.map((item, i) => (
                   <li key={`${item.kind}-${i}-${item.ts}`}>
-                    <FeedRow item={item} profile={profiles[item.who]} />
+                    <FeedRow item={item} profile={profiles[item.who]} tokenMeta={tokenMeta} />
                   </li>
                 ))}
               </ol>
@@ -227,15 +253,26 @@ export default function FeedPage() {
   );
 }
 
-function FeedRow({ item, profile }: { item: FeedItem; profile: UserProfile | undefined }) {
+function FeedRow({
+  item,
+  profile,
+  tokenMeta,
+}: {
+  item: FeedItem;
+  profile: UserProfile | undefined;
+  tokenMeta: Record<string, TokenMeta>;
+}) {
   const name = displayNameFor(profile, item.who);
   const ago = formatAgo(item.ts * 1000);
 
   if (item.kind === 'launch') {
     const l = item.data;
+    // Row DOM matches the ledger header (event | wallet/token | age) so the
+    // grid columns line up. Earlier version had age first in the DOM which
+    // rendered "age | event | body" under an "event | wallet/token | age"
+    // header — the two were visually swapped.
     return (
       <article className={styles.ledgerRow} data-kind="launch">
-        <time className={styles.rowMeta}>{ago}</time>
         <span className={styles.rowKind}>launch</span>
         <div className={styles.rowBody}>
           <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
@@ -244,25 +281,31 @@ function FeedRow({ item, profile }: { item: FeedItem; profile: UserProfile | und
             {l.name} <span>${l.ticker}</span>
           </Link>
         </div>
+        <time className={styles.rowMeta}>{ago}</time>
       </article>
     );
   }
 
   const t = item.data;
   const eth = Number(formatEther(BigInt(t.ethAmount))).toFixed(4);
+  // Prefer the launch's name+ticker (populated in a second-pass fetch after
+  // the initial trades load). Fall back to a truncated address when the
+  // indexer has no launch row for this token (pre-launchpad token, etc).
+  const meta = tokenMeta[t.tokenAddress.toLowerCase()];
+  const shortAddr = `${t.tokenAddress.slice(0, 6)}…${t.tokenAddress.slice(-4)}`;
   return (
     <article className={styles.ledgerRow} data-kind={t.isBuy ? 'buy' : 'sell'}>
-      <time className={styles.rowMeta}>{ago}</time>
       <span className={styles.rowKind}>{t.isBuy ? 'buy' : 'sell'}</span>
       <div className={styles.rowBody}>
         <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
         <span>{t.isBuy ? ' bought ' : ' sold '}</span>
         <b className={styles.ethValue}>{eth} ETH</b>
         <span>{t.isBuy ? ' into ' : ' from '}</span>
-        <Link href={`/trade/${t.tokenAddress}`} className={styles.rowLink}>
-          {t.tokenAddress.slice(0, 6)}…{t.tokenAddress.slice(-4)}
+        <Link href={`/trade/${t.tokenAddress}`} className={styles.tokenLink}>
+          {meta ? <>{meta.name} <span>${meta.ticker}</span></> : shortAddr}
         </Link>
       </div>
+      <time className={styles.rowMeta}>{ago}</time>
     </article>
   );
 }
