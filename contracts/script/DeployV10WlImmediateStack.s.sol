@@ -255,7 +255,9 @@ contract DeployV10WlImmediateStack is Script {
         );
 
         // CurveFactory wiring
-        require(CurveFactory(out.curveFactory).graduator() == out.graduator, "V10 CF.graduator must equal V10 Graduator");
+        require(
+            CurveFactory(out.curveFactory).graduator() == out.graduator, "V10 CF.graduator must equal V10 Graduator"
+        );
         require(CurveFactory(out.curveFactory).trustedRouters(router), "V10 CF must trust Router");
 
         // Router pointed at V10 CF
