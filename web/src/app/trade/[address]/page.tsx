@@ -1419,6 +1419,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     writePending ||
                     receipt.isLoading ||
                     switchPending ||
+                    // WL pre-fallback window: regular buy() reverts with
+                    // BondingCurve__WlWindowActive. Only buyWithProof works
+                    // during this window (shown in the WL panel above).
+                    (wlEnabled && wlPreFallback && side === 'buy') ||
                     (walletOnActiveChain && side === 'buy' && !buySim.data) ||
                     (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
                   }
@@ -1434,11 +1438,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         ? 'confirming ~~'
                         : receipt.isLoading
                           ? 'waiting..'
-                          : side === 'sell' && needsApproval
-                            ? '✿ approve first'
-                            : side === 'buy'
-                              ? `✿ buy ${(tokenSymbol as string) ?? ''}`
-                              : `sell ${(tokenSymbol as string) ?? ''} ✿`}
+                          : wlEnabled && wlPreFallback && side === 'buy'
+                            ? 'public buys open after WL window'
+                            : side === 'sell' && needsApproval
+                              ? '✿ approve first'
+                              : side === 'buy'
+                                ? `✿ buy ${(tokenSymbol as string) ?? ''}`
+                                : `sell ${(tokenSymbol as string) ?? ''} ✿`}
                 </button>
 
                 {(buySim.error || sellSim.error) && (
