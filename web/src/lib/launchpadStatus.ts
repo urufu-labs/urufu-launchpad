@@ -9,7 +9,7 @@
 ///
 /// Removal flow: flip this to `true`, delete web/src/components/NotLiveYet.tsx,
 /// clean up the import + branch in web/src/app/page.tsx + web/src/app/create/page.tsx.
-export const LAUNCHPAD_LIVE = true;
+export const LAUNCHPAD_LIVE = false;
 
 /// Block number the /flywheel dashboard treats as the "start of history"
 /// on Robinhood chain. Events (splits, buybacks, conversions) at a lower
