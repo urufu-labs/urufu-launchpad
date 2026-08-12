@@ -1671,8 +1671,6 @@ function MetadataPanel({
   // and let a tester think they could edit metadata they didn't own.
   const canEdit = !!wallet && !!launcher && wallet.toLowerCase() === launcher.toLowerCase();
 
-  if (!hasContent && !canEdit) return null;
-
   return (
     <div className="uru-shell uru-shell-tight">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -1706,6 +1704,13 @@ function MetadataPanel({
           {metadata.discord && <Socialz href={metadata.discord} label="discord" />}
           {metadata.tiktok && <Socialz href={metadata.tiktok} label="tiktok" />}
         </div>
+      )}
+      {!hasContent && (
+        <p style={{ fontSize: 12, color: 'var(--anchor-soft)', lineHeight: 1.5, margin: 0 }}>
+          {canEdit
+            ? 'no info added yet ~ tap "add image + info ✿" to give your token a card.'
+            : 'no info added yet ~ waiting on the launcher.'}
+        </p>
       )}
       {editing && canEdit && wallet && (
         <EditMetadataModal
