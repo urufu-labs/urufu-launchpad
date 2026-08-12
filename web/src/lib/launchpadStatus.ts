@@ -25,4 +25,4 @@ export const LAUNCHPAD_LIVE = false;
 /// test-launch show up. If you forget to lower it before launch, the
 /// dashboard reads as "0 URU / 0 ETH / 0 ETH" which is confusing but
 /// never misleading. Lowering it later is a one-line PR.
-export const FLYWHEEL_HISTORY_START_BLOCK = 33_984_882; // go-live block, RH mainnet 2026-08-11
+export const FLYWHEEL_HISTORY_START_BLOCK = 34_686_500; // go-live block, RH mainnet 2026-08-12 (bumped past rehearsal SPLIT at block 34673111)
