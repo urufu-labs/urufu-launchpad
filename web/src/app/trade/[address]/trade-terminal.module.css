@@ -124,12 +124,12 @@
   background: var(--mint);
 }
 
-/// Legacy tag — shown on tokens graduated against an older MHH/Graduator
-/// pair that has since been rotated out. Their v4 pools still trade fine
-/// (each pool's hook is baked into its poolId forever), but the tag makes
-/// clear to buyers that this pool doesn't have the pump.fun-style LP seed
-/// V3 introduced. Warm cream-to-anchor gradient reads "vintage" without
-/// screaming "broken".
+/* Legacy tag — shown on tokens graduated against an older MHH/Graduator
+   pair that has since been rotated out. Their v4 pools still trade fine
+   (each pool's hook is baked into its poolId forever), but the tag makes
+   clear to buyers that this pool doesn't have the pump.fun-style LP seed
+   V3 introduced. Warm cream-to-anchor gradient reads "vintage" without
+   screaming "broken". */
 .legacyPill {
   display: inline-flex;
   align-items: center;
@@ -493,9 +493,9 @@
     font-size: 10px;
   }
 
-  /// Copy button stays visible on mobile — long-press-to-copy on the address
-  /// text works but is not discoverable, and pasting a CA is one of the top
-  /// mobile trade-page interactions.
+  /* Copy button stays visible on mobile — long-press-to-copy on the address
+     text works but is not discoverable, and pasting a CA is one of the top
+     mobile trade-page interactions. */
   .metaLine :global(.uru-chip) {
     min-height: 32px;
     padding: 6px 10px;
