@@ -19,6 +19,7 @@ import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
 import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -239,6 +240,7 @@ function MarketEmpty({
 }
 
 function LaunchCard({ launch }: { launch: MockLaunch }) {
+  const flash = useTradeFlash(launch.address);
   const progress = mockProgressPct(launch);
   const mcap = mockMarketCapEth(launch);
   const spotPriceWei = useMemo(() => mockSpotPriceWei(launch), [launch]);
@@ -258,7 +260,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className={styles.releaseCard}
+      className={`${styles.releaseCard} ${tradeFlashClass(flash)}`.trim()}
     >
       <div className={styles.releaseArtWrap}>
         {image ? (

@@ -21,6 +21,7 @@ import {
   onMockLaunchesChange,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
+import { tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
 import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
 import { useAgo } from '@/lib/useAgo';
 import {
@@ -692,6 +693,7 @@ function StatTile({
 }
 
 function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: PreviewTicket }) {
+  const flash = useTradeFlash(preview ? undefined : launch.address);
   const progress = preview?.progress ?? mockProgressPct(launch);
   // Prefer indexer-supplied imageUrl (shared everywhere), fall back to browser local
   // for the seconds right after launch before the metadata POST completes.
@@ -711,7 +713,7 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
   return (
     <Link
       href={`/trade/${launch.address}`}
-      className="uru-launch-ticket"
+      className={`uru-launch-ticket ${tradeFlashClass(flash)}`.trim()}
       data-tone={tone}
       data-preview={preview ? 'true' : undefined}
     >

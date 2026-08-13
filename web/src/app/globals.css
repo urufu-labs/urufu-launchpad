@@ -537,6 +537,25 @@ body {
 @keyframes uru-marquee { to { transform: translateX(-50%); } }
 .uru-marquee-wrap:hover .uru-marquee-track { animation-play-state: paused; }
 
+/* Buy/sell trade flash — bright pulse on any card/pill representing a token
+   that just had a new trade. Driven by useTradeFlash. Animation-only so a
+   returning-to-neutral component doesn't hold onto flash colors. */
+@keyframes uru-flash-buy {
+  0%   { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); background-color: rgba(46, 204, 113, 0); }
+  20%  { box-shadow: 0 0 0 8px rgba(46, 204, 113, 0.55); background-color: rgba(46, 204, 113, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); background-color: rgba(46, 204, 113, 0); }
+}
+@keyframes uru-flash-sell {
+  0%   { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); background-color: rgba(231, 76, 60, 0); }
+  20%  { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0.55); background-color: rgba(231, 76, 60, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); background-color: rgba(231, 76, 60, 0); }
+}
+.uru-flash-buy  { animation: uru-flash-buy  800ms ease-out; }
+.uru-flash-sell { animation: uru-flash-sell 800ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .uru-flash-buy, .uru-flash-sell { animation: none; }
+}
+
 /* 88x31 button collection */
 .uru-88 {
   display: inline-flex;
