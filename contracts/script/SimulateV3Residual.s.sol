@@ -14,8 +14,8 @@ import {BaseType, LaunchParams, OwnershipMode} from "src/types/VMTypes.sol";
 
 /// @title  SimulateV3Residual
 /// @notice Forked (vm.createSelectFork) mainnet simulation of a realistic
-///         graduation path — many small curve buys until target is crossed
-///         — to measure V3's actual ETH residual under organic user behavior,
+///         graduation path - many small curve buys until target is crossed
+///         - to measure V3's actual ETH residual under organic user behavior,
 ///         NOT the synthetic single-10.6-ETH buy the ChunkyModuleMatrix test
 ///         used to trigger 5.23 ETH dust.
 ///
@@ -38,7 +38,10 @@ contract SimulateV3Residual is Script {
         _simulate("SCENARIO E: single 10 ETH buy (138% overshoot - unrealistic)", 10 ether);
     }
 
-    function _simulate(string memory label, uint256 buyValue) internal {
+    function _simulate(
+        string memory label,
+        uint256 buyValue
+    ) internal {
         console2.log("");
         console2.log("=======================================================");
         console2.log(label);
@@ -67,7 +70,7 @@ contract SimulateV3Residual is Script {
         vm.prank(launcher);
         address token = Router(payable(ROUTER)).launch{value: fee}(p);
 
-        // Buyer sends buyValue in one tx — this is the "large overshoot"
+        // Buyer sends buyValue in one tx - this is the "large overshoot"
         // pattern from ChunkyModuleMatrix. Real graduations have many small
         // buys with only the last one crossing the threshold.
         address curve = CurveFactory(CURVE_FACTORY).curveFor(token);
@@ -84,6 +87,6 @@ contract SimulateV3Residual is Script {
         console2.log("  V3.balance delta:      ", residual);
         console2.log("  totalClaimable delta:  ", credited);
         console2.log("  strand (bal-claim):    ", residual - credited);
-        console2.log("  residual as % of buy:  ", (residual * 10000) / buyValue, "bps");
+        console2.log("  residual as % of buy:  ", (residual * 10_000) / buyValue, "bps");
     }
 }

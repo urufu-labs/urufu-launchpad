@@ -91,6 +91,14 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // and burns leftover tokens. Real on-chain graduation + LP mint; not a real
   // launch. Hidden from feeds so it doesn't clutter discover / marquee.
   '4663:0x21f2b2d48f1a1166f29853ac869fdb0c0667c1f1',
+  // Cliff Check (CLF) — partial launch from V3CliffCheck.s.sol attempt #1
+  // where 0.001 ETH buy + 1% fee left curve.ethReserve 1% short of target
+  // so it never graduated. Sits as a live curve on chain. Hidden from feeds.
+  // Cliff Check 2 (CLF2) — successful V3CliffCheck.s.sol attempt #3 that
+  // did graduate. Proof of NO CLIFF (pool spot matched curve marginal
+  // within 0 bps at 0.001 ETH scale). Real on-chain graduation but not
+  // a real launch, hide from feeds.
+  '4663:0x14ca6b5c38a9eedd22244dccc949cdcef3ea46cc',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {

@@ -709,10 +709,21 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // The `inputWei` state stays as-typed so the user sees what they entered;
   // `buyPayValue` is what actually goes on-chain. When they differ we
   // render a small notice below the input.
+  // Anti-overshoot cap uses the trade-fee bps already read at csResults[6]
+  // (feeBps is declared near line 300 for the header display). The bonding
+  // curve deducts this fee off the top of every buy BEFORE adding to
+  // ethReserve, so buying exactly gradTarget only puts (gradTarget * (1-fee))
+  // into the reserve. To land the reserve on target, the buy is grossed-up:
+  //   grossBuy = need * 10000 / (10000 - feeBps)
   const ethToGraduate = useMemo(() => {
     if (graduated || !gradTarget || ethReserve === undefined) return null;
-    return gradTarget > (ethReserve as bigint) ? (gradTarget as bigint) - (ethReserve as bigint) : 0n;
-  }, [graduated, gradTarget, ethReserve]);
+    const need = gradTarget > (ethReserve as bigint) ? (gradTarget as bigint) - (ethReserve as bigint) : 0n;
+    // Gross up for the 1% (or whatever) trade fee so the buy actually lands the
+    // reserve on target instead of 1% short. Extra 1 wei rounds any integer-
+    // division truncation up so we NEVER end up 1 wei below target.
+    const bps = feeBps ?? 100;
+    return need > 0n ? (need * 10_000n) / BigInt(10_000 - bps) + 1n : 0n;
+  }, [graduated, gradTarget, ethReserve, feeBps]);
 
   const buyPayValue = useMemo(() => {
     if (side !== 'buy' || graduated || ethToGraduate === null) return inputWei;
