@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { formatEther, type Address } from 'viem';
-import { useReadContracts } from 'wagmi';
+import { useBalance, useReadContracts } from 'wagmi';
 
 import { feeSplitterAbi } from '@/lib/abis';
 import { FLYWHEEL, type ChainKey } from '@/lib/config';
@@ -167,10 +167,38 @@ export default function FlywheelPage() {
 
       {feeSplitter && parsed && (
         <>
-          {/* Lifetime totals row — the top-line numbers a visitor should see
-              first: what has actually happened, not what percentages will
-              apply. Three tiles in a line, responsive down to a single column
-              on narrow phones. */}
+          {/* "In the vault right now" — reads on-chain vault balance every
+              10s (useBalance auto-polls) so real users always see how much
+              ETH is currently in the gemu-holder reward pool + URU-buyback
+              pool. Reads from-chain, so display is independent of the
+              FLYWHEEL_HISTORY_START_BLOCK filter that zeros the lifetime
+              tiles below on launch day — meaning pre-launch dev-test
+              deposits DO surface here (they're real ETH in the pot). */}
+          <section
+            className="uru-shell"
+            style={{
+              padding: 16,
+              marginBottom: 12,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+            }}
+          >
+            <VaultBalanceTile
+              label="gemu rewards pool (on-chain)"
+              vaultAddress={nftRevenueVault}
+              tint="var(--mint-hot)"
+            />
+            <VaultBalanceTile
+              label="URU buyback pool (on-chain)"
+              vaultAddress={uruBuybackVault}
+              tint="var(--pink-hot)"
+            />
+          </section>
+
+          {/* Lifetime totals row — post-launch aggregates. Filtered by
+              FLYWHEEL_HISTORY_START_BLOCK so dev-test activity doesn't
+              inflate the launch-day numbers real users see. */}
           <section
             className="uru-shell"
             style={{
@@ -182,17 +210,17 @@ export default function FlywheelPage() {
             }}
           >
             <TotalTile
-              label="URU bought back"
+              label="URU bought back (since launch)"
               value={totals ? formatBig(totals.uruBoughtBack, 'URU') : '—'}
               tint="var(--pink-hot)"
             />
             <TotalTile
-              label="paid to gemu holders"
+              label="paid to gemu holders (since launch)"
               value={totals ? formatBig(totals.ethToGemu, 'ETH') : '—'}
               tint="var(--mint-hot)"
             />
             <TotalTile
-              label="paid to team + ops"
+              label="paid to team + ops (since launch)"
               value={totals ? formatBig(totals.ethToTeam, 'ETH') : '—'}
               tint="var(--yolk-deep)"
             />
@@ -269,6 +297,54 @@ export default function FlywheelPage() {
         rows={liveRows ? liveRows.filter((r) => r.kind !== 'distribution') : null}
         error={activityError}
       />
+    </div>
+  );
+}
+
+/// Real-time on-chain balance tile. Uses wagmi's useBalance with a 10s
+/// refetch interval so the number moves live as fees arrive / claims fire.
+/// Independent of the FLYWHEEL_HISTORY_START_BLOCK filter — always shows
+/// what's actually in the vault at this moment.
+function VaultBalanceTile({
+  label,
+  vaultAddress,
+  tint,
+}: {
+  label: string;
+  vaultAddress: Address | undefined;
+  tint: string;
+}) {
+  const bal = useBalance({
+    address: vaultAddress,
+    chainId: CHAIN_ID,
+    query: {
+      enabled: !!vaultAddress,
+      refetchInterval: 10_000,
+    },
+  });
+  const value = vaultAddress
+    ? bal.data
+      ? formatBig(bal.data.value, 'ETH')
+      : '—'
+    : '—';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div
+        className="uru-num"
+        style={{
+          fontSize: 22,
+          lineHeight: 1.15,
+          fontFamily: 'var(--font-round), cursive',
+          borderBottom: `2px solid ${tint}`,
+          paddingBottom: 3,
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
+        {label}
+        <span style={{ marginLeft: 6, color: 'var(--mint-hot)', fontSize: 9 }}>● live</span>
+      </div>
     </div>
   );
 }
