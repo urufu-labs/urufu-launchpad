@@ -55,7 +55,15 @@ export async function generateMetadata(
 
   const pageUrl = `https://urufulabs.xyz/trade/${addr}`;
 
-  // Preserve root icons + metadataBase; only override title/description/openGraph/twitter.
+  // Force the static /og-1200x630.jpg for BOTH the OG and Twitter image.
+  // The colocated opengraph-image.tsx (dynamic satori) has been unreliable
+  // — HTTP 500 for tokens with any real-world uploaded image, and Vercel
+  // hard-caches those 500s at the edge. Home page works because it uses
+  // the static JPG; matching that pattern unbreaks share cards for every
+  // trade page immediately. Per-token image customization can come back
+  // later via a build-time bake if we want it.
+  const STATIC_OG = 'https://urufulabs.xyz/og-1200x630.jpg';
+
   return {
     title: displayTitle,
     description,
@@ -63,19 +71,18 @@ export async function generateMetadata(
       canonical: pageUrl,
     },
     openGraph: {
-      // Inherit metadataBase, siteName from parent so relative image URLs still work.
       ...(prev.openGraph ?? {}),
       title: displayTitle,
       description,
       url: pageUrl,
       type: 'website',
-      // opengraph-image.tsx in this same folder handles the actual image URL —
-      // Next.js picks it up automatically. No need to override `images` here.
+      images: [{ url: STATIC_OG, width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: displayTitle,
       description,
+      images: [STATIC_OG],
     },
   };
 }
