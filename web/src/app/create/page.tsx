@@ -74,6 +74,41 @@ const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
 const ALWAYS_ON_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
 const PER_LAUNCH_HOOKS = new Set(['AntiSniper', 'BuybackBurn']);
 
+/// Chars we strip from ANY user-supplied display string (name, ticker,
+/// eventually description). These are the classes that cause real trouble
+/// when rendered in wallets, block explorers, dex frontends, or our own UI:
+///
+///   - Control chars (U+0000-U+001F, U+007F-U+009F): break layouts, some
+///     terminals interpret them as escape sequences
+///   - Bidirectional overrides (U+202A-U+202E, U+2066-U+2069): let attackers
+///     reverse-render text ("USDC" that's actually "cDSU" reversed), the
+///     classic homograph phishing vector
+///   - Zero-width chars (U+200B-U+200F, U+FEFF): invisible; used to spoof
+///     tickers ("USDC" with a hidden ZWSP is a different string than "USDC")
+///   - Line separators (U+2028, U+2029): break some card/pill layouts
+///   - Word-joiners / invisible separators (U+2060-U+2064): same story
+///
+/// Emoji, kaomoji, CJK, Latin-with-diacritics, Cyrillic, Greek, Arabic —
+/// all pass through. The line is "printable and visible" vs "invisible or
+/// attack-vector."
+const DISPLAY_STRIP_RE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+function sanitizeDisplayString(input: string): string {
+  return input.replace(DISPLAY_STRIP_RE, '');
+}
+
+/// Ticker sanitizer. Historically we forced UPPERCASE ASCII to keep tickers
+/// terminal-friendly. Now that kaomoji + CJK + emoji tickers are a real
+/// user ask, the rule becomes: preserve non-ASCII case (some scripts don't
+/// have case; many kaomoji use case-sensitive Latin like `Ơ` vs `ơ`), but
+/// keep the uppercase habit for pure-ASCII input so someone typing "luv"
+/// still gets "LUV" like they expect.
+function sanitizeTicker(input: string): string {
+  const cleaned = sanitizeDisplayString(input);
+  const asciiOnly = /^[\x00-\x7F]*$/.test(cleaned);
+  return asciiOnly ? cleaned.toUpperCase() : cleaned;
+}
+
 export default function CreatePage() {
   if (!LAUNCHPAD_LIVE) {
     return <NotLiveYet />;
@@ -1648,7 +1683,7 @@ function CreatePageContent() {
                     <input
                       className="uru-input"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => setName(sanitizeDisplayString(e.target.value))}
                       placeholder="urufu labs coin"
                       maxLength={32}
                     />
@@ -1656,11 +1691,11 @@ function CreatePageContent() {
                   </Field>
                   <Field label="ticker">
                     <input
-                      className="uru-input uppercase"
+                      className="uru-input"
                       value={ticker}
-                      onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                      onChange={(e) => setTicker(sanitizeTicker(e.target.value))}
                       placeholder="URUFU"
-                      maxLength={10}
+                      maxLength={20}
                     />
                     <NameStatus data={tickerQuery.data} isFetching={tickerQuery.isFetching} enabled={ticker.length >= 2} />
                   </Field>
