@@ -105,6 +105,9 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // config before setDefaults committed the production values. Real
   // graduation but not a real launch.
   '4663:0x2c0a57ef2698a881cda6f5106fa6748fa4713a81',
+  // Duplicate Urufu Gemuse (GEMUSE) — the canonical one holders trade on is
+  // 0xe228..bb3. This 0xf382 clone shouldn't appear in feeds.
+  '4663:0xf382db5729bcbc61bc2fbc63f0b6ba93049cbb4a',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
