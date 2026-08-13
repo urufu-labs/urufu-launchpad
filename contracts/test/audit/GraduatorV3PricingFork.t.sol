@@ -53,8 +53,15 @@ contract GraduatorV3PricingForkTest is Test {
 
     address internal constant ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
     address internal constant CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
-    address internal constant V10_GRADUATOR = 0xA29Ee1DB0a7C53e4733092C46C00d09feb1dFFC1;
-    address internal constant V10_MHH = 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4;
+    // Live V3 + V11 addresses now that CurveFactory.graduator was rotated
+    // to V3 on 2026-08-13 and MHH to V11 in the same broadcast. The earlier
+    // vm.etch-over-V10 approach doesn't apply anymore because CF now dispatches
+    // to the REAL V3 at V3_GRADUATOR, not the etched V10 slot.
+    address internal constant V3_GRADUATOR = 0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23;
+    address internal constant V11_MHH = 0x83d6fa59BEF503112887b16277CF559fDC93E0C4;
+    // Kept for backward-compatible name references in this file's body.
+    address internal constant V10_GRADUATOR = V3_GRADUATOR;
+    address internal constant V10_MHH = V11_MHH;
     address internal constant POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
     address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -76,12 +83,15 @@ contract GraduatorV3PricingForkTest is Test {
         }
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
 
-        // Etch V3 over the live Graduator so the CF → Graduator chain routes
-        // to V3 without needing to touch CurveFactory.setGraduator on the
-        // fork. Storage preserved (owner, claimableRefunds).
+        // V3 is now REAL on-chain at V3_GRADUATOR — no etch needed. The
+        // constants V10_GRADUATOR / V10_MHH above alias to V3 / V11 so the
+        // rest of this file's body compiles unchanged. The vm.etch call is
+        // a no-op-equivalent (etches V3 code onto its own address).
         GraduatorV3 v3Impl =
-            new GraduatorV3(IPoolManager(POOL_MANAGER), IHooks(V10_MHH), 3000, 60, CURVE_FACTORY, DEPLOYER);
-        vm.etch(V10_GRADUATOR, address(v3Impl).code);
+            new GraduatorV3(IPoolManager(POOL_MANAGER), IHooks(V11_MHH), 3000, 60, CURVE_FACTORY, DEPLOYER);
+        // Belt-and-suspenders: still etch in case a future rotation moves the
+        // live V3. Harmless when live V3 == the code being etched.
+        vm.etch(V3_GRADUATOR, address(v3Impl).code);
 
         vm.deal(launcher, 10 ether);
         vm.deal(buyer, 10 ether);

@@ -13,6 +13,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SetChunkyDefaults} from "script/SetChunkyDefaults.s.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
+import {GraduatorV3} from "src/curve/GraduatorV3.sol";
 import {Router} from "src/router/Router.sol";
 import {BaseType, LaunchParams, OwnershipMode} from "src/types/VMTypes.sol";
 
@@ -245,12 +246,15 @@ contract ChunkyModuleMatrixForkTest is Test {
         assertEq(bc.ethReserve(), 0, _tag(name_, "curve ETH not drained"));
         assertEq(bc.tokenReserve(), 0, _tag(name_, "curve tokens not drained"));
 
-        // LP mint rounding leaves a few μETH of dust in the Graduator (V8+ raw-
-        // ratio pricing). GraduatorV2.sweep(owner) recovers it. Anything above
-        // ~0.001 ETH per graduation would be an LP-math regression; below is
-        // deterministic rounding residue. Assertion pre-V8 used == 0 because
-        // the older LP math didn't have this residue.
-        assertLe(GRADUATOR.balance, 0.001 ether, _tag(name_, "LIVE graduator dust exceeded 0.001 ETH"));
+        // V3 leaves some ETH credited to the launcher via claimableRefunds
+        // when the LP mint absorbs less ETH than the curve delivered (marginal-
+        // pricing math means tokens can be the limiting side). That credit is
+        // NOT stranded ETH — it's accounted for in `totalClaimable`. The real
+        // "strand" is balance - totalClaimable, which should be tiny (only
+        // integer rounding). Assertion updated from V2-era `balance <= dust`
+        // to V3-appropriate `balance - claimable <= dust`.
+        uint256 strand = GRADUATOR.balance - GraduatorV3(payable(GRADUATOR)).totalClaimable();
+        assertLe(strand, 0.001 ether, _tag(name_, "LIVE graduator unaccounted strand exceeded 0.001 ETH"));
 
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0)),

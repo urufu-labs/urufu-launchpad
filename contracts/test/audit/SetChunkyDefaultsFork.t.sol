@@ -13,6 +13,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {SetChunkyDefaults} from "script/SetChunkyDefaults.s.sol";
 import {CurveFactory} from "src/curve/CurveFactory.sol";
 import {BondingCurve} from "src/curve/BondingCurve.sol";
+import {GraduatorV3} from "src/curve/GraduatorV3.sol";
 import {Router} from "src/router/Router.sol";
 import {V4SwapRouter} from "src/router/V4SwapRouter.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
@@ -150,15 +151,15 @@ contract SetChunkyDefaultsForkTest is Test {
         assertEq(bc.ethReserve(), 0, "phase2: curve ETH not drained");
         assertEq(bc.tokenReserve(), 0, "phase2: curve tokens not drained");
 
-        // CRITICAL — the V7 stranding regression check on the LIVE graduator.
-        // V7 could strand full graduation-ETH amounts (multi-ether). V8+ LP-math
-        // fix leaves μETH-scale rounding dust that owner.sweep() recovers. If
-        // this ever exceeds 0.001 ETH per graduation, real stranding is back.
-        assertLe(
-            GRADUATOR.balance,
-            0.001 ether,
-            "phase2: LIVE graduator dust exceeded 0.001 ETH (real stranding regression?)"
-        );
+        // CRITICAL - real ETH stranding check.
+        // V3 legitimately holds ETH in `claimableRefunds` when the LP mint
+        // absorbs less ETH than the curve delivered (marginal-pricing means
+        // tokens may be the limiting side). That credit is accounted for
+        // via `totalClaimable` and can be pulled by the launcher — not
+        // stranded. Real strand = balance - totalClaimable. If THAT ever
+        // exceeds 0.001 ETH, unaccounted ETH is genuinely stuck.
+        uint256 strand = GRADUATOR.balance - GraduatorV3(payable(GRADUATOR)).totalClaimable();
+        assertLe(strand, 0.001 ether, "phase2: LIVE graduator unaccounted strand exceeded 0.001 ETH");
 
         // ------------------------------------------------------ chunky LP shape
         uint256 lpTokens = IERC20V(token).balanceOf(POOL_MANAGER);
