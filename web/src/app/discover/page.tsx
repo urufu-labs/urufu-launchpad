@@ -302,7 +302,12 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
           </h2>
           <span>${launch.ticker}</span>
         </div>
-        {launch.description && <p>{launch.description}</p>}
+        {/* Always render the description slot even when empty — the CSS
+            min-height:31px reservation only fires when the <p> exists, so
+            omitting it (as we did for tokens without a description) pulled
+            the whole rest of the card up and misaligned progress bars
+            between cards. Rendering an nbsp preserves the slot silently. */}
+        <p>{launch.description || ' '}</p>
       </div>
 
       <div className={styles.metrics}>
