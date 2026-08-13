@@ -658,7 +658,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (newest) setV4LatestSqrt(newest.sqrtPriceX96);
     };
     load();
-    const id = setInterval(load, 30_000);
+    // 5s poll (was 30s) so post-graduation chart ticks visibly. Same cadence
+    // as the curve trades poll -- makes the chart feel real-time. Ponder can
+    // handle it at the trade-page scale (single-token filter, small window).
+    const id = setInterval(load, 5_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [graduated, tokenAddress, v4RefetchTick]);
 

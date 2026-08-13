@@ -83,6 +83,13 @@ async function gqlAt<T>(
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query, variables }),
         signal: AbortSignal.timeout(5_000),
+        // cache: 'no-store' forces the browser + any edge in the path to
+        // fetch fresh instead of serving a cached response for the same
+        // POST body. Without this, users watching the trade page saw the
+        // chart freeze between their own tx confirms even though the
+        // indexer had newer data — same POST URL + body kept returning
+        // cached results until their next tx forced a fresh network hit.
+        cache: 'no-store',
       });
       if (res.ok) {
         const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
