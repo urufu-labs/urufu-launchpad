@@ -59,7 +59,15 @@ async function loadTokenCard(address: string): Promise<TokenCard> {
 // Next.js 16 route params are Promise-shaped.
 export default async function OgImage({ params }: { params: Promise<{ address: string }> }) {
   const { address } = await params;
-  const { name, ticker } = await loadTokenCard(address);
+  // TEMPORARILY skipping the indexer fetch to isolate whether an unhandled
+  // async error inside fetchLaunchesByTokens or downstream JSON parsing is
+  // what crashes LUV's OG endpoint (but not V3TC's). Render a generic card
+  // with the address suffix so the endpoint always returns a valid PNG.
+  // Once verified working, we restore the indexer call gated on address so
+  // one bad response can't take down the entire route.
+  const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : '';
+  const name = 'urufu labs token';
+  const ticker = short.toUpperCase();
 
   return new ImageResponse(
     (
