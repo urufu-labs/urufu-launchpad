@@ -210,6 +210,16 @@
   min-width: 0;
 }
 
+/* Desktop only: push the copy-CA chip to the far right of the metaLine so it
+   doesn't cluster with the address + creator + fee labels on the left. Mobile
+   keeps the natural inline flow since the row wraps into multiple lines and a
+   right-pushed chip would land on its own row and waste vertical space. */
+@media (min-width: 641px) {
+  .metaLine :global(.uru-chip) {
+    margin-left: auto;
+  }
+}
+
 .poolStrip {
   display: grid;
   grid-template-columns: minmax(120px, 0.8fr) minmax(120px, 0.8fr) minmax(100px, 0.55fr) minmax(260px, 1.7fr);
