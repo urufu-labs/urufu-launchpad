@@ -377,11 +377,14 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
   useEffect(() => {
     if (!curveAddress) return;
-    // Chart series requires virtual reserves to compute spot-after-trade prices.
-    // Bail until they load; the useReadContracts above will retrigger this
-    // effect once they arrive. Virtual reserves are static, so we only wait
-    // once per session.
-    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    // Virtual reserves used to be a hard prerequisite — if the wagmi read
+    // hadn't landed yet (common for anonymous users on mobile before
+    // hydration completes) the chart stayed blank until they connected a
+    // wallet. Now: if virtuals are missing, fall back to the indexer's
+    // per-trade `priceWeiPerToken` field which is realized-average price
+    // and plots cleanly on its own. Chart lines appear immediately for
+    // anon visitors; once wagmi's read lands we recompute with the more
+    // accurate spot-after-trade formula.
     const vE = virtualEthReserve;
     const vT = virtualTokenReserve;
     let cancelled = false;
@@ -392,7 +395,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       if (indexed && indexed.length > 0) {
         const pts: TradePoint[] = indexed.map((t) => ({
           timestamp: Number(t.blockTimestamp),
-          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
+          priceWeiPerToken: (vE !== undefined && vT !== undefined)
+            ? spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter))
+            : BigInt(t.priceWeiPerToken),
           isBuy: t.isBuy,
         }));
         const rec = indexed.slice().reverse().slice(0, 200).map((t) => ({
@@ -408,8 +413,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       }
 
       // 2) Fallback: client-side getLogs with a bounded lookback. Works before the indexer
-      //    exists — dies at scale but that's fine for launch day.
-      if (!publicClient) return;
+      //    exists — dies at scale but that's fine for launch day. Needs virtual reserves
+      //    to compute spot from the Trade event payload; skip until they land (indexer path
+      //    already covered the wallet-less anon case).
+      if (!publicClient || vE === undefined || vT === undefined) return;
       try {
         const currentBlock = await publicClient.getBlockNumber();
         const fromBlock = currentBlock > 5000n ? currentBlock - 5000n : 0n;
@@ -463,7 +470,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // rate limits after several thousand ticks in the same tab).
   useEffect(() => {
     if (!curveAddress) return;
-    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    // Same fallback as the initial load: use indexer's per-trade price if
+    // virtual reserves aren't loaded (anon users pre-hydration).
     const vE = virtualEthReserve;
     const vT = virtualTokenReserve;
     const id = setInterval(async () => {
@@ -472,7 +480,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       setTradePoints(
         indexed.map((t) => ({
           timestamp: Number(t.blockTimestamp),
-          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
+          priceWeiPerToken: (vE !== undefined && vT !== undefined)
+            ? spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter))
+            : BigInt(t.priceWeiPerToken),
           isBuy: t.isBuy,
         })),
       );
@@ -877,7 +887,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // on the receipt hash so it only runs once per successful confirm.
   useEffect(() => {
     if (!receipt.data || !curveAddress) return;
-    if (virtualEthReserve === undefined || virtualTokenReserve === undefined) return;
+    // Same fallback pattern: never gate on virtual reserves. If they're
+    // there we compute the exact spot; if not (anon-race), fall through
+    // to indexer's per-trade price so the chart tail always updates.
     const vE = virtualEthReserve;
     const vT = virtualTokenReserve;
     let cancelled = false;
@@ -887,7 +899,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       setTradePoints(
         indexed.map((t) => ({
           timestamp: Number(t.blockTimestamp),
-          priceWeiPerToken: spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter)),
+          priceWeiPerToken: (vE !== undefined && vT !== undefined)
+            ? spotFromReserves(vE, vT, BigInt(t.ethReserveAfter), BigInt(t.tokenReserveAfter))
+            : BigInt(t.priceWeiPerToken),
           isBuy: t.isBuy,
         })),
       );
