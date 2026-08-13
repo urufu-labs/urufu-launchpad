@@ -21,7 +21,7 @@ import { fetchLaunchesByTokens } from '@/lib/indexer';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
-// Node runtime for the indexer fetch. No external image loading paths
+// Node runtime for the indexer fetch (build v2). No external image loading paths
 // remain, so nothing here can fail from network flakiness.
 export const runtime = 'nodejs';
 
