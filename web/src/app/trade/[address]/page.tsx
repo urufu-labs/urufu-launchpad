@@ -995,24 +995,58 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   /// priceWeiPerToken() reads virtual reserves (real ones were drained to the pool) so
   /// it silently returns a wrong number — use the v4 pool spot instead. Pre-graduation
   /// the curve's read IS the truth.
+  // Fallback derived from the latest indexed trade point. When wagmi's curve
+  // read is racing (anon users pre-hydration, mobile without wallet), the
+  // trade points array already has valid prices from the indexer — use the
+  // most-recent one as spot so header + chart tell the same story. Same
+  // pattern for post-grad using v4TradePoints.
+  const latestIndexedSpot = useMemo<bigint | undefined>(() => {
+    if (graduated) {
+      const last = v4TradePoints[v4TradePoints.length - 1];
+      return last?.priceWeiPerToken;
+    }
+    const last = tradePoints[tradePoints.length - 1];
+    return last?.priceWeiPerToken;
+  }, [graduated, tradePoints, v4TradePoints]);
+
   const effectiveSpotPrice = useMemo<bigint>(() => {
-    if (graduated) return poolSpotPriceEthPerToken;
-    return (spotPrice as bigint | undefined) ?? 0n;
-  }, [graduated, poolSpotPriceEthPerToken, spotPrice]);
+    if (graduated) {
+      return poolSpotPriceEthPerToken > 0n
+        ? poolSpotPriceEthPerToken
+        : (latestIndexedSpot ?? 0n);
+    }
+    return (spotPrice as bigint | undefined) ?? latestIndexedSpot ?? 0n;
+  }, [graduated, poolSpotPriceEthPerToken, spotPrice, latestIndexedSpot]);
 
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
 
+  // Fetch total supply from the indexer as a fallback when wagmi's read
+  // hasn't returned (anon users pre-hydration). Every launched token uses
+  // the CurveFactory default supply which is available via IndexerCurve.
+  const [indexedTotalSupply, setIndexedTotalSupply] = useState<bigint | undefined>();
+  useEffect(() => {
+    if (!tokenAddress) return;
+    let cancelled = false;
+    (async () => {
+      const c = await fetchCurveByToken(tokenAddress);
+      if (cancelled) return;
+      if (c?.curveSupply) setIndexedTotalSupply(BigInt(c.curveSupply));
+    })();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
+
   const marketCap = useMemo<bigint | null>(() => {
-    if (!tokenTotalSupply) return null;
-    // Post-graduation: use v4 pool spot × totalSupply. Pre-graduation: use curve spot.
-    // Return null (not 0n) while we're still waiting for a spot to load — otherwise the
-    // header would render "0.0000 Ξ" in the seconds between graduation flipping and slot0
-    // returning, which reads as "worth nothing" instead of "still loading."
-    const spot = graduated ? poolSpotPriceEthPerToken : ((spotPrice as bigint | undefined) ?? 0n);
+    // Prefer wagmi's read (exact totalSupply from token contract); fall back
+    // to indexer's curveSupply (same value in practice — every launch uses
+    // the curve's supply as the mint amount). Guarantees MC renders for
+    // anon users where wagmi reads are racing.
+    const supply = (tokenTotalSupply as bigint | undefined) ?? indexedTotalSupply;
+    if (!supply) return null;
+    const spot = effectiveSpotPrice;
     if (spot === 0n) return null;
-    return (spot * (tokenTotalSupply as bigint)) / 10n ** 18n;
-  }, [graduated, poolSpotPriceEthPerToken, spotPrice, tokenTotalSupply]);
+    return (spot * supply) / 10n ** 18n;
+  }, [effectiveSpotPrice, tokenTotalSupply, indexedTotalSupply]);
 
   // ============================================================================
 
