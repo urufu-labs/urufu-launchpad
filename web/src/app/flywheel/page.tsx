@@ -125,7 +125,9 @@ export default function FlywheelPage() {
   /// launchpadStatus.ts for the flip procedure.
   const liveRows = useMemo(() => {
     if (!activityRows) return null;
-    return activityRows.filter((r) => Number(r.blockNumber) >= FLYWHEEL_HISTORY_START_BLOCK);
+    return activityRows
+      .filter((r) => Number(r.blockNumber) >= FLYWHEEL_HISTORY_START_BLOCK)
+      .filter((r) => !isEmptyDistribution(r));
   }, [activityRows]);
 
   const totals = useMemo(() => {
@@ -528,6 +530,20 @@ function formatEth(v: string | undefined): string {
   const [whole, frac = ''] = s.split('.');
   const trimmed = frac.slice(0, 4).replace(/0+$/, '');
   return trimmed ? `${whole}.${trimmed}` : (whole ?? '0');
+}
+
+/// Distributions where every slice rounds to "0" at 4-dec display are noise
+/// (a dust sweep that produced sub-1e14-wei slices). Drop them so the feed
+/// only shows rows a viewer can read a real value off of. Non-distribution
+/// rows always pass through.
+function isEmptyDistribution(row: FlywheelActivityRow): boolean {
+  if (row.kind !== 'distribution') return false;
+  return (
+    formatEth(row.total) === '0' ||
+    (formatEth(row.toBuyback) === '0' &&
+      formatEth(row.toNft) === '0' &&
+      formatEth(row.toTreasury) === '0')
+  );
 }
 
 function SplitBar({ parts }: { parts: Array<{ label: string; bps: number; color: string }> }) {
