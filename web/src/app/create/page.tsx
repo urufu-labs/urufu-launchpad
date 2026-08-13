@@ -441,11 +441,10 @@ function CreatePageContent() {
   });
   const curveSupplyWei = (curveDefaultSupplyQuery.data as bigint | undefined) ?? 800_000_000n * 10n ** 18n;
   const useCurve = base === 'ERC20';
-  /// Quick-launch defaults, evaluated once. Sniper gate hardcoded to 5 L1
-  /// blocks (~60 sec on RH — one Ethereum block cadence); buyback-burn is
-  /// intentionally 0 per product decision (users can still opt in via
-  /// customizable curve).
-  const QUICK_ANTI_SNIPER_BLOCKS = 5;
+  /// Quick-launch defaults. Sniper gate at 1 L1 block (~12s on RH — one
+  /// Ethereum block cadence); short enough to be invisible to real buyers,
+  /// long enough to price out the fastest MEV searchers on the fresh v4 pool.
+  const QUICK_ANTI_SNIPER_BLOCKS = 1;
   /// L1 block cadence used to translate the launcher's seconds input into
   /// the blocks-based `params.antiSniperBlocks` the MHH gate uses. RH is on
   /// Arbitrum stack: `block.number` inside a contract returns the L1 block
