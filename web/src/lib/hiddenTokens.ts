@@ -99,6 +99,12 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // within 0 bps at 0.001 ETH scale). Real on-chain graduation but not
   // a real launch, hide from feeds.
   '4663:0x14ca6b5c38a9eedd22244dccc949cdcef3ea46cc',
+  // PumpFun Rollout Test (PFT) — PumpFunCurveRollout.s.sol used a real
+  // 0.001-ETH-target graduation to verify V3 still seeds pool at curve
+  // marginal (0-bps diff) with the new steeper virtEth=2, virtTok=200M
+  // config before setDefaults committed the production values. Real
+  // graduation but not a real launch.
+  '4663:0x2c0a57ef2698a881cda6f5106fa6748fa4713a81',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {
