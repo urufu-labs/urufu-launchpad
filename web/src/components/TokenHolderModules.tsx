@@ -242,8 +242,8 @@ function StakingPanel({
         <Stat label="total staked" value={fmt(total, decimals)} />
         <Stat
           label="reward rate"
-          value={`${fmt(rewardRate, decimals)}/sec`}
-          title="tokens paid per second, split pro-rata across all stakers"
+          value={`${fmt(rewardRate * 86_400n, decimals)}/day`}
+          title="total tokens paid per day, split pro-rata across all stakers"
         />
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'stretch' }}>
@@ -437,11 +437,20 @@ const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 
 function fmt(v: bigint, decimals: number): string {
   const s = formatUnits(v, decimals);
-  // Trim trailing zeros and stray dot; keep up to 4 fractional digits for readability.
   const [whole, frac = ''] = s.split('.');
   if (!frac) return whole ?? '0';
-  const trimmed = frac.slice(0, 4).replace(/0+$/, '');
-  return trimmed ? `${whole}.${trimmed}` : (whole ?? '0');
+  // Adaptive precision: when the whole part is 0, extend the fractional
+  // window past leading zeros so tiny amounts (staking earned in wei-scale,
+  // reward-rate-per-sec, etc.) don't display as flat "0". Cap at 12 to
+  // keep readability sane.
+  const wholeIsZero = !whole || whole === '0';
+  let maxFrac = 4;
+  if (wholeIsZero) {
+    const leadingZeros = frac.match(/^0+/)?.[0].length ?? 0;
+    maxFrac = Math.min(12, leadingZeros + 4);
+  }
+  const trimmed = frac.slice(0, maxFrac).replace(/0+$/, '');
+  return trimmed ? `${whole || '0'}.${trimmed}` : (whole ?? '0');
 }
 
 function short(a: Address): string {
