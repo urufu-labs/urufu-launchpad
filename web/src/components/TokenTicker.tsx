@@ -10,16 +10,17 @@
 /// from whether an indexer curves-table row exists, not from a possibly-stale
 /// installedBondingCurve bit on the launches row.
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
-import { launchKind, mockSpotPriceWei } from '@/lib/mockLaunches';
+import { launchKind, mockSpotPriceWei, type MockLaunch } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { startTradeFlashPolling, tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
+import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 
 export function TokenTicker() {
   const activeChain = useActiveChain();
@@ -82,15 +83,25 @@ export function TokenTicker() {
 
 /// Individual ticker pill. Extracted so it can subscribe to per-token flash
 /// state via the shared bus without forcing the parent to re-render every
-/// pill on every flash event.
+/// pill on every flash event. Renders the token's own artwork (from the
+/// indexer's `imageUrl` or browser-local metadata if the indexer hasn't
+/// caught up yet), falling back to `logoBg` + `logoEmoji` when neither is
+/// available — same precedence LaunchTile and LaunchCard use.
 function TickerPill({
   launch,
   priceStr,
 }: {
-  launch: { address: string; ticker: string; logoEmoji: string; graduated: boolean };
+  launch: MockLaunch;
   priceStr: string;
 }) {
   const flash = useTradeFlash(launch.address);
+  const [localImage, setLocalImage] = useState<string | undefined>();
+  useEffect(() => {
+    if (launch.imageUrl) return;
+    const m = loadMetadata(launch.chainId, launch.address);
+    if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
+  }, [launch.imageUrl, launch.chainId, launch.address]);
+  const image = launch.imageUrl ?? localImage;
   return (
     <Link
       href={`/trade/${launch.address}`}
@@ -105,7 +116,24 @@ function TickerPill({
         borderLeft: `2px solid ${launch.graduated ? 'var(--mint-hot,#2b8a3e)' : 'var(--pink-hot)'}`,
       }}
     >
-      <span style={{ fontSize: 13 }}>{launch.logoEmoji}</span>
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-block',
+          width: 16,
+          height: 16,
+          borderRadius: 3,
+          background: safeBackgroundImage(image, launch.logoBg),
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          fontSize: 12,
+          lineHeight: '16px',
+          textAlign: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {!image && launch.logoEmoji}
+      </span>
       <span style={{ fontWeight: 700 }}>${launch.ticker}</span>
       <span style={{ color: 'var(--anchor-soft)' }}>{priceStr}</span>
       {launch.graduated && <span style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>✿ grad</span>}
