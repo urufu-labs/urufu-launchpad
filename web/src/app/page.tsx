@@ -455,11 +455,6 @@ function HomePageContent() {
               Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
               a protected opening.
             </p>
-            <div className="uru-home-flags" aria-label="Launch properties">
-              <span>erc-20</span>
-              <span data-tone="mint">uniswap v4</span>
-              <span data-tone="pink">anti-sniper</span>
-            </div>
             <div className="uru-home-actions">
               <Link href="/create" className="uru-btn uru-btn-primary">
                 launch a token <span className="uru-arrow">→</span>
