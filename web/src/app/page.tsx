@@ -31,6 +31,7 @@ import {
 } from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS } from '@/lib/config';
+import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
 // All tabs are curve-only now; the create page only launches curves (quick +
@@ -724,6 +725,28 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
           {!logoDataUrl && launch.logoEmoji}
         </div>
         <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
+        {/* Match the discover-page badge treatment so users see legacy /
+            cliff-risk stickers wherever a token appears (home rail + discover +
+            trade page). Read from the shared legacyGraduations helpers so the
+            three surfaces stay in sync. */}
+        {!preview && isLegacyGraduated(launch.address, launch.graduated) && (
+          <span
+            className="uru-launch-ticket-tag"
+            style={{ background: 'linear-gradient(135deg, var(--cream-deep) 0%, var(--pink-warm) 100%)' }}
+            title="graduated on the older MHH + Graduator (pre-V3). Pool was seeded at raw ratio."
+          >
+            ✿ legacy
+          </span>
+        )}
+        {!preview && willGraduateLegacy(launch.address, launch.graduated) && (
+          <span
+            className="uru-launch-ticket-tag"
+            style={{ background: 'var(--yolk)', color: 'var(--anchor)', fontWeight: 700 }}
+            title="curve is on the old graduator; expect a price cliff on Uniswap after graduation."
+          >
+            ⚠ cliff
+          </span>
+        )}
       </div>
       <span
         className="uru-launch-ticket-name"

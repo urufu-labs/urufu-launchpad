@@ -154,7 +154,11 @@
 
 .ledgerHead {
   display: grid;
-  grid-template-columns: 86px 82px minmax(0, 1fr);
+  /* Column order matches the row DOM: event (fixed) | body (grow) | age (fixed).
+     Earlier this was 86px 82px 1fr for old (age|event|body) order; when I swapped
+     the row DOM to event|body|age the header stayed in the old shape and body got
+     squished into 82px while age took the whole 1fr. */
+  grid-template-columns: 60px minmax(0, 1fr) 80px;
   gap: 10px;
   padding: 7px 10px;
   border-bottom: 2px solid var(--anchor);
@@ -177,7 +181,8 @@
 
 .ledgerRow {
   display: grid;
-  grid-template-columns: 86px 82px minmax(0, 1fr);
+  /* event (60px, fits "LAUNCH") | body (grow) | age (80px, fits "12h ago"). */
+  grid-template-columns: 60px minmax(0, 1fr) 80px;
   gap: 10px;
   align-items: baseline;
   padding: 8px 10px;
