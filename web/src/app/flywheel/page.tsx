@@ -288,15 +288,7 @@ export default function FlywheelPage() {
         </>
       )}
 
-      {/* Feed shows OUTCOMES (buybacks, URU→ETH conversions), NOT plumbing.
-          Distribution splits fire on every trade sweep — they're constant
-          background noise and would drown out the events holders actually
-          care about (a buyback happened, a conversion moved through the
-          sink). The totals row above still aggregates distribution data. */}
-      <ActivityFeed
-        rows={liveRows ? liveRows.filter((r) => r.kind !== 'distribution') : null}
-        error={activityError}
-      />
+      <ActivityFeed rows={liveRows} error={activityError} />
     </div>
   );
 }
