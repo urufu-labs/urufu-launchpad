@@ -48,10 +48,19 @@ export async function generateMetadata(
   const ticker = row?.ticker ?? '';
   const displayTitle = ticker ? `$${ticker} ~ ${name}` : name;
 
-  // Description: prefer the launcher's own; fall back to a short branded line.
-  const description = meta?.description?.trim()
-    ? meta.description.trim()
-    : `Trade ${displayTitle} on urufu labs — culture-first token launchpad on Robinhood Chain.`;
+  // Description: wrap the launcher's own description (or a friendly default)
+  // in a cute urufu-labs frame so every share card reads playfully. The
+  // static OG image doesn't carry per-token art anymore, so the copy does
+  // the heavy lifting.
+  const rawDesc = meta?.description?.trim();
+  const tickerPart = ticker ? `$${ticker}` : displayTitle;
+  const opener = `✿ ${tickerPart} launched on urufu labs`;
+  const midParts: string[] = [];
+  if (rawDesc) midParts.push(rawDesc);
+  midParts.push('tap tap trade on urufulabs.xyz ~');
+  // Twitter caps descriptions around 200 chars — keep the whole thing tight
+  // so the crawler doesn't truncate mid-word.
+  const description = `${opener} ~ ${midParts.join(' ~ ')}`.slice(0, 197).replace(/\s+$/, '') + ' ✿';
 
   const pageUrl = `https://urufulabs.xyz/trade/${addr}`;
 
