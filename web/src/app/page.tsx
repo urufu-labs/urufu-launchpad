@@ -452,7 +452,7 @@ function HomePageContent() {
         <section className="uru-home-stat-strip" aria-label="Launchpad statistics">
           <StatTile label="tokens" jp="数" value={displayedStats.tokens} />
           <StatTile label="graduated" jp="卒業" value={displayedStats.graduated} accent="mint" />
-          <StatTile label="eth raised" jp="集金" value={displayedStats.ethRaised} accent="pink" />
+          <StatTile label="total in curves" jp="貯留" value={displayedStats.ethRaised} accent="pink" />
           <StatTile label="trades" jp="取引" value={displayedStats.trades} />
           <StatTile label="chain" jp="鎖" value={displayedStats.chain} accent="mizuiro" />
         </section>
@@ -760,7 +760,7 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
           curve<b>{launch.graduated ? '100%' : `${progress.toFixed(0)}%`}</b>
         </span>
         <span>
-          raised<b>{raised}</b>
+          in curve<b>{raised}</b>
         </span>
       </div>
       <div className="uru-launch-ticket-progress" aria-label={`${progress.toFixed(0)} percent of the bonding curve`}>
@@ -860,7 +860,7 @@ function CultureBulletin({
             <dd>{launch ? `${progress.toFixed(0)}%` : '—'}</dd>
           </div>
           <div>
-            <dt>raised</dt>
+            <dt>in curve</dt>
             <dd>{raised}</dd>
           </div>
           <div>

@@ -313,7 +313,7 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
       <div className={styles.metrics}>
         <Metric label="px" value={formatPrice(spotPriceWei, unit, ethUsd)} />
         <Metric label="mcap" value={formatMcap(mcap, unit, ethUsd)} />
-        <Metric label="raised" value={`${raised}/${target}`} />
+        <Metric label="in curve" value={`${raised}/${target}`} />
         <Metric label="tx" value={String(tradeCountOf(launch))} />
       </div>
 
