@@ -697,13 +697,38 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     } catch { return 0n; }
   }, [inputAmount, side]);
 
+  // Anti-overshoot cap. If a buyer sends more ETH than the curve needs to
+  // reach `gradTarget`, the curve accepts it all (no refund logic), the
+  // graduator gets the excess, and the LP-mint math leaves the residual
+  // credited to the launcher via claimableRefunds. Post-graduation the pool
+  // spot is still correct (curve marginal), but LP size is smaller than
+  // intended. Capping the *pay value* at exactly `gradTarget - ethReserve`
+  // prevents that whole scenario: the last buyer's ETH lands exactly at
+  // target, graduation triggers, LP absorbs the full amount, no residual.
+  //
+  // The `inputWei` state stays as-typed so the user sees what they entered;
+  // `buyPayValue` is what actually goes on-chain. When they differ we
+  // render a small notice below the input.
+  const ethToGraduate = useMemo(() => {
+    if (graduated || !gradTarget || ethReserve === undefined) return null;
+    return gradTarget > (ethReserve as bigint) ? (gradTarget as bigint) - (ethReserve as bigint) : 0n;
+  }, [graduated, gradTarget, ethReserve]);
+
+  const buyPayValue = useMemo(() => {
+    if (side !== 'buy' || graduated || ethToGraduate === null) return inputWei;
+    if (inputWei > ethToGraduate && ethToGraduate > 0n) return ethToGraduate;
+    return inputWei;
+  }, [inputWei, side, graduated, ethToGraduate]);
+
+  const buyCapped = side === 'buy' && !graduated && buyPayValue < inputWei && buyPayValue > 0n;
+
   const buyQuote = useReadContract({
     abi: bondingCurveAbi,
     address: curveAddress ?? undefined,
     functionName: 'quoteBuy',
-    args: [inputWei],
+    args: [buyPayValue],
     chainId: readChainId,
-    query: { enabled: !!curveAddress && side === 'buy' && inputWei > 0n, refetchInterval: 6_000 },
+    query: { enabled: !!curveAddress && side === 'buy' && buyPayValue > 0n, refetchInterval: 6_000 },
   });
   const sellQuote = useReadContract({
     abi: bondingCurveAbi,
@@ -738,10 +763,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: curveAddress ?? undefined,
     functionName: 'buy',
     args: [slippage],
-    value: inputWei,
+    value: buyPayValue,
     account: wallet,
     chainId: readChainId,
-    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && inputWei > 0n && !graduated },
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && buyPayValue > 0n && !graduated },
   });
   const sellSim = useSimulateContract({
     abi: bondingCurveAbi,
@@ -821,12 +846,12 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     address: curveAddress ?? undefined,
     functionName: 'buyWithProof',
     args: wlProof ? [wlProof, slippage] : undefined,
-    value: inputWei,
+    value: buyPayValue,
     account: wallet,
     chainId: readChainId,
     query: {
       enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy'
-        && inputWei > 0n && !graduated && wlEnabled && wlPreFallback && !!wlProof,
+        && buyPayValue > 0n && !graduated && wlEnabled && wlPreFallback && !!wlProof,
     },
   });
 
@@ -1432,6 +1457,17 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       {side === 'buy' ? 'ETH' : (tokenSymbol as string) ?? ''}
                     </span>
                   </div>
+                  {/* Anti-overshoot notice — the curve accepts every wei sent
+                      even when only a fraction is needed to graduate, and the
+                      excess ends up as launcher refund + smaller LP. Capping
+                      the pay value at exactly ethToGraduate makes the last
+                      buyer land right on target, LP absorbs the full amount,
+                      no residual. Buyers see what happened. */}
+                  {buyCapped && ethToGraduate !== null && (
+                    <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+                      ✿ capped at {Number(formatEther(ethToGraduate)).toFixed(4)} ETH — only this much needed to graduate. rest stays in your wallet.
+                    </div>
+                  )}
                 </label>
 
                 {/* Quick pick chips — always visible on buy, only if balance>0 on sell */}
