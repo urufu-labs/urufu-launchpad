@@ -908,6 +908,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     curveState.refetch();
     walletBalQ.refetch();
     curveAllowanceQ.refetch();
+    // Clear the input on tx success. Without this, wagmi's useSimulateContract re-runs
+    // the same amount against post-tx state and often reverts with an opaque signature
+    // (curve reserves shifted, slippage, WL slice exhausted, etc.) -- users saw a
+    // "sim failed" banner appear seconds after their SUCCESSFUL buy, which read as
+    // "my tx broke something" even though the tx went through fine. Clearing zeros
+    // out inputWei -> sim disables -> banner disappears.
+    setInputAmount('');
     return () => { cancelled = true; };
   }, [receipt.data?.transactionHash, curveAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
