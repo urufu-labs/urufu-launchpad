@@ -398,7 +398,30 @@ function HomePageContent() {
         trades: String(stats.totalTrades),
         chain: sourceLabel,
       };
-  const bulletinLaunch = previewEnabled ? previewLaunches[1] ?? previewLaunches[0] : filtered[0];
+  // Rotate the featured bulletin slot through the top 5 trending curves so
+  // one high-trade token doesn't hold the spot forever. Preview mode keeps
+  // its deterministic pick so demo screenshots stay stable.
+  const bulletinCandidates = useMemo(
+    () => (previewEnabled ? [] : filtered.slice(0, 5)),
+    [previewEnabled, filtered],
+  );
+  const [bulletinRotationIndex, setBulletinRotationIndex] = useState(0);
+  useEffect(() => {
+    if (bulletinCandidates.length < 2) return;
+    const id = setInterval(() => {
+      setBulletinRotationIndex((i) => (i + 1) % bulletinCandidates.length);
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [bulletinCandidates.length]);
+  // Guard against the index outrunning a shrinking candidate list (e.g., a
+  // filter change dropped some launches while the timer was mid-cycle).
+  const safeRotationIndex =
+    bulletinCandidates.length > 0
+      ? bulletinRotationIndex % bulletinCandidates.length
+      : 0;
+  const bulletinLaunch = previewEnabled
+    ? previewLaunches[1] ?? previewLaunches[0]
+    : bulletinCandidates[safeRotationIndex];
   const bulletinTicket = bulletinLaunch
     ? PREVIEW_TICKETS.find((ticket) => ticket.address === bulletinLaunch.address)
     : undefined;
