@@ -56,10 +56,11 @@ export function agentPublicClient() {
   return cachedClient;
 }
 
-/// V9 stack addresses. Read from env at build time so a rotation doesn't need a
-/// code change — sync-addresses.mjs writes these; agent routes read them here.
-/// Falling back to hardcoded V9 book so unset env doesn't 500 the endpoints;
-/// this always matches whatever the create page uses.
+/// Fallbacks match the current live RH stack (V10 CF + V11 MHH + V3 Graduator
+/// as of 2026-08-13). Sync-addresses.mjs writes matching env vars in production,
+/// but if Vercel env goes unset for any reason the fallbacks below keep every
+/// /api/agent/* endpoint returning CURRENT production addresses rather than
+/// years-old stale ones. Update these anchors alongside every RH rotation.
 function req(name: string, fallback: Address): Address {
   const v = process.env[name];
   return (v && isAddress(v) ? (v as Address) : fallback);
@@ -68,9 +69,9 @@ function req(name: string, fallback: Address): Address {
 export const AGENT_ADDRESSES = {
   Router: req('ROBINHOOD_ROUTER_ADDRESS', '0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269'),
   NameRegistry: req('ROBINHOOD_NAME_REGISTRY_ADDRESS', '0x965Aa2420635Ca0431888c6752b9aE8Bbe8d1F05'),
-  CurveFactory: req('ROBINHOOD_CURVE_FACTORY_ADDRESS', '0x7FecA541bd7a95ec16c1afE05A540Ba03A3bc805'),
-  MultiHookHost: req('ROBINHOOD_MULTI_HOOK_HOST_ADDRESS', '0xc282245A22b602c90d04283B22E414f75AFc20c4'),
-  Graduator: req('ROBINHOOD_GRADUATOR_ADDRESS', '0x1DC43b4A4aa9beaE11c895EF0935E6f8EE4B40CB'),
+  CurveFactory: req('ROBINHOOD_CURVE_FACTORY_ADDRESS', '0xEC96D023426167e68598FF9ea946882b7f0AE91f'),
+  MultiHookHost: req('ROBINHOOD_MULTI_HOOK_HOST_ADDRESS', '0x83d6fa59BEF503112887b16277CF559fDC93E0C4'),
+  Graduator: req('ROBINHOOD_GRADUATOR_ADDRESS', '0xB5aA5Fb4863Fe11ea7BdD6Deaf44004A09BD0C23'),
   V4SwapRouter: req('ROBINHOOD_V4_SWAP_ROUTER_ADDRESS', '0xDb3D1C43225faEe04551b663E5aA0969937beEa4'),
 } as const;
 
