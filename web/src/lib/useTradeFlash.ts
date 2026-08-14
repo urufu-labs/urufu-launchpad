@@ -24,6 +24,11 @@ import {
 type FlashSide = 'buy' | 'sell';
 
 const FLASH_EVENT = 'trade-flash';
+/// Separate event that fires on every poll cycle where the last-seen map
+/// changed — including the initial seed pass, which intentionally does NOT
+/// dispatch trade-flash events. Consumers that want the map to stay in sync
+/// (useLastTradeMap → discover / trade-lookup sorts) must listen on both.
+const MAP_UPDATE_EVENT = 'trade-map-updated';
 const POLL_INTERVAL_MS = 5_000;
 
 interface FlashDetail {
@@ -73,16 +78,24 @@ async function pollOnce(chainId: number): Promise<void> {
   // Oldest → newest so if two ticks land in the same poll for one token,
   // the most recent one wins (setting lastSeen to the largest ts).
   rows.sort((a, b) => a.ts - b.ts);
+  let changed = false;
   for (const r of rows) {
     const last = lastSeenPerToken.get(r.addr) ?? 0;
     if (r.ts <= last) continue;
     lastSeenPerToken.set(r.addr, r.ts);
+    changed = true;
     // First seed pass: register timestamps silently so we only flash on trades
     // that land AFTER the poller started.
     if (!seeded) continue;
     emit(r.addr, r.isBuy ? 'buy' : 'sell');
   }
   if (!seeded) seeded = true;
+  // Notify map subscribers on ANY change — seed pass included. useLastTradeMap
+  // relies on this to pick up historical timestamps that the trade-flash event
+  // intentionally skips.
+  if (changed && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(MAP_UPDATE_EVENT));
+  }
 }
 
 /// Start the shared poller. Safe to call from multiple components — later
@@ -171,8 +184,19 @@ export function useLastTradeMap(): Map<string, number> {
   );
   useEffect(() => {
     const listener = (): void => setMap(new Map(lastSeenPerToken));
+    // Sync on both events so:
+    //   - trade-flash (post-seed trades) triggers a re-sort
+    //   - trade-map-updated (seed pass + subsequent) picks up historical
+    //     timestamps that trade-flash intentionally skips
     window.addEventListener(FLASH_EVENT, listener);
-    return () => window.removeEventListener(FLASH_EVENT, listener);
+    window.addEventListener(MAP_UPDATE_EVENT, listener);
+    // Also do an immediate read in case the poller already seeded before
+    // this component mounted (common when navigating between pages).
+    if (lastSeenPerToken.size > 0) setMap(new Map(lastSeenPerToken));
+    return () => {
+      window.removeEventListener(FLASH_EVENT, listener);
+      window.removeEventListener(MAP_UPDATE_EVENT, listener);
+    };
   }, []);
   return map;
 }
