@@ -528,21 +528,33 @@ function formatEth(v: string | undefined): string {
   if (!v) return '0';
   const s = formatEther(BigInt(v));
   const [whole, frac = ''] = s.split('.');
-  const trimmed = frac.slice(0, 4).replace(/0+$/, '');
-  return trimmed ? `${whole}.${trimmed}` : (whole ?? '0');
+  if (!frac) return whole ?? '0';
+  // Adaptive precision: normal 4-decimal display for readable amounts, but
+  // for sub-0.0001 splits extend the fractional window past the leading
+  // zeros so a 0.00001 ETH row shows as "0.00001" instead of collapsing to
+  // "0". Cap at 12 digits to keep the row from stretching absurdly.
+  const wholeIsZero = !whole || whole === '0';
+  let maxFrac = 4;
+  if (wholeIsZero) {
+    const leadingZeros = frac.match(/^0+/)?.[0].length ?? 0;
+    maxFrac = Math.min(12, leadingZeros + 4);
+  }
+  const trimmed = frac.slice(0, maxFrac).replace(/0+$/, '');
+  return trimmed ? `${whole || '0'}.${trimmed}` : (whole ?? '0');
 }
 
-/// Distributions where every slice rounds to "0" at 4-dec display are noise
-/// (a dust sweep that produced sub-1e14-wei slices). Drop them so the feed
-/// only shows rows a viewer can read a real value off of. Non-distribution
-/// rows always pass through.
+/// Only hide distributions where the RAW wei values are all zero. Prior
+/// version filtered on the display string, which meant any small split
+/// (0.00001 ETH, 0.0001 ETH) got hidden because formatEth used to
+/// truncate them to "0". formatEth is adaptive now, so any non-zero row
+/// renders as a readable number; the filter here is just for the
+/// occasional true-zero row.
 function isEmptyDistribution(row: FlywheelActivityRow): boolean {
   if (row.kind !== 'distribution') return false;
+  const isZero = (v: string | undefined) => !v || v === '0';
   return (
-    formatEth(row.total) === '0' ||
-    (formatEth(row.toBuyback) === '0' &&
-      formatEth(row.toNft) === '0' &&
-      formatEth(row.toTreasury) === '0')
+    isZero(row.total) ||
+    (isZero(row.toBuyback) && isZero(row.toNft) && isZero(row.toTreasury))
   );
 }
 
