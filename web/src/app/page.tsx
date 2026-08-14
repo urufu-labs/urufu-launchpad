@@ -21,7 +21,7 @@ import {
   onMockLaunchesChange,
 } from '@/lib/mockLaunches';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
-import { tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
+import { tradeFlashClass, useLastTradeMap, useTradeFlash } from '@/lib/useTradeFlash';
 import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
 import { useAgo } from '@/lib/useAgo';
 import {
@@ -178,6 +178,10 @@ function HomePageContent() {
     return { total, graduated, totalEth, totalTrades };
   }, [sourceLaunches]);
 
+  // Live "last trade timestamp per token" map — powers the recent-trade bump
+  // across every tab so active tokens always surface first.
+  const lastTradeMap = useLastTradeMap();
+
   const filtered = useMemo(() => {
     // All tabs are curve-only after the direct-mint tab drop; non-curve tokens
     // (legacy pre-rename direct launches + any NFT bases) never surface here.
@@ -188,24 +192,33 @@ function HomePageContent() {
         (l) => l.name.toLowerCase().includes(q) || l.ticker.toLowerCase().includes(q),
       );
     }
-    switch (tab) {
-      case 'trending':
-        list.sort((a, b) => tradeCountOf(b) - tradeCountOf(a));
-        break;
-      case 'new':
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
-        break;
-      case 'near':
-        list = list
-          .filter((l) => !l.graduated)
-          .sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
-        break;
-      case 'graduated':
-        list = list.filter((l) => l.graduated);
-        break;
-    }
+    if (tab === 'near') list = list.filter((l) => !l.graduated);
+    else if (tab === 'graduated') list = list.filter((l) => l.graduated);
+
+    // Per-tab secondary sort — applied only when neither token has a fresher
+    // last-trade timestamp (or they tie). Any buy or sell bumps a token above
+    // this regardless of tab.
+    const secondary = (a: typeof list[number], b: typeof list[number]): number => {
+      switch (tab) {
+        case 'trending':
+          return tradeCountOf(b) - tradeCountOf(a);
+        case 'near':
+          return mockProgressPct(b) - mockProgressPct(a);
+        case 'new':
+        case 'graduated':
+        default:
+          return b.launchedAt - a.launchedAt;
+      }
+    };
+
+    list.sort((a, b) => {
+      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+      if (aTs !== bTs) return bTs - aTs;
+      return secondary(a, b);
+    });
     return list;
-  }, [sourceLaunches, query, tab]);
+  }, [sourceLaunches, query, tab, lastTradeMap]);
 
   // Right-rail "live activity", real trades from the indexer on chains with deployed
   // contracts, mocks on preview chains. Polls every 20s so users see fresh activity
