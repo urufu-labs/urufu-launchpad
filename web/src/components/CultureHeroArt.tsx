@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
 type Theme = 'light' | 'dark';
@@ -81,8 +82,6 @@ export function CultureHeroArt() {
     <div
       className="uru-home-hero-art"
       data-video-ready={videoReady}
-      role="img"
-      aria-label="An Urufu creator tending a glowing token-launch altar"
     >
       {videoSource && (
         <video
@@ -99,6 +98,10 @@ export function CultureHeroArt() {
       <span className="uru-home-art-label">
         <b>❋ urufu gēmu</b> / soft + cruel
       </span>
+      <Link className="uru-home-pasture-link" href="/pasture">
+        <span>pasture found</span>
+        <strong>play wolves &amp; wool ↗</strong>
+      </Link>
     </div>
   );
 }

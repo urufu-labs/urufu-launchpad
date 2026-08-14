@@ -859,6 +859,82 @@ body {
   transform: rotate(2deg);
 }
 .uru-home-art-label b { color: var(--pink-hot); }
+.uru-home-pasture-link {
+  position: absolute;
+  right: 18px;
+  bottom: 58px;
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  max-width: 210px;
+  border: 1.5px solid var(--anchor);
+  background: color-mix(in srgb, var(--paper-base) 92%, transparent);
+  box-shadow: 3px 3px 0 var(--anchor);
+  padding: 9px 11px 10px;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  text-decoration: none;
+  transform: rotate(-2deg);
+  transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+.uru-home-pasture-link span { color: var(--mint-hot); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.uru-home-pasture-link strong { color: var(--pink-hot); font-size: 11px; line-height: 1.25; }
+.uru-home-pasture-link:hover,
+.uru-home-pasture-link:focus-visible {
+  background: var(--pink-hot);
+  box-shadow: 5px 5px 0 var(--anchor);
+  outline: none;
+  transform: rotate(0deg) translate(-2px, -2px);
+}
+.uru-home-pasture-link:hover span,
+.uru-home-pasture-link:focus-visible span,
+.uru-home-pasture-link:hover strong,
+.uru-home-pasture-link:focus-visible strong { color: var(--paper-base); }
+
+.pasture-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100dvh;
+  gap: 10px;
+  padding: 10px;
+  background:
+    radial-gradient(circle at 82% 2%, color-mix(in srgb, var(--pink-hot) 20%, transparent), transparent 26%),
+    radial-gradient(circle at 15% 98%, color-mix(in srgb, var(--mint-hot) 22%, transparent), transparent 30%),
+    var(--paper-base);
+}
+.pasture-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  border: 1px solid var(--anchor);
+  background: color-mix(in srgb, var(--paper-base) 90%, transparent);
+  box-shadow: 3px 3px 0 var(--anchor);
+  padding: 8px 11px;
+  color: var(--anchor);
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+}
+.pasture-bar a { color: var(--anchor); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.pasture-bar p { margin: 0; color: var(--anchor-soft); text-align: center; }
+.pasture-bar p b { color: var(--pink-hot); }
+.pasture-bar > a:last-child { justify-self: end; color: var(--mizuiro-deep); }
+.pasture-game-frame {
+  display: block;
+  width: 100%;
+  height: clamp(660px, calc(100dvh - 148px), 960px);
+  min-height: 0;
+  border: 1px solid var(--anchor);
+  background: #0d0318;
+  box-shadow: 4px 4px 0 var(--anchor);
+}
+@media (max-width: 640px) {
+  .pasture-shell { gap: 8px; padding: 8px; }
+  .pasture-bar { grid-template-columns: 1fr auto; font-size: 10px; }
+  .pasture-bar p { display: none; }
+  .pasture-game-frame { height: max(620px, calc(100dvh - 112px)); }
+}
 
 .uru-home-stat-strip {
   display: grid;
@@ -1614,6 +1690,32 @@ body {
   color: #fff8e7;
 }
 :root[data-theme='dark'] .uru-home-art-label b { color: #ff88b3; }
+:root[data-theme='dark'] .uru-home-pasture-link {
+  border-color: #fff8e7;
+  background: rgba(18,14,28,0.84);
+  box-shadow: 3px 3px 0 #fff8e7;
+  color: #fff8e7;
+}
+:root[data-theme='dark'] .uru-home-pasture-link span { color: #c8f7c5; }
+:root[data-theme='dark'] .uru-home-pasture-link strong { color: #ff88b3; }
+:root[data-theme='dark'] .uru-home-pasture-link:hover,
+:root[data-theme='dark'] .uru-home-pasture-link:focus-visible { background: #ff88b3; box-shadow: 5px 5px 0 #fff8e7; }
+:root[data-theme='dark'] .uru-home-pasture-link:hover span,
+:root[data-theme='dark'] .uru-home-pasture-link:focus-visible span,
+:root[data-theme='dark'] .uru-home-pasture-link:hover strong,
+:root[data-theme='dark'] .uru-home-pasture-link:focus-visible strong { color: #3a2c3a; }
+:root[data-theme='dark'] .pasture-shell { background-color: #110b1c; }
+:root[data-theme='dark'] .pasture-bar {
+  border-color: #fff8e7;
+  background: rgba(18,14,28,0.9);
+  box-shadow: 3px 3px 0 #fff8e7;
+  color: #fff8e7;
+}
+:root[data-theme='dark'] .pasture-bar a { color: #fff8e7; }
+:root[data-theme='dark'] .pasture-bar p { color: #f4e0b3; }
+:root[data-theme='dark'] .pasture-bar p b { color: #ff88b3; }
+:root[data-theme='dark'] .pasture-bar > a:last-child { color: #bde0fe; }
+:root[data-theme='dark'] .pasture-game-frame { border-color: #fff8e7; box-shadow: 4px 4px 0 #fff8e7; }
 :root[data-theme='dark'] .uru-home-stat-strip {
   border-top-color: rgba(255,248,231,0.34);
   background: rgba(18,14,28,0.54);
