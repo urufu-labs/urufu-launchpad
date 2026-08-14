@@ -66,40 +66,40 @@ export default function DiscoverPage() {
           l.address.toLowerCase().includes(q),
       );
     }
-    switch (filter) {
-      case 'trending':
-        // Recent-trade-first ranking: tokens with a fresh buy/sell bubble to
-        // the top the moment the trade lands. Lifetime trade count is the
-        // tiebreak so quiet tokens don't reshuffle randomly.
-        list.sort((a, b) => {
-          const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-          const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-          if (aTs !== bTs) return bTs - aTs;
+    // Filter modes that narrow the list (badge-scoped tabs). Apply BEFORE
+    // sorting so the tab-specific criteria still work as expected.
+    if (filter === 'near-graduation') list = list.filter((l) => !l.graduated);
+    else if (filter === 'graduated') list = list.filter((l) => l.graduated);
+    else if (filter === 'whitelist') list = list.filter((l) => l.hasWhitelist === true);
+
+    // Shared secondary sort per tab — the "explicit" ordering the tab name
+    // implies, applied only when neither token has a recent trade (or their
+    // recency ties). Recent-trade bump wraps this for every tab so active
+    // tokens always surface at the top.
+    const secondary = (a: MockLaunch, b: MockLaunch): number => {
+      switch (filter) {
+        case 'trending':
           return tradeCountOf(b) - tradeCountOf(a);
-        });
-        break;
-      case 'new':
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
-        break;
-      case 'mcap':
-        list.sort((a, b) => Number(mockMarketCapEth(b) - mockMarketCapEth(a)));
-        break;
-      case 'near-graduation':
-        list = list.filter((l) => !l.graduated);
-        list.sort((a, b) => mockProgressPct(b) - mockProgressPct(a));
-        break;
-      case 'graduated':
-        list = list.filter((l) => l.graduated);
-        break;
-      case 'whitelist':
-        list = list.filter((l) => l.hasWhitelist === true);
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
-        break;
-      case 'all':
-      default:
-        list.sort((a, b) => b.launchedAt - a.launchedAt);
-        break;
-    }
+        case 'mcap':
+          return Number(mockMarketCapEth(b) - mockMarketCapEth(a));
+        case 'near-graduation':
+          return mockProgressPct(b) - mockProgressPct(a);
+        case 'new':
+        case 'graduated':
+        case 'whitelist':
+        case 'all':
+        default:
+          return b.launchedAt - a.launchedAt;
+      }
+    };
+
+    list.sort((a, b) => {
+      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+      if (aTs !== bTs) return bTs - aTs;
+      return secondary(a, b);
+    });
+
     return list;
   }, [filter, query, source, lastTradeMap]);
 
