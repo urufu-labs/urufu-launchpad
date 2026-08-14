@@ -2235,10 +2235,10 @@ function GraduatedPanel({
     : `https://app.uniswap.org/swap?outputCurrency=${tokenAddress}`;
 
   // Uniswap only surfaces hooks that are on its allowlist in the UI. Off-allowlist
-  // hooks (both V10 and V11 MHH on RH today) render as bare v4 pools with no
-  // metadata — someone can seed 0.001 ETH of "LP" as bait, our deep-link routes
-  // buyers there, and they get robbed on slippage. Until each chain's hook is
-  // allowlisted, hide the "open on Uniswap" affordance entirely on that chain.
+  // hooks render as bare v4 pools with no metadata — someone can seed 0.001 ETH
+  // of "LP" as bait, our deep-link routes buyers there, and they get robbed on
+  // slippage. Until each chain's hook is allowlisted, hide the "open on Uniswap"
+  // affordance entirely on that chain.
   //
   // Flip a chain's entry to `true` once its hook is confirmed on the Uniswap
   // allowlist. Explorer link stays available so people can always inspect
@@ -2248,7 +2248,10 @@ function GraduatedPanel({
     base: true,
     'base-sepolia': true,
     sepolia: true,
-    robinhood: false, // V11 MHH submission pending. Flip when Uniswap Labs confirms.
+    // Both V9 MHH (0xc282…20C4) and V10 MHH (0x83d6…E0C4) allowlisted by
+    // Uniswap Labs 2026-08-14 — V9 covers LUV/GEMUSE and other legacy tokens,
+    // V10 covers everything launched post-2026-08-12 rotation.
+    robinhood: true,
     'robinhood-testnet': false,
   };
   const uniswapLinkSafe = chain ? HOOK_UNISWAP_ALLOWLISTED[chain] ?? false : false;
