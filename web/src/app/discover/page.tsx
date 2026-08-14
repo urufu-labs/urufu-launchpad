@@ -19,7 +19,7 @@ import { useAgo } from '@/lib/useAgo';
 import { CHAIN_LABELS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
-import { tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
+import { tradeFlashClass, useLastTradeMap, useTradeFlash } from '@/lib/useTradeFlash';
 import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -51,6 +51,9 @@ export default function DiscoverPage() {
   const feed = useLaunchFeed(activeChainId);
   const isIndexer = feed.source === 'indexer';
   const source = feed.launches;
+  // Live map of "last trade timestamp per token" from the shared flash bus.
+  // Powers the recent-activity bump on the 'trending' tab.
+  const lastTradeMap = useLastTradeMap();
 
   const filtered = useMemo(() => {
     let list = source.filter((l) => launchKind(l) === 'curve');
@@ -65,7 +68,15 @@ export default function DiscoverPage() {
     }
     switch (filter) {
       case 'trending':
-        list.sort((a, b) => tradeCountOf(b) - tradeCountOf(a));
+        // Recent-trade-first ranking: tokens with a fresh buy/sell bubble to
+        // the top the moment the trade lands. Lifetime trade count is the
+        // tiebreak so quiet tokens don't reshuffle randomly.
+        list.sort((a, b) => {
+          const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+          const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+          if (aTs !== bTs) return bTs - aTs;
+          return tradeCountOf(b) - tradeCountOf(a);
+        });
         break;
       case 'new':
         list.sort((a, b) => b.launchedAt - a.launchedAt);
@@ -90,7 +101,7 @@ export default function DiscoverPage() {
         break;
     }
     return list;
-  }, [filter, query, source]);
+  }, [filter, query, source, lastTradeMap]);
 
   const graduatedCount = source.filter((l) => l.graduated).length;
   const whitelistCount = source.filter((l) => l.hasWhitelist).length;

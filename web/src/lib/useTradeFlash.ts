@@ -150,3 +150,29 @@ export function tradeFlashClass(state: FlashSide | null): string {
   if (state === 'sell') return 'uru-flash-sell';
   return '';
 }
+
+/// Live-updating snapshot of the "last trade timestamp per token" map that
+/// the flash poller already maintains. Components use this to sort feeds
+/// so tokens with recent trades bubble to the top:
+///
+///   const lastMap = useLastTradeMap();
+///   list.sort((a, b) => {
+///     const aTs = lastMap.get(a.address.toLowerCase()) ?? 0;
+///     const bTs = lastMap.get(b.address.toLowerCase()) ?? 0;
+///     if (aTs !== bTs) return bTs - aTs;
+///     return b.launchedAt - a.launchedAt;
+///   });
+///
+/// State updates on every `trade-flash` dispatch, which fires on every
+/// polled trade — so the sort re-runs the moment a new trade lands.
+export function useLastTradeMap(): Map<string, number> {
+  const [map, setMap] = useState<Map<string, number>>(
+    () => new Map(lastSeenPerToken),
+  );
+  useEffect(() => {
+    const listener = (): void => setMap(new Map(lastSeenPerToken));
+    window.addEventListener(FLASH_EVENT, listener);
+    return () => window.removeEventListener(FLASH_EVENT, listener);
+  }, []);
+  return map;
+}

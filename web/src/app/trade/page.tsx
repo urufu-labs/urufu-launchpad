@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { isAddress, formatEther } from 'viem';
@@ -12,6 +12,7 @@ import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { sizeForName } from '@/lib/nameSize';
+import { useLastTradeMap } from '@/lib/useTradeFlash';
 import styles from './trade-entry.module.css';
 
 /// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
@@ -25,8 +26,21 @@ export default function TradeIndex() {
   const mockData = useMockDataMode();
   const feed = useLaunchFeed(CHAIN_KEY_TO_ID[activeChain]);
   // /trade is for bonding-curve trading — filter direct-mint tokens out; they show up on
-  // home + discover instead.
-  const feedLaunches = feed.launches.filter((l) => launchKind(l) === 'curve').slice(0, 6);
+  // home + discover instead. Sort so tokens with a recent trade bubble to the top; ties
+  // fall back to launch recency so new curves aren't stuck below silent old ones.
+  const lastTradeMap = useLastTradeMap();
+  const feedLaunches = useMemo(() => {
+    return feed.launches
+      .filter((l) => launchKind(l) === 'curve')
+      .slice()
+      .sort((a, b) => {
+        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+        return b.launchedAt - a.launchedAt;
+      })
+      .slice(0, 6);
+  }, [feed.launches, lastTradeMap]);
 
   return (
     <div className={styles.entryPage}>
