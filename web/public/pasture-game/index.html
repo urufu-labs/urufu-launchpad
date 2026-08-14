@@ -325,7 +325,7 @@
 <details id="assetCredits">
   <summary>asset credits</summary>
   <p>Sheep: <a href="https://sketchfab.com/3d-models/animated-low-poly-sheep-game-ready-model-66f3851d8827411c91d208d172305666" target="_blank" rel="noreferrer">animated low poly sheep game ready model by creosine</a>, licensed under CC BY 4.0.</p>
-  <p>Farm kit: Quaternius, CC0 1.0. Wolf assets are limited to this local, non-commercial experiment and must not be redistributed or promoted without permission.</p>
+  <p>Farm kit, wolves, and meadow animals: Quaternius, CC0 1.0. Player sheep: creosine via Sketchfab, CC BY 4.0.</p>
 </details>
 <div id="hud"><b>WOLVES &amp; WOOL</b>
   <div class="keys">WASD move · Space hop · Q / E turn camera · R / F zoom · J cast light (hold = heavy) · Shift dodge</div>
@@ -2316,7 +2316,7 @@ function spawnWisp(wx, wz, hp, scale, roleName = 'stalker') {
   wx = spawnAt.x; wz = spawnAt.z;
   const giant = scale > 2;
   const role = !giant && ENEMY_ROLES[roleName] ? ENEMY_ROLES[roleName] : ENEMY_ROLES.stalker;
-  // H-168 horde wolf shell: a real Free3D wolf pose baked to a static, instanced mesh.
+  // Horde wolf shell: a CC0 Quaternius pose baked to a static, instanced mesh.
   // Null = load failed → primitive fallback
   // keeps the pre-H-168 squashed icosahedron so the horde never goes invisible.
   const shell = !giant ? ENEMY_SHELLS[roleName] : null;
@@ -3394,7 +3394,28 @@ function addFarmAnimal(name, x, z, scale, phase) {
   const model = placeFarmModel(name, x, z, scale, phase * .7);
   if (!model) return null;
   const ground = model.position.y;
-  const animal = { model, x, z, ground, phase, kind:name, scale, speed:.16 + (phase % .07) };
+  const animal = { model, x, z, ground, phase, kind:name, scale, speed:.16 + (phase % .07), animated:false };
+  FARM.animals.push(animal); return animal;
+}
+function addAnimatedFarmAnimal(kind, x, z, scale, phase, yaw = 0) {
+  const asset = animatedFarmAssets[kind];
+  const config = FARM_ANIMAL_MODELS[kind];
+  if (!asset?.scene || !config) return null;
+  const model = cloneSkeleton(asset.scene);
+  model.position.set(x, procWorld.heightAt(x, z), z);
+  model.rotation.y = yaw;
+  model.scale.setScalar(scale);
+  model.traverse(part => { if (part.isMesh) part.castShadow = part.receiveShadow = true; });
+  const clip = THREE.AnimationClip.findByName(asset.animations, config.clip);
+  const mixer = clip ? new THREE.AnimationMixer(model) : null;
+  if (mixer) {
+    const action = mixer.clipAction(clip);
+    action.setEffectiveTimeScale(.62 + (phase % .11));
+    action.play();
+  }
+  scene.add(model);
+  const animal = { model, mixer, clip:clip?.name || null, x, z, ground:model.position.y,
+    phase, kind, scale, yaw, speed:.07 + (phase % .03), animated:true };
   FARM.animals.push(animal); return animal;
 }
 function buildFarmScenery(site) {
@@ -3444,6 +3465,14 @@ function buildFarmLandmarks() {
   addFarmAnimal('farm_cow', 296, -31, .16, 3.7);
   addFarmAnimal('farm_pig', 313, -10, .14, 4.2);
   addFarmAnimal('farm_sheep', 318, -29, .16, 5.1);
+  // CC0 Ultimate Animated Animal Pack meadow life: visual-only and positioned
+  // outside combat lanes so it cannot alter routing, collisions, or saves.
+  addAnimatedFarmAnimal('horse', 6, -27, .26, .4, .28);
+  addAnimatedFarmAnimal('donkey', 30, -28, .27, 1.1, -.65);
+  addAnimatedFarmAnimal('alpaca', 151, 4, .25, 1.9, .85);
+  addAnimatedFarmAnimal('horse', 183, 36, .25, 2.6, -.38);
+  addAnimatedFarmAnimal('donkey', 290, -42, .26, 3.4, .42);
+  addAnimatedFarmAnimal('alpaca', 327, -38, .25, 4.4, -.92);
 }
 function updateFarmScenery(dt) {
   for (const windmill of FARM.windmills) {
@@ -3451,10 +3480,12 @@ function updateFarmScenery(dt) {
   }
   for (const animal of FARM.animals) {
     const a = elapsed * animal.speed + animal.phase;
-    animal.model.position.x = animal.x + Math.cos(a) * .36;
-    animal.model.position.z = animal.z + Math.sin(a * .7) * .28;
+    if (animal.mixer) animal.mixer.update(dt);
+    const wander = animal.animated ? .14 : .36;
+    animal.model.position.x = animal.x + Math.cos(a) * wander;
+    animal.model.position.z = animal.z + Math.sin(a * .7) * wander * .78;
     animal.model.position.y = procWorld.heightAt(animal.model.position.x, animal.model.position.z);
-    animal.model.rotation.y = -a + Math.PI * .5;
+    animal.model.rotation.y = animal.animated ? animal.yaw + Math.sin(a * .65) * .09 : -a + Math.PI * .5;
     const graze = .96 + Math.sin(a * 2.6) * .04;
     animal.model.scale.setScalar(animal.scale * graze);
   }
@@ -3799,9 +3830,14 @@ async function loadCharacterAsset(character) {
     return gltf;
   }
 }
-const ALPHA_WOLF_MODEL = '/pasture-game/assets/creatures/free3d/wolf/animated-wolf.glb';
+const ALPHA_WOLF_MODEL = '/pasture-game/assets/creatures/quaternius/ultimate/animated-wolf.glb';
 const FARM_RUNTIME_MODEL = '/pasture-game/assets/environment/quaternius-farm.glb';
 const FARM_TOOL_MODEL = '/pasture-game/assets/props/farm-tools.glb';
+const FARM_ANIMAL_MODELS = Object.freeze({
+  horse: { url:'/pasture-game/assets/creatures/quaternius/ultimate/horse.glb', clip:'farm_horse_Grazing' },
+  donkey: { url:'/pasture-game/assets/creatures/quaternius/ultimate/donkey.glb', clip:'farm_donkey_Grazing' },
+  alpaca: { url:'/pasture-game/assets/creatures/quaternius/ultimate/alpaca.glb', clip:'farm_alpaca_Grazing' },
+});
 async function loadAlphaWolfAsset() {
   const gltf = await load(ALPHA_WOLF_MODEL);
   gltf.userData = { loadedFrom: ALPHA_WOLF_MODEL };
@@ -3811,8 +3847,12 @@ async function loadFarmAsset(url) {
   try { return await load(url); }
   catch (_) { return null; }   // farm decoration must never block the playable world
 }
+async function loadAnimatedFarmAnimals() {
+  const entries = await Promise.all(Object.entries(FARM_ANIMAL_MODELS).map(async ([kind, config]) => [kind, await loadFarmAsset(config.url)]));
+  return Object.fromEntries(entries);
+}
 
-// H-168 horde wolf shells: Free3D wolf pose snapshots plus one eye-anchor node per
+// CC0 Quaternius horde wolf shells: pose snapshots plus one eye-anchor node per
 // role. Exported poses contain multiple mesh primitives, so flatten them to one
 // ground-aligned geometry before instancing; otherwise the body inherits Blender's
 // tiny, elevated coordinates while the separate combat eye is all that is visible.
@@ -3821,7 +3861,7 @@ const HORDE_WOLF_HEIGHT = 1.15;
 async function loadEnemyShells() {
   const entries = await Promise.all(Object.keys(ENEMY_ROLES).map(async role => {
     try {
-      const gltf = await load(`/pasture-game/assets/creatures/free3d/wolf/horde/${role}.glb`);
+      const gltf = await load(`/pasture-game/assets/creatures/quaternius/ultimate/horde/${role}.glb`);
       let anchor = gltf.scene.getObjectByName(`${role}_eye`);
       const parts = [], materials = [];
       gltf.scene.updateMatrixWorld(true);
@@ -3862,7 +3902,7 @@ async function loadEnemyShells() {
   return Object.fromEntries(entries);
 }
 
-const [layout, world3d, bot, alphaWolfAsset, enemyShells, farmRuntimeAsset, farmToolAsset] = await Promise.all([
+const [layout, world3d, bot, alphaWolfAsset, enemyShells, farmRuntimeAsset, farmToolAsset, animatedFarmAssets] = await Promise.all([
   fetch(`${BASE}/afterglow_layout.json`).then(r => r.json()),
   load(`${BASE}/afterglow_world.glb`),
   loadCharacterAsset(loadedCharacter),
@@ -3870,6 +3910,7 @@ const [layout, world3d, bot, alphaWolfAsset, enemyShells, farmRuntimeAsset, farm
   loadEnemyShells(),
   loadFarmAsset(FARM_RUNTIME_MODEL),
   loadFarmAsset(FARM_TOOL_MODEL),
+  loadAnimatedFarmAnimals(),
 ]);
 ENEMY_SHELLS = enemyShells;
 // Every clone shares immutable geometry and materials with the GLB source. Runtime
@@ -6301,14 +6342,14 @@ const roadmapTest = {
     shadows:PROC_FIGHT.wisps.map(w => ({x:w.position.x,z:w.position.z,role:w.userData.role,distance:Math.hypot(w.position.x-robot.position.x,w.position.z-robot.position.z)}))}; },
   rolesProbe() { return { roles:Object.fromEntries(Object.entries(ENEMY_ROLES).map(([id,r]) => [id,{ hp:r.hp, scale:r.scale, speed:r.speed, contactDamage:r.contactDamage, armor:r.armor, charge:!!r.charge, ranged:!!r.ranged, aura:!!r.aura }])),
     pressure:BIOME_PRESSURE, escalation:ESCALATION, shards:ROLE_SHARDS }; },
-  // H-168: silhouette shell + pool state. tris counts double as a shape-distinctness
+  // Silhouette shell + pool state. tris counts double as a shape-distinctness
   // fingerprint (every role model has a unique triangle count by construction).
   enemyShellProbe() {
     updateWispInstances();
     return {
       shells: Object.fromEntries(Object.keys(ENEMY_ROLES).map(id => { const s = ENEMY_SHELLS[id];
         return [id, s ? { loaded:true, tris:(s.geo.index ? s.geo.index.count : s.geo.attributes.position.count) / 3,
-          materials:s.materials.length, textured:s.materials.some(material => !!material.map),
+          materials:s.materials.length, painted:s.materials.some(material => material.color?.getHex() !== 0xffffff),
           eye:[+s.eyePos.x.toFixed(3), +s.eyePos.y.toFixed(3), +s.eyePos.z.toFixed(3)] } : { loaded:false }]; })),
       pools: Object.fromEntries([...WISP_INST.pools].map(([key, pool]) => [key, { cap:pool.cap, count:pool.mesh.count }])),
       eyes: WISP_INST.eye ? WISP_INST.eye.count : 0,
@@ -6322,7 +6363,10 @@ const roadmapTest = {
       labels:[0,50,100].map(x => procWorld?.biomeName(x)),
       landmarks:FARM.landmarks.map(site => ({x:site.x,z:site.z,scale:site.scale,hasBarn:!!site.group,hasSilo:site.group.children.length >= 14,hasQuaternius:!!site.hasQuaternius})),
       scenery:{ loaded:!!farmRuntimeAsset, landmarks:FARM.landmarks.filter(site => site.hasQuaternius).length,
-        windmills:FARM.windmills.length, animals:FARM.animals.length },
+        windmills:FARM.windmills.length, animals:FARM.animals.length,
+        animatedAssets:Object.values(animatedFarmAssets).filter(asset => !!asset?.scene).length,
+        animatedAnimals:FARM.animals.filter(animal => animal.animated && !!animal.mixer && !!animal.clip)
+          .map(animal => ({ kind:animal.kind, clip:animal.clip })) },
       tools:{ loaded:!!farmToolAsset, nodes:['tool_crook','tool_ram_stomp','tool_bell','tool_sling','tool_pebble','tool_fence_post','tool_fence_line','tool_barn_lantern']
         .filter(name => !!farmToolAsset?.scene?.getObjectByName(name)) },
       farmsteads:PROC_SHRINE.meshes.size,
