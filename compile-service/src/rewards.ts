@@ -374,29 +374,30 @@ async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): P
   return [...counts.entries()].map(([address, balance]) => ({ address, balance }));
 }
 
-/// Prefer the indexer for speed; fall back to on-chain enumeration when the
-/// indexer returns empty. Logs which source served so ops can spot silent
-/// indexer regressions.
+/// Fetch every current gemu-NFT holder. Priority is on-chain (Alchemy RPC via
+/// `pub.getLogs`) FIRST because Blockscout has been observed to silently return
+/// partial data on load (non-error, non-zero, just incomplete) which produced
+/// a bad epoch 1 Merkle tree that permanently locked ~0.11 ETH away from the
+/// holders it dropped. The on-chain walk uses the same Alchemy endpoint the
+/// rest of the pipeline trusts and is authoritative by construction.
+///
+/// Priority order:
+///   1. On-chain Transfer walk (Alchemy RPC) — canonical, no external
+///      indexer dependency, ~30-60s for ~18M-block range at 9500/chunk.
+///   2. Ponder indexer — kept only for fast local dev when the RPC is slow
+///      or rate-limited. Won't be reached in prod given how fast Alchemy is.
+///   3. Blockscout — DEMOTED to last-resort. If both above fail, better to
+///      publish a partial epoch than none at all, but log loudly.
 async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
-  // Priority order:
-  //   1. Blockscout — matches on-chain reality (429 holders), fast (~10 pages),
-  //      no state to fall out of sync.
-  //   2. Ponder indexer — historically undercounted (was reporting 105 while
-  //      Blockscout reported 429), likely a schema-migration gap. Kept as
-  //      fallback because it's faster than a full Transfer-event walk.
-  //   3. On-chain Transfer walk — slowest but the ultimate source of truth.
-  //      Only fires if both remote indexers are unavailable.
-  if (cfg.blockscoutUrl) {
-    try {
-      const fromBs = await fetchGemuHoldersFromBlockscout(cfg);
-      if (fromBs.length > 0) {
-        console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', count: fromBs.length }));
-        return fromBs;
-      }
-      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', count: 0, fallback: 'indexer' }));
-    } catch (err) {
-      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', error: (err as Error).message, fallback: 'indexer' }));
+  try {
+    const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
+    if (fromChain.length > 0) {
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: fromChain.length }));
+      return fromChain;
     }
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: 0, fallback: 'indexer' }));
+  } catch (err) {
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', error: (err as Error).message, fallback: 'indexer' }));
   }
   try {
     const fromIndexer = await fetchGemuHoldersFromIndexer(cfg);
@@ -404,17 +405,24 @@ async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Ho
       console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: fromIndexer.length }));
       return fromIndexer;
     }
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: 0, fallback: 'chain' }));
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: 0, fallback: 'blockscout' }));
   } catch (err) {
     // Round-2 audit FINDING 4: cap-exceeded errors are load-bearing signals —
-    // never silently swallow them into a chain fallback. Rethrow so the
-    // operator sees the loud message and decides whether to raise the cap.
+    // never silently swallow them into a fallback. Rethrow so the operator
+    // sees the loud message and decides whether to raise the cap.
     if (err instanceof IndexerHolderCountExceedsCap) throw err;
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'chain' }));
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'blockscout' }));
   }
-  const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
-  console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: fromChain.length }));
-  return fromChain;
+  if (cfg.blockscoutUrl) {
+    try {
+      const fromBs = await fetchGemuHoldersFromBlockscout(cfg);
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', count: fromBs.length, note: 'DEMOTED-fallback' }));
+      return fromBs;
+    } catch (err) {
+      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'blockscout', error: (err as Error).message }));
+    }
+  }
+  return [];
 }
 
 /// Blockscout `/api/v2/tokens/:addr/holders` — paginated by opaque
