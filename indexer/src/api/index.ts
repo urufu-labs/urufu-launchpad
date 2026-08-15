@@ -254,5 +254,82 @@ ponder.get('/api/flywheel/activity', async (c) => {
   return c.json({ activity: serialised });
 });
 
+// ---- GET /api/flywheel/totals ----
+//
+// Lifetime aggregates for the flywheel dashboard tiles. The /activity
+// endpoint is capped at 100 rows for feed-rendering reasons; using its sum
+// as a "since launch" total dramatically undercounts once the feed has
+// scrolled past its window. This endpoint iterates every row and sums.
+//
+// Response shape (JSON, bigints as wei-strings):
+//   { chainId?, distributions: { count, total, toBuyback, toNft, toTreasury },
+//                buybacks:      { count, ethIn, uruOut },
+//                conversions:   { count, uruIn, ethOut } }
+//
+// Optional ?chainId= narrows to one chain. Rows scanned in memory — cheap
+// while row counts stay under ~1M; if the tables ever grow past that, swap
+// this to a Drizzle sum() aggregate.
+ponder.get('/api/flywheel/totals', async (c) => {
+  const chainIdRaw = c.req.query('chainId');
+  const chainIdFilter = chainIdRaw ? Number(chainIdRaw) : undefined;
+  if (chainIdFilter !== undefined && (!Number.isInteger(chainIdFilter) || chainIdFilter <= 0)) {
+    return c.json({ error: 'chainId must be a positive integer' }, 400);
+  }
+
+  const [dRows, bRows, cRows] = await Promise.all([
+    (async () => {
+      const q = c.db.select().from(flywheelDistributions);
+      return chainIdFilter ? q.where(eq(flywheelDistributions.chainId, chainIdFilter)) : q;
+    })(),
+    (async () => {
+      const q = c.db.select().from(uruBuybacks);
+      return chainIdFilter ? q.where(eq(uruBuybacks.chainId, chainIdFilter)) : q;
+    })(),
+    (async () => {
+      const q = c.db.select().from(uruSinkConversions);
+      return chainIdFilter ? q.where(eq(uruSinkConversions.chainId, chainIdFilter)) : q;
+    })(),
+  ]);
+
+  let dTotal = 0n, dBuyback = 0n, dNft = 0n, dTreasury = 0n;
+  for (const r of dRows) {
+    dTotal += r.total ?? 0n;
+    dBuyback += r.toBuyback ?? 0n;
+    dNft += r.toNft ?? 0n;
+    dTreasury += r.toTreasury ?? 0n;
+  }
+  let bEthIn = 0n, bUruOut = 0n;
+  for (const r of bRows) {
+    bEthIn += r.ethIn ?? 0n;
+    bUruOut += r.uruOut ?? 0n;
+  }
+  let cUruIn = 0n, cEthOut = 0n;
+  for (const r of cRows) {
+    cUruIn += r.uruIn ?? 0n;
+    cEthOut += r.ethOut ?? 0n;
+  }
+
+  return c.json({
+    chainId: chainIdFilter,
+    distributions: {
+      count: dRows.length,
+      total: dTotal.toString(),
+      toBuyback: dBuyback.toString(),
+      toNft: dNft.toString(),
+      toTreasury: dTreasury.toString(),
+    },
+    buybacks: {
+      count: bRows.length,
+      ethIn: bEthIn.toString(),
+      uruOut: bUruOut.toString(),
+    },
+    conversions: {
+      count: cRows.length,
+      uruIn: cUruIn.toString(),
+      ethOut: cEthOut.toString(),
+    },
+  });
+});
+
 export { buildLaunchCard, computeV4PoolId } from './launch-card.ts';
 export type { LaunchCard } from './launch-card.ts';

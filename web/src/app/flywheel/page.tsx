@@ -24,6 +24,7 @@ import { FLYWHEEL_HISTORY_START_BLOCK } from '@/lib/launchpadStatus';
 import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
 import {
   fetchFlywheelActivity,
+  fetchFlywheelTotals,
   type FlywheelActivityRow,
 } from '@/lib/indexer';
 
@@ -97,20 +98,23 @@ export default function FlywheelPage() {
 
   /// Lift activity-feed fetch to the parent so the totals row + the row list
   /// share one round-trip. Rows carry the per-event breakdown (ETH split into
-  /// buyback / nft / treasury on distributions; URU acquired on buybacks) so
-  /// summing across them gives lifetime totals without a dedicated aggregate
-  /// endpoint. Numbers are capped at whatever MAX_ROWS the feed pulls, which
-  /// is fine for launch — a proper `/api/flywheel/totals` endpoint can replace
-  /// this later.
+  /// Activity feed: recent rows only, for the reel. LIFETIME totals come from
+  /// a separate /api/flywheel/totals endpoint (below) so the tiles reflect
+  /// every distribution ever, not just the last MAX_ROWS window.
   const [activityRows, setActivityRows] = useState<FlywheelActivityRow[] | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [lifetimeTotals, setLifetimeTotals] = useState<Awaited<ReturnType<typeof fetchFlywheelTotals>>>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await fetchFlywheelActivity(CHAIN_ID, MAX_ROWS);
+        const [data, agg] = await Promise.all([
+          fetchFlywheelActivity(CHAIN_ID, MAX_ROWS),
+          fetchFlywheelTotals(CHAIN_ID),
+        ]);
         if (cancelled) return;
         setActivityRows(data);
+        setLifetimeTotals(agg);
       } catch (err) {
         if (cancelled) return;
         setActivityError(err instanceof Error ? err.message : 'indexer unreachable');
@@ -130,21 +134,16 @@ export default function FlywheelPage() {
       .filter((r) => !isEmptyDistribution(r));
   }, [activityRows]);
 
+  /// Lifetime aggregates from the dedicated /totals endpoint. Falls back to
+  /// null while loading — tile shows a placeholder instead of a misleading 0.
   const totals = useMemo(() => {
-    if (!liveRows) return null;
-    let uruBoughtBack = 0n;
-    let ethToGemu = 0n;
-    let ethToTeam = 0n;
-    for (const r of liveRows) {
-      if (r.kind === 'distribution') {
-        if (r.toNft) ethToGemu += BigInt(r.toNft);
-        if (r.toTreasury) ethToTeam += BigInt(r.toTreasury);
-      } else if (r.kind === 'buyback') {
-        if (r.uruOut) uruBoughtBack += BigInt(r.uruOut);
-      }
-    }
-    return { uruBoughtBack, ethToGemu, ethToTeam };
-  }, [liveRows]);
+    if (!lifetimeTotals) return null;
+    return {
+      uruBoughtBack: BigInt(lifetimeTotals.buybacks.uruOut || '0'),
+      ethToGemu: BigInt(lifetimeTotals.distributions.toNft || '0'),
+      ethToTeam: BigInt(lifetimeTotals.distributions.toTreasury || '0'),
+    };
+  }, [lifetimeTotals]);
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>

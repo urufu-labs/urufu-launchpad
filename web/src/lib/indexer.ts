@@ -711,3 +711,30 @@ export async function fetchFlywheelActivity(
     return [];
   }
 }
+
+/// Lifetime aggregates across every indexed distribution/buyback/conversion
+/// row for a chain, NOT just the recent activity window. Powers the "since
+/// launch" tiles on the flywheel page. `null` on fetch failure so callers can
+/// render a graceful skeleton without lying with zeros.
+export interface FlywheelTotals {
+  chainId?: number;
+  distributions: { count: number; total: string; toBuyback: string; toNft: string; toTreasury: string };
+  buybacks: { count: number; ethIn: string; uruOut: string };
+  conversions: { count: number; uruIn: string; ethOut: string };
+}
+
+export async function fetchFlywheelTotals(
+  chainId: number | undefined,
+): Promise<FlywheelTotals | null> {
+  const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+  if (!base) return null;
+  const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/totals`);
+  if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
+  try {
+    const resp = await fetch(url.toString(), { cache: 'no-store' });
+    if (!resp.ok) return null;
+    return (await resp.json()) as FlywheelTotals;
+  } catch {
+    return null;
+  }
+}
