@@ -20,7 +20,16 @@ import type { FastifyInstance } from 'fastify';
 import { isAddress, type Address } from 'viem';
 import { z } from 'zod';
 
-import { publishEpoch, vaultSummary, proofFor, epochsForHolder, fetchGemuHoldersFromBlockscout } from '../rewards.ts';
+import {
+  publishEpoch,
+  vaultSummary,
+  proofFor,
+  epochsForHolder,
+  fetchGemuHoldersFromBlockscout,
+  fetchGemuHoldersFromChain,
+  fetchGemuHoldersFromIndexer,
+} from '../rewards.ts';
+import { createPublicClient, http } from 'viem';
 
 const CHAIN_PATH = z.enum(['robinhood']);
 const ADDRESS_PATH = z.string().refine(isAddress, { message: 'invalid address' });
@@ -69,6 +78,42 @@ export async function registerRewardsRoutes(app: FastifyInstance): Promise<void>
       });
     }
   });
+
+  // GET /rewards/:chain/_probe/all-sources — DIAGNOSTIC. Runs each holder
+  // source in parallel and reports what each returned. Used to diagnose why
+  // the tree-building path is falling through to the wrong source (e.g.
+  // on-chain walk times out silently → Blockscout wins by default). Public
+  // because it exposes only counts, not addresses.
+  app.get<{ Params: { chain: string }; Querystring: { source?: string } }>(
+    '/rewards/:chain/_probe/all-sources',
+    async (req, reply) => {
+      const parsed = CHAIN_PATH.safeParse(req.params.chain);
+      if (!parsed.success) return reply.code(400).send({ code: 'BAD_CHAIN' });
+      const { chainConfigFor } = await import('../rewards.ts');
+      const cfg = chainConfigFor(parsed.data);
+      if (!cfg) return reply.code(404).send({ code: 'CHAIN_NOT_CONFIGURED' });
+      const pub = createPublicClient({ transport: http(cfg.rpcUrl) });
+
+      async function run<T>(fn: () => Promise<T[]>): Promise<{ ok: boolean; count?: number; error?: string; elapsedMs: number }> {
+        const t0 = Date.now();
+        try {
+          const out = await fn();
+          return { ok: true, count: out.length, elapsedMs: Date.now() - t0 };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err), elapsedMs: Date.now() - t0 };
+        }
+      }
+
+      // Serial so we don't accidentally trigger rate limits.
+      const chain = await run(() => fetchGemuHoldersFromChain(cfg, pub as unknown as Parameters<typeof fetchGemuHoldersFromChain>[1]));
+      const indexer = await run(() => fetchGemuHoldersFromIndexer(cfg));
+      const blockscout = cfg.blockscoutUrl
+        ? await run(() => fetchGemuHoldersFromBlockscout(cfg))
+        : { ok: false, error: 'no blockscoutUrl in cfg', elapsedMs: 0 };
+
+      return reply.send({ chain, indexer, blockscout });
+    },
+  );
 
   // GET /rewards/:chain/epochs/:address — list every epoch this address has an
   // allocation in. Frontend cross-checks `vault.isClaimed` on-chain per epoch.

@@ -345,7 +345,7 @@ export async function fetchGemuHoldersFromIndexer(
 const GEMU_DEPLOY_BLOCK_HINT: bigint = 18_349_000n;
 const TRANSFER_EVT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)');
 
-async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+export async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
   const head = await pub.getBlockNumber();
   const owner = new Map<string, Address>(); // tokenId (decimal string) → current owner
   const CHUNK = 9_500n;
