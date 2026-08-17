@@ -345,33 +345,119 @@ export async function fetchGemuHoldersFromIndexer(
 const GEMU_DEPLOY_BLOCK_HINT: bigint = 18_349_000n;
 const TRANSFER_EVT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)');
 
+/// Fetch every current gemu-NFT holder by walking Transfer events.
+///
+/// Reliability requirements:
+///   1. Parallelize chunks (bandwidth) — serial was taking ~90s for 20M
+///      blocks and hitting request-timeout ceilings inside publishEpoch,
+///      causing the wrapper to fall through to Blockscout partial data.
+///   2. Retry each chunk with backoff on any RPC error — Alchemy rate-limits
+///      or transient 5xx must not silently return zero.
+///   3. Post-walk sanity: pick a random handful of derived holders, call
+///      `balanceOf` on chain, and throw if the walk-derived count ≠ actual
+///      balance. Prevents silent partial-result publishes.
 export async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
   const head = await pub.getBlockNumber();
-  const owner = new Map<string, Address>(); // tokenId (decimal string) → current owner
   const CHUNK = 9_500n;
-  let from = GEMU_DEPLOY_BLOCK_HINT;
-  while (from <= head) {
+  const CONCURRENCY = 12; // Alchemy handles ~15 concurrent comfortably; leave headroom
+  const MAX_ATTEMPTS = 4;
+
+  // Build the chunk list up-front so we can distribute across the concurrency pool.
+  const ranges: Array<{ from: bigint; to: bigint }> = [];
+  for (let from = GEMU_DEPLOY_BLOCK_HINT; from <= head; from += CHUNK + 1n) {
     const to = from + CHUNK > head ? head : from + CHUNK;
-    const logs = await pub.getLogs({
-      address: cfg.gemuNftAddress,
-      event: TRANSFER_EVT,
-      fromBlock: from,
-      toBlock: to,
-    });
-    for (const l of logs) {
-      const a = l.args as { to?: Address; tokenId?: bigint };
-      if (a.tokenId === undefined || a.to === undefined) continue;
-      owner.set(a.tokenId.toString(), a.to.toLowerCase() as Address);
-    }
-    from = to + 1n;
+    ranges.push({ from, to });
   }
+
+  async function fetchChunkWithRetry(from: bigint, to: bigint): Promise<Array<{ tokenId: string; to: Address }>> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const logs = await pub.getLogs({
+          address: cfg.gemuNftAddress,
+          event: TRANSFER_EVT,
+          fromBlock: from,
+          toBlock: to,
+        });
+        const out: Array<{ tokenId: string; to: Address }> = [];
+        for (const l of logs) {
+          const a = l.args as { to?: Address; tokenId?: bigint };
+          if (a.tokenId === undefined || a.to === undefined) continue;
+          out.push({ tokenId: a.tokenId.toString(), to: a.to.toLowerCase() as Address });
+        }
+        return out;
+      } catch (err) {
+        lastErr = err;
+        // Exponential backoff: 200ms, 400ms, 800ms
+        await new Promise((r) => setTimeout(r, 200 * 2 ** attempt));
+      }
+    }
+    // Give up after MAX_ATTEMPTS — critical to THROW, not return empty, so the
+    // wrapper falls through to a fallback source instead of publishing a
+    // silently-partial tree.
+    throw new Error(`getLogs failed after ${MAX_ATTEMPTS} attempts for [${from}, ${to}]: ${(lastErr as Error)?.message ?? lastErr}`);
+  }
+
+  // Bounded-concurrency pool: process ranges in flights of CONCURRENCY.
+  const chunkResults: Array<Array<{ tokenId: string; to: Address }>> = new Array(ranges.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= ranges.length) return;
+      const r = ranges[i]!;
+      chunkResults[i] = await fetchChunkWithRetry(r.from, r.to);
+    }
+  }
+  const workers = Array.from({ length: Math.min(CONCURRENCY, ranges.length) }, () => worker());
+  await Promise.all(workers);
+
+  // Merge: process chunks in block order so the LAST Transfer per tokenId
+  // (which decides the current owner) reflects the newest event.
+  const owner = new Map<string, Address>(); // tokenId → current owner
+  for (const chunk of chunkResults) {
+    for (const t of chunk) owner.set(t.tokenId, t.to);
+  }
+
   const ZERO: Address = '0x0000000000000000000000000000000000000000';
   const counts = new Map<Address, bigint>();
   for (const [, o] of owner) {
     if (o === ZERO) continue;
     counts.set(o, (counts.get(o) ?? 0n) + 1n);
   }
-  return [...counts.entries()].map(([address, balance]) => ({ address, balance }));
+
+  const holders: Holder[] = [...counts.entries()].map(([address, balance]) => ({ address, balance }));
+
+  // Post-walk sanity: pick 3 random derived holders and verify balanceOf on
+  // chain matches walk-derived count. If any mismatch, throw — partial data
+  // getting published is exactly the failure mode we're guarding against.
+  if (holders.length >= 3) {
+    const sampleAbi = [{
+      name: 'balanceOf',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'owner', type: 'address' }],
+      outputs: [{ type: 'uint256' }],
+    }] as const;
+    const idxs = new Set<number>();
+    while (idxs.size < 3) idxs.add(Math.floor((holders.length - 1) * (idxs.size / 3 + 0.1)));
+    for (const i of idxs) {
+      const h = holders[i]!;
+      const onchain = (await pub.readContract({
+        address: cfg.gemuNftAddress,
+        abi: sampleAbi,
+        functionName: 'balanceOf',
+        args: [h.address],
+      })) as bigint;
+      if (onchain !== h.balance) {
+        throw new Error(
+          `chain-walk sanity failed: holder ${h.address} walk-derived=${h.balance} but on-chain balanceOf=${onchain}`,
+        );
+      }
+    }
+  }
+
+  return holders;
 }
 
 /// Fetch every current gemu-NFT holder. Priority is on-chain (Alchemy RPC via
