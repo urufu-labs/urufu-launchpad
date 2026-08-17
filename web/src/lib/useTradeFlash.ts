@@ -29,7 +29,10 @@ const FLASH_EVENT = 'trade-flash';
 /// dispatch trade-flash events. Consumers that want the map to stay in sync
 /// (useLastTradeMap → discover / trade-lookup sorts) must listen on both.
 const MAP_UPDATE_EVENT = 'trade-map-updated';
-const POLL_INTERVAL_MS = 5_000;
+/// 10s (bumped from 5s) — halves background traffic + main-thread work on
+/// slower devices while still surfacing a fresh trade within one blink.
+/// Flash animation is 800ms so users don't perceive the difference.
+const POLL_INTERVAL_MS = 10_000;
 
 interface FlashDetail {
   address: string;

@@ -35,6 +35,34 @@ const PER_CHAIN_URLS: Record<number, string | undefined> = {
   46630: process.env.NEXT_PUBLIC_INDEXER_URL_ROBINHOOD_TESTNET,
 };
 
+/// SWR-style short-TTL cache for identical fetch calls fired in quick
+/// succession (e.g. navigating between pages that both call
+/// `fetchRecentLaunches` re-hits the indexer even though the answer hasn't
+/// materially changed). Also dedupes concurrent in-flight requests so N
+/// components mounting simultaneously result in ONE network request instead
+/// of N.
+///
+/// Keys are opaque strings — usually the function name plus a compact
+/// serialization of its args. TTL is intentionally short (5s) so real
+/// changes still surface fast; the goal is to collapse redundant back-to-back
+/// hits, not to serve stale data.
+const FETCH_CACHE_TTL_MS = 5_000;
+interface CacheEntry<T> { at: number; promise: Promise<T> }
+const _fetchCache = new Map<string, CacheEntry<unknown>>();
+
+function memoizeFetch<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const cached = _fetchCache.get(key) as CacheEntry<T> | undefined;
+  if (cached && Date.now() - cached.at < FETCH_CACHE_TTL_MS) return cached.promise;
+  const promise = fn().catch((err) => {
+    // On failure, evict so the next call can retry immediately instead of
+    // waiting the full TTL to re-attempt.
+    _fetchCache.delete(key);
+    throw err;
+  });
+  _fetchCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
 /// Returns the indexer GraphQL endpoint for a chain, or null if no URL is
 /// configured. Callers MUST check for null and skip the fetch — no more silent
 /// localhost fallback that guarantees connection-refused spam in production.
@@ -233,6 +261,10 @@ export interface IndexerTrade {
 /// chain's launches, so merging is required for a chain-agnostic feed. Returns `null`
 /// if EVERY indexer is unreachable; caller falls back to mocks.
 export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] | null> {
+  return memoizeFetch(`fetchRecentLaunches:${limit}`, () => _fetchRecentLaunchesRaw(limit));
+}
+
+async function _fetchRecentLaunchesRaw(limit: number): Promise<IndexerLaunch[] | null> {
   const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query RecentLaunches($limit: Int!) {
       launchess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
@@ -318,6 +350,10 @@ export interface IndexerV4Swap {
 }
 
 export async function fetchRecentV4Swaps(limit = 25): Promise<IndexerV4Swap[] | null> {
+  return memoizeFetch(`fetchRecentV4Swaps:${limit}`, () => _fetchRecentV4SwapsRaw(limit));
+}
+
+async function _fetchRecentV4SwapsRaw(limit: number): Promise<IndexerV4Swap[] | null> {
   // Two-step server-side filter: fetch known launchpad `poolId`s from `graduations`,
   // then ask Ponder for `v4Swaps` where `poolId_in: [...]`. This replaces an earlier
   // "overfetch 200 + client filter for non-null tokenAddress" approach that was
@@ -467,6 +503,10 @@ export async function fetchGraduationForToken(
 /// home page's "live activity" rail so users see fresh buys/sells landing without opening
 /// a specific trade page.
 export async function fetchRecentTrades(limit = 25): Promise<IndexerTrade[] | null> {
+  return memoizeFetch(`fetchRecentTrades:${limit}`, () => _fetchRecentTradesRaw(limit));
+}
+
+async function _fetchRecentTradesRaw(limit: number): Promise<IndexerTrade[] | null> {
   const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
     `query RecentTrades($limit: Int!) {
       tradess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
@@ -697,19 +737,21 @@ export async function fetchFlywheelActivity(
   chainId: number | undefined,
   limit = 20,
 ): Promise<FlywheelActivityRow[]> {
-  const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
-  if (!base) return [];
-  const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/activity`);
-  url.searchParams.set('limit', String(limit));
-  if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
-  try {
-    const resp = await fetch(url.toString(), { cache: 'no-store' });
-    if (!resp.ok) return [];
-    const body = (await resp.json()) as { activity?: FlywheelActivityRow[] };
-    return body.activity ?? [];
-  } catch {
-    return [];
-  }
+  return memoizeFetch(`fetchFlywheelActivity:${chainId ?? 'all'}:${limit}`, async () => {
+    const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+    if (!base) return [];
+    const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/activity`);
+    url.searchParams.set('limit', String(limit));
+    if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
+    try {
+      const resp = await fetch(url.toString(), { cache: 'no-store' });
+      if (!resp.ok) return [];
+      const body = (await resp.json()) as { activity?: FlywheelActivityRow[] };
+      return body.activity ?? [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /// Lifetime aggregates across every indexed distribution/buyback/conversion
@@ -726,15 +768,17 @@ export interface FlywheelTotals {
 export async function fetchFlywheelTotals(
   chainId: number | undefined,
 ): Promise<FlywheelTotals | null> {
-  const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
-  if (!base) return null;
-  const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/totals`);
-  if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
-  try {
-    const resp = await fetch(url.toString(), { cache: 'no-store' });
-    if (!resp.ok) return null;
-    return (await resp.json()) as FlywheelTotals;
-  } catch {
-    return null;
-  }
+  return memoizeFetch(`fetchFlywheelTotals:${chainId ?? 'all'}`, async () => {
+    const base = (chainId !== undefined && PER_CHAIN_URLS[chainId]) || FALLBACK_URL;
+    if (!base) return null;
+    const url = new URL(`${base.replace(/\/$/, '')}/api/flywheel/totals`);
+    if (chainId !== undefined) url.searchParams.set('chainId', String(chainId));
+    try {
+      const resp = await fetch(url.toString(), { cache: 'no-store' });
+      if (!resp.ok) return null;
+      return (await resp.json()) as FlywheelTotals;
+    } catch {
+      return null;
+    }
+  });
 }
