@@ -79,6 +79,70 @@ export async function registerRewardsRoutes(app: FastifyInstance): Promise<void>
     }
   });
 
+  // GET /rewards/:chain/_probe/pending-tree — DIAGNOSTIC. Reads rewards_leaves
+  // for the current on-chain pendingEpoch WITHOUT the rewards_epochs JOIN that
+  // proofFor/epochsForHolder use, so we can verify a pending tree's coverage
+  // BEFORE it activates. Returns leaf count, sum-of-amounts, and optional
+  // ?contains=addr,addr,addr membership check.
+  app.get<{ Params: { chain: string }; Querystring: { contains?: string } }>(
+    '/rewards/:chain/_probe/pending-tree',
+    async (req, reply) => {
+      const parsed = CHAIN_PATH.safeParse(req.params.chain);
+      if (!parsed.success) return reply.code(400).send({ code: 'BAD_CHAIN' });
+      const { chainConfigFor } = await import('../rewards.ts');
+      const { sql } = await import('../db.ts');
+      const cfg = chainConfigFor(parsed.data);
+      if (!cfg) return reply.code(404).send({ code: 'CHAIN_NOT_CONFIGURED' });
+      if (!sql) return reply.code(503).send({ code: 'NO_DB' });
+
+      // Read the pending epoch's expectedEpochId + merkleRoot from chain to
+      // pin the DB query to exactly that pending tree.
+      const { createPublicClient, http, parseAbi } = await import('viem');
+      const pub = createPublicClient({ transport: http(cfg.rpcUrl) });
+      const abi = parseAbi([
+        'function pendingEpoch() view returns (uint256,bytes32,uint256,uint64)',
+      ]);
+      const pending = (await pub.readContract({
+        address: cfg.vaultAddress,
+        abi,
+        functionName: 'pendingEpoch',
+      })) as readonly [bigint, `0x${string}`, bigint, bigint];
+      const [pExpectedId, pRoot, pTotal, pReadyAt] = pending;
+      if (pReadyAt === 0n) {
+        return reply.send({ ok: false, reason: 'no pending epoch on chain' });
+      }
+
+      const epochIdNum = Number(pExpectedId);
+      const rows = await sql<Array<{ holder: string; amount: string }>>`
+        SELECT holder, amount
+        FROM app.rewards_leaves
+        WHERE chain_id = ${cfg.chainId} AND epoch_id = ${epochIdNum}
+      `;
+      const set = new Set(rows.map((r) => r.holder.toLowerCase()));
+      const totalAmountSum = rows.reduce((s, r) => s + BigInt(r.amount), 0n);
+
+      const containsRaw = (req.query.contains ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+      const contains: Record<string, boolean> = {};
+      for (const c of containsRaw) contains[c.toLowerCase()] = set.has(c.toLowerCase());
+
+      return reply.send({
+        ok: true,
+        pending: {
+          expectedEpochId: epochIdNum,
+          merkleRoot: pRoot,
+          totalAmount: pTotal.toString(),
+          readyAt: Number(pReadyAt),
+        },
+        db: {
+          leafCount: rows.length,
+          totalAmountSum: totalAmountSum.toString(),
+          matchesOnchainTotal: totalAmountSum === pTotal,
+        },
+        contains,
+      });
+    },
+  );
+
   // GET /rewards/:chain/_probe/all-sources — DIAGNOSTIC. Runs each holder
   // source in parallel and reports what each returned. Used to diagnose why
   // the tree-building path is falling through to the wrong source (e.g.
