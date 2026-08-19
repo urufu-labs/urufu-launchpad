@@ -220,6 +220,15 @@ export default function RootLayout({
               <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
               <Link href="/profile" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
               <a
+                href="https://studio.urufulabs.xyz/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                style={{ color: 'var(--anchor)' }}
+              >
+                ✿ chibi studio ↗
+              </a>
+              <a
                 href="https://www.urufu.xyz"
                 target="_blank"
                 rel="noopener noreferrer"

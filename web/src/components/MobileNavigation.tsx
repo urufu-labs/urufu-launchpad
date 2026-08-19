@@ -25,6 +25,7 @@ const utilityLinks = [
 ];
 
 const communityLinks = [
+  { href: 'https://studio.urufulabs.xyz/', label: '✿ chibi studio ↗' },
   { href: 'https://www.urufu.xyz', label: '❋ urufu gemu ↗' },
   { href: 'https://x.com/urugemu', label: '✧ twitter ↗' },
   { href: 'https://t.me/urugemu', label: '✧ telegram ↗' },
