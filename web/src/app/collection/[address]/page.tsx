@@ -12,7 +12,7 @@
 /// the module's `paymentToken` field. URU-mode adds an allowance step
 /// before the mint tx.
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   useAccount,
@@ -21,7 +21,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
-import { formatEther, formatUnits, isAddress, zeroAddress, type Address } from 'viem';
+import { formatUnits, isAddress, zeroAddress, type Address } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
@@ -136,7 +136,10 @@ function CollectionView({
 
   const name = baseReads?.[0]?.result as string | undefined;
   const symbol = baseReads?.[1]?.result as string | undefined;
-  const baseURI = baseReads?.[2]?.result as string | undefined;
+  // _baseURI: read for the upcoming cover-art metadata fetch (baseURI/0
+  // → JSON `image` field). Kept in the read batch so we don't need a
+  // second `useReadContracts` when that feature ships.
+  const _baseURI = baseReads?.[2]?.result as string | undefined;
   const totalMinted = baseReads?.[3]?.result as bigint | undefined;
   const maxSupply = baseReads?.[4]?.result as bigint | undefined;
   const mintModule = baseReads?.[5]?.result as Address | undefined;
@@ -160,8 +163,13 @@ function CollectionView({
   });
 
   const paymentToken = moduleReads?.[0]?.result as Address | undefined;
-  const basePriceWei = moduleReads?.[1]?.result as bigint | undefined;
-  const priceStepWei = moduleReads?.[2]?.result as bigint | undefined;
+  // _basePriceWei / _priceStepWei: read for the marketplace-panel /
+  // discount-preview widgets. The rendered price uses `grossPriceFor`
+  // (accounts for qty and linear-step math server-side) instead of
+  // deriving locally, but the raw slots are batched here so future
+  // consumers don't re-fetch.
+  const _basePriceWei = moduleReads?.[1]?.result as bigint | undefined;
+  const _priceStepWei = moduleReads?.[2]?.result as bigint | undefined;
   const mintMode = moduleReads?.[3]?.result as number | undefined;    // 0 = fixed, 1 = linear
   const discountFloorBps = moduleReads?.[4]?.result as bigint | undefined;
 

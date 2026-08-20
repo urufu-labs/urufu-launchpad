@@ -22,9 +22,6 @@ import {
   useWriteContract,
 } from 'wagmi';
 import {
-  keccak256,
-  encodeAbiParameters,
-  parseEther,
   parseUnits,
   isAddress,
   zeroAddress,
