@@ -135,6 +135,13 @@ export const ADDRESS_KEYS = [
   /// (`<PREFIX>_LOYALTY_ORACLE_ADDRESS`) on chains where launches receive
   /// URU/gemu holder discounts through Router.launch().
   'LOYALTY_ORACLE',
+  /// NftLaunchFactory — the singleton that deploys NFT collections +
+  /// their mint modules + WL modules in one tx. Each `CollectionLaunched`
+  /// event registers a NEW mint module clone that then emits `Minted`
+  /// events (handled via a Ponder dynamic-factory pattern, same shape
+  /// as the BondingCurve subscription). Chains without a factory are
+  /// silently skipped so pre-deploy env stays valid.
+  'NFT_LAUNCH_FACTORY',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 
