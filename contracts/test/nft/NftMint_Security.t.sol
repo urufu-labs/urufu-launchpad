@@ -43,20 +43,15 @@ contract NftMint_Security is NftHarness {
 
         // Sign attestation for collection A.
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sigForA = _signAttestation(
-            attSignerPk, buyer1, collectionA_mint, address(0xBEEF), 1, 0, 3, expiry
-        );
+        bytes memory sigForA = _signAttestation(attSignerPk, buyer1, collectionA_mint, address(0xBEEF), 1, 0, 3, expiry);
         // Try to use it on collection B.
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sigForA
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sigForA});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__BadAttestationSigner.selector);
         vm.prank(buyer1);
-        NftMintModule(collectionB_mint).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(collectionB_mint).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     /// Attestation for tier 0 can't be replayed for tier 1 (tierId in hash).
@@ -69,20 +64,15 @@ contract NftMint_Security is NftHarness {
         _launch(p);
         // Sign for tier 0
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(
-            attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry
-        );
+        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry);
         // Claim tier 1 with tier 0's sig.
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 1, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 1, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__BadAttestationSigner.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     function test_Sig_ExpiredAttestation_Rejected() public {
@@ -90,24 +80,17 @@ contract NftMint_Security is NftHarness {
         p.tiers = _extNftTierArr();
         _launch(p);
         uint256 expiry = block.timestamp + 100;
-        bytes memory sig = _signAttestation(
-            attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry
-        );
+        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry);
         vm.warp(expiry + 1);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                NftMintModule.NftMintModule__AttestationExpired.selector, expiry, block.timestamp
-            )
+            abi.encodeWithSelector(NftMintModule.NftMintModule__AttestationExpired.selector, expiry, block.timestamp)
         );
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     function test_Sig_ForgedByRandomKey_Rejected() public {
@@ -117,19 +100,14 @@ contract NftMint_Security is NftHarness {
         // Sign with a rando key, not the attSigner.
         uint256 randoPk = 0xDEADBEEF;
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(
-            randoPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry
-        );
+        bytes memory sig = _signAttestation(randoPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__BadAttestationSigner.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     /// Malformed signatures MUST NOT validate — Solady's tryRecover returns
@@ -143,15 +121,12 @@ contract NftMint_Security is NftHarness {
         // Garbage bytes.
         bytes memory sig = hex"deadbeef";
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__BadAttestationSigner.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     /// Attacker signs `count=1000` for themselves. Off-chain the compile-service
@@ -160,34 +135,30 @@ contract NftMint_Security is NftHarness {
     /// so a lying signer can't push discount past the tier's configured max.
     function test_Sig_LyingCount_Capped_At_MaxCounted() public {
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams();
-        p.discountFloorBps = 5000;    // ceiling = 50%
+        p.discountFloorBps = 5000; // ceiling = 50%
         NftMintModule.DiscountTier[] memory tiers = new NftMintModule.DiscountTier[](1);
         tiers[0] = NftMintModule.DiscountTier({
             kind: NftMintModule.TierKind.ExternalNft,
             walletListRoot: bytes32(0),
             externalCollection: address(0xBEEF),
             externalChainId: 1,
-            percentPerNftBps: 500,     // 5%/nft
-            maxCountedNfts: 4,          // cap 20% max
+            percentPerNftBps: 500, // 5%/nft
+            maxCountedNfts: 4, // cap 20% max
             fixedDiscountBps: 0
         });
         p.tiers = tiers;
         _launch(p);
         uint256 expiry = block.timestamp + 1 hours;
         // "attestation" for 1000 count
-        bytes memory sig = _signAttestation(
-            attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 1000, expiry
-        );
+        bytes memory sig =
+            _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 1000, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 1000, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 1000, expiry: expiry, sig: sig});
         vm.deal(buyer1, 1 ether);
         // Should apply 20% off (not 500%). Pay 0.008.
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(1, new bytes32[](0), 0, 0, "", proofs);
         assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 1);
     }
 
@@ -211,16 +182,12 @@ contract NftMint_Security is NftHarness {
         p.tiers = tiers;
         _launch(p);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""
-        });
+        proofs[0] = NftMintModule.TierProof({tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""});
         // buyer3 tries to use buyer1's proof.
         vm.deal(buyer3, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__NotWhitelisted.selector);
         vm.prank(buyer3);
-        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     function test_MerkleProof_WrongRoot_Rejected() public {
@@ -241,15 +208,11 @@ contract NftMint_Security is NftHarness {
         // Craft a proof for a DIFFERENT tree (buyer1 in a tree with buyer3, not buyer2)
         (, bytes32[] memory bogusProof,) = _twoLeafMerkle(buyer1, buyer3);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: bogusProof, count: 0, expiry: 0, sig: ""
-        });
+        proofs[0] = NftMintModule.TierProof({tierId: 0, merkleProof: bogusProof, count: 0, expiry: 0, sig: ""});
         vm.deal(buyer1, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__NotWhitelisted.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     // --------------------------------------------------------------
@@ -259,19 +222,11 @@ contract NftMint_Security is NftHarness {
     function test_TierId_OutOfRange_Rejects() public {
         _launch(_defaultLaunchParams()); // no tiers
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 99, merkleProof: new bytes32[](0), count: 0, expiry: 0, sig: ""
-        });
+        proofs[0] = NftMintModule.TierProof({tierId: 99, merkleProof: new bytes32[](0), count: 0, expiry: 0, sig: ""});
         vm.deal(buyer1, 1 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                NftMintModule.NftMintModule__TierIdOutOfRange.selector, 99, 0
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(NftMintModule.NftMintModule__TierIdOutOfRange.selector, 99, 0));
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     function test_TierProof_Duplicate_Rejects() public {
@@ -291,16 +246,12 @@ contract NftMint_Security is NftHarness {
         _launch(p);
         // Double-claim tier 0.
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](2);
-        proofs[0] = NftMintModule.TierProof({ tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: "" });
-        proofs[1] = NftMintModule.TierProof({ tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: "" });
+        proofs[0] = NftMintModule.TierProof({tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""});
+        proofs[1] = NftMintModule.TierProof({tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""});
         vm.deal(buyer1, 1 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(NftMintModule.NftMintModule__DuplicateTierProof.selector, 0)
-        );
+        vm.expectRevert(abi.encodeWithSelector(NftMintModule.NftMintModule__DuplicateTierProof.selector, 0));
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(
-            1, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.008 ether}(1, new bytes32[](0), 0, 0, "", proofs);
     }
 
     // --------------------------------------------------------------
@@ -312,16 +263,14 @@ contract NftMint_Security is NftHarness {
         p.maxSupply = type(uint256).max;
         p.mintMode = NftMintModule.MintMode.LinearStep;
         p.basePriceWei = 1;
-        p.priceStepWei = type(uint128).max;    // huge step
+        p.priceStepWei = type(uint128).max; // huge step
         _launch(p);
         // qty * step * (qty-1)/2 overflows uint256 for large qty.
         vm.deal(buyer1, 10 ether);
         // Solidity 0.8 checked math triggers Panic(0x11) on overflow.
         vm.expectRevert();
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 10 ether}(
-            1_000_000, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mint{value: 10 ether}(1_000_000, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     // --------------------------------------------------------------
@@ -339,13 +288,11 @@ contract NftMint_Security is NftHarness {
         (address token, address mm,) = factory.launch(p);
         vm.deal(buyer1, 1 ether);
         vm.prank(buyer1);
-        NftMintModule(mm).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(mm).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
         assertEq(ERC721ATemplate(token).balanceOf(buyer1), 1, "mint OK despite launcher rev");
         assertEq(NftMintModule(mm).launcherBalance(), 0.009 ether, "accrued");
         // But withdraw fails.
-        vm.expectRevert();    // safeTransferETH bubbles the RR's Rejected
+        vm.expectRevert(); // safeTransferETH bubbles the RR's Rejected
         NftMintModule(mm).withdraw();
     }
 
@@ -359,9 +306,7 @@ contract NftMint_Security is NftHarness {
         _launch(_defaultLaunchParams());
         vm.deal(buyer1, 1 ether);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
         assertEq(NftMintModule(deployedMintModule).platformStuckBalance(), 0.001 ether);
         // Sweep also fails (splitter still reverts).
         vm.expectRevert(NftMintModule.NftMintModule__TransferFailed.selector);
@@ -395,9 +340,7 @@ contract NftMint_Security is NftHarness {
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams();
         p.discountFloorBps = 10_001;
         vm.expectRevert(
-            abi.encodeWithSelector(
-                NftLaunchFactory.NftLaunchFactory__DiscountFloorTooHigh.selector, 10_001
-            )
+            abi.encodeWithSelector(NftLaunchFactory.NftLaunchFactory__DiscountFloorTooHigh.selector, 10_001)
         );
         vm.prank(launcher);
         factory.launch(p);
@@ -412,7 +355,7 @@ contract NftMint_Security is NftHarness {
     /// because ownership is transferred to the mint module at launch.
     function test_MintBatch_DirectCall_Rejects() public {
         _launch(_defaultLaunchParams());
-        vm.expectRevert();    // Solady Ownable.Unauthorized
+        vm.expectRevert(); // Solady Ownable.Unauthorized
         vm.prank(buyer1);
         ERC721ATemplate(deployedToken).mintBatch(buyer1, 1);
     }
@@ -434,9 +377,7 @@ contract NftMint_Security is NftHarness {
         vm.deal(buyer1, 1 ether);
         uint256 launcherBefore = launcher.balance;
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 0.5 ether}(
-            1, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.5 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
         // Launcher balance in EOA (not accrued) unchanged.
         assertEq(launcher.balance, launcherBefore, "launcher EOA untouched");
         assertEq(NftMintModule(deployedMintModule).launcherBalance(), 0.009 ether, "accrued 9k");
@@ -457,9 +398,7 @@ contract NftMint_Security is NftHarness {
         vm.deal(buyer3, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__NotWhitelisted.selector);
         vm.prank(buyer3);
-        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(
-            1, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     // --------------------------------------------------------------
@@ -500,9 +439,7 @@ contract NftMint_Security is NftHarness {
     function test_Factory_SetExpectedCodeHashes_OneShot() public {
         vm.expectRevert(NftLaunchFactory.NftLaunchFactory__AlreadySet.selector);
         vm.prank(owner);
-        factory.setExpectedCodeHashes(
-            bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3))
-        );
+        factory.setExpectedCodeHashes(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
     }
 
     // --------------------------------------------------------------

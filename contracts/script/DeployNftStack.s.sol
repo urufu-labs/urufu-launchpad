@@ -98,21 +98,14 @@ contract DeployNftStack is Script {
         //     Reading from the just-deployed addresses' .code so the
         //     hashes exactly match what the factory will bind.
         factory.setExpectedCodeHashes(
-            keccak256(out.erc721Impl.code),
-            keccak256(out.mintModuleImpl.code),
-            keccak256(out.wlModuleImpl.code)
+            keccak256(out.erc721Impl.code), keccak256(out.mintModuleImpl.code), keccak256(out.wlModuleImpl.code)
         );
 
         // -- 6: register the impls
         factory.setImpls(out.erc721Impl, out.mintModuleImpl, out.wlModuleImpl);
 
         // -- 7: URU config (fee + loyalty)
-        factory.setUruConfig(
-            IERC20(uru),
-            uruSink,
-            minUruFee,
-            ILoyaltyOracleLike(loyaltyOracle)
-        );
+        factory.setUruConfig(IERC20(uru), uruSink, minUruFee, ILoyaltyOracleLike(loyaltyOracle));
 
         // -- 8: FeeSplitter + attestation signer
         factory.setFeeSplitter(feeSplitter);
@@ -137,7 +130,10 @@ contract DeployNftStack is Script {
         console2.log("minUruLaunchFee  ", minUruFee);
     }
 
-    function _writeDeploymentBook(string memory chainId, Deployed memory d) internal {
+    function _writeDeploymentBook(
+        string memory chainId,
+        Deployed memory d
+    ) internal {
         string memory obj = "nftDeploy";
         vm.serializeAddress(obj, "ERC721Impl", d.erc721Impl);
         vm.serializeAddress(obj, "NftMintModuleImpl", d.mintModuleImpl);

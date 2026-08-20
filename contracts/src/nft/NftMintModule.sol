@@ -25,11 +25,18 @@ import {IFeeReceiver} from "src/router/FeeReceiver.sol";
 import {BaseType} from "src/types/VMTypes.sol";
 
 interface IErc721Mintable {
-    function mintBatch(address to, uint256 quantity) external;
+    function mintBatch(
+        address to,
+        uint256 quantity
+    ) external;
     function totalMinted() external view returns (uint256);
     function maxSupply() external view returns (uint256);
-    function transferOwnership(address newOwner) external;
-    function balanceOf(address owner) external view returns (uint256);
+    function transferOwnership(
+        address newOwner
+    ) external;
+    function balanceOf(
+        address owner
+    ) external view returns (uint256);
 }
 
 /// Minimal ERC-20 shape used for URU push transfers. We use direct
@@ -37,7 +44,10 @@ interface IErc721Mintable {
 /// non-standard `return false` from a hard revert, matching the ETH-path
 /// try/catch posture — either failure mode routes into `platformStuckUru`.
 interface IERC20Min {
-    function transfer(address to, uint256 amount) external returns (bool);
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool);
 }
 
 /// @title  NftMintModule
@@ -127,23 +137,23 @@ contract NftMintModule {
         address whitelistModule,
         address feeSplitter,
         address attestationSigner,
-        address paymentToken,       // address(0) = ETH; else ERC-20 addr
-        address uruDepositSink       // where URU platform slice goes (unused for ETH)
+        address paymentToken, // address(0) = ETH; else ERC-20 addr
+        address uruDepositSink // where URU platform slice goes (unused for ETH)
     );
     event Minted(
         address indexed minter,
         uint256 startTokenId,
         uint256 quantity,
-        uint256 grossPaidWei,        // amount in payment token's smallest unit
+        uint256 grossPaidWei, // amount in payment token's smallest unit
         uint256 discountBps,
         bool wlUsed,
-        bool paidInUru               // false = ETH, true = URU
+        bool paidInUru // false = ETH, true = URU
     );
     event LauncherWithdrew(address indexed to, uint256 amount);
     event LauncherWithdrewUru(address indexed to, uint256 amount);
     event PlatformSlicePushed(address indexed feeSplitter, uint256 amount);
     event PlatformSlicePushedUru(address indexed sink, uint256 amount);
-    event PlatformSliceStuck(uint256 amount);   // if push failed; safe-swept via `sweepPlatformStuck`
+    event PlatformSliceStuck(uint256 amount); // if push failed; safe-swept via `sweepPlatformStuck`
     event PlatformSliceStuckUru(uint256 amount);
 
     // ============================================================
@@ -169,10 +179,10 @@ contract NftMintModule {
         // For ExternalNft only:
         address externalCollection;
         uint256 externalChainId;
-        uint256 percentPerNftBps;     // e.g. 500 = 5% off per NFT held
-        uint256 maxCountedNfts;       // cap on NFTs that count toward the discount
+        uint256 percentPerNftBps; // e.g. 500 = 5% off per NFT held
+        uint256 maxCountedNfts; // cap on NFTs that count toward the discount
         // For WalletList only:
-        uint256 fixedDiscountBps;     // e.g. 2000 = 20% off
+        uint256 fixedDiscountBps; // e.g. 2000 = 20% off
     }
 
     /// A proof matches a specific tier index the buyer is claiming.
@@ -192,8 +202,8 @@ contract NftMintModule {
     uint256 public constant BPS_DENOMINATOR = 10_000;
     /// 90/10 launcher/platform split. Immutable across all collections
     /// so buyers know what they're paying for at a glance.
-    uint256 public constant PLATFORM_SLICE_BPS = 1_000;    // 10%
-    uint256 public constant LAUNCHER_SLICE_BPS = 9_000;    // 90%
+    uint256 public constant PLATFORM_SLICE_BPS = 1000; // 10%
+    uint256 public constant LAUNCHER_SLICE_BPS = 9000; // 90%
     /// Absolute floor on any individual mint's discount ceiling.
     /// Even a deployer that sets `discountFloorBps == 0` (free-mint
     /// allowed) still can't accidentally overflow past 100%.
@@ -209,10 +219,10 @@ contract NftMintModule {
     // ============================================================
     uint8 private _initialized;
 
-    address public token;              // the ERC-721 clone we own
-    address public launcher;           // who gets 90% (pull withdraw)
-    address public feeSplitter;        // gets 10% (push each mint)  — ETH path
-    address public attestationSigner;  // signer for ExternalNft tier proofs
+    address public token; // the ERC-721 clone we own
+    address public launcher; // who gets 90% (pull withdraw)
+    address public feeSplitter; // gets 10% (push each mint)  — ETH path
+    address public attestationSigner; // signer for ExternalNft tier proofs
     NftWhitelistModule public whitelistModule; // zero if no WL
 
     /// Payment token. address(0) means ETH-priced. Any other address
@@ -232,9 +242,9 @@ contract NftMintModule {
 
     MintMode public mintMode;
     uint256 public basePriceWei;
-    uint256 public priceStepWei;       // 0 for Fixed mode
-    uint256 public discountFloorBps;   // 0 to 10_000; buyer never pays less than this % of base
-    uint256 public perWalletMintCap;   // 0 = no cap. Enforced by balanceOf(minter) after mint.
+    uint256 public priceStepWei; // 0 for Fixed mode
+    uint256 public discountFloorBps; // 0 to 10_000; buyer never pays less than this % of base
+    uint256 public perWalletMintCap; // 0 = no cap. Enforced by balanceOf(minter) after mint.
 
     DiscountTier[] private _tiers;
 
@@ -256,15 +266,15 @@ contract NftMintModule {
         address launcher;
         address feeSplitter;
         address attestationSigner;
-        address whitelistModule;    // zero if flavor==Off / no WL module deployed
+        address whitelistModule; // zero if flavor==Off / no WL module deployed
         MintMode mintMode;
-        uint256 basePriceWei;        // per-mint price in payment-token smallest unit
+        uint256 basePriceWei; // per-mint price in payment-token smallest unit
         uint256 priceStepWei;
         uint256 discountFloorBps;
         uint256 perWalletMintCap;
         DiscountTier[] tiers;
-        address paymentToken;        // address(0) = ETH; else ERC-20 addr
-        address uruDepositSink;       // sink for URU platform slice; zero for ETH
+        address paymentToken; // address(0) = ETH; else ERC-20 addr
+        address uruDepositSink; // sink for URU platform slice; zero for ETH
     }
 
     /// @notice Called once, by `NftLaunchFactory`, immediately after
@@ -366,13 +376,17 @@ contract NftMintModule {
         return _tiers.length;
     }
 
-    function tierAt(uint256 i) external view returns (DiscountTier memory) {
+    function tierAt(
+        uint256 i
+    ) external view returns (DiscountTier memory) {
         return _tiers[i];
     }
 
     /// @notice Gross ETH cost for `quantity` mints starting from the
     ///         current mint count. Excludes any discount.
-    function grossPriceFor(uint256 quantity) public view returns (uint256) {
+    function grossPriceFor(
+        uint256 quantity
+    ) public view returns (uint256) {
         if (quantity == 0) return 0;
         return _grossPriceFor(quantity, IErc721Mintable(token).totalMinted());
     }
@@ -380,7 +394,10 @@ contract NftMintModule {
     /// @notice Given a computed discount in bps, compute the net ETH
     ///         cost. Discount is clamped at the module ceiling
     ///         (100% - discountFloorBps).
-    function netPriceFor(uint256 quantity, uint256 discountBps) public view returns (uint256) {
+    function netPriceFor(
+        uint256 quantity,
+        uint256 discountBps
+    ) public view returns (uint256) {
         uint256 gross = grossPriceFor(quantity);
         uint256 clamped = _clampDiscount(discountBps);
         return gross - (gross * clamped) / BPS_DENOMINATOR;
@@ -710,7 +727,10 @@ contract NftMintModule {
     ///       is desirable — we want a loud failure on absurd inputs
     ///       rather than a wrap). `qty` is bounded by remaining supply
     ///       ≤ maxSupply, which the deployer sets at launch.
-    function _grossPriceFor(uint256 qty, uint256 alreadyMinted) internal view returns (uint256) {
+    function _grossPriceFor(
+        uint256 qty,
+        uint256 alreadyMinted
+    ) internal view returns (uint256) {
         uint256 base = basePriceWei;
         if (mintMode == MintMode.Fixed) {
             return base * qty;
@@ -726,7 +746,9 @@ contract NftMintModule {
     // ============================================================
     // Internal — discount verification
     // ============================================================
-    function _clampDiscount(uint256 discountBps) internal view returns (uint256) {
+    function _clampDiscount(
+        uint256 discountBps
+    ) internal view returns (uint256) {
         uint256 ceiling = discountCeilingBps();
         return discountBps > ceiling ? ceiling : discountBps;
     }
@@ -762,9 +784,7 @@ contract NftMintModule {
             uint256 tierContribution;
 
             if (tier.kind == TierKind.WalletList) {
-                bool valid = NftDiscountVerifier.verifyWalletList(
-                    tier.walletListRoot, wallet, p.merkleProof
-                );
+                bool valid = NftDiscountVerifier.verifyWalletList(tier.walletListRoot, wallet, p.merkleProof);
                 if (!valid) revert NftMintModule__NotWhitelisted();
                 tierContribution = tier.fixedDiscountBps;
             } else {

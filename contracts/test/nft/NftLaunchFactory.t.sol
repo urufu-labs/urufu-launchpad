@@ -227,10 +227,16 @@ contract NftLaunchFactoryTest is NftHarness {
 /// Test-only mock — returns a fixed discount for every wallet.
 contract MockLoyalty is ILoyaltyOracleLike {
     uint16 public immutable bps;
-    constructor(uint16 bps_) {
+
+    constructor(
+        uint16 bps_
+    ) {
         bps = bps_;
     }
-    function discountBpsFor(address) external view returns (uint16) {
+
+    function discountBpsFor(
+        address
+    ) external view returns (uint16) {
         return bps;
     }
 }

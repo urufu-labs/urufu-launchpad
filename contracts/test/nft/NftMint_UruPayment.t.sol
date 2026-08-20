@@ -23,7 +23,7 @@ contract NftMint_UruPayment is NftHarness {
     function _uruLaunch() internal returns (NftLaunchFactory.LaunchParams memory p) {
         p = _defaultLaunchParams();
         p.payWithUru = true;
-        p.basePriceWei = 100e18;    // 100 URU per mint
+        p.basePriceWei = 100e18; // 100 URU per mint
     }
 
     // --------------------------------------------------------------
@@ -38,9 +38,7 @@ contract NftMint_UruPayment is NftHarness {
         uru.approve(deployedMintModule, type(uint256).max);
         // Mint 1 at 100 URU.
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
         assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 1);
         assertEq(uru.balanceOf(buyer1), 900e18, "buyer debited exact");
     }
@@ -51,9 +49,7 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
         NftMintModule mm = NftMintModule(deployedMintModule);
         assertEq(mm.launcherBalanceUru(), 90e18, "launcher 90% URU");
         assertEq(uru.balanceOf(address(uruSink)), 10e18, "sink 10% URU");
@@ -65,9 +61,7 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
         uint256 launcherStart = uru.balanceOf(launcher);
         vm.prank(launcher);
         NftMintModule(deployedMintModule).withdrawUru();
@@ -84,14 +78,10 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                NftMintModule.NftMintModule__InsufficientPayment.selector, 100e18, 101e18
-            )
+            abi.encodeWithSelector(NftMintModule.NftMintModule__InsufficientPayment.selector, 100e18, 101e18)
         );
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 101e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 101e18, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     function test_UruMint_Underpay_Reverts() public {
@@ -100,25 +90,19 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                NftMintModule.NftMintModule__InsufficientPayment.selector, 100e18, 99e18
-            )
+            abi.encodeWithSelector(NftMintModule.NftMintModule__InsufficientPayment.selector, 100e18, 99e18)
         );
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 99e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 99e18, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     function test_UruMint_MissingAllowance_Reverts() public {
         _launch(_uruLaunch());
         uru.mint(buyer1, 1000e18);
         // No approve.
-        vm.expectRevert();  // SafeTransferLib TransferFromFailed
+        vm.expectRevert(); // SafeTransferLib TransferFromFailed
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     // --------------------------------------------------------------
@@ -132,21 +116,17 @@ contract NftMint_UruPayment is NftHarness {
         vm.deal(buyer1, 200e18);
         vm.expectRevert(NftMintModule.NftMintModule__EthNotConfigured.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mint{value: 100e18}(
-            1, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mint{value: 100e18}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     function test_UruMint_On_EthCollection_Reverts() public {
-        _launch(_defaultLaunchParams());   // ETH-priced
+        _launch(_defaultLaunchParams()); // ETH-priced
         uru.mint(buyer1, 1000e18);
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.expectRevert(NftMintModule.NftMintModule__UruNotConfigured.selector);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     // --------------------------------------------------------------
@@ -164,7 +144,7 @@ contract NftMint_UruPayment is NftHarness {
             externalChainId: 0,
             percentPerNftBps: 0,
             maxCountedNfts: 0,
-            fixedDiscountBps: 2000    // 20% off
+            fixedDiscountBps: 2000 // 20% off
         });
         p.tiers = tiers;
         _launch(p);
@@ -172,14 +152,10 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""
-        });
+        proofs[0] = NftMintModule.TierProof({tierId: 0, merkleProof: proof1, count: 0, expiry: 0, sig: ""});
         // 20% off 100 URU = 80 URU.
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 80e18, new bytes32[](0), 0, 0, "", proofs
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 80e18, new bytes32[](0), 0, 0, "", proofs);
         assertEq(NftMintModule(deployedMintModule).launcherBalanceUru(), 72e18, "90% of 80");
     }
 
@@ -195,9 +171,7 @@ contract NftMint_UruPayment is NftHarness {
         uru.approve(deployedMintModule, type(uint256).max);
         vm.expectRevert(NftMintModule.NftMintModule__NotWhitelisted.selector);
         vm.prank(buyer3);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     // --------------------------------------------------------------
@@ -210,9 +184,7 @@ contract NftMint_UruPayment is NftHarness {
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
         vm.prank(buyer1);
-        NftMintModule(deployedMintModule).mintWithUru(
-            1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs()
-        );
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
         assertEq(NftMintModule(deployedMintModule).launcherBalance(), 0, "no ETH accrual");
         // ETH withdraw reverts (no balance).
         vm.expectRevert(NftMintModule.NftMintModule__NoBalance.selector);
@@ -233,10 +205,16 @@ contract NftMint_UruPayment is NftHarness {
         NftMintModule stray = new NftMintModule();
         NftMintModule.DiscountTier[] memory tiers = new NftMintModule.DiscountTier[](0);
         NftMintModule.InitParams memory ip = NftMintModule.InitParams({
-            token: address(1), launcher: address(2), feeSplitter: address(0),
-            attestationSigner: address(3), whitelistModule: address(0),
-            mintMode: NftMintModule.MintMode.Fixed, basePriceWei: 100e18,
-            priceStepWei: 0, discountFloorBps: 1000, perWalletMintCap: 0,
+            token: address(1),
+            launcher: address(2),
+            feeSplitter: address(0),
+            attestationSigner: address(3),
+            whitelistModule: address(0),
+            mintMode: NftMintModule.MintMode.Fixed,
+            basePriceWei: 100e18,
+            priceStepWei: 0,
+            discountFloorBps: 1000,
+            perWalletMintCap: 0,
             tiers: tiers,
             paymentToken: address(uru),
             uruDepositSink: address(0)

@@ -63,9 +63,9 @@ contract NftWhitelistModule {
     // Types
     // ============================================================
     enum Flavor {
-        Off,           // 0 — no WL, everyone eligible from t=0
-        Holders,       // 1 — external-NFT-gated (attestation)
-        WalletList     // 2 — merkle-list of wallets
+        Off, // 0 — no WL, everyone eligible from t=0
+        Holders, // 1 — external-NFT-gated (attestation)
+        WalletList // 2 — merkle-list of wallets
     }
 
     // ============================================================
@@ -94,7 +94,7 @@ contract NftWhitelistModule {
     // WalletList-flavor state
     bytes32 public walletListRoot;
     // Shared state
-    uint256 public wlWindowEnd;   // unix seconds; WL ONLY enforced before this
+    uint256 public wlWindowEnd; // unix seconds; WL ONLY enforced before this
     address public attestationSigner;
     address public ourCollection; // the collection this WL is bound to (namespaces the attestation)
 
@@ -121,10 +121,7 @@ contract NftWhitelistModule {
             uint256 wlWindowEnd_,
             address attestationSigner_,
             address ourCollection_
-        ) = abi.decode(
-            data,
-            (Flavor, address, uint256, uint256, bytes32, uint256, address, address)
-        );
+        ) = abi.decode(data, (Flavor, address, uint256, uint256, bytes32, uint256, address, address));
 
         if (ourCollection_ == address(0)) revert NftWhitelistModule__ZeroAddress();
 

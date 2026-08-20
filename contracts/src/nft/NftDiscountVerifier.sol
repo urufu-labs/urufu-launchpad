@@ -140,9 +140,7 @@ library NftDiscountVerifier {
         bytes calldata sig,
         address expectedSigner
     ) internal view returns (address signer, bool valid) {
-        bytes32 hash = attestationHash(
-            wallet, ourCollection, targetCollection, targetChainId, tierId, count, expiry
-        );
+        bytes32 hash = attestationHash(wallet, ourCollection, targetCollection, targetChainId, tierId, count, expiry);
         // EIP-191 personal_sign envelope.
         bytes32 envelope = ECDSA.toEthSignedMessageHash(hash);
         signer = ECDSA.tryRecoverCalldata(envelope, sig);

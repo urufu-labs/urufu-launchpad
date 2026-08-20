@@ -26,16 +26,26 @@ import {NftMintModule} from "src/nft/NftMintModule.sol";
 import {NftWhitelistModule} from "src/nft/NftWhitelistModule.sol";
 
 interface IERC20 {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function balanceOf(address who) external view returns (uint256);
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
 }
 
 interface ILoyaltyOracleLike {
-    function discountBpsFor(address holder) external view returns (uint16);
+    function discountBpsFor(
+        address holder
+    ) external view returns (uint16);
 }
 
 interface IInitializable {
-    function initialize(bytes calldata data) external;
+    function initialize(
+        bytes calldata data
+    ) external;
 }
 
 /// @title  NftLaunchFactory
@@ -204,13 +214,17 @@ contract NftLaunchFactory is Ownable {
         emit UruConfigSet(address(uru_), uruSink_, minUruFee_, address(loyaltyOracle_));
     }
 
-    function setFeeSplitter(address feeSplitter_) external onlyOwner {
+    function setFeeSplitter(
+        address feeSplitter_
+    ) external onlyOwner {
         if (feeSplitter_ == address(0)) revert NftLaunchFactory__ZeroAddress();
         feeSplitter = feeSplitter_;
         emit FeeSplitterSet(feeSplitter_);
     }
 
-    function setAttestationSigner(address signer) external onlyOwner {
+    function setAttestationSigner(
+        address signer
+    ) external onlyOwner {
         if (signer == address(0)) revert NftLaunchFactory__ZeroAddress();
         attestationSigner = signer;
         emit AttestationSignerSet(signer);
@@ -219,7 +233,9 @@ contract NftLaunchFactory is Ownable {
     // ============================================================
     // Views
     // ============================================================
-    function minUruFeeFor(address launcher) external view returns (uint256) {
+    function minUruFeeFor(
+        address launcher
+    ) external view returns (uint256) {
         return _minUruFeeFor(launcher);
     }
 
@@ -237,7 +253,7 @@ contract NftLaunchFactory is Ownable {
 
         // Mint mechanic
         NftMintModule.MintMode mintMode;
-        uint256 basePriceWei;         // per-mint price in payment-token smallest unit
+        uint256 basePriceWei; // per-mint price in payment-token smallest unit
         uint256 priceStepWei;
         uint256 discountFloorBps;
         uint256 perWalletMintCap;
@@ -315,9 +331,7 @@ contract NftLaunchFactory is Ownable {
             //   (address initialOwner, string name, string symbol,
             //    string baseURI, uint256 maxSupply, bytes[] moduleData)
             bytes[] memory noModules = new bytes[](0);
-            bytes memory initErc = abi.encode(
-                address(this), p.name, p.ticker, p.baseURI, p.maxSupply, noModules
-            );
+            bytes memory initErc = abi.encode(address(this), p.name, p.ticker, p.baseURI, p.maxSupply, noModules);
             IInitializable(token).initialize(initErc);
         }
 
@@ -367,22 +381,15 @@ contract NftLaunchFactory is Ownable {
         // -- 7. Hand ownership of the ERC-721 to the mint module.
         ERC721ATemplate(token).transferOwnership(mintModule);
 
-        emit CollectionLaunched(
-            token,
-            msg.sender,
-            mintModule,
-            whitelistModule,
-            saltKey,
-            p.uruAmount,
-            p.name,
-            p.ticker
-        );
+        emit CollectionLaunched(token, msg.sender, mintModule, whitelistModule, saltKey, p.uruAmount, p.name, p.ticker);
     }
 
     // ============================================================
     // Internal
     // ============================================================
-    function _minUruFeeFor(address launcher) internal view returns (uint256) {
+    function _minUruFeeFor(
+        address launcher
+    ) internal view returns (uint256) {
         uint256 floor = minUruFee;
         if (floor == 0) return 0;
         ILoyaltyOracleLike oracle = loyaltyOracle;
@@ -392,7 +399,10 @@ contract NftLaunchFactory is Ownable {
         return floor - (floor * discountBps) / 10_000;
     }
 
-    function _requireCodeHash(address impl, bytes32 expected) internal view {
+    function _requireCodeHash(
+        address impl,
+        bytes32 expected
+    ) internal view {
         bytes32 actual = keccak256(impl.code);
         if (actual != expected) revert NftLaunchFactory__CodeHashMismatch(expected, actual);
     }

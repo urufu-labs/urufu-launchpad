@@ -22,7 +22,10 @@ contract MockUru is ERC20 {
         return "URU";
     }
 
-    function mint(address to, uint256 amt) external {
+    function mint(
+        address to,
+        uint256 amt
+    ) external {
         _mint(to, amt);
     }
 }
@@ -31,14 +34,23 @@ contract MockUru is ERC20 {
 /// brick mints (pull pattern) but does brick their withdraw().
 contract RevertingReceiver {
     error Rejected();
+
     receive() external payable {
         revert Rejected();
     }
+
     // Approve helper to let this contract launch collections.
-    function approveUru(address uru, address spender, uint256 amt) external {
+    function approveUru(
+        address uru,
+        address spender,
+        uint256 amt
+    ) external {
         MockUru(uru).approve(spender, amt);
     }
-    function callWithdraw(address mintModule) external {
+
+    function callWithdraw(
+        address mintModule
+    ) external {
         (bool ok,) = mintModule.call(abi.encodeWithSignature("withdraw()"));
         require(ok, "withdraw ok?");
     }
@@ -51,7 +63,10 @@ contract ReentrantSplitter {
     NftMintModule public target;
     bytes public payload;
 
-    function arm(NftMintModule target_, bytes calldata payload_) external {
+    function arm(
+        NftMintModule target_,
+        bytes calldata payload_
+    ) external {
         target = target_;
         payload = payload_;
     }
@@ -71,6 +86,7 @@ contract ReentrantSplitter {
 /// Fake FeeSplitter that just reverts on receive to test stuck-balance path.
 contract RevertOnReceiveSplitter {
     error Nope();
+
     receive() external payable {
         revert Nope();
     }
@@ -172,7 +188,9 @@ abstract contract NftHarness is Test {
         });
     }
 
-    function _launch(NftLaunchFactory.LaunchParams memory p) internal {
+    function _launch(
+        NftLaunchFactory.LaunchParams memory p
+    ) internal {
         vm.prank(launcher);
         (deployedToken, deployedMintModule, deployedWl) = factory.launch(p);
     }
@@ -244,7 +262,10 @@ abstract contract NftHarness is Test {
     /// @return root  merkle root
     /// @return proof1  proof for buyer1
     /// @return proof2  proof for buyer2
-    function _twoLeafMerkle(address a, address b) internal pure returns (bytes32 root, bytes32[] memory proof1, bytes32[] memory proof2) {
+    function _twoLeafMerkle(
+        address a,
+        address b
+    ) internal pure returns (bytes32 root, bytes32[] memory proof1, bytes32[] memory proof2) {
         bytes32 leafA = keccak256(bytes.concat(keccak256(abi.encode(a))));
         bytes32 leafB = keccak256(bytes.concat(keccak256(abi.encode(b))));
         // Sorted pair for merkle root
