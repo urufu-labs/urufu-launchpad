@@ -106,6 +106,15 @@ function CreateNftForm() {
   const [mintMode, setMintMode] = useState<MintMode>('fixed');
   const [basePriceEth, setBasePriceEth] = useState('');
   const [priceStepEth, setPriceStepEth] = useState('');
+  /// Payment token for mints. Bound to the contract's `paymentToken`
+  /// field at launch:
+  ///   - `eth` → paymentToken=address(0), buyer pays ETH via mint()
+  ///   - `uru` → paymentToken=URU addr,   buyer pays URU via mintWithUru()
+  /// Deployer picks ONE per collection; can't be changed after launch.
+  /// (The variable name still says "Eth" for both since it's just a
+  /// number in whatever token's smallest unit — 18 decimals for both.)
+  const [payWithUru, setPayWithUru] = useState(false);
+  const priceUnit = payWithUru ? 'URU' : 'ETH';
   /// Whitelist has two "flavors" the deployer picks between:
   ///   - `off`         — no WL, public mint from block 0.
   ///   - `holders`     — anyone holding N of a given NFT/ERC-20 can mint WL.
@@ -175,12 +184,16 @@ function CreateNftForm() {
   const previewTitle = name.trim() || 'your collection';
   const previewTicker = ticker || '???';
   const previewPrice = basePriceEth || '—';
+  // Preview + button copy switch when payWithUru flips.
+  // Kept as computed strings so future locale-aware formatting (thousands
+  // separators for URU, decimal-precision for ETH) can be added in one spot.
+  const priceUnitLabel = priceUnit; // ETH | URU
   const previewSupply = maxSupply || '—';
   const priceLabel = mintMode === 'fixed'
-    ? `${previewPrice} ETH`
+    ? `${previewPrice} ${priceUnitLabel}`
     : priceStepEth
-      ? `${previewPrice} ETH + ${priceStepEth}/mint`
-      : `${previewPrice} ETH (linear)`;
+      ? `${previewPrice} ${priceUnitLabel} + ${priceStepEth}/mint`
+      : `${previewPrice} ${priceUnitLabel} (linear)`;
 
   return (
     <div className={styles.studio}>
@@ -329,10 +342,29 @@ function CreateNftForm() {
               </button>
             </div>
 
+            <div className={styles.modeRow} aria-label="Payment token">
+              <button
+                type="button"
+                className={styles.modeChip}
+                data-active={!payWithUru}
+                onClick={() => setPayWithUru(false)}
+              >
+                pay in ETH
+              </button>
+              <button
+                type="button"
+                className={styles.modeChip}
+                data-active={payWithUru}
+                onClick={() => setPayWithUru(true)}
+              >
+                pay in URU
+              </button>
+            </div>
+
             <div className={mintMode === 'linear' ? styles.rowInputsShort : styles.field}>
               <div className={mintMode === 'linear' ? styles.field : `${styles.field} ${styles.shortField}`}>
                 <label className={styles.fieldLabel} htmlFor="nft-price">
-                  {mintMode === 'fixed' ? 'mint price (ETH)' : 'starting price (ETH)'}
+                  {mintMode === 'fixed' ? `mint price (${priceUnit})` : `starting price (${priceUnit})`}
                 </label>
                 <input
                   id="nft-price"
@@ -346,7 +378,7 @@ function CreateNftForm() {
               </div>
               {mintMode === 'linear' && (
                 <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="nft-step">step per mint (ETH)</label>
+                  <label className={styles.fieldLabel} htmlFor="nft-step">step per mint ({priceUnit})</label>
                   <input
                     id="nft-step"
                     type="text"
@@ -679,6 +711,7 @@ function CreateNftForm() {
               <dl>
                 <dt>chain</dt><dd>{activeChain}</dd>
                 <dt>mode</dt><dd>{mintMode === 'fixed' ? 'fixed price' : 'linear step'}</dd>
+                <dt>pay</dt><dd>{priceUnitLabel}</dd>
                 <dt>price</dt><dd>{priceLabel}</dd>
                 <dt>supply</dt><dd>{previewSupply}</dd>
                 {wlFlavor === 'holders' && (
