@@ -146,7 +146,6 @@ function CreateNftForm() {
     const t = search.get('ticker'); if (t !== null) setTicker(sanitizeTicker(t));
     const b = search.get('baseUri'); if (b !== null) setBaseUri(b);
     const m = search.get('maxSupply'); if (m !== null) setMaxSupply(m);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const nameOk = name.trim().length >= 2 && name.trim().length <= 40;

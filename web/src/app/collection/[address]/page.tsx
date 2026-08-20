@@ -26,7 +26,13 @@ export default function CollectionPage({
   params: Promise<{ address: string }>;
 }) {
   if (!LAUNCHPAD_LIVE) return <NotLiveYet />;
+  // Delegate to an inner component so all hooks (`use`, `useActiveChain`)
+  // run in stable order — the early LAUNCHPAD_LIVE branch would otherwise
+  // trip react-hooks/rules-of-hooks.
+  return <CollectionRoute params={params} />;
+}
 
+function CollectionRoute({ params }: { params: Promise<{ address: string }> }) {
   const resolved = use(params);
   const activeChain = useActiveChain();
   const chainEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
