@@ -11,7 +11,8 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import styles from './MobileNavigation.module.css';
 
 const primaryLinks = [
-  { href: '/create', label: '✿ create', primary: true },
+  { href: '/create', label: '✦ launch token', primary: true },
+  { href: '/create/nft', label: '❁ launch nft', primary: true },
   { href: '/discover', label: '❁ launches' },
   { href: '/trade', label: '✦ trade' },
   { href: '/feed', label: '☆ feed' },

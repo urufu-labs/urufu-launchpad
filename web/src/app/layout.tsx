@@ -7,6 +7,7 @@ import './globals.css';
 import { Providers } from './providers';
 import { WalletButton } from '@/components/WalletButton';
 import { ChainSwitcher } from '@/components/ChainSwitcher';
+import { CreateNavDropdown } from '@/components/CreateNavDropdown';
 import { CursorMascot } from '@/components/CursorMascot';
 import { AudioBindings } from '@/components/AudioBindings';
 import { AudioToggle } from '@/components/AudioToggle';
@@ -213,7 +214,7 @@ export default function RootLayout({
               style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
               aria-label="primary navigation"
             >
-              <Link href="/create" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ create</Link>
+              <CreateNavDropdown />
               <Link href="/discover" className="hover:underline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
               <Link href="/trade" className="hover:underline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
               <Link href="/feed" className="hover:underline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>

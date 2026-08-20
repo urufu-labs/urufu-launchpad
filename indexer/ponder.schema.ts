@@ -382,6 +382,52 @@ export const uruSinkConversions = onchainTable('uru_sink_conversions', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+/// NFT collections launched through the Router (phase-0 scaffolding).
+///
+/// Populated once ERC721Factory registers impls + NftMintModule ships. Ponder
+/// handlers for these tables are still stubbed — the shape is defined here
+/// first so the web/ API layer can compile against real types (empty results
+/// today, real rows after contracts land).
+///
+/// One row per NFT collection deploy. `mintMode` is 0=fixed, 1=linearStep;
+/// pricing fields are interpreted per-mode. `wlRoot == 0x00…` means public
+/// mint from block 0.
+export const nftCollections = onchainTable('nft_collections', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${collectionAddress}`
+  chainId: t.integer().notNull(),
+  collectionAddress: t.hex().notNull(),
+  launchedBy: t.hex().notNull(),
+  name: t.text().notNull(),
+  ticker: t.text().notNull(),
+  baseUri: t.text().notNull(),
+  maxSupply: t.bigint().notNull(),
+  mintMode: t.integer().notNull(),                 // 0=fixed, 1=linearStep
+  basePriceWei: t.bigint().notNull(),
+  priceStepWei: t.bigint().notNull().default(0n),
+  wlRoot: t.hex().notNull(),                       // 0x00… means "no WL"
+  wlOpenWindowSec: t.integer().notNull().default(0),
+  mintedCount: t.bigint().notNull().default(0n),   // updated on Mint events
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Individual mint events on an NFT collection. Used to render the recent-mint
+/// feed on the /collection/[address] page and to derive per-holder counts.
+export const nftMints = onchainTable('nft_mints', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  collectionAddress: t.hex().notNull(),
+  minter: t.hex().notNull(),
+  tokenId: t.bigint().notNull(),
+  quantity: t.integer().notNull(),
+  pricePaidWei: t.bigint().notNull(),              // per-token price actually paid (post-discount)
+  wlUsed: t.boolean().notNull().default(false),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),

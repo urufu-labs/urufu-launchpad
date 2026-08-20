@@ -342,6 +342,52 @@ export interface EcosystemTokens {
   gemuNft: Address;
 }
 
+/// NFT launch modules — populated after NftMintModule / NftCurveMintModule /
+/// NftWhitelistMintModule broadcasts. Each slot is a module contract the
+/// Router attaches to newly-launched ERC721 collections to enforce the
+/// selected mint mechanic (fixed price, linear step-up curve, whitelist).
+///
+/// While `null`, the /create/nft UI still renders (so we can iterate on the
+/// form / collection page) but the actual submit button is disabled — the
+/// launch flow refuses to broadcast a tx against zero-address modules. Once
+/// a real module ships, populate the slot here and the UI unlocks.
+export interface NftLaunchSet {
+  MintModuleFixed: Address;
+  MintModuleLinear: Address;
+  MintModuleWhitelist: Address;
+}
+
+export const NFT_LAUNCHES: Record<ChainKey, NftLaunchSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  // Phase-0 scaffolding: UI ships, contracts pending broadcast. Populate
+  // after NftMintModule* deploys land on RH.
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+/// Per-chain feature flag for the NFT launch experience. Controls whether
+/// the "nft" option in the create dropdown, the /create/nft route, the
+/// /collection/[address] route, and the NFT tab on /discover render at all.
+/// Independent from NFT_LAUNCHES (which gates the actual on-chain submit),
+/// so we can ship UI ahead of contracts.
+export const NFT_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  robinhood: true,
+  'robinhood-testnet': false,
+};
+
+/// Convenience: submit-time gate. UI is enabled iff `NFT_LAUNCHES_ENABLED[chain]`
+/// is true AND every module address in `NFT_LAUNCHES[chain]` is populated.
+export function isNftDeployReady(chain: ChainKey): boolean {
+  return NFT_LAUNCHES_ENABLED[chain] === true && NFT_LAUNCHES[chain] !== null;
+}
+
 export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   mainnet: null,
   sepolia: null,
