@@ -326,3 +326,165 @@ export const multiHookHostAbi = parseAbi([
   /// remaining, and buyback-burn bps to post-graduation buyers.
   `function poolPolicy(bytes32 poolId) view returns (uint16 antiSniperBlocks, uint16 buybackBurnBps, uint16 platformFeeBps, uint16 creatorFeeBps, address creatorRecipient, uint64 launchBlock, bool immutableAfterLaunch)`,
 ] as const);
+
+/// NFT stack — enums first, then the factory + mint module + ERC-721 ABIs.
+/// Nested `DiscountTier[]` prevents a parseAbi one-liner; ABIs are spelled
+/// out as objects and match the on-chain structs byte-for-byte.
+export const NFT_MINT_MODE = { Fixed: 0, LinearStep: 1 } as const;
+export const NFT_TIER_KIND = { WalletList: 0, ExternalNft: 1 } as const;
+export const NFT_WL_FLAVOR = { Off: 0, Holders: 1, WalletList: 2 } as const;
+
+export const nftLaunchFactoryAbi = [
+  {
+    type: 'function',
+    name: 'launch',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'p',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'ticker', type: 'string' },
+          { name: 'baseURI', type: 'string' },
+          { name: 'maxSupply', type: 'uint256' },
+          { name: 'mintMode', type: 'uint8' },
+          { name: 'basePriceWei', type: 'uint256' },
+          { name: 'priceStepWei', type: 'uint256' },
+          { name: 'discountFloorBps', type: 'uint256' },
+          { name: 'perWalletMintCap', type: 'uint256' },
+          { name: 'payWithUru', type: 'bool' },
+          {
+            name: 'tiers',
+            type: 'tuple[]',
+            components: [
+              { name: 'kind', type: 'uint8' },
+              { name: 'walletListRoot', type: 'bytes32' },
+              { name: 'externalCollection', type: 'address' },
+              { name: 'externalChainId', type: 'uint256' },
+              { name: 'percentPerNftBps', type: 'uint256' },
+              { name: 'maxCountedNfts', type: 'uint256' },
+              { name: 'fixedDiscountBps', type: 'uint256' },
+            ],
+          },
+          { name: 'wlFlavor', type: 'uint8' },
+          { name: 'wlHoldersTarget', type: 'address' },
+          { name: 'wlHoldersTargetChainId', type: 'uint256' },
+          { name: 'wlHoldersMinCount', type: 'uint256' },
+          { name: 'wlWalletListRoot', type: 'bytes32' },
+          { name: 'wlWindowEnd', type: 'uint256' },
+          { name: 'uruAmount', type: 'uint256' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'token', type: 'address' },
+      { name: 'mintModule', type: 'address' },
+      { name: 'whitelistModule', type: 'address' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'minUruFeeFor',
+    stateMutability: 'view',
+    inputs: [{ name: 'launcher', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'event',
+    name: 'CollectionLaunched',
+    inputs: [
+      { name: 'token', type: 'address', indexed: true },
+      { name: 'launcher', type: 'address', indexed: true },
+      { name: 'mintModule', type: 'address' },
+      { name: 'whitelistModule', type: 'address' },
+      { name: 'configHash', type: 'bytes32' },
+      { name: 'uruPaid', type: 'uint256' },
+      { name: 'name', type: 'string' },
+      { name: 'ticker', type: 'string' },
+    ],
+  },
+] as const;
+
+export const nftMintModuleAbi = [
+  {
+    type: 'function',
+    name: 'mint',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'qty', type: 'uint256' },
+      { name: 'wlProof', type: 'bytes32[]' },
+      { name: 'wlCount', type: 'uint256' },
+      { name: 'wlExpiry', type: 'uint256' },
+      { name: 'wlSig', type: 'bytes' },
+      {
+        name: 'discountProofs',
+        type: 'tuple[]',
+        components: [
+          { name: 'tierId', type: 'uint256' },
+          { name: 'merkleProof', type: 'bytes32[]' },
+          { name: 'count', type: 'uint256' },
+          { name: 'expiry', type: 'uint256' },
+          { name: 'sig', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'mintWithUru',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'qty', type: 'uint256' },
+      { name: 'uruAmount', type: 'uint256' },
+      { name: 'wlProof', type: 'bytes32[]' },
+      { name: 'wlCount', type: 'uint256' },
+      { name: 'wlExpiry', type: 'uint256' },
+      { name: 'wlSig', type: 'bytes' },
+      {
+        name: 'discountProofs',
+        type: 'tuple[]',
+        components: [
+          { name: 'tierId', type: 'uint256' },
+          { name: 'merkleProof', type: 'bytes32[]' },
+          { name: 'count', type: 'uint256' },
+          { name: 'expiry', type: 'uint256' },
+          { name: 'sig', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+  { type: 'function', name: 'token', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'launcher', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'paymentToken', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'basePriceWei', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'priceStepWei', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'mintMode', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'discountFloorBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'perWalletMintCap', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'whitelistModule', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  {
+    type: 'function',
+    name: 'grossPriceFor',
+    stateMutability: 'view',
+    inputs: [{ name: 'qty', type: 'uint256' }],
+    outputs: [{ type: 'uint256' }],
+  },
+] as const;
+
+export const nftErc721Abi = [
+  { type: 'function', name: 'totalMinted', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'maxSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'baseURI', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'name', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+] as const;

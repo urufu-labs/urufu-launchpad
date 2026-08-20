@@ -15,13 +15,29 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import {
+  useAccount,
+  useReadContract,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi';
+import {
+  keccak256,
+  encodeAbiParameters,
+  parseEther,
+  parseUnits,
+  isAddress,
+  zeroAddress,
+  type Address,
+} from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
-import { NFT_LAUNCHES_ENABLED, isNftDeployReady } from '@/lib/config';
+import { NFT_LAUNCHES, NFT_LAUNCHES_ENABLED, ECOSYSTEM_TOKENS, isNftDeployReady } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { readFileAsDataUrl } from '@/lib/metadata';
+import { nftLaunchFactoryAbi, NFT_MINT_MODE, NFT_TIER_KIND, NFT_WL_FLAVOR } from '@/lib/abis';
 import styles from './nft-studio.module.css';
 
 type MintMode = 'fixed' | 'linear';
@@ -36,11 +52,15 @@ type MintMode = 'fixed' | 'linear';
 type TierKind = 'walletList' | 'externalNft';
 
 const EXTERNAL_NFT_CHAINS = [
-  { id: 'ethereum', label: 'Ethereum' },
-  { id: 'base', label: 'Base' },
-  { id: 'robinhood', label: 'Robinhood' },
+  { id: 'ethereum', label: 'Ethereum', chainId: 1 },
+  { id: 'base', label: 'Base', chainId: 8453 },
+  { id: 'robinhood', label: 'Robinhood', chainId: 4663 },
 ] as const;
 type ExternalNftChain = (typeof EXTERNAL_NFT_CHAINS)[number]['id'];
+
+function externalChainIdOf(id: ExternalNftChain): number {
+  return EXTERNAL_NFT_CHAINS.find((c) => c.id === id)?.chainId ?? 0;
+}
 
 interface DiscountTier {
   key: string;
@@ -180,6 +200,176 @@ function CreateNftForm() {
     if (!basePriceOk) return 'enter a valid mint price (and step for linear mode)';
     return null;
   }, [chainEnabled, deployReady, nameOk, tickerOk, baseUriOk, maxSupplyOk, basePriceOk]);
+
+  // ------------------------------------------------------------
+  // On-chain wiring (only active when NFT_LAUNCHES[chain] is set).
+  // ------------------------------------------------------------
+  const { address: walletAddress } = useAccount();
+  const nftSet = NFT_LAUNCHES[activeChain];
+  const factoryAddress = nftSet?.LaunchFactory as Address | undefined;
+  const ecosystem = ECOSYSTEM_TOKENS[activeChain];
+  const uruTokenAddress = ecosystem?.uruToken as Address | undefined;
+
+  // Live minUruFee quote — factory applies the launcher's LoyaltyOracle
+  // discount server-side. Zero on factories with no launch fee.
+  const { data: minUruFeeQuote } = useReadContract({
+    address: factoryAddress,
+    abi: nftLaunchFactoryAbi,
+    functionName: 'minUruFeeFor',
+    args: walletAddress ? [walletAddress] : undefined,
+    query: { enabled: !!factoryAddress && !!walletAddress, staleTime: 30_000 },
+  });
+  const requiredUruFee = (minUruFeeQuote as bigint | undefined) ?? 0n;
+
+  // URU allowance check — launcher must have approved factory for
+  // ≥ requiredUruFee before launch() will succeed (safeTransferFrom
+  // inside the launch tx will otherwise revert). Approval is a separate
+  // tx; UI shows an approve button when short.
+  const { data: uruAllowance } = useReadContract({
+    address: uruTokenAddress,
+    abi: [
+      {
+        type: 'function',
+        name: 'allowance',
+        stateMutability: 'view',
+        inputs: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+        ],
+        outputs: [{ type: 'uint256' }],
+      },
+    ] as const,
+    functionName: 'allowance',
+    args: walletAddress && factoryAddress ? [walletAddress, factoryAddress] : undefined,
+    query: { enabled: !!uruTokenAddress && !!walletAddress && !!factoryAddress, staleTime: 15_000 },
+  });
+  const needsUruApprove = requiredUruFee > 0n && (uruAllowance ?? 0n) < requiredUruFee;
+
+  const {
+    writeContract: writeApprove,
+    data: approveTxHash,
+    isPending: isApproving,
+  } = useWriteContract();
+  const { isLoading: isWaitingApprove, isSuccess: isApproved } =
+    useWaitForTransactionReceipt({ hash: approveTxHash });
+
+  const approveUru = () => {
+    if (!uruTokenAddress || !factoryAddress) return;
+    writeApprove({
+      address: uruTokenAddress,
+      abi: [
+        {
+          type: 'function',
+          name: 'approve',
+          stateMutability: 'nonpayable',
+          inputs: [
+            { name: 'spender', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+          ],
+          outputs: [{ type: 'bool' }],
+        },
+      ] as const,
+      functionName: 'approve',
+      // Approve exactly what's required — not max. Deployer can re-approve
+      // if the fee changes. Prefers smaller-blast-radius approval over
+      // convenience.
+      args: [factoryAddress, requiredUruFee],
+    });
+  };
+
+  const {
+    writeContract,
+    data: launchTxHash,
+    isPending: isSubmitting,
+    error: submitError,
+    reset: resetSubmit,
+  } = useWriteContract();
+  const { isLoading: isWaitingReceipt, isSuccess: isLaunched, data: receipt } =
+    useWaitForTransactionReceipt({ hash: launchTxHash });
+
+  /// Encode `LaunchParams` and fire the tx. Everything the mint module
+  /// needs is packed here — merkle roots (wallet-list tier + WL) get
+  /// computed off-chain by the compile-service in a follow-up call, but
+  /// for the phase-1 wire-up we pass whatever the deployer explicitly
+  /// entered. Tiers without walletList/holders addresses land as their
+  /// literal zero form so the module's per-tier validation catches
+  /// deployer typos.
+  const submit = () => {
+    if (!factoryAddress || !uruTokenAddress) return;
+    resetSubmit();
+
+    const priceUnitDecimals = 18; // ETH + URU both 18 decimals
+    const basePriceWei = basePriceEth
+      ? parseUnits(basePriceEth, priceUnitDecimals)
+      : 0n;
+    const priceStepWei = mintMode === 'linear' && priceStepEth
+      ? parseUnits(priceStepEth, priceUnitDecimals)
+      : 0n;
+
+    const wlWindowSecs = wlFlavor === 'off' ? 0n : BigInt(wlOpenWindowMin || '0') * 60n;
+
+    // Convert user-facing percents → bps at submit time.
+    const encodedTiers = discountTiers.map((t) => ({
+      kind: t.kind === 'walletList' ? NFT_TIER_KIND.WalletList : NFT_TIER_KIND.ExternalNft,
+      // walletListRoot must be provided out-of-band (compile-service
+      // merkleizes the pasted list). For now, deployer pastes a raw
+      // 0x-hex root here — future work: merkleize via compile-service.
+      walletListRoot: t.kind === 'walletList' && /^0x[0-9a-fA-F]{64}$/.test(t.walletList.trim())
+        ? (t.walletList.trim() as `0x${string}`)
+        : ('0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`),
+      externalCollection: (isAddress(t.extNftAddress) ? t.extNftAddress : zeroAddress) as Address,
+      externalChainId: BigInt(externalChainIdOf(t.extNftChain)),
+      percentPerNftBps: t.kind === 'externalNft' && t.extNftPercentPerNft
+        ? BigInt(Number(t.extNftPercentPerNft) * 100)
+        : 0n,
+      maxCountedNfts: t.kind === 'externalNft' && t.extNftCap ? BigInt(t.extNftCap) : 0n,
+      fixedDiscountBps: t.kind === 'walletList' && t.walletPercent
+        ? BigInt(Number(t.walletPercent) * 100)
+        : 0n,
+    }));
+
+    const wlHoldersTargetAddr =
+      wlFlavor === 'holders' && isAddress(wlHoldersAddress)
+        ? (wlHoldersAddress as Address)
+        : zeroAddress;
+    const wlWalletRoot: `0x${string}` =
+      wlFlavor === 'walletList' && /^0x[0-9a-fA-F]{64}$/.test(wlWalletList.trim())
+        ? (wlWalletList.trim() as `0x${string}`)
+        : '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    writeContract({
+      address: factoryAddress,
+      abi: nftLaunchFactoryAbi,
+      functionName: 'launch',
+      args: [
+        {
+          name,
+          ticker,
+          baseURI: baseUri,
+          maxSupply: BigInt(maxSupply || '0'),
+          mintMode: mintMode === 'fixed' ? NFT_MINT_MODE.Fixed : NFT_MINT_MODE.LinearStep,
+          basePriceWei,
+          priceStepWei,
+          discountFloorBps: 1000n, // 10% floor default — matches the token launcher
+          perWalletMintCap: 0n,     // no cap by default
+          payWithUru,
+          tiers: encodedTiers,
+          wlFlavor:
+            wlFlavor === 'off'
+              ? NFT_WL_FLAVOR.Off
+              : wlFlavor === 'holders'
+                ? NFT_WL_FLAVOR.Holders
+                : NFT_WL_FLAVOR.WalletList,
+          wlHoldersTarget: wlHoldersTargetAddr,
+          wlHoldersTargetChainId: BigInt(externalChainIdOf(wlHoldersChain)),
+          wlHoldersMinCount: BigInt(wlHoldersMin || '0'),
+          wlWalletListRoot: wlWalletRoot,
+          wlWindowEnd: wlWindowSecs > 0n ? BigInt(Math.floor(Date.now() / 1000)) + wlWindowSecs : 0n,
+          uruAmount: requiredUruFee,
+        },
+      ],
+    });
+  };
 
   const previewTitle = name.trim() || 'your collection';
   const previewTicker = ticker || '???';
@@ -738,18 +928,53 @@ function CreateNftForm() {
           </div>
 
           <div className={styles.launchCta}>
+            {needsUruApprove && !isApproved && (
+              <button
+                type="button"
+                className="uru-btn uru-btn-mint"
+                disabled={isApproving || isWaitingApprove}
+                onClick={approveUru}
+              >
+                {isWaitingApprove
+                  ? 'waiting for approval ~'
+                  : isApproving
+                    ? 'approving URU ~'
+                    : `✿ approve ${(Number(requiredUruFee) / 1e18).toLocaleString()} URU`}
+              </button>
+            )}
             <button
               type="button"
-              className={`uru-btn ${canSubmit ? 'uru-btn-primary' : ''}`}
-              disabled={!canSubmit}
-              onClick={() => {
-                // Submit path lands once NftMintModule ships. Until then this
-                // is a no-op so we don't broadcast against zero addresses.
-              }}
+              className={`uru-btn ${canSubmit && !needsUruApprove && !isSubmitting && !isWaitingReceipt ? 'uru-btn-primary' : ''}`}
+              disabled={!canSubmit || needsUruApprove || isSubmitting || isWaitingReceipt || isLaunched}
+              onClick={submit}
             >
-              {canSubmit ? '✿ launch collection' : '❁ launch collection'}
+              {isLaunched
+                ? '✿ launched ✓'
+                : isWaitingReceipt
+                  ? 'waiting for receipt ~'
+                  : isSubmitting
+                    ? 'confirming in wallet ~'
+                    : canSubmit
+                      ? '✿ launch collection'
+                      : '❁ launch collection'}
             </button>
-            {disabledReason && (
+            {requiredUruFee > 0n && (
+              <p className={styles.reasonNote}>
+                launch fee: {(Number(requiredUruFee) / 1e18).toLocaleString()} URU (approve first)
+              </p>
+            )}
+            {submitError && (
+              <p className={styles.reasonNote} style={{ color: 'var(--pink-hot)' }}>
+                {submitError.message.split('\n')[0]}
+              </p>
+            )}
+            {isLaunched && receipt && (
+              <p className={styles.reasonNote}>
+                tx {receipt.transactionHash.slice(0, 10)}… mined at block {receipt.blockNumber.toString()}.
+                collection page opens next.
+              </p>
+            )}
+            {disabledReason && !isSubmitting && !isWaitingReceipt && !isLaunched && (
               <p className={styles.reasonNote}>{disabledReason}</p>
             )}
             <Link

@@ -352,9 +352,15 @@ export interface EcosystemTokens {
 /// launch flow refuses to broadcast a tx against zero-address modules. Once
 /// a real module ships, populate the slot here and the UI unlocks.
 export interface NftLaunchSet {
-  MintModuleFixed: Address;
-  MintModuleLinear: Address;
-  MintModuleWhitelist: Address;
+  /// The singleton user-facing entrypoint. `launch(LaunchParams)` here
+  /// deploys the ERC-721 + mint module + optional WL module in one tx.
+  LaunchFactory: Address;
+  // Impl addresses — informational, not called directly from the frontend
+  // (the factory clones them internally). Kept in config for indexer /
+  // Blockscout verification workflows.
+  Erc721Impl: Address;
+  MintModuleImpl: Address;
+  WhitelistModuleImpl: Address;
 }
 
 export const NFT_LAUNCHES: Record<ChainKey, NftLaunchSet | null> = {
