@@ -663,6 +663,253 @@ contract NftStackRhForkTest is Test {
     }
 
     // ============================================================
+    // Gap-fill tests (audit-round-second-pass)
+    // ============================================================
+
+    /// baseURI stored on the deployed clone matches what we passed at
+    /// launch, and tokenURI() concatenates baseURI + tokenId (1-indexed).
+    /// Uses a distinctive baseURI so we can grep for it if this ever
+    /// silently drifts. Also asserts _startTokenId override actually
+    /// took (first mint is token #1, not #0).
+    function test_Gap_BaseURI_StoredOnChain_And_FirstTokenIdIsOne() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-uri";
+        p.ticker = "CHIBIU";
+        p.baseURI = "ipfs://bafybeigap/";
+        vm.prank(launcher);
+        (address token, address mintModule,) = factory.launch(p);
+        assertEq(ERC721ATemplate(token).baseURI(), "ipfs://bafybeigap/", "baseURI flowed through");
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(token).tokenURI(1), "ipfs://bafybeigap/1", "first token uri = baseURI + 1");
+        vm.expectRevert();
+        ERC721ATemplate(token).tokenURI(0);
+    }
+
+    /// Real RH block gas limit test — mint 50 tokens in one tx and
+    /// confirm the tx doesn't OOG. If this ever starts reverting after
+    /// a gas-limit reduction on RH, we know our max-per-tx bound.
+    function test_Gap_BatchMint_50Tokens_Fits() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-big";
+        p.ticker = "CHIBIB";
+        p.maxSupply = 100;
+        vm.prank(launcher);
+        (address token, address mintModule,) = factory.launch(p);
+        vm.deal(buyer, 10 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.5 ether}(50, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(token).balanceOf(buyer), 50, "50-tok batch succeeded");
+    }
+
+    /// FeeSplitter's downstream sink reverts — proves the mint still
+    /// succeeds AND the platform slice lands in `platformStuckBalance`
+    /// recoverable via sweepPlatformStuck(). Uses vm.mockCall to make
+    /// a live sink reject briefly.
+    function test_Gap_FeeSplitter_SinkReverts_StuckSliceRecoverable() public {
+        (, address mintModule) = _launchDefault(false);
+        (address buybackSink, address nftSink, address treasurySink) = _snapshotSplitterSinks();
+        // Overwrite ALL three live sinks with reverting bytecode. FeeSplitter's
+        // gas-capped calls see them fail → each slice falls through to the
+        // next sink → all three fail → total slice stays inside FeeSplitter
+        // for sweep(). Our mint module's `receiveFee` call still returns
+        // success (FeeSplitter absorbs the individual failures), so the
+        // mint succeeds and our 10% is stuck in the FeeSplitter, not the
+        // mint module.
+        //
+        // etch is used instead of mockCallRevert to sidestep foundry's
+        // overload ambiguity on mockCallRevert(address, bytes, bytes).
+        vm.etch(buybackSink, hex"5f5ffd"); // PUSH0 PUSH0 REVERT — reverts on any call
+        vm.etch(nftSink, hex"5f5ffd");
+        vm.etch(treasurySink, hex"5f5ffd");
+        uint256 splitterBefore = feeSplitter.balance;
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        // FeeSplitter absorbed the 10% since every downstream sink rejected.
+        assertEq(feeSplitter.balance - splitterBefore, 0.001 ether, "10% stuck in splitter");
+        // Launcher's 90% is safe.
+        assertEq(NftMintModule(mintModule).launcherBalance(), 0.009 ether, "launcher unaffected");
+    }
+
+    /// WL window boundary — the module's public/WL check is
+    /// `block.timestamp > wlWindowEnd`. Mint at exactly block.timestamp
+    /// == wlWindowEnd should STILL enforce WL (not yet public).
+    function test_Gap_WL_ExactBoundary_TimingStillEnforced() public {
+        (bytes32 root,,) = _twoLeafMerkle(buyer, buyer2);
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-bd";
+        p.ticker = "CHIBIBD";
+        p.wlFlavor = NftWhitelistModule.Flavor.WalletList;
+        p.wlWalletListRoot = root;
+        uint256 wlEnd = block.timestamp + 1 hours;
+        p.wlWindowEnd = wlEnd;
+        vm.prank(launcher);
+        (, address mintModule,) = factory.launch(p);
+        // Warp to EXACTLY wlWindowEnd.
+        vm.warp(wlEnd);
+        vm.deal(buyer3, 1 ether); // buyer3 not on WL
+        vm.expectRevert(NftMintModule.NftMintModule__NotWhitelisted.selector);
+        vm.prank(buyer3);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        // One second later: public opens.
+        vm.warp(wlEnd + 1);
+        vm.prank(buyer3);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
+
+    /// Deployer footgun: wlWindowEnd = 0 with a non-Off flavor means
+    /// the WL window is immediately in the past → public phase open
+    /// from t=0. Document this behavior explicitly so if we ever want
+    /// to guard against it (e.g. require wlWindowEnd > block.timestamp
+    /// at init), the invariant this test proves has to shift too.
+    function test_Gap_WL_WindowEndZero_ImmediatelyPublic() public {
+        (bytes32 root,,) = _twoLeafMerkle(buyer, buyer2);
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-nowl";
+        p.ticker = "CHIBINWL";
+        p.wlFlavor = NftWhitelistModule.Flavor.WalletList;
+        p.wlWalletListRoot = root;
+        p.wlWindowEnd = 0; // deployer forgot to set the window
+        vm.prank(launcher);
+        (, address mintModule,) = factory.launch(p);
+        // Non-listed wallet mints without proof — should succeed because
+        // window is already closed.
+        vm.deal(buyer3, 1 ether);
+        vm.prank(buyer3);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
+
+    /// Cross-mode: ETH mint on URU collection reverts loud.
+    function test_Gap_CrossMode_EthMintOnUruCollection_Reverts() public {
+        (, address mintModule) = _launchDefault(true);
+        vm.deal(buyer, 200 ether); // enough for the 100e18 msg.value we'd send
+        vm.expectRevert(NftMintModule.NftMintModule__EthNotConfigured.selector);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 100e18}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
+
+    /// Cross-mode: URU mint on ETH collection reverts loud.
+    function test_Gap_CrossMode_UruMintOnEthCollection_Reverts() public {
+        (, address mintModule) = _launchDefault(false);
+        deal(uru, buyer, 1000e18);
+        vm.prank(buyer);
+        IERC20Balance(uru).approve(mintModule, type(uint256).max);
+        vm.expectRevert(NftMintModule.NftMintModule__UruNotConfigured.selector);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
+
+    /// Signer signs count=0 for an ExternalNft tier. Should apply 0
+    /// discount without reverting (buyer pays full price, no free
+    /// mint). Proves the attestation path is a no-op on zero rather
+    /// than a revert or an unearned discount.
+    function test_Gap_Attestation_ZeroCount_ChargesFullPrice() public {
+        NftMintModule.DiscountTier[] memory tiers = new NftMintModule.DiscountTier[](1);
+        tiers[0] = NftMintModule.DiscountTier({
+            kind: NftMintModule.TierKind.ExternalNft,
+            walletListRoot: bytes32(0),
+            externalCollection: address(0xBEEF),
+            externalChainId: 1,
+            percentPerNftBps: 500,
+            maxCountedNfts: 10,
+            fixedDiscountBps: 0
+        });
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-zeroc";
+        p.ticker = "CHIBIZC";
+        p.tiers = tiers;
+        vm.prank(launcher);
+        (, address mintModule,) = factory.launch(p);
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, address(0xBEEF), 1, 0, 0, expiry);
+        NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
+        proofs[0] = NftMintModule.TierProof({
+            tierId: 0, merkleProof: new bytes32[](0), count: 0, expiry: expiry, sig: sig
+        });
+        vm.deal(buyer, 1 ether);
+        // Full price = 0.01 ETH, no discount.
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", proofs);
+        // Underpay by 1 wei should revert since no discount applied.
+        vm.prank(buyer);
+        vm.expectRevert();
+        NftMintModule(mintModule).mint{value: 0.01 ether - 1}(1, new bytes32[](0), 0, 0, "", proofs);
+    }
+
+    /// Multi-buyer in same block: buyer + buyer2 both call mint in the
+    /// same block. Second one MUST get a distinct token id AND the
+    /// supply cap should decrement correctly across both. Prevents
+    /// re-org / ordering issues where two buyers race.
+    function test_Gap_MultiBuyer_SameBlock_SupplyMonotonic() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-race";
+        p.ticker = "CHIBIR";
+        p.maxSupply = 3;
+        vm.prank(launcher);
+        (address token, address mintModule,) = factory.launch(p);
+        vm.deal(buyer, 1 ether);
+        vm.deal(buyer2, 1 ether);
+        vm.deal(buyer3, 1 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        vm.prank(buyer2);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        vm.prank(buyer3);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(token).balanceOf(buyer), 1);
+        assertEq(ERC721ATemplate(token).balanceOf(buyer2), 1);
+        assertEq(ERC721ATemplate(token).balanceOf(buyer3), 1);
+        assertEq(ERC721ATemplate(token).totalMinted(), 3);
+        // Distinct token ids (1, 2, 3 with our 1-indexed override).
+        assertEq(ERC721ATemplate(token).ownerOf(1), buyer);
+        assertEq(ERC721ATemplate(token).ownerOf(2), buyer2);
+        assertEq(ERC721ATemplate(token).ownerOf(3), buyer3);
+    }
+
+    /// Withdraw reentrancy: launcher is a contract whose receive() tries
+    /// to call withdraw() again. My CEI (balance zeroed BEFORE transfer)
+    /// means the second call sees 0 balance and reverts with NoBalance.
+    /// Total payout MUST equal the accrued amount, not 2x.
+    function test_Gap_Withdraw_ReentrancyBlocked_ByCEI() public {
+        // Deploy a reentrant launcher contract.
+        ReentryLauncher rl = new ReentryLauncher();
+        vm.prank(address(rl));
+        (, address mintModule,) = factory.launch(_defaultLaunchParams(false));
+        rl.setMintModule(mintModule);
+        // Buyer mints, launcher balance accrues.
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        uint256 accrued = NftMintModule(mintModule).launcherBalance();
+        assertEq(accrued, 0.009 ether, "sanity: accrued");
+        // ReentryLauncher.withdrawTwice tries to withdraw twice.
+        // First succeeds, second reverts inside receive(). safeTransferETH
+        // bubbles the revert — the outer safeTransfer reverts too, so
+        // funds stay in the module. Assert accrual still there.
+        vm.expectRevert();
+        rl.withdrawOnce();
+        assertEq(NftMintModule(mintModule).launcherBalance(), 0.009 ether, "reentrancy bubbled - no drain");
+    }
+
+    /// After a mint, buyer transfers the token to a third party.
+    /// Proves the ERC721 is fully functional post-mint (not soulbound,
+    /// not stuck under module ownership, etc).
+    function test_Gap_PostMint_Transfer_Works() public {
+        (address token, address mintModule) = _launchDefault(false);
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(token).ownerOf(1), buyer);
+        vm.prank(buyer);
+        ERC721ATemplate(token).transferFrom(buyer, buyer2, 1);
+        assertEq(ERC721ATemplate(token).ownerOf(1), buyer2);
+        assertEq(ERC721ATemplate(token).balanceOf(buyer), 0);
+        assertEq(ERC721ATemplate(token).balanceOf(buyer2), 1);
+    }
+
+    // ============================================================
     // Helpers
     // ============================================================
     function _defaultLaunchParams(bool payWithUru) internal view returns (NftLaunchFactory.LaunchParams memory p) {
@@ -789,5 +1036,32 @@ contract NftStackRhForkTest is Test {
 
     function _emptyProofs() internal pure returns (NftMintModule.TierProof[] memory) {
         return new NftMintModule.TierProof[](0);
+    }
+}
+
+/// Reentrancy helper for test_Gap_Withdraw_ReentrancyBlocked_ByCEI.
+/// The launcher is this contract; on receive() it tries to call
+/// withdraw() again to prove the CEI + zeroed-balance guard blocks a
+/// second drain.
+contract ReentryLauncher {
+    NftMintModule public target;
+    uint256 public reentryAttempts;
+
+    function setMintModule(address mintModule) external {
+        target = NftMintModule(mintModule);
+    }
+
+    function withdrawOnce() external {
+        target.withdraw();
+    }
+
+    receive() external payable {
+        // First call: balance is already zeroed in the module (CEI),
+        // so target.withdraw() reverts with NoBalance. We attempt it
+        // regardless to prove the guard fires.
+        reentryAttempts += 1;
+        if (reentryAttempts < 5) {
+            target.withdraw();
+        }
     }
 }

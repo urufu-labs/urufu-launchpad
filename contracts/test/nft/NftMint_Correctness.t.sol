@@ -455,9 +455,10 @@ contract NftMint_Correctness is NftHarness {
         vm.deal(buyer1, 1 ether);
         vm.prank(buyer1);
         NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
-        // ERC721A starts token IDs at 0
-        string memory uri = ERC721ATemplate(deployedToken).tokenURI(0);
-        assertEq(uri, "ipfs://cid/0", "baseURI + tokenId");
+        // ERC721ATemplate overrides _startTokenId() to 1 so the first
+        // mint is token #1 (matches OpenSea / metadata 1-index).
+        string memory uri = ERC721ATemplate(deployedToken).tokenURI(1);
+        assertEq(uri, "ipfs://cid/1", "baseURI + tokenId (1-indexed)");
     }
 
     // --------------------------------------------------------------
