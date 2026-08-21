@@ -701,7 +701,7 @@ contract NftMintModule {
     ///              removes that surface without weakening the sweep.
     ///           2. Prevents a griefer from repeatedly retrying a known-
     ///              failing sink push and burning gas on state churn.
-    function sweepPlatformStuckUru() external returns (uint256 amount) {
+    function sweepPlatformStuckUru() external nonReentrant returns (uint256 amount) {
         if (msg.sender != launcher) revert NftMintModule__NotLauncher();
         amount = platformStuckUru;
         if (amount == 0) revert NftMintModule__NoBalance();
@@ -725,7 +725,7 @@ contract NftMintModule {
     ///         Slither's arbitrary-send-eth surface (storage-derived
     ///         destination from a permissionless function) without
     ///         changing where the money can go.
-    function sweepPlatformStuck() external returns (uint256 amount) {
+    function sweepPlatformStuck() external nonReentrant returns (uint256 amount) {
         if (msg.sender != launcher) revert NftMintModule__NotLauncher();
         amount = platformStuckBalance;
         if (amount == 0) revert NftMintModule__NoBalance();
