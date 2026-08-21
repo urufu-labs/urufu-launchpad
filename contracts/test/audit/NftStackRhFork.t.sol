@@ -1083,8 +1083,7 @@ contract NftStackRhForkTest is Test {
     ) internal view returns (address) {
         try vm.envAddress(name) returns (address a) {
             return a;
-        }
-            catch {
+        } catch {
             return address(0);
         }
     }
@@ -1095,8 +1094,7 @@ contract NftStackRhForkTest is Test {
     ) internal view returns (address) {
         try vm.envAddress(name) returns (address a) {
             return a;
-        }
-            catch {
+        } catch {
             return dflt;
         }
     }
