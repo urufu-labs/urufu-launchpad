@@ -131,7 +131,18 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
   margin-bottom: 14px;
+}
+
+/* Small vertical rule between logical groups of chips inside a modeRow
+   (e.g. between "fixed / linear" and "pay ETH / pay URU"). Purely
+   visual; screen readers ignore. */
+.modeRowDivider {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 4px;
+  background: color-mix(in srgb, var(--anchor) 20%, transparent);
 }
 
 .modeChip {

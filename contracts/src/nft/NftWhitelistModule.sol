@@ -58,6 +58,11 @@ contract NftWhitelistModule {
     error NftWhitelistModule__HoldersTargetEmpty();
     error NftWhitelistModule__AttestationExpired(uint256 expiry, uint256 now_);
     error NftWhitelistModule__BadFlavor();
+    /// Deployer picked a WL flavor but wlWindowEnd is at/before
+    /// block.timestamp — the WL would open public immediately.
+    /// Catch at init so nobody accidentally launches a "gated" mint
+    /// that isn't actually gated.
+    error NftWhitelistModule__WindowEndInPast(uint256 wlWindowEnd, uint256 now_);
 
     // ============================================================
     // Types
@@ -134,6 +139,16 @@ contract NftWhitelistModule {
             // Defensive — enum decode from calldata could carry an
             // out-of-range value if the caller lies about `data`.
             revert NftWhitelistModule__BadFlavor();
+        }
+
+        // Guard against the deployer footgun: setting a WL flavor but
+        // leaving wlWindowEnd at 0 (or any past timestamp) would open
+        // public mint from block 0 because `isEligible` short-circuits
+        // to true when `block.timestamp > wlWindowEnd`. Off flavor is
+        // exempt — for Off, wlWindowEnd is meaningless (WL always
+        // bypassed).
+        if (flavor_ != Flavor.Off && wlWindowEnd_ <= block.timestamp) {
+            revert NftWhitelistModule__WindowEndInPast(wlWindowEnd_, block.timestamp);
         }
 
         flavor = flavor_;

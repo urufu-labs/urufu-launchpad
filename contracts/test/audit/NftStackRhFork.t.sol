@@ -759,12 +759,11 @@ contract NftStackRhForkTest is Test {
         NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
-    /// Deployer footgun: wlWindowEnd = 0 with a non-Off flavor means
-    /// the WL window is immediately in the past → public phase open
-    /// from t=0. Document this behavior explicitly so if we ever want
-    /// to guard against it (e.g. require wlWindowEnd > block.timestamp
-    /// at init), the invariant this test proves has to shift too.
-    function test_Gap_WL_WindowEndZero_ImmediatelyPublic() public {
+    /// Deployer footgun GUARDED: wlWindowEnd = 0 (or any past ts) with
+    /// a non-Off flavor now reverts at initialize time. Prevents a
+    /// deployer accidentally launching a "gated" mint that's not
+    /// actually gated (would have opened public from block 0).
+    function test_Gap_WL_WindowEndZero_RejectedByGuard() public {
         (bytes32 root,,) = _twoLeafMerkle(buyer, buyer2);
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
         p.name = "chibi-nowl";
@@ -772,13 +771,64 @@ contract NftStackRhForkTest is Test {
         p.wlFlavor = NftWhitelistModule.Flavor.WalletList;
         p.wlWalletListRoot = root;
         p.wlWindowEnd = 0; // deployer forgot to set the window
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector, 0, block.timestamp
+            )
+        );
+        vm.prank(launcher);
+        factory.launch(p);
+    }
+
+    /// wlWindowEnd exactly equal to current block.timestamp also rejects
+    /// (the guard uses `<=` because a window that closes THIS block is
+    /// effectively no window at all).
+    function test_Gap_WL_WindowEndEqualsNow_RejectedByGuard() public {
+        (bytes32 root,,) = _twoLeafMerkle(buyer, buyer2);
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-nowlq";
+        p.ticker = "CHIBINWQ";
+        p.wlFlavor = NftWhitelistModule.Flavor.WalletList;
+        p.wlWalletListRoot = root;
+        p.wlWindowEnd = block.timestamp;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector,
+                block.timestamp,
+                block.timestamp
+            )
+        );
+        vm.prank(launcher);
+        factory.launch(p);
+    }
+
+    /// Off flavor is exempt from the wlWindowEnd guard — wlWindowEnd is
+    /// meaningless for no-WL launches, so setting it to 0 must still be
+    /// accepted.
+    function test_Gap_WL_Off_WindowZero_StillAccepted() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-nowloff";
+        p.ticker = "CHIBIWO";
+        p.wlFlavor = NftWhitelistModule.Flavor.Off;
+        p.wlWindowEnd = 0;
+        vm.prank(launcher);
+        factory.launch(p); // no revert
+    }
+
+    /// Batch cap enforcement: qty = 51 rejects (MAX_MINTS_PER_TX = 50).
+    function test_Gap_BatchMint_Over50_Rejects() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
+        p.name = "chibi-bigfail";
+        p.ticker = "CHIBIBF";
+        p.maxSupply = 100;
         vm.prank(launcher);
         (, address mintModule,) = factory.launch(p);
-        // Non-listed wallet mints without proof — should succeed because
-        // window is already closed.
-        vm.deal(buyer3, 1 ether);
-        vm.prank(buyer3);
-        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        vm.deal(buyer, 10 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(NftMintModule.NftMintModule__QuantityExceedsMax.selector, 51, 50)
+        );
+        vm.prank(buyer);
+        NftMintModule(mintModule).mint{value: 0.51 ether}(51, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
 
     /// Cross-mode: ETH mint on URU collection reverts loud.

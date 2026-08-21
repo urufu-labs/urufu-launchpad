@@ -98,6 +98,10 @@ contract NftMintModule {
     error NftMintModule__NotInitialized();
     error NftMintModule__ZeroAddress();
     error NftMintModule__ZeroQuantity();
+    /// qty > MAX_MINTS_PER_TX. Enforced against a hardcoded platform cap
+    /// (50), tested to fit in a single RH block by fork tests. Buyers
+    /// wanting more mint in multiple txs.
+    error NftMintModule__QuantityExceedsMax(uint256 requested, uint256 max);
     error NftMintModule__BadMintMode();
     error NftMintModule__BadDiscountFloor(uint256 floorBps);
     error NftMintModule__FreeMintRequiresCap();
@@ -208,6 +212,12 @@ contract NftMintModule {
     /// Even a deployer that sets `discountFloorBps == 0` (free-mint
     /// allowed) still can't accidentally overflow past 100%.
     uint256 public constant HARD_DISCOUNT_CEILING_BPS = 10_000;
+    /// Max NFTs per single mint tx. Chosen because 50-tok batch fits
+    /// comfortably in a single RH block per fork test
+    /// (`test_Gap_BatchMint_50Tokens_Fits`). Higher counts risk OOG.
+    /// Buyers wanting more mint in multiple txs — no impact on total
+    /// they can accumulate (that's `perWalletMintCap`'s job).
+    uint256 public constant MAX_MINTS_PER_TX = 50;
 
     // ============================================================
     // Reentrancy status (defense-in-depth)
@@ -457,6 +467,7 @@ contract NftMintModule {
         // ETH-only path. URU-priced collections use `mintWithUru`.
         if (paymentToken != address(0)) revert NftMintModule__EthNotConfigured();
         if (qty == 0) revert NftMintModule__ZeroQuantity();
+        if (qty > MAX_MINTS_PER_TX) revert NftMintModule__QuantityExceedsMax(qty, MAX_MINTS_PER_TX);
 
         IErc721Mintable tokenC = IErc721Mintable(token);
 
@@ -578,6 +589,7 @@ contract NftMintModule {
         address pt = paymentToken;
         if (pt == address(0)) revert NftMintModule__UruNotConfigured();
         if (qty == 0) revert NftMintModule__ZeroQuantity();
+        if (qty > MAX_MINTS_PER_TX) revert NftMintModule__QuantityExceedsMax(qty, MAX_MINTS_PER_TX);
 
         IErc721Mintable tokenC = IErc721Mintable(token);
 
