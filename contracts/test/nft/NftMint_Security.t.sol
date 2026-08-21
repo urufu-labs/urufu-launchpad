@@ -308,8 +308,12 @@ contract NftMint_Security is NftHarness {
         vm.prank(buyer1);
         NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
         assertEq(NftMintModule(deployedMintModule).platformStuckBalance(), 0.001 ether);
-        // Sweep also fails (splitter still reverts).
+        // Non-launcher can't sweep.
+        vm.expectRevert(NftMintModule.NftMintModule__NotLauncher.selector);
+        NftMintModule(deployedMintModule).sweepPlatformStuck();
+        // Sweep also fails when the splitter still reverts.
         vm.expectRevert(NftMintModule.NftMintModule__TransferFailed.selector);
+        vm.prank(launcher);
         NftMintModule(deployedMintModule).sweepPlatformStuck();
         // Balance must NOT be zeroed by a failed sweep.
         assertEq(NftMintModule(deployedMintModule).platformStuckBalance(), 0.001 ether);
