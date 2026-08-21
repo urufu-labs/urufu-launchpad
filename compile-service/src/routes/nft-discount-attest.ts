@@ -196,13 +196,29 @@ export async function registerNftDiscountAttestRoutes(app: FastifyInstance): Pro
   // includes signing txs from the vault-owner wallet, so widening it to
   // sign discount attestations is a strict subset of what it already can
   // do. If we ever split concerns, add a dedicated ATTESTATION_PRIVATE_KEY.
+  //
+  // Robustness: normalize the 0x prefix (some deploys store the key without
+  // it, some with) and NEVER let a malformed key crash the whole server at
+  // startup — that would take down every other compile-service route
+  // (token image uploads, rewards, keeper, WL snapshots). Malformed →
+  // signer=null → endpoint 503s while the rest of the service keeps running.
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
+  let signer: ReturnType<typeof privateKeyToAccount> | null = null;
   if (!rawKey) {
     app.log.warn(
       'NFT discount attest: KEEPER_PRIVATE_KEY unset — endpoint will 503 until configured',
     );
+  } else {
+    const normalized = (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as `0x${string}`;
+    try {
+      signer = privateKeyToAccount(normalized);
+    } catch (err) {
+      app.log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'NFT discount attest: KEEPER_PRIVATE_KEY malformed — endpoint will 503 until fixed',
+      );
+    }
   }
-  const signer = rawKey ? privateKeyToAccount(rawKey as `0x${string}`) : null;
 
   app.post('/api/nft-discount/attest', async (req, reply) => {
     if (!signer) {
