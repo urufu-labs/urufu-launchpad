@@ -141,6 +141,25 @@ contract ERC721ATemplate is ERC721A, Ownable {
         _vmMaxSupply = maxSupply_;
         _initializeOwner(initialOwner);
 
+        // Clones don't run ERC721A's constructor, so its private
+        // `_currentIndex` slot stays at 0 while our `_startTokenId()`
+        // override returns 1 — this makes `_totalMinted() =
+        // _currentIndex - _startTokenId()` underflow to a giant
+        // number, tripping every supply-cap check. Poke slot 0 to
+        // match `_startTokenId()` so the counter starts consistent.
+        //
+        // Storage layout: ERC721A declares `uint256 private
+        // _currentIndex;` as its FIRST state variable, and Solady's
+        // Ownable uses a fixed slot (not sequential), so slot 0 is
+        // guaranteed to be `_currentIndex`. If ERC721A ever adds
+        // state before it, this poke breaks — regression test in
+        // `test_Gap_BaseURI_StoredOnChain_And_FirstTokenIdIsOne`
+        // catches it (asserts first mint is token #1).
+        uint256 startId = _startTokenId();
+        assembly {
+            sstore(0, startId)
+        }
+
         emit Initialized(name_, symbol_, initialOwner, maxSupply_);
 
         // ============================================================
@@ -182,6 +201,20 @@ contract ERC721ATemplate is ERC721A, Ownable {
     // VM_INJECT_MODIFIERS
     // ============================================================
     // Modules append modifiers below this marker.
+
+    // ============================================================
+    // Token ID origin — 1-indexed
+    // ============================================================
+
+    /// @notice First minted token has id 1 (not ERC721A's default of 0).
+    /// @dev    Matches OpenSea/Blur/Magic Eden convention. Also aligns
+    ///         with metadata generators that name files 1.json, 2.json...
+    ///         (chibi studio + most other pipelines do this) so
+    ///         tokenURI(1) = baseURI + "1" resolves to the first
+    ///         intended metadata file rather than 404'ing on 0.json.
+    function _startTokenId() internal pure override returns (uint256) {
+        return 1;
+    }
 
     // ============================================================
     // Transfer hooks — module injection points

@@ -510,6 +510,10 @@ function CreateNftForm() {
               <span className={styles.sectionEye}>how each mint is priced</span>
             </div>
 
+            {/* All four mode buttons flow inline on the same row. The
+                pricing pair (fixed / linear) and the payment pair (ETH /
+                URU) are separate radio groups but visually contiguous
+                since they're both "pick one mint-mechanic knob". */}
             <div className={styles.modeRow}>
               <button
                 type="button"
@@ -527,14 +531,13 @@ function CreateNftForm() {
               >
                 linear step
               </button>
-            </div>
-
-            <div className={styles.modeRow} aria-label="Payment token">
+              <span className={styles.modeRowDivider} aria-hidden="true" />
               <button
                 type="button"
                 className={styles.modeChip}
                 data-active={!payWithUru}
                 onClick={() => setPayWithUru(false)}
+                aria-label="Pay in ETH"
               >
                 pay in ETH
               </button>
@@ -543,6 +546,7 @@ function CreateNftForm() {
                 className={styles.modeChip}
                 data-active={payWithUru}
                 onClick={() => setPayWithUru(true)}
+                aria-label="Pay in URU"
               >
                 pay in URU
               </button>

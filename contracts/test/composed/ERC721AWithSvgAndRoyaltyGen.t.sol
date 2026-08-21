@@ -64,6 +64,8 @@ contract ERC721AWithSvgAndRoyaltyGenTest is Test {
         // OnChainSVG behavior unchanged.
         vm.prank(owner);
         token.mintBatch(alice, 1);
+        // Composed template stays at ERC721A default 0-indexed (dormant
+        // in v1). Only ERC721ATemplate (bare) is 1-indexed.
         string memory uri = token.tokenURI(0);
         assertTrue(bytes(uri).length > 100);
     }

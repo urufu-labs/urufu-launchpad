@@ -31,7 +31,8 @@ import {
   type IndexerV4Swap,
 } from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
-import { CONTRACTS, CHAIN_LABELS } from '@/lib/config';
+import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
@@ -139,6 +140,11 @@ function HomePageContent() {
   const mockData = useMockDataMode();
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
+  // NFT rail tab. Same shape as token feed tabs; empty until indexer
+  // has collections. Persists across renders so switching back to home
+  // preserves the user's pick.
+  const [nftTab, setNftTab] = useState<'featured' | 'just-launched'>('featured');
+  const nftChainEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
   const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
   const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
@@ -195,10 +201,13 @@ function HomePageContent() {
     if (tab === 'near') list = list.filter((l) => !l.graduated);
     else if (tab === 'graduated') list = list.filter((l) => l.graduated);
 
-    // Per-tab secondary sort — applied only when neither token has a fresher
-    // last-trade timestamp (or they tie). Any buy or sell bumps a token above
-    // this regardless of tab.
-    const secondary = (a: typeof list[number], b: typeof list[number]): number => {
+    // Per-tab primary sort — the tab name IS the ordering. Only the
+    // `trending` tab bubbles recently-traded tokens above their
+    // primary slot; `new`, `near`, and `graduated` sort purely by
+    // their named criterion (before this fix, all tabs preferred
+    // recently-traded tokens, so `new` didn't show the newest and
+    // `near` didn't show the closest-to-grad).
+    const primary = (a: typeof list[number], b: typeof list[number]): number => {
       switch (tab) {
         case 'trending':
           return tradeCountOf(b) - tradeCountOf(a);
@@ -211,11 +220,19 @@ function HomePageContent() {
       }
     };
 
+    const useTradeBump = tab === 'trending';
+
     list.sort((a, b) => {
-      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-      if (aTs !== bTs) return bTs - aTs;
-      return secondary(a, b);
+      if (useTradeBump) {
+        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+      }
+      const p = primary(a, b);
+      if (p !== 0) return p;
+      // Deterministic tie-breaker so the list order stays stable across
+      // renders (avoids visible reshuffles on unrelated re-renders).
+      return b.launchedAt - a.launchedAt;
     });
     return list;
   }, [sourceLaunches, query, tab, lastTradeMap]);
@@ -652,6 +669,51 @@ function HomePageContent() {
           </section>
         </aside>
       </div>
+
+      {nftChainEnabled && (
+        <section
+          className="uru-home-nft-section"
+          aria-label="NFT collections"
+          id="nft-collections"
+          style={{ marginTop: 28 }}
+        >
+          <div className="uru-home-feed-bar">
+            <div className="uru-home-tabs" role="tablist" aria-label="NFT collection filters">
+              <button
+                type="button"
+                onClick={() => setNftTab('featured')}
+                role="tab"
+                aria-selected={nftTab === 'featured'}
+                className="uru-chip"
+                data-active={nftTab === 'featured'}
+              >
+                ❁ featured <span>編</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNftTab('just-launched')}
+                role="tab"
+                aria-selected={nftTab === 'just-launched'}
+                className="uru-chip"
+                data-active={nftTab === 'just-launched'}
+              >
+                ✿ just launched <span>新</span>
+              </button>
+            </div>
+            <span className="uru-home-feed-preview" style={{ opacity: 0.7 }}>
+              nft collections
+            </span>
+            <Link href="/discover" className="uru-home-feed-link">
+              see all »
+            </Link>
+          </div>
+          {/* Both tabs currently show the teaser — indexer has no
+              collections yet. Once nftCollections rows exist, replace
+              this with a filtered grid: featured = pinned by us,
+              just-launched = ORDER BY blockTimestamp DESC LIMIT 12. */}
+          <NftLaunchTeaser chainEnabled={nftChainEnabled} variant="home" />
+        </section>
+      )}
 
       <CultureBulletin
         launch={bulletinLaunch}

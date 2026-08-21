@@ -26,6 +26,7 @@ import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUni
 import { sizeForName, isLongName } from '@/lib/nameSize';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'nft';
 
@@ -74,11 +75,15 @@ export default function DiscoverPage() {
     else if (filter === 'graduated') list = list.filter((l) => l.graduated);
     else if (filter === 'whitelist') list = list.filter((l) => l.hasWhitelist === true);
 
-    // Shared secondary sort per tab — the "explicit" ordering the tab name
-    // implies, applied only when neither token has a recent trade (or their
-    // recency ties). Recent-trade bump wraps this for every tab so active
-    // tokens always surface at the top.
-    const secondary = (a: MockLaunch, b: MockLaunch): number => {
+    // Per-tab primary sort. When the tab name implies a specific
+    // ordering (mcap → top market cap, new → most recent launch,
+    // near-graduation → highest progress toward grad), that ordering
+    // MUST win — the recent-trade bump is intentionally scoped to
+    // `trending` and `all` where "activity" is the actual criterion.
+    // Before this fix, every tab preferred recently-traded tokens
+    // regardless of the tab name, which meant `mcap` didn't show the
+    // top-mcap token first if some smaller token had a fresh trade.
+    const primary = (a: MockLaunch, b: MockLaunch): number => {
       switch (filter) {
         case 'trending':
           return tradeCountOf(b) - tradeCountOf(a);
@@ -95,11 +100,22 @@ export default function DiscoverPage() {
       }
     };
 
+    // Only `trending` and `all` bubble recently-traded tokens above
+    // their tab-order slot. Every other tab uses the primary sort as
+    // the actual sort. Ties in primary fall back to recency of trade
+    // as a stable secondary (still useful on 'graduated' etc.).
+    const useTradeBump = filter === 'trending' || filter === 'all';
+
     list.sort((a, b) => {
-      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-      if (aTs !== bTs) return bTs - aTs;
-      return secondary(a, b);
+      if (useTradeBump) {
+        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+      }
+      const p = primary(a, b);
+      if (p !== 0) return p;
+      // Tie-breaker: newer launch first — deterministic across renders.
+      return b.launchedAt - a.launchedAt;
     });
 
     return list;
@@ -207,7 +223,7 @@ export default function DiscoverPage() {
             <p>open a release to trade, inspect its curve, and see its pool state.</p>
           </div>
           {filter === 'nft' ? (
-            <NftEmpty chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} />
+            <NftLaunchTeaser chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} variant="discover" />
           ) : filtered.length > 0 ? (
             <div className={styles.mosaic}>
               {filtered.map((launch) => (
@@ -249,45 +265,6 @@ function MarketEmpty({
             : 'This preview chain has no matching mock tokens for the current filter.'}
         </p>
         <Link href="/create">create a token »</Link>
-      </div>
-    </div>
-  );
-}
-
-function NftEmpty({ chainEnabled }: { chainEnabled: boolean }) {
-  return (
-    <div className={styles.emptyState}>
-      <Image
-        className={styles.emptyArt}
-        src="/culture-first-altar-v2.png"
-        width={420}
-        height={356}
-        alt="Urufu culture-first artwork"
-      />
-      <div>
-        <h2>{chainEnabled ? 'NFT collections coming soon' : "NFT launches aren't live on this chain yet"}</h2>
-        <p>
-          {chainEnabled
-            ? "The launch flow is in place, contracts are wrapping up. Build art in chibi studio and get first in line."
-            : 'Switch to Robinhood to preview the collection index.'}
-        </p>
-        {chainEnabled && (
-          <>
-            <Link href="/create/nft">launch a collection »</Link>
-            <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-              bring your own baseURI, or build art in{' '}
-              <a
-                href="https://studio.urufulabs.xyz/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: 'underline' }}
-              >
-                chibi studio ↗
-              </a>{' '}
-              first
-            </p>
-          </>
-        )}
       </div>
     </div>
   );
