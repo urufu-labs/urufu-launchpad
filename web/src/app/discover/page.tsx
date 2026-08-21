@@ -26,6 +26,7 @@ import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUni
 import { sizeForName, isLongName } from '@/lib/nameSize';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'nft';
 
@@ -207,7 +208,7 @@ export default function DiscoverPage() {
             <p>open a release to trade, inspect its curve, and see its pool state.</p>
           </div>
           {filter === 'nft' ? (
-            <NftEmpty chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} />
+            <NftLaunchTeaser chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} variant="discover" />
           ) : filtered.length > 0 ? (
             <div className={styles.mosaic}>
               {filtered.map((launch) => (
@@ -249,45 +250,6 @@ function MarketEmpty({
             : 'This preview chain has no matching mock tokens for the current filter.'}
         </p>
         <Link href="/create">create a token »</Link>
-      </div>
-    </div>
-  );
-}
-
-function NftEmpty({ chainEnabled }: { chainEnabled: boolean }) {
-  return (
-    <div className={styles.emptyState}>
-      <Image
-        className={styles.emptyArt}
-        src="/culture-first-altar-v2.png"
-        width={420}
-        height={356}
-        alt="Urufu culture-first artwork"
-      />
-      <div>
-        <h2>{chainEnabled ? 'NFT collections coming soon' : "NFT launches aren't live on this chain yet"}</h2>
-        <p>
-          {chainEnabled
-            ? "The launch flow is in place, contracts are wrapping up. Build art in chibi studio and get first in line."
-            : 'Switch to Robinhood to preview the collection index.'}
-        </p>
-        {chainEnabled && (
-          <>
-            <Link href="/create/nft">launch a collection »</Link>
-            <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-              bring your own baseURI, or build art in{' '}
-              <a
-                href="https://studio.urufulabs.xyz/"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: 'underline' }}
-              >
-                chibi studio ↗
-              </a>{' '}
-              first
-            </p>
-          </>
-        )}
       </div>
     </div>
   );

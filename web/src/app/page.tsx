@@ -31,7 +31,8 @@ import {
   type IndexerV4Swap,
 } from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
-import { CONTRACTS, CHAIN_LABELS } from '@/lib/config';
+import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
@@ -139,6 +140,11 @@ function HomePageContent() {
   const mockData = useMockDataMode();
   const [tab, setTab] = useState<Tab>('trending');
   const [query, setQuery] = useState('');
+  // NFT rail tab. Same shape as token feed tabs; empty until indexer
+  // has collections. Persists across renders so switching back to home
+  // preserves the user's pick.
+  const [nftTab, setNftTab] = useState<'featured' | 'just-launched'>('featured');
+  const nftChainEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
   const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
   const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
@@ -652,6 +658,51 @@ function HomePageContent() {
           </section>
         </aside>
       </div>
+
+      {nftChainEnabled && (
+        <section
+          className="uru-home-nft-section"
+          aria-label="NFT collections"
+          id="nft-collections"
+          style={{ marginTop: 28 }}
+        >
+          <div className="uru-home-feed-bar">
+            <div className="uru-home-tabs" role="tablist" aria-label="NFT collection filters">
+              <button
+                type="button"
+                onClick={() => setNftTab('featured')}
+                role="tab"
+                aria-selected={nftTab === 'featured'}
+                className="uru-chip"
+                data-active={nftTab === 'featured'}
+              >
+                ❁ featured <span>編</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNftTab('just-launched')}
+                role="tab"
+                aria-selected={nftTab === 'just-launched'}
+                className="uru-chip"
+                data-active={nftTab === 'just-launched'}
+              >
+                ✿ just launched <span>新</span>
+              </button>
+            </div>
+            <span className="uru-home-feed-preview" style={{ opacity: 0.7 }}>
+              nft collections
+            </span>
+            <Link href="/discover" className="uru-home-feed-link">
+              see all »
+            </Link>
+          </div>
+          {/* Both tabs currently show the teaser — indexer has no
+              collections yet. Once nftCollections rows exist, replace
+              this with a filtered grid: featured = pinned by us,
+              just-launched = ORDER BY blockTimestamp DESC LIMIT 12. */}
+          <NftLaunchTeaser chainEnabled={nftChainEnabled} variant="home" />
+        </section>
+      )}
 
       <CultureBulletin
         launch={bulletinLaunch}
