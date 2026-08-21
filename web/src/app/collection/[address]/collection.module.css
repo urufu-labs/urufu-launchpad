@@ -1,0 +1,299 @@
+/* Per-collection page — mint page + stats, shares the kawaii scrapbook
+   vocabulary with the token trade page and the NFT launch studio. */
+
+.page {
+  width: min(100% - 24px, 1120px);
+  margin: 14px auto 28px;
+  color: var(--anchor);
+  display: grid;
+  gap: 16px;
+}
+
+.hero {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.heroTitle {
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-weight: 400;
+  color: var(--anchor);
+  font-size: clamp(24px, 5vw, 32px);
+  line-height: 1.15;
+}
+
+.addressChip {
+  font-family: var(--font-pixel), monospace;
+  font-size: 11px;
+  color: var(--anchor);
+  border: 1.5px dashed var(--anchor);
+  border-radius: 4px;
+  padding: 3px 8px;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--cream) 60%, transparent);
+}
+
+.addressChip:hover {
+  background: var(--pink-warm);
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 18px;
+  align-items: start;
+}
+
+.mainStack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.rail {
+  position: sticky;
+  top: 14px;
+  align-self: start;
+  display: grid;
+  gap: 14px;
+}
+
+/* --- Art / cover panel --- */
+.artShell {
+  position: relative;
+  border: 2px double var(--anchor);
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(189, 224, 254, 0.12), transparent 42%),
+    var(--card);
+  padding: 12px;
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.2);
+}
+
+.artShell::before {
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed color-mix(in srgb, var(--anchor) 20%, transparent);
+  border-radius: 3px;
+  content: "";
+  pointer-events: none;
+}
+
+.artFrame {
+  position: relative;
+  z-index: 1;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--anchor);
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, var(--pink-warm), var(--mizuiro-deep, var(--mizuiro)) 52%, var(--mint));
+  box-shadow: 3px 3px 0 var(--anchor);
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 22px;
+}
+
+.artFrame span {
+  border: 1px solid var(--anchor);
+  background: color-mix(in srgb, var(--cream) 82%, transparent);
+  padding: 5px 9px;
+  transform: rotate(-4deg);
+}
+
+.artStamp {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  transform: rotate(-8deg) !important;
+  z-index: 3;
+}
+
+/* --- Mint panel --- */
+.mintPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.statRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  row-gap: 6px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+}
+
+.statRow dt {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--anchor-soft, var(--anchor));
+  opacity: 0.7;
+  align-self: center;
+}
+
+.statRow dd {
+  margin: 0;
+  color: var(--anchor);
+  font-weight: 700;
+}
+
+.qtyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1.5px dashed var(--anchor);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--cream) 60%, transparent);
+}
+
+.qtyLabel {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--anchor);
+  opacity: 0.7;
+}
+
+.qtyControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qtyBtn {
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--anchor);
+  border-radius: 4px;
+  background: var(--paper-white, #fff);
+  color: var(--anchor);
+  cursor: pointer;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 2px 2px 0 var(--anchor);
+}
+
+.qtyBtn:hover {
+  background: var(--pink-warm);
+}
+
+.qtyBtn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--anchor);
+}
+
+.qtyNum {
+  min-width: 32px;
+  text-align: center;
+  font-family: var(--font-pixel), monospace;
+  font-size: 14px;
+  color: var(--anchor);
+  font-weight: 700;
+}
+
+/* --- Section headings --- */
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.sectionEye {
+  color: var(--anchor);
+  opacity: 0.65;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+}
+
+.emptyRow {
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+  color: var(--anchor);
+  opacity: 0.7;
+  padding: 12px;
+  border: 1.5px dashed var(--anchor);
+  border-radius: 6px;
+  text-align: center;
+  background: color-mix(in srgb, var(--cream) 40%, transparent);
+}
+
+.warnPane {
+  border: 1.5px solid var(--pink-hot);
+  background: color-mix(in srgb, var(--pink-warm) 40%, transparent);
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+  color: var(--anchor);
+}
+
+.notFound {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 50px 20px;
+  text-align: center;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+  .workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    width: min(100% - 12px, 1120px);
+    margin-top: 10px;
+  }
+}
+
+/* --- Dark theme --- */
+:root[data-theme="dark"] .artShell {
+  border-color: #fff8e7;
+  background: rgba(36, 28, 48, 0.9);
+  box-shadow: 4px 4px 0 rgba(255, 136, 179, 0.34);
+}
+
+:root[data-theme="dark"] .artShell::before {
+  border-color: rgba(255, 248, 231, 0.22);
+}
+
+:root[data-theme="dark"] .artFrame span {
+  border-color: rgba(255, 248, 231, 0.5);
+  background: rgba(18, 14, 28, 0.52);
+  color: #fff8e7;
+}
+
+:root[data-theme="dark"] .qtyRow,
+:root[data-theme="dark"] .emptyRow {
+  background: rgba(36, 28, 48, 0.5);
+  border-color: rgba(255, 248, 231, 0.5);
+}
+
+:root[data-theme="dark"] .qtyBtn {
+  background: rgba(36, 28, 48, 0.6);
+  color: #fff8e7;
+}
+
+:root[data-theme="dark"] .addressChip {
+  background: rgba(36, 28, 48, 0.5);
+  border-color: rgba(255, 248, 231, 0.5);
+  color: #fff8e7;
+}

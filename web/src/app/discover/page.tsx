@@ -25,8 +25,9 @@ import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { sizeForName, isLongName } from '@/lib/nameSize';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
+import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
 
-type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all';
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'nft';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -35,6 +36,7 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'near-graduation', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
   { id: 'whitelist', label: 'whitelist', jp: '会員' },
+  { id: 'nft', label: 'nft', jp: '絵' },
   { id: 'all', label: 'all', jp: '全部' },
 ];
 
@@ -204,7 +206,9 @@ export default function DiscoverPage() {
             </div>
             <p>open a release to trade, inspect its curve, and see its pool state.</p>
           </div>
-          {filtered.length > 0 ? (
+          {filter === 'nft' ? (
+            <NftEmpty chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} />
+          ) : filtered.length > 0 ? (
             <div className={styles.mosaic}>
               {filtered.map((launch) => (
                 <LaunchCard key={launch.address} launch={launch} />
@@ -245,6 +249,45 @@ function MarketEmpty({
             : 'This preview chain has no matching mock tokens for the current filter.'}
         </p>
         <Link href="/create">create a token »</Link>
+      </div>
+    </div>
+  );
+}
+
+function NftEmpty({ chainEnabled }: { chainEnabled: boolean }) {
+  return (
+    <div className={styles.emptyState}>
+      <Image
+        className={styles.emptyArt}
+        src="/culture-first-altar-v2.png"
+        width={420}
+        height={356}
+        alt="Urufu culture-first artwork"
+      />
+      <div>
+        <h2>{chainEnabled ? 'NFT collections coming soon' : "NFT launches aren't live on this chain yet"}</h2>
+        <p>
+          {chainEnabled
+            ? "The launch flow is in place, contracts are wrapping up. Build art in chibi studio and get first in line."
+            : 'Switch to Robinhood to preview the collection index.'}
+        </p>
+        {chainEnabled && (
+          <>
+            <Link href="/create/nft">launch a collection »</Link>
+            <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+              bring your own baseURI, or build art in{' '}
+              <a
+                href="https://studio.urufulabs.xyz/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ textDecoration: 'underline' }}
+              >
+                chibi studio ↗
+              </a>{' '}
+              first
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

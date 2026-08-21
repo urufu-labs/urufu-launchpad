@@ -1,0 +1,508 @@
+/* NFT launch studio — mirrors create-studio.module.css structure so the
+   NFT page reads as the same product surface as the ERC-20 launcher: two-
+   column workbench, sticky preview rail, kawaii scrapbook framing. Fewer
+   sections than the token studio because NFT config is smaller (no module
+   cart, no bonding-curve math), so we skip the progress rail. */
+
+.studio {
+  width: min(100% - 24px, 1120px);
+  margin: 14px auto 28px;
+  color: var(--anchor);
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 18px;
+  align-items: start;
+}
+
+.mainStack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.launchRail {
+  position: sticky;
+  top: 14px;
+  align-self: start;
+  display: grid;
+  gap: 14px;
+}
+
+.section {
+  position: relative;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.sectionEye {
+  color: var(--anchor);
+  opacity: 0.65;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+/* Force every input/select inside a .field to inherit the field's width
+   instead of falling back to the browser default (size="20"), which is
+   what was making paired inputs render at slightly different widths when
+   placeholders differed in length. */
+.field > .uru-input,
+.field > input,
+.field > select,
+.field > textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.fieldLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--anchor);
+  opacity: 0.85;
+}
+
+.fieldHint {
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 11px;
+  color: var(--anchor-soft, var(--anchor));
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.rowInputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Fixed-column variant for pairs of SHORT-value inputs (mint price + step,
+   ticker + supply, chain + min-held). Two equal columns of a fixed width,
+   left-aligned in the shell so the un-used space collects on the right.
+   Avoids the "one box magically wider than the other" look that a 1fr 1fr
+   grid gives when the inputs are short and left-aligned inside the cell. */
+.rowInputsShort {
+  display: grid;
+  grid-template-columns: 220px 220px;
+  gap: 14px;
+}
+
+/* Even tighter — for a pair of 1-4 digit fields (min held + WL window). */
+.rowInputsTight {
+  display: grid;
+  grid-template-columns: 160px 160px;
+  gap: 14px;
+}
+
+/* Single-field variant of the same width, for a lone short input (WL
+   window in minutes) so it stops stretching to the shell edge. */
+.shortField {
+  max-width: 220px;
+}
+
+.tinyField {
+  max-width: 160px;
+}
+
+.modeRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.modeChip {
+  padding: 6px 14px;
+  background: var(--paper-white, #fff);
+  color: var(--anchor);
+  border: 1.5px solid var(--anchor);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  box-shadow: 2px 2px 0 var(--anchor);
+  transition: transform 80ms steps(2), box-shadow 80ms steps(2), background 100ms;
+}
+
+.modeChip:hover {
+  background: var(--pink-warm);
+}
+
+.modeChip[data-active="true"] {
+  background: var(--pink-hot);
+  color: #fff;
+}
+
+.modeChip:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 var(--anchor);
+}
+
+/* --- Cover image picker --- */
+.coverActionsRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.coverRemove {
+  background: transparent;
+  border: 1.5px solid var(--anchor);
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--anchor);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.coverRemove:hover {
+  background: var(--pink-warm);
+}
+
+/* --- Tier cards --- */
+.tierCard {
+  position: relative;
+  padding: 12px;
+  border: 1.5px dashed var(--anchor);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cream) 60%, transparent);
+  margin-bottom: 10px;
+}
+
+.tierHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.tierKindRow {
+  display: flex;
+  gap: 4px;
+}
+
+.tierBody {
+  display: grid;
+  gap: 8px;
+}
+
+.tierFieldRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tierFieldRow > input,
+.tierFieldRow > select {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.chainSelect {
+  flex: 0 0 130px !important;
+}
+
+.addTierBtn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  background: var(--paper-white, #fff);
+  color: var(--anchor);
+  border: 1.5px dashed var(--anchor);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.addTierBtn:hover {
+  background: var(--pink-warm);
+}
+
+/* --- Preview rail --- */
+.preview {
+  position: relative;
+  border: 2px double var(--anchor);
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(189, 224, 254, 0.12), transparent 42%),
+    var(--card);
+  padding: 12px;
+  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.2);
+}
+
+.preview::before {
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed color-mix(in srgb, var(--anchor) 20%, transparent);
+  border-radius: 3px;
+  content: "";
+  pointer-events: none;
+}
+
+.previewTopline {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.previewTopline span {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--anchor-soft, var(--anchor));
+  opacity: 0.7;
+}
+
+.previewTopline b {
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--pink-hot);
+}
+
+.previewArt {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  aspect-ratio: 1;
+  width: 100%;
+  place-items: center;
+  border: 2px solid var(--anchor);
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, var(--pink-warm), var(--mizuiro-deep, var(--mizuiro)) 52%, var(--mint));
+  background-position: center;
+  background-size: cover;
+  box-shadow: 3px 3px 0 var(--anchor);
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 28px;
+  overflow: hidden;
+}
+
+.previewArt span {
+  border: 1px solid var(--anchor);
+  background: color-mix(in srgb, var(--cream) 82%, transparent);
+  padding: 5px 9px;
+  transform: rotate(-4deg);
+  font-size: 20px;
+  text-align: center;
+  max-width: 80%;
+}
+
+.previewTicket {
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+  border: 1.5px solid var(--anchor);
+  background: color-mix(in srgb, var(--cream) 88%, transparent);
+  padding: 11px;
+}
+
+.previewTicket b {
+  display: block;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.previewTicket dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  margin: 10px 0 0;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 12px;
+}
+
+.previewTicket dt {
+  color: var(--anchor-soft, var(--anchor));
+  opacity: 0.7;
+  text-transform: lowercase;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  align-self: center;
+}
+
+.previewTicket dd {
+  margin: 0;
+  color: var(--anchor);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.launchCta {
+  display: grid;
+  gap: 8px;
+}
+
+.launchCta button {
+  width: 100%;
+  justify-content: center;
+}
+
+.reasonNote {
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 11px;
+  color: var(--anchor-soft, var(--anchor));
+  opacity: 0.85;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* --- Tape decorations on the preview art top-right --- */
+.previewTape {
+  position: absolute;
+  top: 10px;
+  right: -12px;
+  width: 100px;
+  height: 22px;
+  transform: rotate(11deg);
+  z-index: 2;
+}
+
+/* --- Not-live pane --- */
+.warnPane {
+  border: 1.5px solid var(--pink-hot);
+  background: color-mix(in srgb, var(--pink-warm) 40%, transparent);
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+  color: var(--anchor);
+}
+
+/* --- Header block --- */
+.hero {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.heroTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.heroTitle .uruH1 {
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-weight: 400;
+  color: var(--anchor);
+  font-size: clamp(24px, 5vw, 34px);
+  line-height: 1.15;
+}
+
+.heroSub {
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: 13px;
+  color: var(--anchor);
+  opacity: 0.85;
+  max-width: 620px;
+  line-height: 1.5;
+}
+
+.heroSub a {
+  color: var(--pink-hot);
+  text-decoration: underline;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+  .workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .launchRail {
+    position: static;
+  }
+
+  .rowInputs,
+  .rowInputsShort,
+  .rowInputsTight {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .studio {
+    width: min(100% - 12px, 1120px);
+    margin-top: 10px;
+  }
+}
+
+/* --- Dark theme retunes --- */
+:root[data-theme="dark"] .tierCard {
+  background: rgba(36, 28, 48, 0.5);
+  border-color: rgba(255, 248, 231, 0.5);
+}
+
+:root[data-theme="dark"] .preview {
+  border-color: #fff8e7;
+  background: rgba(36, 28, 48, 0.9);
+  box-shadow: 4px 4px 0 rgba(255, 136, 179, 0.34);
+}
+
+:root[data-theme="dark"] .preview::before {
+  border-color: rgba(255, 248, 231, 0.22);
+}
+
+:root[data-theme="dark"] .previewTicket,
+:root[data-theme="dark"] .previewArt span {
+  border-color: rgba(255, 248, 231, 0.5);
+  background: rgba(18, 14, 28, 0.52);
+  color: #fff8e7;
+}
+
+:root[data-theme="dark"] .modeChip {
+  background: rgba(36, 28, 48, 0.7);
+  color: #fff8e7;
+}
+
+:root[data-theme="dark"] .modeChip[data-active="true"] {
+  background: var(--pink-hot);
+}
+
+:root[data-theme="dark"] .addTierBtn {
+  background: rgba(36, 28, 48, 0.6);
+  color: #fff8e7;
+  border-color: rgba(255, 248, 231, 0.6);
+}

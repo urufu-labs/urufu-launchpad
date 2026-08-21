@@ -120,6 +120,23 @@ export const uruDepositSinkAbi = parseAbi([
   'event ConversionExecuted(uint256 uruIn, uint256 ethOut)',
 ]);
 
+// NFT stack ABIs.
+//   NftLaunchFactory.CollectionLaunched   — one row per launched collection.
+//     `mintModule` (the clone) is the address we use as the dynamic-factory
+//     `parameter` so Ponder auto-subscribes to every new mint-module clone
+//     for Minted events without a per-collection static config.
+//   NftMintModule.Minted                  — one row per mint tx.
+//     `paidInUru` distinguishes ETH vs URU payment so the flywheel dashboard
+//     can bucket revenue correctly (ETH mints hit FeeSplitter directly;
+//     URU mints hit UruDepositSink which the keeper converts downstream).
+export const nftLaunchFactoryAbi = parseAbi([
+  'event CollectionLaunched(address indexed token, address indexed launcher, address mintModule, address whitelistModule, bytes32 configHash, uint256 uruPaid, string name, string ticker)',
+]);
+
+export const nftMintModuleAbi = parseAbi([
+  'event Minted(address indexed minter, uint256 startTokenId, uint256 quantity, uint256 grossPaidWei, uint256 discountBps, bool wlUsed, bool paidInUru)',
+]);
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -201,6 +218,38 @@ function poolManagerNet() {
       address: pm,
       startBlock: readStartBlock(slug),
       filter: { event: 'Swap', args: { sender: router } },
+    };
+  }
+  return out;
+}
+
+/// NftMintModule subscription: dynamic factory pattern rooted at NftLaunchFactory.
+///
+/// Every collection launched through NftLaunchFactory emits a `CollectionLaunched`
+/// event whose `mintModule` param is the address of the freshly-cloned mint
+/// module contract. Ponder registers each new mint module as a `NftMintModule`
+/// source automatically — no per-collection static config, matches the pattern
+/// used for BondingCurve above.
+///
+/// Chains without NFT_LAUNCH_FACTORY set → dropped silently, so pre-deploy
+/// envs stay valid. Once the factory ships on RH, setting the env var + a
+/// redeploy is the only change required.
+function nftMintModuleNet() {
+  const event = parseAbiItem(
+    'event CollectionLaunched(address indexed token, address indexed launcher, address mintModule, address whitelistModule, bytes32 configHash, uint256 uruPaid, string name, string ticker)',
+  );
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof event; parameter: 'mintModule' }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const f = readAddress(slug, 'NFT_LAUNCH_FACTORY');
+    if (!f) continue;
+    out[slug] = {
+      factory: { address: f, event, parameter: 'mintModule' },
+      startBlock: readStartBlock(slug),
     };
   }
   return out;
@@ -405,6 +454,8 @@ const contracts = {
   FeeSplitter: { abi: feeSplitterAbi, network: netFor('FEE_SPLITTER') },
   UruBuybackVault: { abi: uruBuybackVaultAbi, network: netFor('URU_BUYBACK_VAULT') },
   UruDepositSink: { abi: uruDepositSinkAbi, network: netFor('URU_DEPOSIT_SINK') },
+  NftLaunchFactory: { abi: nftLaunchFactoryAbi, network: netFor('NFT_LAUNCH_FACTORY') },
+  NftMintModule: { abi: nftMintModuleAbi, network: nftMintModuleNet() },
 };
 
 // ---------------------------------------------------------------- database

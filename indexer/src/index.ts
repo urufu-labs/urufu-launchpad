@@ -10,6 +10,7 @@ import {
   hookConfigs, hookFees, hookFeeClaims, hookBurns, poolPolicy,
   flywheelReceipts, flywheelDistributions,
   uruBuybacks, uruSinkDeposits, uruSinkConversions,
+  nftCollections, nftMints,
 } from '../ponder.schema.ts';
 import { hookHostForChainId } from '../chains';
 
@@ -942,4 +943,88 @@ ponder.on('UruDepositSink:ConversionExecuted', async ({ event, context }) => {
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
+});
+
+// ============================================================
+// NFT stack (NftLaunchFactory + dynamic-factory NftMintModule)
+// ============================================================
+//
+// One row per collection at CollectionLaunched time. The mint module
+// address is what Ponder then auto-subscribes to for Minted events
+// (see nftMintModuleNet() in ponder.config.ts). We store both the
+// token addr (the ERC-721 itself) AND the mint module addr so consumers
+// can find one from the other without a second table lookup.
+//
+// `mintMode` and pricing fields are NOT emitted in CollectionLaunched
+// (they're derivable from a static read on the mint module), so we
+// stub them in with defaults here. Post-deploy, a follow-up pass can
+// backfill via a one-time chain read, or we can extend the event.
+ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
+  const { token, launcher, mintModule, whitelistModule, name, ticker } = event.args;
+  const chainId = chainIdOf(context);
+  await context.db.insert(nftCollections).values({
+    id: `${chainId}-${token}`,
+    chainId,
+    collectionAddress: token,
+    launchedBy: launcher,
+    name,
+    ticker,
+    // Not emitted by CollectionLaunched — populated by a static call
+    // once we ship the follow-up backfill (or by adding the fields to
+    // the event in a future contract version). Nulls-friendly defaults
+    // keep the row queryable in the meantime.
+    baseUri: '',
+    maxSupply: 0n,
+    mintMode: 0,
+    basePriceWei: 0n,
+    priceStepWei: 0n,
+    wlRoot: '0x0000000000000000000000000000000000000000000000000000000000000000',
+    wlOpenWindowSec: 0,
+    mintedCount: 0n,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+  // Silence unused-var lints — kept in destructure for future backfill.
+  void mintModule; void whitelistModule;
+});
+
+// One row per mint. `paidInUru` bucketing lets the flywheel dashboard
+// separate ETH mint revenue (flows through FeeSplitter) from URU mint
+// revenue (flows through UruDepositSink, converted by keeper).
+//
+// `mintedCount` on the parent nftCollections row is INTENTIONALLY not
+// updated here — chain state has the authoritative count via
+// ERC721A.totalMinted(); duplicating it in the DB opens the door to
+// reorg-caused drift. Consumers read totalMinted() live or aggregate
+// SUM(quantity) from this table if they want an indexer-side count.
+ponder.on('NftMintModule:Minted', async ({ event, context }) => {
+  const { minter, startTokenId, quantity, grossPaidWei, discountBps, wlUsed, paidInUru } = event.args;
+  const chainId = chainIdOf(context);
+  // For each token minted in this batch (quantity may be > 1), we
+  // still record ONE row keyed by (tx, logIndex) — startTokenId + qty
+  // give consumers the id range. Individual id-per-row would blow up
+  // the table for large batch mints.
+  await context.db.insert(nftMints).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    // The mint module IS the msg.receiver in Ponder terms — but for
+    // consumer convenience we want the *collection* address. Look it
+    // up via the mint-module -> token binding at CollectionLaunched
+    // time. Deferred: for phase-0 we store the mint-module address
+    // here and let the API layer resolve to the collection. Same
+    // pattern as `curveAddress` on the trades table.
+    collectionAddress: event.log.address,
+    minter,
+    tokenId: startTokenId,
+    quantity: Number(quantity),
+    pricePaidWei: grossPaidWei / (quantity === 0n ? 1n : quantity),
+    wlUsed,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+  // Silence unused-var lints — kept in destructure for future
+  // per-mint-mode analytics (discountBps, paidInUru bucketing).
+  void discountBps; void paidInUru;
 });

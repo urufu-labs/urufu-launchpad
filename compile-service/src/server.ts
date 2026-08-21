@@ -20,6 +20,7 @@ import { registerRewardsRoutes } from './routes/rewards.ts';
 import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
+import { registerNftDiscountAttestRoutes } from './routes/nft-discount-attest.ts';
 import {
   Semaphore,
   defaultCompileConcurrency,
@@ -179,6 +180,7 @@ await registerNftAvatarRoutes(app);
 // Postgres dep (in-memory cache), no external API keys — works out of the box
 // against RH's public RPC. Chain support is intentionally narrow (RH only) for v1.
 await registerWhitelistRoutes(app);
+await registerNftDiscountAttestRoutes(app);
 app.log.info('wl snapshot routes registered');
 
 // Flywheel rewards — public GETs for the claim UI, gated POST for publishing.
