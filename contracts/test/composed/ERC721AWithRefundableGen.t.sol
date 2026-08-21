@@ -40,6 +40,8 @@ contract ERC721AWithRefundableGenTest is Test {
         vm.prank(alice);
         token.refundableMint{value: PRICE * 3}(3);
         assertEq(token.balanceOf(alice), 3);
+        // Composed template stays at ERC721A default 0-indexed (dormant
+        // in v1). Only ERC721ATemplate (bare) is 1-indexed.
         assertEq(token.ownerOf(0), alice);
         assertEq(token.refundableMintBlockOf(0), block.number);
         assertEq(token.refundableMintBlockOf(2), block.number);

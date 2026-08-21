@@ -174,7 +174,10 @@ contract NftLaunchPathsTest is LocalV4Stack {
         IERC721Min(token).mintBatch(collector, 5);
 
         assertEq(IERC721Min(token).balanceOf(collector), 5, "collector did not receive the batch");
-        assertEq(IERC721Min(token).ownerOf(0), collector, "first token not owned by collector");
+        // ERC721ATemplate overrides _startTokenId() → 1, so the first
+        // minted token is #1 (not #0). Matches OpenSea/Blur convention +
+        // metadata generators that name 1.json, 2.json...
+        assertEq(IERC721Min(token).ownerOf(1), collector, "first token (#1) not owned by collector");
         assertEq(IERC721Min(token).totalSupply(), 5, "totalSupply wrong after mint");
     }
 
@@ -212,7 +215,9 @@ contract NftLaunchPathsTest is LocalV4Stack {
 
         vm.prank(launcher);
         IERC721Min(token).mintBatch(collector, 1);
-        // ERC721A does not override `_startTokenId`, so ids begin at 0.
+        // Composed Soulbound template stays at ERC721A default 0-indexed
+        // (dormant in v1). Only the bare ERC721ATemplate — used by the
+        // new NftLaunchFactory — is 1-indexed.
         assertEq(IERC721Min(token).ownerOf(0), collector, "mint should still work when soulbound");
 
         vm.prank(collector);
