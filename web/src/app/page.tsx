@@ -201,10 +201,13 @@ function HomePageContent() {
     if (tab === 'near') list = list.filter((l) => !l.graduated);
     else if (tab === 'graduated') list = list.filter((l) => l.graduated);
 
-    // Per-tab secondary sort — applied only when neither token has a fresher
-    // last-trade timestamp (or they tie). Any buy or sell bumps a token above
-    // this regardless of tab.
-    const secondary = (a: typeof list[number], b: typeof list[number]): number => {
+    // Per-tab primary sort — the tab name IS the ordering. Only the
+    // `trending` tab bubbles recently-traded tokens above their
+    // primary slot; `new`, `near`, and `graduated` sort purely by
+    // their named criterion (before this fix, all tabs preferred
+    // recently-traded tokens, so `new` didn't show the newest and
+    // `near` didn't show the closest-to-grad).
+    const primary = (a: typeof list[number], b: typeof list[number]): number => {
       switch (tab) {
         case 'trending':
           return tradeCountOf(b) - tradeCountOf(a);
@@ -217,11 +220,19 @@ function HomePageContent() {
       }
     };
 
+    const useTradeBump = tab === 'trending';
+
     list.sort((a, b) => {
-      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-      if (aTs !== bTs) return bTs - aTs;
-      return secondary(a, b);
+      if (useTradeBump) {
+        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+      }
+      const p = primary(a, b);
+      if (p !== 0) return p;
+      // Deterministic tie-breaker so the list order stays stable across
+      // renders (avoids visible reshuffles on unrelated re-renders).
+      return b.launchedAt - a.launchedAt;
     });
     return list;
   }, [sourceLaunches, query, tab, lastTradeMap]);

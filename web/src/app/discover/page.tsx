@@ -75,11 +75,15 @@ export default function DiscoverPage() {
     else if (filter === 'graduated') list = list.filter((l) => l.graduated);
     else if (filter === 'whitelist') list = list.filter((l) => l.hasWhitelist === true);
 
-    // Shared secondary sort per tab — the "explicit" ordering the tab name
-    // implies, applied only when neither token has a recent trade (or their
-    // recency ties). Recent-trade bump wraps this for every tab so active
-    // tokens always surface at the top.
-    const secondary = (a: MockLaunch, b: MockLaunch): number => {
+    // Per-tab primary sort. When the tab name implies a specific
+    // ordering (mcap → top market cap, new → most recent launch,
+    // near-graduation → highest progress toward grad), that ordering
+    // MUST win — the recent-trade bump is intentionally scoped to
+    // `trending` and `all` where "activity" is the actual criterion.
+    // Before this fix, every tab preferred recently-traded tokens
+    // regardless of the tab name, which meant `mcap` didn't show the
+    // top-mcap token first if some smaller token had a fresh trade.
+    const primary = (a: MockLaunch, b: MockLaunch): number => {
       switch (filter) {
         case 'trending':
           return tradeCountOf(b) - tradeCountOf(a);
@@ -96,11 +100,22 @@ export default function DiscoverPage() {
       }
     };
 
+    // Only `trending` and `all` bubble recently-traded tokens above
+    // their tab-order slot. Every other tab uses the primary sort as
+    // the actual sort. Ties in primary fall back to recency of trade
+    // as a stable secondary (still useful on 'graduated' etc.).
+    const useTradeBump = filter === 'trending' || filter === 'all';
+
     list.sort((a, b) => {
-      const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-      const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-      if (aTs !== bTs) return bTs - aTs;
-      return secondary(a, b);
+      if (useTradeBump) {
+        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
+        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
+        if (aTs !== bTs) return bTs - aTs;
+      }
+      const p = primary(a, b);
+      if (p !== 0) return p;
+      // Tie-breaker: newer launch first — deterministic across renders.
+      return b.launchedAt - a.launchedAt;
     });
 
     return list;
