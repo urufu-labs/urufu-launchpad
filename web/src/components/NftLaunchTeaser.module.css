@@ -1,0 +1,320 @@
+/* NftLaunchTeaser — kawaii scrapbook "coming soon" for NFT surfaces.
+   Numbered polaroid slots with tape strips + rotated stamps + a shimmer
+   pass on each art well. Copy bar underneath sells the feature set. */
+
+.shell {
+  position: relative;
+  padding: 32px 24px 24px;
+  border: 3px double var(--anchor);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 15% 12%, rgba(255, 136, 179, 0.14) 0 90px, transparent 130px),
+    radial-gradient(circle at 88% 88%, rgba(189, 224, 254, 0.18) 0 110px, transparent 160px),
+    linear-gradient(135deg, color-mix(in srgb, var(--pink-warm) 25%, transparent), transparent 45%),
+    var(--card);
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--anchor),
+    6px 6px 0 rgba(58, 44, 58, 0.15);
+  overflow: hidden;
+}
+
+/* Corner tape strips — pinned like scrapbook photos */
+.tapeTL,
+.tapeTR {
+  position: absolute;
+  width: 110px;
+  height: 22px;
+  z-index: 3;
+}
+
+.tapeTL {
+  top: 10px;
+  left: -18px;
+  transform: rotate(-8deg);
+}
+
+.tapeTR {
+  top: 8px;
+  right: -20px;
+  transform: rotate(9deg);
+}
+
+/* --- masthead --- */
+.masthead {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 0 8px;
+}
+
+.title {
+  font-family: var(--font-display), 'Yusei Magic', cursive;
+  font-weight: 400;
+  color: var(--anchor);
+  font-size: clamp(20px, 3.6vw, 30px);
+  line-height: 1.1;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.tagline {
+  font-family: var(--font-round), 'Klee One', cursive;
+  color: var(--anchor);
+  opacity: 0.8;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* --- placeholder slot grid --- */
+.gallery {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  padding: 8px 4px 20px;
+}
+
+.slot {
+  position: relative;
+  padding: 8px 8px 26px;
+  background: var(--paper-white, #fff);
+  border: 1.5px solid var(--anchor);
+  box-shadow: 3px 3px 0 var(--pink-warm);
+  transform: rotate(var(--slot-angle));
+  transition: transform 200ms;
+}
+
+.slot:hover {
+  transform: rotate(0deg) translate(-1px, -3px);
+  box-shadow: 5px 5px 0 var(--pink-hot);
+}
+
+/* Slot number top-left */
+.slotNum {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--anchor);
+  opacity: 0.55;
+  letter-spacing: 0.05em;
+}
+
+/* Slot corner stamp */
+.slotStamp {
+  position: absolute;
+  top: -10px;
+  right: -8px;
+  transform: rotate(calc(var(--slot-angle) * -2)) !important;
+  font-size: 10px;
+  padding: 2px 6px;
+  z-index: 2;
+}
+
+/* Art well — the "cover image would go here" square */
+.slotArt {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--anchor);
+  background:
+    /* Halftone dot pattern for that risograph feel */
+    radial-gradient(circle at 25% 25%, color-mix(in srgb, var(--anchor) 18%, transparent) 1px, transparent 2px),
+    radial-gradient(circle at 75% 75%, color-mix(in srgb, var(--anchor) 12%, transparent) 1px, transparent 2px),
+    linear-gradient(135deg, var(--slot-tint), color-mix(in srgb, var(--slot-tint) 40%, var(--cream)));
+  background-size: 10px 10px, 12px 12px, 100% 100%;
+  display: grid;
+  place-items: center;
+}
+
+.slotEmoji {
+  font-family: var(--font-display), 'Yusei Magic', cursive;
+  font-size: 42px;
+  color: var(--anchor);
+  opacity: 0.55;
+  text-shadow: 2px 2px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* Shimmer pass — diagonal light sweep that hints "loading in soon" */
+.shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.35) 45%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0.35) 55%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: shimmer 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.slot:nth-child(2) .shimmer { animation-delay: 0.4s; }
+.slot:nth-child(3) .shimmer { animation-delay: 0.8s; }
+.slot:nth-child(4) .shimmer { animation-delay: 1.2s; }
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  50%, 100% { transform: translateX(150%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    opacity: 0.15;
+    transform: none;
+    background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.3) 55%, transparent 70%);
+  }
+}
+
+.slotMeta {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--anchor);
+  opacity: 0.55;
+}
+
+/* --- Deal bar (feature-list + CTAs) --- */
+.dealBar {
+  position: relative;
+  z-index: 1;
+  padding: 18px 18px 18px 22px;
+  border: 2px dashed var(--anchor);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mint) 25%, transparent), color-mix(in srgb, var(--cream) 70%, transparent));
+}
+
+.dealTitle {
+  margin-bottom: 10px;
+}
+
+.dealList {
+  margin: 0 0 14px;
+  padding-left: 22px;
+  display: grid;
+  gap: 4px;
+  font-family: var(--font-round), 'Klee One', cursive;
+  font-size: 13px;
+  color: var(--anchor);
+  line-height: 1.35;
+}
+
+.dealList li::marker {
+  color: var(--pink-hot);
+}
+
+.dealList b {
+  color: var(--pink-hot);
+}
+
+.dealPill {
+  display: inline-block;
+  padding: 1px 8px;
+  margin-left: 4px;
+  background: var(--paper-white, #fff);
+  border: 1px solid var(--anchor);
+  border-radius: 999px;
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  color: var(--anchor);
+  letter-spacing: 0.04em;
+}
+
+.dealActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* --- Off-chain fallback --- */
+.wrongChain {
+  padding: 28px;
+  border: 2px dashed var(--anchor);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pink-warm) 25%, transparent);
+  text-align: center;
+  font-family: var(--font-round), 'Klee One', cursive;
+  color: var(--anchor);
+}
+
+.wrongChain p {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+/* --- Dark theme retunes --- */
+:global(:root[data-theme='dark']) .shell {
+  background:
+    radial-gradient(circle at 15% 12%, rgba(255, 136, 179, 0.20) 0 90px, transparent 130px),
+    radial-gradient(circle at 88% 88%, rgba(189, 224, 254, 0.15) 0 110px, transparent 160px),
+    var(--card);
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--anchor),
+    0 12px 32px -8px rgba(0, 0, 0, 0.55);
+}
+
+:global(:root[data-theme='dark']) .slot {
+  background: rgba(255, 248, 231, 0.06);
+  box-shadow: 3px 3px 0 var(--pink-hot);
+}
+
+:global(:root[data-theme='dark']) .slotEmoji {
+  color: #fff8e7;
+  opacity: 0.65;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+:global(:root[data-theme='dark']) .dealBar {
+  background: rgba(200, 247, 197, 0.08);
+}
+
+:global(:root[data-theme='dark']) .dealPill {
+  background: rgba(18, 14, 28, 0.6);
+  color: #fff8e7;
+}
+
+/* --- Small screens --- */
+@media (max-width: 640px) {
+  .shell {
+    padding: 26px 16px 18px;
+  }
+
+  .gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .slot {
+    transform: none;
+  }
+
+  .slot:hover {
+    transform: translate(-1px, -2px);
+  }
+
+  .dealBar {
+    padding: 14px;
+  }
+
+  .tapeTL,
+  .tapeTR {
+    width: 80px;
+    height: 16px;
+  }
+}
