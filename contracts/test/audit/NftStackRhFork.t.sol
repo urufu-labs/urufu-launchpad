@@ -9,9 +9,17 @@ import {NftWhitelistModule} from "src/nft/NftWhitelistModule.sol";
 import {NftLaunchFactory, IERC20, ILoyaltyOracleLike} from "src/nft/NftLaunchFactory.sol";
 
 interface IERC20Balance {
-    function balanceOf(address who) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool);
 }
 
 /// @title  NftStackRhFork — end-to-end verification against LIVE RH infra
@@ -108,9 +116,7 @@ contract NftStackRhForkTest is Test {
         vm.startPrank(owner);
         factory = new NftLaunchFactory(owner);
         factory.setExpectedCodeHashes(
-            keccak256(address(erc721Impl).code),
-            keccak256(address(mintImpl).code),
-            keccak256(address(wlImpl).code)
+            keccak256(address(erc721Impl).code), keccak256(address(mintImpl).code), keccak256(address(wlImpl).code)
         );
         factory.setImpls(address(erc721Impl), address(mintImpl), address(wlImpl));
         factory.setUruConfig(
@@ -197,11 +203,14 @@ contract NftStackRhForkTest is Test {
 
         vm.deal(buyer, 1 ether);
         vm.startPrank(buyer);
-        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price = base
+        NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price =
+        // base
         assertEq(ERC721ATemplate(token).totalMinted(), 1, "post-1 supply");
-        NftMintModule(mintModule).mint{value: 0.011 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price = base + step
+        NftMintModule(mintModule).mint{value: 0.011 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price =
+        // base + step
         assertEq(ERC721ATemplate(token).totalMinted(), 2, "post-2 supply");
-        NftMintModule(mintModule).mint{value: 0.012 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price = base + 2*step
+        NftMintModule(mintModule).mint{value: 0.012 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs()); // price =
+        // base + 2*step
         vm.stopPrank();
         assertEq(NftMintModule(mintModule).launcherBalance(), (0.01 ether + 0.011 ether + 0.012 ether) * 9 / 10);
     }
@@ -422,7 +431,7 @@ contract NftStackRhForkTest is Test {
             externalChainId: 0,
             percentPerNftBps: 0,
             maxCountedNfts: 0,
-            fixedDiscountBps: 2000    // 20% off
+            fixedDiscountBps: 2000 // 20% off
         });
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
         p.name = "chibi-disc";
@@ -449,14 +458,14 @@ contract NftStackRhForkTest is Test {
             walletListRoot: bytes32(0),
             externalCollection: target,
             externalChainId: RH_CHAIN_ID,
-            percentPerNftBps: 500,     // 5%/nft
-            maxCountedNfts: 4,          // cap 20% max
+            percentPerNftBps: 500, // 5%/nft
+            maxCountedNfts: 4, // cap 20% max
             fixedDiscountBps: 0
         });
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
         p.name = "chibi-ext";
         p.ticker = "CHIBIE";
-        p.discountFloorBps = 5000;    // ceiling = 50%
+        p.discountFloorBps = 5000; // ceiling = 50%
         p.tiers = tiers;
         vm.prank(launcher);
         (, address mintModule,) = factory.launch(p);
@@ -465,9 +474,8 @@ contract NftStackRhForkTest is Test {
         uint256 expiry = block.timestamp + 1 hours;
         bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, target, RH_CHAIN_ID, 0, 100, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 100, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 100, expiry: expiry, sig: sig});
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
         NftMintModule(mintModule).mint{value: 0.008 ether}(1, new bytes32[](0), 0, 0, "", proofs);
@@ -486,13 +494,13 @@ contract NftStackRhForkTest is Test {
             externalChainId: 0,
             percentPerNftBps: 0,
             maxCountedNfts: 0,
-            fixedDiscountBps: 10_000    // 100%
+            fixedDiscountBps: 10_000 // 100%
         });
         NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams(false);
         p.name = "chibi-free";
         p.ticker = "CHIBIF";
-        p.discountFloorBps = 0;    // free-mint allowed
-        p.perWalletMintCap = 3;    // required when floor = 0
+        p.discountFloorBps = 0; // free-mint allowed
+        p.perWalletMintCap = 3; // required when floor = 0
         p.tiers = tiers;
         vm.prank(launcher);
         (address token, address mintModule,) = factory.launch(p);
@@ -611,9 +619,8 @@ contract NftStackRhForkTest is Test {
         uint256 expiry = block.timestamp + 1 hours;
         bytes memory sigForA = _signAttestation(attSignerPk, buyer, mmA, address(0xBEEF), 1, 0, 3, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sigForA
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sigForA});
         vm.deal(buyer, 1 ether);
         vm.expectRevert(NftMintModule.NftMintModule__BadAttestationSigner.selector);
         vm.prank(buyer);
@@ -641,9 +648,8 @@ contract NftStackRhForkTest is Test {
         bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, address(0xBEEF), 1, 0, 3, expiry);
         vm.warp(expiry + 1);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
         vm.deal(buyer, 1 ether);
         vm.expectRevert(
             abi.encodeWithSelector(NftMintModule.NftMintModule__AttestationExpired.selector, expiry, block.timestamp)
@@ -772,9 +778,7 @@ contract NftStackRhForkTest is Test {
         p.wlWalletListRoot = root;
         p.wlWindowEnd = 0; // deployer forgot to set the window
         vm.expectRevert(
-            abi.encodeWithSelector(
-                NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector, 0, block.timestamp
-            )
+            abi.encodeWithSelector(NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector, 0, block.timestamp)
         );
         vm.prank(launcher);
         factory.launch(p);
@@ -793,9 +797,7 @@ contract NftStackRhForkTest is Test {
         p.wlWindowEnd = block.timestamp;
         vm.expectRevert(
             abi.encodeWithSelector(
-                NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector,
-                block.timestamp,
-                block.timestamp
+                NftWhitelistModule.NftWhitelistModule__WindowEndInPast.selector, block.timestamp, block.timestamp
             )
         );
         vm.prank(launcher);
@@ -824,9 +826,7 @@ contract NftStackRhForkTest is Test {
         vm.prank(launcher);
         (, address mintModule,) = factory.launch(p);
         vm.deal(buyer, 10 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(NftMintModule.NftMintModule__QuantityExceedsMax.selector, 51, 50)
-        );
+        vm.expectRevert(abi.encodeWithSelector(NftMintModule.NftMintModule__QuantityExceedsMax.selector, 51, 50));
         vm.prank(buyer);
         NftMintModule(mintModule).mint{value: 0.51 ether}(51, new bytes32[](0), 0, 0, "", _emptyProofs());
     }
@@ -875,9 +875,8 @@ contract NftStackRhForkTest is Test {
         uint256 expiry = block.timestamp + 1 hours;
         bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, address(0xBEEF), 1, 0, 0, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
-        proofs[0] = NftMintModule.TierProof({
-            tierId: 0, merkleProof: new bytes32[](0), count: 0, expiry: expiry, sig: sig
-        });
+        proofs[0] =
+            NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 0, expiry: expiry, sig: sig});
         vm.deal(buyer, 1 ether);
         // Full price = 0.01 ETH, no discount.
         vm.prank(buyer);
@@ -962,7 +961,9 @@ contract NftStackRhForkTest is Test {
     // ============================================================
     // Helpers
     // ============================================================
-    function _defaultLaunchParams(bool payWithUru) internal view returns (NftLaunchFactory.LaunchParams memory p) {
+    function _defaultLaunchParams(
+        bool payWithUru
+    ) internal view returns (NftLaunchFactory.LaunchParams memory p) {
         NftMintModule.DiscountTier[] memory tiers = new NftMintModule.DiscountTier[](0);
         p = NftLaunchFactory.LaunchParams({
             name: payWithUru ? "chibi-uru" : "chibi-eth",
@@ -986,7 +987,9 @@ contract NftStackRhForkTest is Test {
         });
     }
 
-    function _launchDefault(bool payWithUru) internal returns (address token, address mintModule) {
+    function _launchDefault(
+        bool payWithUru
+    ) internal returns (address token, address mintModule) {
         vm.prank(launcher);
         (token, mintModule,) = factory.launch(_defaultLaunchParams(payWithUru));
     }
@@ -1005,11 +1008,10 @@ contract NftStackRhForkTest is Test {
         treasurySink = abi.decode(b3, (address));
     }
 
-    function _twoLeafMerkle(address a, address b)
-        internal
-        pure
-        returns (bytes32 root, bytes32[] memory proofA, bytes32[] memory proofB)
-    {
+    function _twoLeafMerkle(
+        address a,
+        address b
+    ) internal pure returns (bytes32 root, bytes32[] memory proofA, bytes32[] memory proofB) {
         bytes32 leafA = keccak256(bytes.concat(keccak256(abi.encode(a))));
         bytes32 leafB = keccak256(bytes.concat(keccak256(abi.encode(b))));
         (bytes32 lo, bytes32 hi) = leafA < leafB ? (leafA, leafB) : (leafB, leafA);
@@ -1076,12 +1078,27 @@ contract NftStackRhForkTest is Test {
         sig = abi.encodePacked(r, s, v);
     }
 
-    function _envAddr(string memory name) internal view returns (address) {
-        try vm.envAddress(name) returns (address a) { return a; } catch { return address(0); }
+    function _envAddr(
+        string memory name
+    ) internal view returns (address) {
+        try vm.envAddress(name) returns (address a) {
+            return a;
+        }
+            catch {
+            return address(0);
+        }
     }
 
-    function _envAddrOr(string memory name, address dflt) internal view returns (address) {
-        try vm.envAddress(name) returns (address a) { return a; } catch { return dflt; }
+    function _envAddrOr(
+        string memory name,
+        address dflt
+    ) internal view returns (address) {
+        try vm.envAddress(name) returns (address a) {
+            return a;
+        }
+            catch {
+            return dflt;
+        }
     }
 
     function _emptyProofs() internal pure returns (NftMintModule.TierProof[] memory) {
@@ -1097,7 +1114,9 @@ contract ReentryLauncher {
     NftMintModule public target;
     uint256 public reentryAttempts;
 
-    function setMintModule(address mintModule) external {
+    function setMintModule(
+        address mintModule
+    ) external {
         target = NftMintModule(mintModule);
     }
 
