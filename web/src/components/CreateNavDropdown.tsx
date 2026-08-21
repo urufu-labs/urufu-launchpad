@@ -19,9 +19,24 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 export function CreateNavDropdown() {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
   const activeChain = useActiveChain();
   const nftEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
+
+  const openNow = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    setOpen(true);
+  };
+  // Small delay before closing so the cursor can travel from trigger
+  // to menu items without the menu vanishing mid-move.
+  const scheduleClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), 120);
+  };
 
   // Close on route change so the menu doesn't linger after a nav click.
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -45,8 +60,8 @@ export function CreateNavDropdown() {
     <div
       ref={wrapRef}
       className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={openNow}
+      onMouseLeave={scheduleClose}
     >
       <button
         type="button"
@@ -70,13 +85,18 @@ export function CreateNavDropdown() {
       {open && (
         <div
           role="menu"
-          className="absolute top-full left-0 mt-1 flex flex-col"
+          className="absolute top-full left-0 flex flex-col"
+          onMouseEnter={openNow}
+          onMouseLeave={scheduleClose}
           style={{
             minWidth: 140,
             background: 'var(--cream)',
             border: '1.5px solid var(--anchor)',
             borderRadius: 8,
-            padding: 6,
+            // Extra top padding replaces the previous `mt-1` gap so
+            // the menu is flush with the trigger — no dead zone the
+            // cursor has to cross to reach the items.
+            padding: '10px 6px 6px',
             gap: 4,
             zIndex: 60,
             fontFamily: 'var(--font-round), Klee One, cursive',
