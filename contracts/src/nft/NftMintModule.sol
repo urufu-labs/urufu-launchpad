@@ -706,14 +706,14 @@ contract NftMintModule {
         amount = platformStuckUru;
         if (amount == 0) revert NftMintModule__NoBalance();
         platformStuckUru = 0;
+        // On any failure below, the top-level revert unwinds the
+        // `platformStuckUru = 0` write above — no explicit restore
+        // needed (and writing state after the external call would
+        // trip Slither's reentrancy detector for no functional gain).
         try IERC20Min(paymentToken).transfer(uruDepositSink, amount) returns (bool ok) {
-            if (!ok) {
-                platformStuckUru = amount;
-                revert NftMintModule__TransferFailed();
-            }
+            if (!ok) revert NftMintModule__TransferFailed();
             emit PlatformSlicePushedUru(uruDepositSink, amount);
         } catch {
-            platformStuckUru = amount;
             revert NftMintModule__TransferFailed();
         }
     }
@@ -730,12 +730,13 @@ contract NftMintModule {
         amount = platformStuckBalance;
         if (amount == 0) revert NftMintModule__NoBalance();
         platformStuckBalance = 0;
-        // Retry once. If it fails again, revert — better to leave the
-        // balance recorded than lose track by clearing it and failing.
+        // If FeeSplitter still reverts, the top-level revert unwinds
+        // the `platformStuckBalance = 0` write above automatically —
+        // no explicit restore needed. Writing state after the external
+        // call would trip Slither's reentrancy detector for no gain.
         try IFeeReceiver(feeSplitter).receiveFee{value: amount}(launcher, BaseType.ERC721A) {
             emit PlatformSlicePushed(feeSplitter, amount);
         } catch {
-            platformStuckBalance = amount; // undo state change on failure
             revert NftMintModule__TransferFailed();
         }
     }
