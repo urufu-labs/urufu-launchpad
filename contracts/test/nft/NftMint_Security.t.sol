@@ -447,6 +447,60 @@ contract NftMint_Security is NftHarness {
     }
 
     // --------------------------------------------------------------
+    // Regression: perWalletMintCap enforces on cumulative mints, not
+    // balanceOf. Without this, a buyer could mint up to cap, transfer
+    // the NFTs out to reset balance, and mint another cap-worth — a
+    // full supply drain in free-mint mode (and a fair-launch bypass
+    // in paid mode). Reported by adversarial audit 2026-08-21.
+    // --------------------------------------------------------------
+    function test_PerWalletCap_TransferBypass_Rejected() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams();
+        p.perWalletMintCap = 2;
+        p.maxSupply = 100;
+        _launch(p);
+
+        // Round 1: buyer1 mints up to cap.
+        vm.deal(buyer1, 1 ether);
+        vm.prank(buyer1);
+        NftMintModule(deployedMintModule).mint{value: 0.02 ether}(2, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 2);
+
+        // Buyer transfers both tokens out to a burner — balance resets.
+        address burner = makeAddr("burner");
+        vm.startPrank(buyer1);
+        ERC721ATemplate(deployedToken).transferFrom(buyer1, burner, 1);
+        ERC721ATemplate(deployedToken).transferFrom(buyer1, burner, 2);
+        vm.stopPrank();
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 0);
+
+        // Round 2 MUST revert on the cumulative counter, not silently
+        // let buyer1 drain another 2 tokens.
+        vm.prank(buyer1);
+        vm.expectRevert(abi.encodeWithSelector(NftMintModule.NftMintModule__PerWalletCapExceeded.selector, 3, 2));
+        NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
+
+    // --------------------------------------------------------------
+    // Regression: basePriceWei == 0 must be rejected at launch. Without
+    // this, a launcher setting basePriceWei=0 with any non-zero
+    // discountFloor slips past FreeMintRequiresCap; gross=0, net=0,
+    // anyone drains supply for gas. `NftLaunchFactory__BasePriceZeroForFree`
+    // was declared but not wired. Reported by adversarial audit 2026-08-21.
+    // --------------------------------------------------------------
+    function test_Factory_BasePriceZero_Rejects() public {
+        NftLaunchFactory.LaunchParams memory p = _defaultLaunchParams();
+        p.basePriceWei = 0;
+        // Non-zero floor + cap so we prove basePriceWei is the tripwire,
+        // not FreeMintRequiresCap.
+        p.discountFloorBps = 5000;
+        p.perWalletMintCap = 3;
+
+        vm.expectRevert(NftLaunchFactory.NftLaunchFactory__BasePriceZeroForFree.selector);
+        vm.prank(launcher);
+        factory.launch(p);
+    }
+
+    // --------------------------------------------------------------
     // helpers
     // --------------------------------------------------------------
     function _extNftTier() internal pure returns (NftMintModule.DiscountTier memory) {

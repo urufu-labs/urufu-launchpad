@@ -303,6 +303,10 @@ contract NftLaunchFactory is Ownable {
         if (bytes(p.ticker).length == 0) revert NftLaunchFactory__TickerEmpty();
         if (p.maxSupply == 0) revert NftLaunchFactory__MaxSupplyZero();
         if (p.discountFloorBps > 10_000) revert NftLaunchFactory__DiscountFloorTooHigh(p.discountFloorBps);
+        // basePriceWei == 0 makes every mint free regardless of the
+        // discount floor (gross = base*qty = 0). Reject up-front so the
+        // launcher doesn't waste a URU launch fee on a doomed config.
+        if (p.basePriceWei == 0) revert NftLaunchFactory__BasePriceZeroForFree();
         // If discountFloor == 0 (free-mint enabler), perWalletCap MUST be
         // set — otherwise the mint module init will revert anyway, but
         // failing here saves the launcher an ineffective URU payment.

@@ -105,8 +105,9 @@ contract NftMintModule {
     error NftMintModule__BadMintMode();
     error NftMintModule__BadDiscountFloor(uint256 floorBps);
     error NftMintModule__FreeMintRequiresCap();
+    error NftMintModule__BasePriceZeroForFree();
     error NftMintModule__MaxSupplyExceeded(uint256 requested, uint256 remaining);
-    error NftMintModule__PerWalletCapExceeded(uint256 wouldOwn, uint256 cap);
+    error NftMintModule__PerWalletCapExceeded(uint256 wouldMint, uint256 cap);
     error NftMintModule__InsufficientPayment(uint256 required, uint256 provided);
     error NftMintModule__NotWhitelisted();
     error NftMintModule__DiscountExceedsCeiling(uint256 discountBps, uint256 ceilingBps);
@@ -254,7 +255,13 @@ contract NftMintModule {
     uint256 public basePriceWei;
     uint256 public priceStepWei; // 0 for Fixed mode
     uint256 public discountFloorBps; // 0 to 10_000; buyer never pays less than this % of base
-    uint256 public perWalletMintCap; // 0 = no cap. Enforced by balanceOf(minter) after mint.
+    uint256 public perWalletMintCap; // 0 = no cap. Enforced on cumulative mints, not balanceOf.
+
+    /// Cumulative mints per wallet, incremented on every mint() and
+    /// mintWithUru(). Enforcing the cap on this counter (rather than
+    /// on balanceOf) blocks the transfer-and-remint bypass, so the
+    /// FreeMintRequiresCap init guard actually prevents supply drain.
+    mapping(address => uint256) public mintedByWallet;
 
     DiscountTier[] private _tiers;
 
@@ -321,6 +328,10 @@ contract NftMintModule {
         if (p.discountFloorBps == 0 && p.perWalletMintCap == 0) {
             revert NftMintModule__FreeMintRequiresCap();
         }
+        // basePriceWei == 0 is a free-mint enabler that the discountFloor
+        // guard alone doesn't catch (gross = base*qty = 0 → net = 0 for
+        // any discountBps). Reject at init.
+        if (p.basePriceWei == 0) revert NftMintModule__BasePriceZeroForFree();
         // Defensive enum bounds; abi.decode of a rogue enum could carry
         // an out-of-range value.
         if (uint8(p.mintMode) > uint8(MintMode.LinearStep)) revert NftMintModule__BadMintMode();
@@ -513,19 +524,19 @@ contract NftMintModule {
         uint256 net = gross - (gross * discountBps) / BPS_DENOMINATOR;
         if (msg.value < net) revert NftMintModule__InsufficientPayment(net, msg.value);
 
-        // -- 5. Mint FIRST (checks-effects-interactions: state change
-        //     before external calls). ERC721A `_mint` uses `_mint`
-        //     not `_safeMint`, so no receiver hook → no reentrancy.
-        tokenC.mintBatch(msg.sender, qty);
-
-        // -- 6. Per-wallet cap check (post-mint, based on balance).
-        //     Enforces the cap regardless of whether the buyer
-        //     acquired tokens across multiple txs. Cap of 0 means "no cap".
+        // -- 5. Per-wallet cap check (pre-mint, on cumulative mints).
+        //     Cap of 0 means "no cap". Counting mints (not balanceOf)
+        //     blocks the transfer-and-remint bypass.
         uint256 cap = perWalletMintCap;
         if (cap != 0) {
-            uint256 owns = tokenC.balanceOf(msg.sender);
-            if (owns > cap) revert NftMintModule__PerWalletCapExceeded(owns, cap);
+            uint256 wouldMint = mintedByWallet[msg.sender] + qty;
+            if (wouldMint > cap) revert NftMintModule__PerWalletCapExceeded(wouldMint, cap);
+            mintedByWallet[msg.sender] = wouldMint;
         }
+
+        // -- 6. Mint (CEI: state change before external calls). ERC721A
+        //     `_mint` (not `_safeMint`) → no receiver hook → no reentrancy.
+        tokenC.mintBatch(msg.sender, qty);
 
         // -- 7. Refund excess ETH (buyer over-paid).
         uint256 refund = msg.value - net;
@@ -624,20 +635,23 @@ contract NftMintModule {
         // can't return excess without a second transfer + reentrancy risk).
         if (uruAmount != net) revert NftMintModule__InsufficientPayment(net, uruAmount);
 
-        // -- 5. Pull URU from buyer.
+        // -- 5. Per-wallet cap (pre-mint, on cumulative mints).
+        //     Same rationale as the ETH path: counting mints blocks the
+        //     transfer-and-remint bypass.
+        uint256 cap = perWalletMintCap;
+        if (cap != 0) {
+            uint256 wouldMint = mintedByWallet[msg.sender] + qty;
+            if (wouldMint > cap) revert NftMintModule__PerWalletCapExceeded(wouldMint, cap);
+            mintedByWallet[msg.sender] = wouldMint;
+        }
+
+        // -- 6. Pull URU from buyer.
         //     safeTransferFrom reverts on any failure (missing allowance,
         //     insufficient balance, non-standard return).
         SafeTransferLib.safeTransferFrom(pt, msg.sender, address(this), uruAmount);
 
-        // -- 6. Mint (CEI: state change before external calls).
+        // -- 7. Mint (CEI: state change before external calls).
         tokenC.mintBatch(msg.sender, qty);
-
-        // -- 7. Per-wallet cap.
-        uint256 cap = perWalletMintCap;
-        if (cap != 0) {
-            uint256 owns = tokenC.balanceOf(msg.sender);
-            if (owns > cap) revert NftMintModule__PerWalletCapExceeded(owns, cap);
-        }
 
         // -- 8. Split into launcher (accrue) + platform (push URU to sink).
         uint256 platformSlice = (uruAmount * PLATFORM_SLICE_BPS) / BPS_DENOMINATOR;
