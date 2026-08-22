@@ -628,12 +628,15 @@ contract NftMintModule {
         uint256 ceiling = discountCeilingBps();
         if (discountBps > ceiling) discountBps = ceiling;
 
-        // -- 4. Net cost — same math as ETH path.
+        // -- 4. Net cost — same math as ETH path. Accept `uruAmount >= net`
+        //     so LinearStep buyers can over-approve to survive front-runs
+        //     bumping the price; only `net` is pulled. Strict-equality
+        //     would DoS every LinearStep + URU launch under concurrent
+        //     minting (any intervening mint shifts net upward, reverting
+        //     an exact-quote buyer with no way to escape).
         uint256 gross = _grossPriceFor(qty, minted);
         uint256 net = gross - (gross * discountBps) / BPS_DENOMINATOR;
-        // URU-path requires exact — no over-pay refunds (safeTransferFrom
-        // can't return excess without a second transfer + reentrancy risk).
-        if (uruAmount != net) revert NftMintModule__InsufficientPayment(net, uruAmount);
+        if (uruAmount < net) revert NftMintModule__InsufficientPayment(net, uruAmount);
 
         // -- 5. Per-wallet cap (pre-mint, on cumulative mints).
         //     Same rationale as the ETH path: counting mints blocks the
@@ -645,17 +648,20 @@ contract NftMintModule {
             mintedByWallet[msg.sender] = wouldMint;
         }
 
-        // -- 6. Pull URU from buyer.
+        // -- 6. Pull EXACTLY `net` URU from buyer (not `uruAmount`).
         //     safeTransferFrom reverts on any failure (missing allowance,
-        //     insufficient balance, non-standard return).
-        SafeTransferLib.safeTransferFrom(pt, msg.sender, address(this), uruAmount);
+        //     insufficient balance, non-standard return). Pulling `net`
+        //     instead of `uruAmount` is the URU-path equivalent of the
+        //     ETH-path refund — buyer's over-approval slack stays in
+        //     their wallet.
+        SafeTransferLib.safeTransferFrom(pt, msg.sender, address(this), net);
 
         // -- 7. Mint (CEI: state change before external calls).
         tokenC.mintBatch(msg.sender, qty);
 
-        // -- 8. Split into launcher (accrue) + platform (push URU to sink).
-        uint256 platformSlice = (uruAmount * PLATFORM_SLICE_BPS) / BPS_DENOMINATOR;
-        uint256 launcherSlice = uruAmount - platformSlice;
+        // -- 8. Split `net` (not `uruAmount`) into launcher + platform.
+        uint256 platformSlice = (net * PLATFORM_SLICE_BPS) / BPS_DENOMINATOR;
+        uint256 launcherSlice = net - platformSlice;
         launcherBalanceUru += launcherSlice;
 
         if (platformSlice > 0) {
@@ -676,7 +682,7 @@ contract NftMintModule {
             }
         }
 
-        emit Minted(msg.sender, minted, qty, uruAmount, discountBps, wlUsed, true);
+        emit Minted(msg.sender, minted, qty, net, discountBps, wlUsed, true);
     }
 
     /// @notice Launcher pulls their accrued 90%. Anyone can call this

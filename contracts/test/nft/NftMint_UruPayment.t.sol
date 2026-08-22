@@ -72,16 +72,18 @@ contract NftMint_UruPayment is NftHarness {
     // Exact-pay enforcement (URU path can't refund excess)
     // --------------------------------------------------------------
 
-    function test_UruMint_Overpay_Reverts() public {
+    // Over-approval is now accepted (post 2026-08-21 audit round 2 —
+    // strict != was DoSing LinearStep buyers). Only `net` is pulled;
+    // slack stays in buyer's wallet.
+    function test_UruMint_Overpay_AcceptedPullsOnlyNet() public {
         _launch(_uruLaunch());
         uru.mint(buyer1, 1000e18);
         vm.prank(buyer1);
         uru.approve(deployedMintModule, type(uint256).max);
-        vm.expectRevert(
-            abi.encodeWithSelector(NftMintModule.NftMintModule__InsufficientPayment.selector, 100e18, 101e18)
-        );
         vm.prank(buyer1);
         NftMintModule(deployedMintModule).mintWithUru(1, 101e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 1, "mint succeeded");
+        assertEq(uru.balanceOf(buyer1), 900e18, "only net (100 URU) pulled, 1 URU slack stays with buyer");
     }
 
     function test_UruMint_Underpay_Reverts() public {
@@ -228,6 +230,49 @@ contract NftMint_UruPayment is NftHarness {
     // --------------------------------------------------------------
     function _emptyProofs() internal pure returns (NftMintModule.TierProof[] memory) {
         return new NftMintModule.TierProof[](0);
+    }
+
+    // --------------------------------------------------------------
+    // Regression: LinearStep+URU DoS via strict-equality on uruAmount.
+    // Pre-fix, a frontrunning 1-token mint would bump `net` up by
+    // priceStepWei*qty, and Alice's exact-quote mintWithUru would
+    // revert on `!=`. Over-approval couldn't escape (also `!=`).
+    // Fix: accept `uruAmount >= net`, pull only `net`. Round 2 audit
+    // 2026-08-21.
+    // --------------------------------------------------------------
+    function test_UruMint_LinearStep_ConcurrentMint_NoDoS() public {
+        NftLaunchFactory.LaunchParams memory p = _uruLaunch();
+        p.mintMode = NftMintModule.MintMode.LinearStep;
+        p.basePriceWei = 1e18; // 1 URU per mint at floor
+        p.priceStepWei = 1e16; // + 0.01 URU per already-minted
+        _launch(p);
+
+        // Alice quotes gross for qty=5 at alreadyMinted=0 = 5*1e18 + 1e16*(5*4/2) = 5.1e18
+        uint256 aliceQuote = NftMintModule(deployedMintModule).grossPriceFor(5);
+        assertEq(aliceQuote, 5.1e18);
+
+        uru.mint(buyer1, 100e18);
+        vm.prank(buyer1);
+        uru.approve(deployedMintModule, type(uint256).max);
+        uru.mint(buyer2, 100e18);
+        vm.prank(buyer2);
+        uru.approve(deployedMintModule, type(uint256).max);
+
+        // Attacker (buyer2) frontruns with a 1-mint at floor. alreadyMinted becomes 1.
+        vm.prank(buyer2);
+        NftMintModule(deployedMintModule).mintWithUru(1, 1e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+
+        // Alice's tx now sees alreadyMinted=1 → real net = 5e18 + 1e16*(5*1 + 10) = 5.15e18.
+        // Pre-fix: her uruAmount=5.1e18 reverts (5.1 != 5.15) AND over-approving 100e18 also
+        // reverts (100 != 5.15). Post-fix: she can defensively pass any uruAmount >= 5.15e18
+        // and only 5.15e18 is pulled.
+        uint256 aliceBalBefore = uru.balanceOf(buyer1);
+        vm.prank(buyer1);
+        NftMintModule(deployedMintModule).mintWithUru(5, 10e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 5, "alice mint went through despite frontrun");
+        assertEq(
+            aliceBalBefore - uru.balanceOf(buyer1), 5.15e18, "only net pulled (5.15e18), over-approval slack untouched"
+        );
     }
 
     // --------------------------------------------------------------
