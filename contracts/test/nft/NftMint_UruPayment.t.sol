@@ -229,4 +229,37 @@ contract NftMint_UruPayment is NftHarness {
     function _emptyProofs() internal pure returns (NftMintModule.TierProof[] memory) {
         return new NftMintModule.TierProof[](0);
     }
+
+    // --------------------------------------------------------------
+    // Regression: same perWalletMintCap transfer-bypass on the URU
+    // path. Twin of test_PerWalletCap_TransferBypass_Rejected in
+    // NftMint_Security.t.sol — the fix touches both mint() and
+    // mintWithUru() and both must be covered. Reported 2026-08-21.
+    // --------------------------------------------------------------
+    function test_UruMint_PerWalletCap_TransferBypass_Rejected() public {
+        NftLaunchFactory.LaunchParams memory p = _uruLaunch();
+        p.perWalletMintCap = 2;
+        _launch(p);
+
+        uru.mint(buyer1, 1000e18);
+        vm.prank(buyer1);
+        uru.approve(deployedMintModule, type(uint256).max);
+
+        // Round 1: buyer1 mints up to cap (2).
+        vm.prank(buyer1);
+        NftMintModule(deployedMintModule).mintWithUru(2, 200e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(buyer1), 2);
+
+        // Transfer both tokens out — balance resets, cumulative counter must not.
+        address burner = makeAddr("burner_uru");
+        vm.startPrank(buyer1);
+        ERC721ATemplate(deployedToken).transferFrom(buyer1, burner, 1);
+        ERC721ATemplate(deployedToken).transferFrom(buyer1, burner, 2);
+        vm.stopPrank();
+
+        // Round 2 MUST revert on the counter, not silently drain.
+        vm.prank(buyer1);
+        vm.expectRevert(abi.encodeWithSelector(NftMintModule.NftMintModule__PerWalletCapExceeded.selector, 3, 2));
+        NftMintModule(deployedMintModule).mintWithUru(1, 100e18, new bytes32[](0), 0, 0, "", _emptyProofs());
+    }
 }
