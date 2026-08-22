@@ -566,6 +566,45 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
   return (data?.launchess.items ?? []).filter(notHidden);
 }
 
+export interface IndexerNftCollection {
+  id: string;
+  chainId: number;
+  collectionAddress: Address;
+  launchedBy: Address;
+  name: string;
+  ticker: string;
+  blockNumber: string;
+  blockTimestamp: string;
+}
+
+/// NFT collections launched by `launcher`. Used by NftLauncherEarnings on the
+/// profile page to enumerate every mint module the launcher can withdraw from.
+/// Mirrors fetchLaunchesByCreator's shape (fan out across every configured
+/// indexer URL; hidden-collection filtering not applied since NFT collections
+/// aren't in the hidden-list yet).
+export async function fetchNftCollectionsByLauncher(
+  launcher: Address,
+  limit = 40,
+): Promise<IndexerNftCollection[] | null> {
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query NftCollectionsByLauncher($launcher: String!, $limit: Int!) {
+      nftCollectionss(
+        where: { launchedBy: $launcher },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId collectionAddress launchedBy name ticker
+          blockNumber blockTimestamp
+        }
+      }
+    }`,
+    { launcher: launcher.toLowerCase(), limit },
+  );
+  return data?.nftCollectionss.items ?? null;
+}
+
 /// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps
 /// table which the indexer fills from V4SwapRouter.Swapped(user, token, isBuy, in, out) —
 /// PoolManager.Swap.sender is always the router, so filtering v4Swaps by sender never

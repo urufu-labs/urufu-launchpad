@@ -462,6 +462,54 @@ contract NftMint_Correctness is NftHarness {
     }
 
     // --------------------------------------------------------------
+    // End-to-end launcher earnings — mimics the NftLauncherEarnings UI
+    // workload: multiple buyers mint, launcher claims part-way,
+    // more mints land, launcher claims again. Balance state must be
+    // consistent at every read the UI would do. Added for the
+    // profile-page claim flow (2026-08-21).
+    // --------------------------------------------------------------
+    function test_Mint_LauncherEarnings_MidStreamClaim_Cycle() public {
+        _launch(_defaultLaunchParams());
+        NftMintModule mm = NftMintModule(deployedMintModule);
+
+        vm.deal(buyer1, 1 ether);
+        vm.deal(buyer2, 1 ether);
+
+        // Phase 1: buyer1 + buyer2 each mint once → 0.018 ETH accrued.
+        vm.prank(buyer1);
+        mm.mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        vm.prank(buyer2);
+        mm.mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(mm.launcherBalance(), 0.018 ether, "phase 1 accrued");
+
+        // Launcher opens the profile UI and claims — should get 0.018.
+        uint256 lStart = launcher.balance;
+        vm.prank(launcher);
+        uint256 out1 = mm.withdraw();
+        assertEq(out1, 0.018 ether, "first withdraw amount");
+        assertEq(launcher.balance - lStart, 0.018 ether, "launcher wallet credited");
+        assertEq(mm.launcherBalance(), 0, "balance zeroed after first claim");
+
+        // Phase 2: more mints while the UI is still open. Balance re-accrues
+        // from zero — this is what the widget's 15s refetch will surface.
+        vm.prank(buyer1);
+        mm.mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
+        assertEq(mm.launcherBalance(), 0.009 ether, "phase 2 re-accrued from zero");
+
+        // Second claim empties again.
+        vm.prank(launcher);
+        uint256 out2 = mm.withdraw();
+        assertEq(out2, 0.009 ether, "second withdraw amount");
+        assertEq(mm.launcherBalance(), 0, "zeroed again");
+
+        // Zero-balance claim after everything drained reverts — same guard
+        // the UI relies on to disable the button when balance == 0.
+        vm.expectRevert(NftMintModule.NftMintModule__NoBalance.selector);
+        vm.prank(launcher);
+        mm.withdraw();
+    }
+
+    // --------------------------------------------------------------
     // Helpers
     // --------------------------------------------------------------
     function _emptyProofs() internal pure returns (NftMintModule.TierProof[] memory) {

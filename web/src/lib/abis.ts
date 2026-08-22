@@ -472,6 +472,22 @@ export const nftMintModuleAbi = [
     inputs: [{ name: 'qty', type: 'uint256' }],
     outputs: [{ type: 'uint256' }],
   },
+  { type: 'function', name: 'launcherBalance', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'launcherBalanceUru', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'function',
+    name: 'withdraw',
+    stateMutability: 'nonpayable',
+    inputs: [],
+    outputs: [{ name: 'amount', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'withdrawUru',
+    stateMutability: 'nonpayable',
+    inputs: [],
+    outputs: [{ name: 'amount', type: 'uint256' }],
+  },
 ] as const;
 
 export const nftErc721Abi = [

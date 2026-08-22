@@ -52,6 +52,7 @@ import { fetchFollowers, fetchFollowing } from '@/lib/socialApi';
 import { FollowersModal, type FollowsMode } from '@/components/FollowersModal';
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
+import { NftLauncherEarnings } from '@/components/NftLauncherEarnings';
 import { GraduatorRefund } from '@/components/GraduatorRefund';
 import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
@@ -782,6 +783,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
           {/* isSelf-gated internally — always safe to render. */}
           <CreatorEarnings visibleFor={address} chain={activeChain} />
+          <NftLauncherEarnings visibleFor={address} chain={activeChain} />
           <TokenOwnerControls visibleFor={address} chain={activeChain} />
           <FlywheelRewards visibleFor={address} chain={activeChain} />
           <GraduatorRefund visibleFor={address} chain={activeChain} />
