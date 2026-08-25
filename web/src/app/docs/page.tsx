@@ -192,6 +192,7 @@ export default function DocsPage() {
             <FactList
               items={[
                 'Launch fees use a documented split: 40% URU buyback, 35% urufu gemu NFT revenue, and 25% treasury.',
+                'The 40% buyback slice funds the flywheel. ETH accrues in the buyback vault, a keeper swaps it for URU on-chain, and the bought URU is forwarded to the current distribution sink (redistribute to gemu holders, or burn, depending on the active sink).',
                 'There is no launch-fee creator slot. That path was removed to avoid spam-launch farming.',
                 'Creator earnings are post-graduation V4 swap fees, claimable from the configured creator address.',
                 'Discounts lower the launch fee only; they do not remove gas costs or trading risk.',

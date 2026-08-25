@@ -1604,6 +1604,16 @@ balance:          0 wei
 
 **Sweep escape hatches** (`:184-203`): `sweepETH()` and `sweepURU()` force destination = `distributionSink`. No admin drain to arbitrary destinations — invariant.
 
+**Buybacks + burns — what's actually happening on-chain**
+
+- Every launch fee / trade fee / MHH platform slice sends 40 % of the ETH to `UruBuybackVault`. The vault sits on native ETH until the keeper triggers a swap.
+- `executeBuyback` hands the router native ETH (`.call{value: ethIn}`) and receives URU back. The vault never touches WETH. It never calls `WETH.deposit` / `WETH.withdraw`. Any tx you see against the WETH proxy from the keeper EOA is that EOA managing its own funds — not a buyback.
+- A **real buyback tx** hits `UruBuybackVault (0x68c5…9354)` and emits `BuybackExecuted(ethIn, uruOut)`. If those aren't on the receipt, no buyback happened.
+- Bought URU is then forwarded to `distributionSink` in the same tx (`safeTransfer`, no admin drain path).
+- **Is URU burned?** Only if `distributionSink` is a burn address. When the sink is `NftRevenueVault` (or any live redistribution contract), URU is redistributed, not burned — supply is unchanged, price impact came from the ETH buy pressure. When the sink is `0x…dEaD` (or `address(0)` on a token that treats it as a burn), the same forwarded URU is effectively removed from circulation — the burn is a *consequence of the sink rotation*, not a separate call. Confirm the sink before claiming either.
+- Sink rotation is 2-day timelocked (`proposeDistributionSink` → wait → `activateDistributionSink`), so the burn-vs-redistribute choice can't flip inside one tx.
+- **Common false positive:** a `Transfer(from=keeper, to=0x0)` log on the WETH contract is *not* a URU burn. Canonical WETH represents `withdraw()` (unwrap WETH → ETH) as a transfer to `0x0` because it burns the caller's wrapped balance. Filter by `token == URU (0x9fbe…9D24)` and `emitter == UruBuybackVault` before calling it a buyback burn.
+
 **[V8 change vs live]** — `setKeeper`, `setSwapTarget`, `setMinUruPerEth` now require a matured proposal via `_consumeAdminChange(changeId)`. URU-A11 finding: previously immediate — a compromised owner could authorize a malicious `swapTarget` and set `minUruPerEth = 0` in the same tx, draining the vault via a low-rate swap. V8 model:
 
 - `proposeAdminChange(bytes32 changeId)` — stores `adminChangeReadyAt[id] = block.timestamp + minConfigDelay`. Emits event.
