@@ -605,6 +605,69 @@ export async function fetchNftCollectionsByLauncher(
   return data?.nftCollectionss.items ?? null;
 }
 
+export interface IndexerNftMint {
+  id: string;
+  chainId: number;
+  collectionAddress: Address;
+  minter: Address;
+  tokenId: string;
+  quantity: number;
+  pricePaidWei: string;
+  wlUsed: boolean;
+  blockNumber: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+/// NFT mints where `minter` was the msg.sender. Powers the "your minted NFTs"
+/// widget on the profile page. Records mint events not current ownership, so a
+/// wallet that minted-then-transferred still shows up here as a past minter;
+/// live balances need a separate on-chain read against each collection.
+export async function fetchNftMintsByMinter(
+  minter: Address,
+  limit = 100,
+): Promise<IndexerNftMint[] | null> {
+  const data = await gqlFanout<{ nftMintss: { items: IndexerNftMint[] } }>(
+    `query NftMintsByMinter($minter: String!, $limit: Int!) {
+      nftMintss(
+        where: { minter: $minter },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId collectionAddress minter tokenId quantity
+          pricePaidWei wlUsed blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { minter: minter.toLowerCase(), limit },
+  );
+  return data?.nftMintss.items ?? null;
+}
+
+/// Fetch metadata for a specific set of collection addresses. Companion to
+/// fetchNftMintsByMinter — dedupe the mint list to unique collections, feed
+/// those into this to get names/tickers/baseUri for the widget's per-row
+/// rendering.
+export async function fetchNftCollectionsByAddresses(
+  addresses: Address[],
+): Promise<IndexerNftCollection[] | null> {
+  if (addresses.length === 0) return [];
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query NftCollectionsByAddresses($addresses: [String!]!) {
+      nftCollectionss(where: { collectionAddress_in: $addresses }, limit: 200) {
+        items {
+          id chainId collectionAddress launchedBy name ticker
+          blockNumber blockTimestamp
+        }
+      }
+    }`,
+    { addresses: addresses.map((a) => a.toLowerCase()) },
+  );
+  return data?.nftCollectionss.items ?? null;
+}
+
 /// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps
 /// table which the indexer fills from V4SwapRouter.Swapped(user, token, isBuy, in, out) —
 /// PoolManager.Swap.sender is always the router, so filtering v4Swaps by sender never
