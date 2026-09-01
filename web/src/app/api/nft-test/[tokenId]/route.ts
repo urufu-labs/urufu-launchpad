@@ -12,8 +12,11 @@ import { type NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
-export function GET(_req: NextRequest, { params }: { params: { tokenId: string } }): Response {
-  const tokenId = params.tokenId;
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ tokenId: string }> },
+): Promise<Response> {
+  const { tokenId } = await ctx.params;
   const numeric = Number.parseInt(tokenId, 10);
   const displayId = Number.isFinite(numeric) ? String(numeric) : 'x';
   return Response.json(

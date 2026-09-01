@@ -32,7 +32,7 @@ contract RehearsalNftLaunch is Script {
         p.ticker = "REHL";
         p.mintMode = NftMintModule.MintMode.LinearStep;
         p.basePriceWei = 0.0001 ether;
-        p.priceStepWei = 0.00002 ether;   // each subsequent mint costs 20% more of base
+        p.priceStepWei = 0.000_02 ether; // each subsequent mint costs 20% more of base
         return _launch(p);
     }
 
@@ -43,14 +43,17 @@ contract RehearsalNftLaunch is Script {
         p.name = "Rehearsal URU Fixed";
         p.ticker = "REHU";
         p.payWithUru = true;
-        p.basePriceWei = 1e18;            // 1 URU (18 decimals) per mint
+        p.basePriceWei = 1e18; // 1 URU (18 decimals) per mint
         return _launch(p);
     }
 
     // Row 4 — Fixed price, ETH-paid, WalletList whitelist (merkle-based).
     // Uses a single-wallet merkle root: the deployer, so the deployer can
     // mint inside the WL window. Non-WL wallets revert.
-    function runWlMerkle(bytes32 root, uint256 windowEnd) external returns (address token, address mintModule, address wlModule) {
+    function runWlMerkle(
+        bytes32 root,
+        uint256 windowEnd
+    ) external returns (address token, address mintModule, address wlModule) {
         NftLaunchFactory.LaunchParams memory p = _defaults();
         p.name = "Rehearsal WL Merkle";
         p.ticker = "REHW";
@@ -62,7 +65,9 @@ contract RehearsalNftLaunch is Script {
 
     // Row 5 — Fixed price, ETH-paid, no whitelist gate, but a WalletList
     // DISCOUNT tier. Buyers on the tier's merkle list pay less.
-    function runWalletListDiscountTier(bytes32 tierRoot) external returns (address token, address mintModule, address wlModule) {
+    function runWalletListDiscountTier(
+        bytes32 tierRoot
+    ) external returns (address token, address mintModule, address wlModule) {
         NftLaunchFactory.LaunchParams memory p = _defaults();
         p.name = "Rehearsal WL Discount";
         p.ticker = "REHD";
@@ -74,7 +79,7 @@ contract RehearsalNftLaunch is Script {
             externalChainId: 0,
             percentPerNftBps: 0,
             maxCountedNfts: 0,
-            fixedDiscountBps: 2000            // 20% off; may be clamped by floor
+            fixedDiscountBps: 2000 // 20% off; may be clamped by floor
         });
         p.tiers = tiers;
         return _launch(p);
@@ -93,10 +98,10 @@ contract RehearsalNftLaunch is Script {
         tiers[0] = NftMintModule.DiscountTier({
             kind: NftMintModule.TierKind.ExternalNft,
             walletListRoot: bytes32(0),
-            externalCollection: 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17,  // urufu gemu nft
+            externalCollection: 0x60cB7082c8C14B4237C6a24c65E7C2E7abe2Bd17, // urufu gemu nft
             externalChainId: 4663,
-            percentPerNftBps: 1000,           // 10% off per gemu held
-            maxCountedNfts: 5,                // cap at 50% total (floor also caps at 50%)
+            percentPerNftBps: 1000, // 10% off per gemu held
+            maxCountedNfts: 5, // cap at 50% total (floor also caps at 50%)
             fixedDiscountBps: 0
         });
         p.tiers = tiers;
@@ -127,7 +132,7 @@ contract RehearsalNftLaunch is Script {
             mintMode: NftMintModule.MintMode.Fixed,
             basePriceWei: 0.0001 ether,
             priceStepWei: 0,
-            discountFloorBps: 5000,          // 50% floor
+            discountFloorBps: 5000, // 50% floor
             perWalletMintCap: 10,
             payWithUru: false,
             tiers: noTiers,
@@ -141,7 +146,9 @@ contract RehearsalNftLaunch is Script {
         });
     }
 
-    function _launch(NftLaunchFactory.LaunchParams memory p) internal returns (address token, address mintModule, address wlModule) {
+    function _launch(
+        NftLaunchFactory.LaunchParams memory p
+    ) internal returns (address token, address mintModule, address wlModule) {
         string memory chainId = vm.toString(block.chainid);
         string memory bookPath = string.concat("deployment-nft.", chainId, ".json");
         string memory book = vm.readFile(bookPath);
