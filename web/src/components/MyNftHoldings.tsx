@@ -109,19 +109,26 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
       const out: Tile[] = [];
       const seen = new Set<string>();
 
-      // First: Alchemy tiles (per-token, images resolved).
+      // First: Alchemy tiles (per-token, images resolved). For launchpad
+      // collections, prefer the indexer's collection name over whatever
+      // came from tokenURI metadata — studio uploads occasionally omit
+      // the collection prefix on per-token JSON, which would leave a
+      // wallet full of "#1" tiles.
       for (const n of alchemyKept) {
         const addr = n.contractAddress.toLowerCase();
         const ext = externalDestinationFor(addr);
-        const isLaunchpad = launchpadByAddr.has(addr);
-        if (!ext && !isLaunchpad) continue; // not relevant to this launchpad
+        const launchpadMeta = launchpadByAddr.get(addr);
+        if (!ext && !launchpadMeta) continue;
+        const collectionLabel = launchpadMeta?.name?.trim()
+          || n.collectionName?.trim()
+          || 'Untitled';
         const key = `${addr}-${n.tokenId}`;
         seen.add(key);
         out.push({
           key,
           contractAddress: n.contractAddress as Address,
-          displayName: n.tokenName?.trim() || `${n.collectionName ?? 'Untitled'} #${n.tokenId}`,
-          subtitle: (n.collectionName?.trim() || addr.slice(0, 10) + '…')
+          displayName: `${collectionLabel} #${n.tokenId}`,
+          subtitle: (launchpadMeta?.ticker ? `$${launchpadMeta.ticker}` : addr.slice(0, 10) + '…')
             + (ext ? ' · opensea ↗' : ''),
           imageUrl: n.imageUrl || null,
           dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}` },

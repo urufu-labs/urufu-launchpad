@@ -6,13 +6,16 @@
 /// Not memoized here — callers (component effects) hold their own state and
 /// re-run only when the source URI changes.
 
-/// Ordered by observed speed + reliability. Pinata's public gateway ranks
-/// first because most launchpad-uploaded metadata is pinned there and hits
-/// warm cache; the rest are commercial-grade fallbacks.
+/// Ordered by observed CORS + latency reliability. nftstorage / w3s / dweb
+/// serve public content without auth and rarely throttle single fetches;
+/// Pinata's public gateway ranks lower because unauthenticated cross-account
+/// pins increasingly get 403/429ed there. ipfs.io stays last as a
+/// desperate fallback (routinely 20s+ timeouts).
 const IPFS_GATEWAYS = [
-  'https://gateway.pinata.cloud/ipfs/',
   'https://nftstorage.link/ipfs/',
   'https://w3s.link/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://gateway.pinata.cloud/ipfs/',
   'https://cloudflare-ipfs.com/ipfs/',
   'https://ipfs.io/ipfs/',
 ] as const;

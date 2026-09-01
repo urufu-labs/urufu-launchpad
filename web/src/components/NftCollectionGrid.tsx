@@ -23,6 +23,7 @@ import type { ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentNftCollections, type IndexerNftCollection } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
+import { safeBackgroundImage } from '@/lib/metadata';
 import { NftLaunchTeaser } from './NftLaunchTeaser';
 import styles from './NftCollectionGrid.module.css';
 
@@ -52,6 +53,20 @@ export function NftCollectionGrid({ chain, chainEnabled, variant, limit = 12 }: 
     return <NftLaunchTeaser chainEnabled={chainEnabled} variant={variant} />;
   }
 
+  // Home matches the launchpad-native tile treatment used by LaunchTile so
+  // the NFT rail reads as one product with the token rail. Discover mirrors
+  // the ERC-20 releaseCard from discover.module.css (larger, with metrics
+  // strip + description) since discover is the deep-scan view.
+  if (variant === 'home') {
+    return (
+      <div className="uru-home-launch-grid">
+        {(items ?? []).map((c) => (
+          <NftHomeTile key={c.id} row={c} chainId={targetChainId} />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className={styles.mosaic}>
       {(items ?? []).map((c) => (
@@ -78,6 +93,93 @@ const mintModuleAbi = [
 
 function shortAddr(a: string): string {
   return `${a.slice(0, 6)}··${a.slice(-3)}`;
+}
+
+// ============================================================================
+// Home tile — mirrors LaunchTile's uru-launch-ticket-* classes so the home
+// NFT rail sits shoulder-to-shoulder with the ERC-20 token rail visually.
+// ============================================================================
+
+function useCollectionCover(collectionAddress: Address, chainId: number): string | null | undefined {
+  const cid = chainId as 4663;
+  const reads = useReadContracts({
+    contracts: [
+      { abi: erc721Abi, address: collectionAddress, functionName: 'tokenURI', args: [1n] as const, chainId: cid },
+    ] as const,
+    query: { staleTime: 60_000 },
+  });
+  const tokenUri = reads.data?.[0]?.result as string | undefined;
+  const [cover, setCover] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!tokenUri) { setCover(null); return; }
+    let cancelled = false;
+    (async () => {
+      const meta = await fetchIpfsJson<{ image?: string }>(tokenUri);
+      if (!cancelled) setCover(toGatewayUrl(meta?.image));
+    })();
+    return () => { cancelled = true; };
+  }, [tokenUri]);
+  return cover;
+}
+
+function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: number }) {
+  const cid = chainId as 4663;
+  const reads = useReadContracts({
+    contracts: [
+      { abi: erc721Abi, address: row.collectionAddress, functionName: 'totalSupply', chainId: cid },
+      { abi: erc721Abi, address: row.collectionAddress, functionName: 'maxSupply',   chainId: cid },
+    ] as const,
+    query: { staleTime: 30_000 },
+  });
+  const totalSupply = reads.data?.[0]?.result as bigint | undefined;
+  const maxSupply   = reads.data?.[1]?.result as bigint | undefined;
+
+  const cover = useCollectionCover(row.collectionAddress, chainId);
+
+  const progressPct = totalSupply !== undefined && maxSupply !== undefined && maxSupply > 0n
+    ? Math.min(100, Math.max(0, Number((totalSupply * 10_000n) / maxSupply) / 100))
+    : 0;
+  const isSoldOut = maxSupply !== undefined && maxSupply > 0n && totalSupply === maxSupply;
+  const mintedLabel = totalSupply?.toString() ?? '—';
+  const capLabel = maxSupply === undefined || maxSupply === 0n ? '∞' : maxSupply.toString();
+
+  return (
+    <Link
+      href={`/collection/${row.collectionAddress}`}
+      className="uru-launch-ticket"
+      data-tone="pink"
+    >
+      <div className="uru-launch-ticket-top">
+        <div
+          className="uru-launch-ticket-art"
+          role="img"
+          aria-label={cover ? `${row.name} cover art` : undefined}
+          style={{ background: safeBackgroundImage(cover ?? undefined, undefined) }}
+        >
+          {!cover && '❁'}
+        </div>
+        <span className="uru-launch-ticket-tag">nft</span>
+      </div>
+      <span className="uru-launch-ticket-name">{row.name}</span>
+      <span className="uru-launch-ticket-symbol">${row.ticker}</span>
+      <div className="uru-launch-ticket-meta">
+        <span>minted<b>{mintedLabel}</b></span>
+        <span>supply<b>{capLabel}</b></span>
+      </div>
+      <div
+        className="uru-launch-ticket-progress"
+        aria-label={`${progressPct.toFixed(0)} percent minted`}
+      >
+        <span
+          className="uru-launch-progress-fill"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+      <p className="uru-launch-ticket-foot">
+        {shortAddr(row.launchedBy)} · {isSoldOut ? 'sold out' : `${progressPct.toFixed(0)}% minted`}
+      </p>
+    </Link>
+  );
 }
 
 function NftCollectionCard({
