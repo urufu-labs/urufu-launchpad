@@ -605,6 +605,27 @@ export async function fetchNftCollectionsByLauncher(
   return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
 }
 
+/// Most recent NFT collections indexed by NftLaunchFactory. Feeds the home
+/// page NFT rail + discover NFT tab. Hidden collections (rehearsals, test
+/// launches) are filtered upstream so surfaces don't have to duplicate the
+/// hide-list check.
+export async function fetchRecentNftCollections(
+  limit = 24,
+): Promise<IndexerNftCollection[] | null> {
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query RecentNftCollections($limit: Int!) {
+      nftCollectionss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId collectionAddress launchedBy name ticker
+          blockNumber blockTimestamp
+        }
+      }
+    }`,
+    { limit },
+  );
+  return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
+}
+
 export interface IndexerNftMint {
   id: string;
   chainId: number;

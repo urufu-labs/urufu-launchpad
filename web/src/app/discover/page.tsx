@@ -27,6 +27,7 @@ import { sizeForName, isLongName } from '@/lib/nameSize';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
 import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
+import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'nft';
 
@@ -223,7 +224,12 @@ export default function DiscoverPage() {
             <p>open a release to trade, inspect its curve, and see its pool state.</p>
           </div>
           {filter === 'nft' ? (
-            <NftLaunchTeaser chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true} variant="discover" />
+            <NftCollectionGrid
+              chain={activeChain}
+              chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true}
+              variant="discover"
+              limit={48}
+            />
           ) : filtered.length > 0 ? (
             <div className={styles.mosaic}>
               {filtered.map((launch) => (

@@ -33,6 +33,7 @@ import {
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED } from '@/lib/config';
 import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
+import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
@@ -707,11 +708,11 @@ function HomePageContent() {
               see all »
             </Link>
           </div>
-          {/* Both tabs currently show the teaser — indexer has no
-              collections yet. Once nftCollections rows exist, replace
-              this with a filtered grid: featured = pinned by us,
-              just-launched = ORDER BY blockTimestamp DESC LIMIT 12. */}
-          <NftLaunchTeaser chainEnabled={nftChainEnabled} variant="home" />
+          {/* Real grid once collections exist; falls back to the teaser
+              on an empty indexer response. Featured vs just-launched is
+              a client-side sort tweak once we introduce a "featured"
+              curation flag — for now both tabs show recent launches. */}
+          <NftCollectionGrid chain={activeChain} chainEnabled={nftChainEnabled} variant="home" limit={12} />
         </section>
       )}
 
