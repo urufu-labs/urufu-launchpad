@@ -82,34 +82,18 @@ export function NftLaunchTeaser({ chainEnabled, variant = 'discover' }: NftLaunc
         })}
       </div>
 
-      <div className={styles.dealBar}>
-        <div className={styles.dealTitle}>
-          <span className="uru-eyebrow">✦ the deal</span>
-        </div>
-        <ul className={styles.dealList}>
-          <li>
-            <b>90/10</b> launcher / flywheel split
-          </li>
-          <li>fixed price or step curve, launcher picks</li>
-          <li>
-            cross-chain discount tiers <span className={styles.dealPill}>ETH · Base · RH</span>
-          </li>
-          <li>whitelist by wallet list or by holding another NFT</li>
-          <li>pay in ETH or URU, launcher picks</li>
-        </ul>
-        <div className={styles.dealActions}>
-          <Link href="/create/nft" className="uru-btn uru-btn-primary">
-            ✿ launch a collection
-          </Link>
-          <a
-            href="https://studio.urufulabs.xyz/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="uru-btn uru-btn-mint"
-          >
-            build art in chibi studio ↗
-          </a>
-        </div>
+      <div className={styles.dealActions}>
+        <Link href="/create/nft" className="uru-btn uru-btn-primary">
+          ✿ launch a collection
+        </Link>
+        <a
+          href="https://studio.urufulabs.xyz/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="uru-btn uru-btn-mint"
+        >
+          build art in chibi studio ↗
+        </a>
       </div>
     </div>
   );

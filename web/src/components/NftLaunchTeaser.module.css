@@ -187,55 +187,12 @@
   opacity: 0.55;
 }
 
-/* --- Deal bar (feature-list + CTAs) --- */
-.dealBar {
+/* --- CTA row (renders directly under the placeholder gallery) --- */
+.dealActions {
   position: relative;
   z-index: 1;
-  padding: 18px 18px 18px 22px;
-  border: 2px dashed var(--anchor);
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--mint) 25%, transparent), color-mix(in srgb, var(--cream) 70%, transparent));
-}
-
-.dealTitle {
-  margin-bottom: 10px;
-}
-
-.dealList {
-  margin: 0 0 14px;
-  padding-left: 22px;
-  display: grid;
-  gap: 4px;
-  font-family: var(--font-round), 'Klee One', cursive;
-  font-size: 13px;
-  color: var(--anchor);
-  line-height: 1.35;
-}
-
-.dealList li::marker {
-  color: var(--pink-hot);
-}
-
-.dealList b {
-  color: var(--pink-hot);
-}
-
-.dealPill {
-  display: inline-block;
-  padding: 1px 8px;
-  margin-left: 4px;
-  background: var(--paper-white, #fff);
-  border: 1px solid var(--anchor);
-  border-radius: 999px;
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  color: var(--anchor);
-  letter-spacing: 0.04em;
-}
-
-.dealActions {
   display: flex;
+  justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -280,15 +237,6 @@
   text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
 }
 
-:global(:root[data-theme='dark']) .dealBar {
-  background: rgba(200, 247, 197, 0.08);
-}
-
-:global(:root[data-theme='dark']) .dealPill {
-  background: rgba(18, 14, 28, 0.6);
-  color: #fff8e7;
-}
-
 /* --- Small screens --- */
 @media (max-width: 640px) {
   .shell {
@@ -306,10 +254,6 @@
 
   .slot:hover {
     transform: translate(-1px, -2px);
-  }
-
-  .dealBar {
-    padding: 14px;
   }
 
   .tapeTL,
