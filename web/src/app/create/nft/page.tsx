@@ -222,7 +222,7 @@ function CreateNftForm() {
   // ≥ requiredUruFee before launch() will succeed (safeTransferFrom
   // inside the launch tx will otherwise revert). Approval is a separate
   // tx; UI shows an approve button when short.
-  const { data: uruAllowance } = useReadContract({
+  const { data: uruAllowance, refetch: refetchAllowance } = useReadContract({
     address: uruTokenAddress,
     abi: [
       {
@@ -249,6 +249,13 @@ function CreateNftForm() {
   } = useWriteContract();
   const { isLoading: isWaitingApprove, isSuccess: isApproved } =
     useWaitForTransactionReceipt({ hash: approveTxHash });
+
+  // Refetch the allowance the moment the approve tx confirms so the launch
+  // button lights up without a manual refresh. Wagmi's useReadContract has
+  // no built-in tx-completion invalidation, so we wire it here.
+  useEffect(() => {
+    if (isApproved) refetchAllowance();
+  }, [isApproved, refetchAllowance]);
 
   const approveUru = () => {
     if (!uruTokenAddress || !factoryAddress) return;
