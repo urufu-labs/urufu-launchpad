@@ -16,6 +16,7 @@ import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerPinRoutes } from './routes/pin.ts';
 import { registerNftAvatarRoutes } from './routes/nft-avatar.ts';
+import { registerNftHoldersRoutes } from './routes/nft-holders.ts';
 import { registerRewardsRoutes } from './routes/rewards.ts';
 import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
@@ -175,6 +176,10 @@ await registerPinRoutes(app);
 // outside the social/Postgres gate: inventory is public read data and only needs the
 // provider key, while the final profile choice remains signature-gated below.
 await registerNftAvatarRoutes(app);
+
+// Per-collection holders scan for the /collection/[address] page. Same
+// public-read-data posture as nft-avatar; reuses ALCHEMY_API_KEY.
+await registerNftHoldersRoutes(app);
 
 // Whitelisted-curve snapshot endpoints — POST /wl/snapshot + GET /wl/proof. No
 // Postgres dep (in-memory cache), no external API keys — works out of the box

@@ -37,6 +37,7 @@ import {
   type IndexerNftMint,
 } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
+import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -187,6 +188,23 @@ function CollectionView({
     })();
     return () => { cancelled = true; };
   }, [indexerRow?.coverImageUrl, baseUri]);
+
+  // ------------------------------------------------------------
+  // 1b'. Holders — current owners via compile-service /nft/.../holders.
+  //      Refetches when totalMinted advances so live-mint activity moves
+  //      the list within a minute.
+  // ------------------------------------------------------------
+  const [holders, setHolders] = useState<NftHolder[] | null>(null);
+  useEffect(() => {
+    if (chainKey !== 'robinhood') { setHolders([]); return; }
+    let cancelled = false;
+    (async () => {
+      const scan = await fetchNftHolders(chainKey, address, { limit: 100 });
+      if (cancelled) return;
+      setHolders(scan?.holders ?? []);
+    })();
+    return () => { cancelled = true; };
+  }, [address, chainKey, totalMinted]);
 
   // ------------------------------------------------------------
   // 1c. Recent mints feed for this collection.
@@ -441,9 +459,53 @@ function CollectionView({
           <section className="uru-shell">
             <div className={styles.sectionHead}>
               <span className="uru-eyebrow">♡ holders</span>
-              <span className={styles.sectionEye}>who&apos;s in the collection</span>
+              <span className={styles.sectionEye}>
+                {holders && holders.length > 0 ? `${holders.length} wallets` : `who's in the collection`}
+              </span>
             </div>
-            <div className={styles.emptyRow}>holder list wires from indexer ~</div>
+            {holders === null ? (
+              <div className={styles.emptyRow}>loading holders…</div>
+            ) : holders.length === 0 ? (
+              <div className={styles.emptyRow}>no holders yet ~ mint first</div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+                {holders.slice(0, 20).map((h) => (
+                  <li
+                    key={h.address}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      gap: 10,
+                      alignItems: 'center',
+                      padding: '4px 8px',
+                      fontFamily: 'var(--font-pixel), monospace',
+                      fontSize: 11,
+                    }}
+                  >
+                    <a
+                      href={explorerAddressUrl(chainKey, h.address)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: 'var(--anchor)',
+                        textDecoration: 'none',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {h.address.slice(0, 6)}··{h.address.slice(-4)}
+                    </a>
+                    <span style={{ color: 'var(--pink-hot)' }}>x{h.balance}</span>
+                  </li>
+                ))}
+                {holders.length > 20 && (
+                  <li style={{ padding: '4px 8px', fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', textAlign: 'center' }}>
+                    + {holders.length - 20} more
+                  </li>
+                )}
+              </ul>
+            )}
           </section>
 
           <section className="uru-shell">
