@@ -1,41 +1,63 @@
 'use client';
 
-/// "Your NFTs" gallery. Renders every NFT the wallet actually holds on
-/// Robinhood chain as a card grid with the cover image Alchemy resolved.
-/// Click a tile → /collection/[address] (opens the mint page if it's a
-/// launchpad-launched collection; other RH collections render whatever
-/// that route falls back to).
+/// "Your NFTs" gallery. Renders NFTs the wallet holds on Robinhood chain
+/// that are RELEVANT to this launchpad — either the ecosystem's own gemu
+/// NFT, or a collection launched through NftLaunchFactory. Everything
+/// else the wallet holds on RH (random airdrops, other-app NFTs) stays
+/// off this gallery because they have no in-app destination.
 ///
-/// Uses the compile-service /wallet/:address/nfts endpoint (Alchemy NFT
-/// API v3). Advantages over reading tokenURI on-chain:
-///   - Image URLs already pre-resolved (Alchemy caches + rewrites ipfs://)
-///   - Spam collections filtered server-side
-///   - One HTTP call for the whole wallet vs one chain call per collection
+/// Click routing:
+///   - urufu gemu → external OpenSea collection page (opens new tab)
+///   - launchpad-launched → /collection/[address] (the mint page)
+///
+/// Data path:
+///   1. compile-service /wallet/:address/nfts (Alchemy NFT API v3)
+///        — one HTTP call, images pre-resolved, spam pre-filtered.
+///   2. indexer nftCollections(collectionAddress_in: [...])
+///        — resolves which contracts in the wallet were launched here.
 ///
 /// Silently renders nothing on:
 ///   - error (scanner down / rate limited / no API key)
-///   - empty wallet
-/// so it never introduces noise on a profile that has no NFTs.
+///   - wallet holds nothing relevant
+/// so it never introduces noise on a profile that has no such NFTs.
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { type Address } from 'viem';
 
 import type { ChainKey } from '@/lib/config';
+import { ECOSYSTEM_TOKENS } from '@/lib/config';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { isHiddenNftCollection } from '@/lib/hiddenNftCollections';
 import { fetchWalletNfts, type WalletNftAvatar } from '@/lib/nftAvatarApi';
+import { fetchNftCollectionsByAddresses } from '@/lib/indexer';
 
 interface Props {
   visibleFor: Address;
   chain: ChainKey;
 }
 
+type Destination =
+  | { kind: 'launchpad'; href: string }
+  | { kind: 'external'; href: string };
+
+/// External destinations for known ecosystem NFTs that aren't launchpad-
+/// launched. Keep this map tiny — anything not listed here AND not a
+/// launchpad collection just doesn't appear in the gallery.
+function externalDestinationFor(collectionAddress: string): Destination | null {
+  const addr = collectionAddress.toLowerCase();
+  const gemu = ECOSYSTEM_TOKENS.robinhood?.gemuNft?.toLowerCase();
+  if (gemu && addr === gemu) {
+    return { kind: 'external', href: 'https://opensea.io/collection/urufugemu' };
+  }
+  return null;
+}
+
 export function MyNftHoldings({ visibleFor, chain }: Props) {
-  const [items, setItems] = useState<WalletNftAvatar[] | null>(null);
+  const [items, setItems] = useState<Array<WalletNftAvatar & { dest: Destination }> | null>(null);
 
   useEffect(() => {
-    // RH-only for now. Broaden to `undefined` (fan out across every chain
-    // Alchemy indexes) once NFT_LAUNCHES goes multi-chain.
+    // RH-only for now. Broaden when NFT_LAUNCHES goes multi-chain.
     if (chain !== 'robinhood') { setItems([]); return; }
     let cancelled = false;
     (async () => {
@@ -43,10 +65,29 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
         const scan = await fetchWalletNfts(visibleFor, { chain: 'robinhood' });
         if (cancelled) return;
         const rh = scan.chains.find((c) => c.id === 'robinhood');
-        const filtered = (rh?.items ?? []).filter(
+        const raw = (rh?.items ?? []).filter(
           (n) => !isHiddenNftCollection(n.chainId, n.contractAddress),
         );
-        setItems(filtered);
+
+        // Resolve which distinct contracts are launchpad-launched. One
+        // batched indexer call for the whole gallery.
+        const distinctAddrs = Array.from(new Set(raw.map((n) => n.contractAddress.toLowerCase() as Address)));
+        const launchpad = await fetchNftCollectionsByAddresses(distinctAddrs);
+        if (cancelled) return;
+        const launchpadSet = new Set((launchpad ?? []).map((c) => c.collectionAddress.toLowerCase()));
+
+        // Keep each item that either matches a known ecosystem destination
+        // or is a launchpad-launched collection. Everything else drops.
+        const kept: Array<WalletNftAvatar & { dest: Destination }> = [];
+        for (const n of raw) {
+          const addr = n.contractAddress.toLowerCase();
+          const ext = externalDestinationFor(addr);
+          if (ext) { kept.push({ ...n, dest: ext }); continue; }
+          if (launchpadSet.has(addr)) {
+            kept.push({ ...n, dest: { kind: 'launchpad', href: `/collection/${n.contractAddress}` } });
+          }
+        }
+        setItems(kept);
       } catch {
         if (!cancelled) setItems([]);
       }
@@ -54,8 +95,12 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
     return () => { cancelled = true; };
   }, [visibleFor, chain]);
 
-  if (items === null) return null;         // pre-first-response, no noise
-  if (items.length === 0) return null;      // nothing to show
+  if (items === null) return null;   // pre-first-response, no noise
+  if (items.length === 0) return null; // nothing to show
+
+  // suppress unused-var lint on the chain-id map import — kept for the
+  // future multi-chain fan-out described in the effect above.
+  void CHAIN_KEY_TO_ID;
 
   return (
     <section>
@@ -76,11 +121,16 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           const key = `${n.contractAddress.toLowerCase()}-${n.tokenId}`;
           const displayName = n.tokenName?.trim() || `${n.collectionName ?? 'Untitled'} #${n.tokenId}`;
           const subtitle = n.collectionName?.trim() || n.contractAddress.slice(0, 10) + '…';
+          const isExternal = n.dest.kind === 'external';
+          const linkProps = isExternal
+            ? { target: '_blank' as const, rel: 'noopener noreferrer' as const }
+            : {};
           return (
             <Link
               key={key}
-              href={`/collection/${n.contractAddress}`}
+              href={n.dest.href}
               title={displayName}
+              {...linkProps}
               style={{
                 textDecoration: 'none',
                 color: 'inherit',
@@ -124,7 +174,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {subtitle}
+                  {subtitle}{isExternal ? ' · opensea ↗' : ''}
                 </div>
               </div>
             </Link>
