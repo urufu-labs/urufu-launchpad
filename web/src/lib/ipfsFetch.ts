@@ -31,24 +31,32 @@ export function toGatewayUrl(uri: string | undefined, gateway: string = IPFS_GAT
   return null;
 }
 
-/// Fetch JSON from an ipfs:// URI (or plain http URL). Races through the
-/// gateway list until one returns a good response; falls through null if
-/// every gateway fails.
+/// Fetch JSON from an ipfs:// URI (or plain http URL). Tries each gateway
+/// with both the raw path AND a `.json`-suffixed path, since some pinners
+/// (Pinata via studio.urufulabs.xyz) write files with `.json` extensions
+/// while ERC721A's tokenURI concatenates baseURI + tokenId with no suffix.
 export async function fetchIpfsJson<T = unknown>(uri: string | undefined): Promise<T | null> {
   if (!uri) return null;
   const gateways = uri.startsWith('ipfs://') ? IPFS_GATEWAYS : ['' as const];
-  for (const gateway of gateways) {
-    const url = gateway ? toGatewayUrl(uri, gateway) : uri;
-    if (!url) continue;
-    try {
-      const res = await fetch(url, {
-        cache: 'force-cache',
-        signal: AbortSignal.timeout(PER_GATEWAY_TIMEOUT_MS),
-      });
-      if (!res.ok) continue;
-      return await res.json() as T;
-    } catch {
-      // timeout / network / parse — try next
+  // Only try the .json variant when the URI doesn't already end in .json
+  // AND doesn't have any other extension (e.g. /1.png shouldn't get .json).
+  const trailing = uri.split('/').pop() ?? '';
+  const hasExt = /\.[a-z0-9]{2,5}$/i.test(trailing);
+  const suffixes = hasExt ? ['' as const] : ['', '.json'] as const;
+  for (const suffix of suffixes) {
+    for (const gateway of gateways) {
+      const url = gateway ? toGatewayUrl(uri, gateway) : uri;
+      if (!url) continue;
+      try {
+        const res = await fetch(url + suffix, {
+          cache: 'force-cache',
+          signal: AbortSignal.timeout(PER_GATEWAY_TIMEOUT_MS),
+        });
+        if (!res.ok) continue;
+        return await res.json() as T;
+      } catch {
+        // timeout / network / parse — try next
+      }
     }
   }
   return null;
