@@ -53,7 +53,7 @@ import { FollowersModal, type FollowsMode } from '@/components/FollowersModal';
 import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
 import { NftLauncherEarnings } from '@/components/NftLauncherEarnings';
-import { MyNftMints } from '@/components/MyNftMints';
+import { MyNftHoldings } from '@/components/MyNftHoldings';
 import { GraduatorRefund } from '@/components/GraduatorRefund';
 import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
@@ -643,6 +643,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             )}
           </section>
 
+          {/* your NFTs (renders nothing when wallet holds none) */}
+          <MyNftHoldings visibleFor={address} chain={activeChain} />
+
           {/* activity */}
           <section>
             <SectionHead label="activity" jp="取引" count={allTrades.length} />
@@ -781,9 +784,6 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
               </section>
             </>
           )}
-
-          {/* Public — every wallet's mint history is visible. */}
-          <MyNftMints visibleFor={address} chain={activeChain} />
 
           {/* isSelf-gated internally — always safe to render. */}
           <CreatorEarnings visibleFor={address} chain={activeChain} />

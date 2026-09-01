@@ -40,6 +40,14 @@ export const HIDDEN_NFT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
   //     urufu gemu nft (10% per gemu, cap 5). Deployer had 2 gemus → 20%
   //     off applied at mint time using keeper-signed attestation.
   '4663:0xbf145973a3a119c807e1f2985d725ddfad36939d',
+  //   - V2 stack Ext NFT rehearsal — factory 0x5b4D…a77F. Mint reverted;
+  //     forge build cache had not picked up the ourCollection fix so the
+  //     V2 impl still had the pre-fix semantics. Orphan collection.
+  '4663:0x6666906033be027d3820305b7f4e85f4613eda48',
+  //   - V3 stack Ext NFT rehearsal — factory 0x861A…44A9. Fix confirmed
+  //     working: sig against ERC-721 address verified on-chain and the
+  //     mint went through. Kept hidden anyway (it's a rehearsal).
+  '4663:0x8221ba10ff881145ad80d17dcc44a52d4a75da63',
 ]);
 
 export function isHiddenNftCollection(chainId: number, collectionAddress: Address | string): boolean {

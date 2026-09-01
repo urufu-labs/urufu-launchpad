@@ -836,9 +836,15 @@ contract NftMintModule {
                 if (block.timestamp > p.expiry) {
                     revert NftMintModule__AttestationExpired(p.expiry, block.timestamp);
                 }
+                // `ourCollection` for the attestation is the ERC-721 clone
+                // the buyer sees on /collection/[addr], not the mint module.
+                // Keeps the frontend flow natural (post the ERC-721 address
+                // to /api/nft-discount/attest) and prevents the pre-launch
+                // mismatch bug that had sigs binding msg.sender = mint module
+                // while the compile-service signed against the ERC-721.
                 (address signer, bool ok) = NftDiscountVerifier.verifyExternalNftAttestation(
                     wallet,
-                    address(this),
+                    token,
                     tier.externalCollection,
                     tier.externalChainId,
                     tierId,
