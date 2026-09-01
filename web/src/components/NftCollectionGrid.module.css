@@ -1,0 +1,231 @@
+/* Mirrors the ERC-20 token card treatment on discover so NFT tiles share
+   the site's kawaii-scrapbook visual language: same 4/3 art wells, same
+   dashed metrics strip, same progress bar, same "trade →" foot with the
+   pink arrow. Class names track discover.module.css deliberately so a
+   later refactor into a shared card module is a rename, not a rewrite. */
+
+.mosaic {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+
+.releaseCard {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.releaseCard:hover {
+  border-color: var(--pink-hot);
+  box-shadow: 4px 4px 0 var(--pink-hot);
+  transform: translate(-2px, -2px);
+}
+
+.releaseCard:focus-visible {
+  outline: 2px solid var(--pink-hot);
+  outline-offset: 2px;
+}
+
+.releaseArtWrap {
+  position: relative;
+  min-width: 0;
+  padding: 8px 8px 0;
+}
+
+.releaseArt,
+.missingArt {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border: 1.5px solid var(--anchor);
+  background-color: var(--mizuiro);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.missingArt {
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--cream-deep) 72%, transparent) 0 8px, transparent 8px 16px),
+    var(--cream);
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 10px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.badges {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.badges span {
+  padding: 2px 5px;
+  border: 1px solid var(--anchor);
+  background: var(--card, var(--cream));
+  color: var(--anchor);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.releaseInfo {
+  min-width: 0;
+  padding: 10px 10px 0;
+}
+
+.nameRow {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.nameRow h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.02;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameRow span {
+  flex: 0 0 auto;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 10px;
+}
+
+.releaseInfo p {
+  display: -webkit-box;
+  min-height: 31px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  color: var(--anchor-soft);
+  font-size: 11px;
+  line-height: 1.32;
+  -webkit-line-clamp: 2;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 10px 10px 0;
+  border: 1px solid color-mix(in srgb, var(--anchor) 54%, transparent);
+  background: color-mix(in srgb, var(--cream-deep) 76%, transparent);
+}
+
+.metric {
+  min-width: 0;
+  padding: 5px 6px;
+  border-right: 1px dotted var(--anchor);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+}
+
+.metric:last-child {
+  border-right: none;
+}
+
+.metric small {
+  display: block;
+  color: var(--anchor-soft);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metric b {
+  display: block;
+  color: var(--anchor);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress {
+  margin: 10px 10px 0;
+}
+
+.progress div {
+  overflow: hidden;
+  height: 7px;
+  border: 1.5px solid var(--anchor);
+  background: var(--cream-deep);
+}
+
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--pink-hot);
+}
+
+.progress span {
+  display: block;
+  margin-top: 4px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.releaseFoot {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px 10px;
+  color: var(--anchor-soft);
+  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-size: 8.5px;
+}
+
+.releaseFoot span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.releaseFoot b {
+  flex: 0 0 auto;
+  color: var(--pink-hot);
+  text-transform: uppercase;
+}
+
+:root[data-theme='dark'] .releaseCard {
+  background: var(--card, var(--cream));
+}
+
+@media (max-width: 1040px) {
+  .mosaic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .mosaic {
+    grid-template-columns: 1fr;
+  }
+}

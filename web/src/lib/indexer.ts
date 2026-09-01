@@ -571,6 +571,10 @@ export interface IndexerNftCollection {
   id: string;
   chainId: number;
   collectionAddress: Address;
+  /// Mint module clone bound to this collection. Populated on all rows
+  /// indexed after the mintModuleAddress schema addition (2026-09-01);
+  /// missing / zeroAddress on older rows.
+  mintModuleAddress?: Address;
   launchedBy: Address;
   name: string;
   ticker: string;
@@ -595,7 +599,7 @@ export async function fetchNftCollectionsByLauncher(
         limit: $limit
       ) {
         items {
-          id chainId collectionAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker
           blockNumber blockTimestamp
         }
       }
@@ -616,7 +620,7 @@ export async function fetchRecentNftCollections(
     `query RecentNftCollections($limit: Int!) {
       nftCollectionss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
-          id chainId collectionAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker
           blockNumber blockTimestamp
         }
       }
@@ -682,7 +686,7 @@ export async function fetchNftCollectionsByAddresses(
     `query NftCollectionsByAddresses($addresses: [String!]!) {
       nftCollectionss(where: { collectionAddress_in: $addresses }, limit: 200) {
         items {
-          id chainId collectionAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker
           blockNumber blockTimestamp
         }
       }

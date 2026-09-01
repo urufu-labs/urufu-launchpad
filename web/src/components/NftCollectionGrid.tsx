@@ -1,22 +1,29 @@
 'use client';
 
 /// Grid of launched NFT collections. Renders the recent nftCollections feed
-/// from the indexer as clickable tiles that route to /collection/[address].
-/// Falls back to <NftLaunchTeaser> when no collections exist on the chain
-/// so the home / discover surfaces never show empty state alone.
+/// from the indexer as clickable cards that route to /collection/[address].
+/// Visual language mirrors the ERC-20 discover LaunchCard (art well, badges,
+/// metrics strip, progress bar, foot) so the launchpad reads as one product.
 ///
-/// Cover art comes from Alchemy's cached image for tokenId 1 (fetched via
-/// the compile-service /wallet endpoint's per-collection lookup path). For
-/// v1 we skip the extra fetch and show a placeholder pattern with the
-/// collection name — /collection/[addr] itself does the tokenURI resolve.
+/// Per-card data path:
+///   - indexer: name, ticker, launchedBy, mintModuleAddress
+///   - ERC-721 on-chain: totalSupply, maxSupply, tokenURI(1)
+///   - mint module on-chain: basePriceWei, paymentToken
+///   - tokenURI(1) → JSON → .image → gateway-resolved cover
+///
+/// Falls back to <NftLaunchTeaser> when the indexer returns no rows so the
+/// pre-first-launch experience is unchanged.
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { formatUnits, zeroAddress, type Address } from 'viem';
+import { useReadContracts } from 'wagmi';
 
 import type { ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentNftCollections, type IndexerNftCollection } from '@/lib/indexer';
 import { NftLaunchTeaser } from './NftLaunchTeaser';
+import styles from './NftCollectionGrid.module.css';
 
 interface Props {
   chain: ChainKey;
@@ -24,8 +31,6 @@ interface Props {
   variant: 'home' | 'discover';
   limit?: number;
 }
-
-const TILE_TINTS = ['var(--pink-warm)', 'var(--mizuiro)', 'var(--mint)', 'var(--yolk)'] as const;
 
 export function NftCollectionGrid({ chain, chainEnabled, variant, limit = 12 }: Props) {
   const targetChainId = CHAIN_KEY_TO_ID[chain];
@@ -42,81 +47,182 @@ export function NftCollectionGrid({ chain, chainEnabled, variant, limit = 12 }: 
     return () => { cancelled = true; };
   }, [chainEnabled, targetChainId, limit]);
 
-  const showTeaser = useMemo(() => (items?.length ?? 0) === 0, [items]);
-
-  // Show the teaser while items load AND when the result is empty. Keeps the
-  // "coming soon" copy in front of the launcher until real collections land.
-  if (showTeaser) return <NftLaunchTeaser chainEnabled={chainEnabled} variant={variant} />;
+  if ((items?.length ?? 0) === 0) {
+    return <NftLaunchTeaser chainEnabled={chainEnabled} variant={variant} />;
+  }
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-        gap: 12,
-      }}
-    >
-      {(items ?? []).map((c, i) => {
-        const tint = TILE_TINTS[i % TILE_TINTS.length];
-        const initial = (c.name || c.ticker || '?').charAt(0).toUpperCase();
-        return (
-          <Link
-            key={c.id}
-            href={`/collection/${c.collectionAddress}`}
-            title={c.name}
-            style={{
-              textDecoration: 'none',
-              color: 'inherit',
-              display: 'flex',
-              flexDirection: 'column',
-              borderRadius: 10,
-              overflow: 'hidden',
-              background: 'var(--paper, #fff)',
-              border: '1.5px solid var(--anchor)',
-            }}
-          >
-            <div
-              style={{
-                aspectRatio: '1 / 1',
-                background: tint,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontFamily: 'var(--font-round), cursive',
-                fontSize: 48,
-                fontWeight: 700,
-                color: 'var(--anchor)',
-              }}
-            >
-              {initial}
-            </div>
-            <div style={{ padding: '8px 10px' }}>
-              <div
-                style={{
-                  fontFamily: 'var(--font-body), sans-serif',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {c.name}
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--anchor-soft)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {c.ticker}
-              </div>
-            </div>
-          </Link>
-        );
-      })}
+    <div className={styles.mosaic}>
+      {(items ?? []).map((c) => (
+        <NftCollectionCard key={c.id} row={c} chainId={targetChainId} />
+      ))}
     </div>
+  );
+}
+
+// ============================================================================
+// Card — owns its per-collection chain reads so hooks stay stable.
+// ============================================================================
+
+const erc721Abi = [
+  { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'maxSupply',   stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'tokenURI',    stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ type: 'string' }] },
+] as const;
+
+const mintModuleAbi = [
+  { type: 'function', name: 'basePriceWei',  stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'paymentToken',  stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+] as const;
+
+function resolveMetadataUrl(uri: string | undefined): string | null {
+  if (!uri) return null;
+  if (uri.startsWith('ipfs://')) return `https://ipfs.io/ipfs/${uri.slice('ipfs://'.length)}`;
+  if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
+  return null;
+}
+
+function shortAddr(a: string): string {
+  return `${a.slice(0, 6)}··${a.slice(-3)}`;
+}
+
+function NftCollectionCard({
+  row,
+  chainId,
+}: {
+  row: IndexerNftCollection & { mintModuleAddress?: Address };
+  chainId: number;
+}) {
+  // ERC-721 reads (present regardless of mint mode). chainId gets cast to
+  // wagmi's narrow chain-id union — the value always originates from
+  // CHAIN_KEY_TO_ID so it's always a supported chain.
+  const cid = chainId as 4663;
+  const c721 = useReadContracts({
+    contracts: [
+      { abi: erc721Abi, address: row.collectionAddress, functionName: 'totalSupply', chainId: cid },
+      { abi: erc721Abi, address: row.collectionAddress, functionName: 'maxSupply',   chainId: cid },
+      { abi: erc721Abi, address: row.collectionAddress, functionName: 'tokenURI', args: [1n] as const, chainId: cid },
+    ] as const,
+    query: { staleTime: 30_000 },
+  });
+  const totalSupply = c721.data?.[0]?.result as bigint | undefined;
+  const maxSupply   = c721.data?.[1]?.result as bigint | undefined;
+  const tokenUri    = c721.data?.[2]?.result as string  | undefined;
+
+  // Mint module reads (uses zeroAddress placeholder + enabled: false when
+  // the join column is missing so the hook shape stays stable).
+  const modAddr = (row.mintModuleAddress && row.mintModuleAddress !== zeroAddress
+    ? row.mintModuleAddress
+    : zeroAddress) as Address;
+  const modKnown = modAddr !== zeroAddress;
+  const cMod = useReadContracts({
+    contracts: [
+      { abi: mintModuleAbi, address: modAddr, functionName: 'basePriceWei', chainId: cid },
+      { abi: mintModuleAbi, address: modAddr, functionName: 'paymentToken', chainId: cid },
+    ] as const,
+    query: { enabled: modKnown, staleTime: 30_000 },
+  });
+  const basePriceWei = cMod.data?.[0]?.result as bigint  | undefined;
+  const paymentToken = cMod.data?.[1]?.result as Address | undefined;
+  const isUru = paymentToken && paymentToken !== zeroAddress;
+
+  // Cover image — resolve tokenURI(1) → JSON.image → gateway.
+  const [cover, setCover] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const url = resolveMetadataUrl(tokenUri);
+    if (!url) { setCover(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) { if (!cancelled) setCover(null); return; }
+        const meta = await res.json() as { image?: string };
+        if (!cancelled) setCover(resolveMetadataUrl(meta.image));
+      } catch { if (!cancelled) setCover(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [tokenUri]);
+
+  const price = useMemo(() => {
+    if (basePriceWei === undefined) return '—';
+    if (basePriceWei === 0n) return 'free';
+    const n = Number(formatUnits(basePriceWei, 18));
+    return `${n.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${isUru ? 'URU' : 'Ξ'}`;
+  }, [basePriceWei, isUru]);
+
+  const supplyLabel = useMemo(() => {
+    const minted = totalSupply?.toString() ?? '—';
+    const cap = maxSupply === undefined || maxSupply === 0n ? '∞' : maxSupply.toString();
+    return `${minted}/${cap}`;
+  }, [totalSupply, maxSupply]);
+
+  const progressPct = useMemo(() => {
+    if (totalSupply === undefined || maxSupply === undefined || maxSupply === 0n) return 0;
+    const p = Number((totalSupply * 10_000n) / maxSupply) / 100;
+    return Math.min(100, Math.max(0, p));
+  }, [totalSupply, maxSupply]);
+
+  const isSoldOut = maxSupply !== undefined && maxSupply !== 0n && totalSupply === maxSupply;
+  const paidLabel = isUru ? 'uru paid' : 'eth paid';
+
+  return (
+    <Link href={`/collection/${row.collectionAddress}`} className={styles.releaseCard}>
+      <div className={styles.releaseArtWrap}>
+        {cover ? (
+          <div
+            className={styles.releaseArt}
+            role="img"
+            aria-label={`${row.name} cover art`}
+            style={{ backgroundImage: `url("${cover}")` }}
+          />
+        ) : (
+          <div className={styles.missingArt}>
+            <span>{cover === undefined ? 'loading art…' : 'art pending'}</span>
+          </div>
+        )}
+        <div className={styles.badges}>
+          <span>nft</span>
+          {isSoldOut && <span>sold out</span>}
+          <span>{paidLabel}</span>
+        </div>
+      </div>
+
+      <div className={styles.releaseInfo}>
+        <div className={styles.nameRow}>
+          <h2>{row.name}</h2>
+          <span>${row.ticker}</span>
+        </div>
+        <p>{`launched ${new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()} by ${shortAddr(row.launchedBy)}`}</p>
+      </div>
+
+      <div className={styles.metrics}>
+        <div className={styles.metric}>
+          <small>price</small>
+          <b>{price}</b>
+        </div>
+        <div className={styles.metric}>
+          <small>minted</small>
+          <b>{supplyLabel}</b>
+        </div>
+        <div className={styles.metric}>
+          <small>pay</small>
+          <b>{isUru ? 'URU' : 'ETH'}</b>
+        </div>
+      </div>
+
+      <div className={styles.progress}>
+        <div>
+          <i style={{ width: `${progressPct}%` }} />
+        </div>
+        <span>{isSoldOut ? 'sold out' : `${progressPct.toFixed(1)}% minted`}</span>
+      </div>
+
+      <div className={styles.releaseFoot}>
+        <span>
+          {shortAddr(row.launchedBy)} · {new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()}
+        </span>
+        <b>mint <span className="uru-arrow">→</span></b>
+      </div>
+    </Link>
   );
 }
