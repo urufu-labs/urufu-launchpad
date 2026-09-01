@@ -319,42 +319,42 @@ const networks = {
     sepolia: {
       chainId: CHAIN_CATALOG.sepolia.id,
       transport: batchedTransport(readRpcUrl('sepolia')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
   ...(has('mainnet') && {
     mainnet: {
       chainId: CHAIN_CATALOG.mainnet.id,
       transport: batchedTransport(readRpcUrl('mainnet')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
   ...(has('base') && {
     base: {
       chainId: CHAIN_CATALOG.base.id,
       transport: batchedTransport(readRpcUrl('base')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
   ...(has('base-sepolia') && {
     'base-sepolia': {
       chainId: CHAIN_CATALOG['base-sepolia'].id,
       transport: batchedTransport(readRpcUrl('base-sepolia')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
   ...(has('robinhood') && {
     robinhood: {
       chainId: CHAIN_CATALOG.robinhood.id,
       transport: batchedTransport(readRpcUrl('robinhood')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
   ...(has('robinhood-testnet') && {
     'robinhood-testnet': {
       chainId: CHAIN_CATALOG['robinhood-testnet'].id,
       transport: batchedTransport(readRpcUrl('robinhood-testnet')),
-      pollingInterval: 1_000,
+      pollingInterval: 5_000,
     },
   }),
 };
