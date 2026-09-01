@@ -14,7 +14,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useAccount,
   useReadContract,
@@ -22,6 +22,7 @@ import {
   useWriteContract,
 } from 'wagmi';
 import {
+  decodeEventLog,
   parseUnits,
   isAddress,
   zeroAddress,
@@ -290,6 +291,38 @@ function CreateNftForm() {
   } = useWriteContract();
   const { isLoading: isWaitingReceipt, isSuccess: isLaunched, data: receipt } =
     useWaitForTransactionReceipt({ hash: launchTxHash });
+
+  // Parse the CollectionLaunched event out of the receipt so we can (a) show
+  // the launcher a clickable link to the mint page and (b) auto-redirect
+  // there. Address decoding runs once per receipt and is null-safe: if the
+  // event isn't in the logs for whatever reason (reorg, unsupported ABI),
+  // we just skip the redirect and leave the tx-hash note.
+  const router = useRouter();
+  const launchedCollection: Address | null = useMemo(() => {
+    if (!receipt) return null;
+    for (const log of receipt.logs) {
+      try {
+        const decoded = decodeEventLog({
+          abi: nftLaunchFactoryAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === 'CollectionLaunched') {
+          return (decoded.args as { token: Address }).token;
+        }
+      } catch { /* not our event; keep scanning */ }
+    }
+    return null;
+  }, [receipt]);
+
+  // Auto-redirect to the mint page shortly after launch so the launcher can
+  // eyeball their own collection immediately. Small delay lets the "launched"
+  // toast render first; user can also click the link in the meantime.
+  useEffect(() => {
+    if (!isLaunched || !launchedCollection) return;
+    const t = setTimeout(() => router.push(`/collection/${launchedCollection}`), 2000);
+    return () => clearTimeout(t);
+  }, [isLaunched, launchedCollection, router]);
 
   /// Encode `LaunchParams` and fire the tx. Everything the mint module
   /// needs is packed here — merkle roots (wallet-list tier + WL) get
@@ -979,7 +1012,17 @@ function CreateNftForm() {
             {isLaunched && receipt && (
               <p className={styles.reasonNote}>
                 tx {receipt.transactionHash.slice(0, 10)}… mined at block {receipt.blockNumber.toString()}.
-                collection page opens next.
+                {launchedCollection ? (
+                  <>
+                    {' '}opening{' '}
+                    <Link href={`/collection/${launchedCollection}`} style={{ textDecoration: 'underline' }}>
+                      the mint page
+                    </Link>
+                    …
+                  </>
+                ) : (
+                  <> collection deployed but the launched-event log wasn&apos;t parseable — open discover to find it.</>
+                )}
               </p>
             )}
             {disabledReason && !isSubmitting && !isWaitingReceipt && !isLaunched && (
