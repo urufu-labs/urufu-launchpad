@@ -28,8 +28,15 @@ import { NotLiveYet } from '@/components/NotLiveYet';
 import { NFT_LAUNCHES_ENABLED, type ChainKey } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
-import { explorerAddressUrl } from '@/lib/wagmi';
+import { CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { nftErc721Abi, nftMintModuleAbi } from '@/lib/abis';
+import {
+  fetchNftCollectionsByAddresses,
+  fetchNftMintsByCollection,
+  type IndexerNftCollection,
+  type IndexerNftMint,
+} from '@/lib/indexer';
+import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -140,14 +147,62 @@ function CollectionView({
 
   const name = baseReads?.[0]?.result as string | undefined;
   const symbol = baseReads?.[1]?.result as string | undefined;
-  // _baseURI: read for the upcoming cover-art metadata fetch (baseURI/0
-  // → JSON `image` field). Kept in the read batch so we don't need a
-  // second `useReadContracts` when that feature ships.
-  const _baseURI = baseReads?.[2]?.result as string | undefined;
+  const baseUri = baseReads?.[2]?.result as string | undefined;
   const totalMinted = baseReads?.[3]?.result as bigint | undefined;
   const maxSupply = baseReads?.[4]?.result as bigint | undefined;
   const mintModule = baseReads?.[5]?.result as Address | undefined;
   const hasMintModule = mintModule && mintModule !== zeroAddress;
+
+  // ------------------------------------------------------------
+  // 1b. Indexer-side collection metadata — cover image, description,
+  //     contractURI. Preferred over client-side IPFS fetches because
+  //     the indexer resolves once server-side and serves warm.
+  // ------------------------------------------------------------
+  const targetChainId = CHAIN_KEY_TO_ID[chainKey];
+  const [indexerRow, setIndexerRow] = useState<IndexerNftCollection | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchNftCollectionsByAddresses([address as Address]);
+      if (cancelled) return;
+      const forChain = (rows ?? []).find(
+        (r) => r.chainId === targetChainId && r.collectionAddress.toLowerCase() === address.toLowerCase(),
+      );
+      setIndexerRow(forChain ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, [address, targetChainId]);
+
+  // Cover art — prefer indexer-resolved URL, fall back to client-side
+  // tokenURI(1) → metadata JSON → image resolve when the indexer
+  // hasn't populated the field yet (fresh launch, backfill in flight).
+  const [cover, setCover] = useState<string | null>(null);
+  useEffect(() => {
+    if (indexerRow?.coverImageUrl) { setCover(indexerRow.coverImageUrl); return; }
+    if (!baseUri) return;
+    let cancelled = false;
+    (async () => {
+      const meta = await fetchIpfsJson<{ image?: string }>(`${baseUri}1`);
+      if (!cancelled) setCover(toGatewayUrl(meta?.image));
+    })();
+    return () => { cancelled = true; };
+  }, [indexerRow?.coverImageUrl, baseUri]);
+
+  // ------------------------------------------------------------
+  // 1c. Recent mints feed for this collection.
+  // ------------------------------------------------------------
+  const [recentMints, setRecentMints] = useState<IndexerNftMint[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchNftMintsByCollection(address as Address, 20);
+      if (cancelled) return;
+      setRecentMints(rows ?? []);
+    })();
+    return () => { cancelled = true; };
+    // Refetch when totalMinted advances so a live mint appears in the feed
+    // shortly after it lands (indexer lag is a few seconds).
+  }, [address, totalMinted]);
 
   // ------------------------------------------------------------
   // 2. Read mint-module state. Only fires once we've located the module.
@@ -317,6 +372,48 @@ function CollectionView({
         </a>
       </header>
 
+      {/* Cover art — indexer-resolved cover first, tokenURI(1) resolve as
+          fallback, placeholder pattern when neither is available. */}
+      <div
+        style={{
+          maxWidth: 480,
+          width: '100%',
+          aspectRatio: '1 / 1',
+          margin: '0 auto 16px',
+          border: '2px solid var(--anchor)',
+          borderRadius: 12,
+          background: cover
+            ? `center/cover no-repeat url("${cover}")`
+            : `repeating-linear-gradient(45deg, var(--cream) 0 10px, var(--cream-deep) 10px 20px)`,
+          display: 'grid',
+          placeItems: 'center',
+        }}
+        role={cover ? 'img' : undefined}
+        aria-label={cover ? `${name ?? 'collection'} cover art` : undefined}
+      >
+        {!cover && (
+          <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)', textTransform: 'uppercase' }}>
+            art pending
+          </span>
+        )}
+      </div>
+
+      {indexerRow?.description && (
+        <p
+          style={{
+            maxWidth: 480,
+            margin: '0 auto 16px',
+            padding: '0 12px',
+            textAlign: 'center',
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: 'var(--anchor-soft)',
+          }}
+        >
+          {indexerRow.description}
+        </p>
+      )}
+
       {!chainEnabled && (
         <div className={styles.warnPane}>
           <b>nft collections aren&apos;t live on this chain yet.</b> switch to robinhood to preview.
@@ -354,7 +451,44 @@ function CollectionView({
               <span className="uru-eyebrow">❉ recent mints</span>
               <span className={styles.sectionEye}>the live mint feed</span>
             </div>
-            <div className={styles.emptyRow}>mint feed wires from indexer ~</div>
+            {recentMints === null ? (
+              <div className={styles.emptyRow}>loading mints…</div>
+            ) : recentMints.length === 0 ? (
+              <div className={styles.emptyRow}>no mints yet ~ be the first</div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+                {recentMints.map((m) => (
+                  <li
+                    key={m.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'auto 1fr auto',
+                      gap: 10,
+                      alignItems: 'center',
+                      padding: '4px 8px',
+                      fontFamily: 'var(--font-pixel), monospace',
+                      fontSize: 11,
+                    }}
+                  >
+                    <span style={{ color: 'var(--pink-hot)' }}>x{m.quantity}</span>
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: 'var(--anchor)',
+                      }}
+                    >
+                      {m.minter.slice(0, 6)}··{m.minter.slice(-4)}
+                      {m.wlUsed ? <span style={{ color: 'var(--anchor-soft)' }}> · wl</span> : null}
+                    </span>
+                    <span style={{ color: 'var(--anchor-soft)', fontSize: 9 }}>
+                      {new Date(Number(m.blockTimestamp) * 1000).toLocaleTimeString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
 

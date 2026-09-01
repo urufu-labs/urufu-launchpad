@@ -656,6 +656,31 @@ export interface IndexerNftMint {
   txHash: `0x${string}`;
 }
 
+/// NFT mints on a specific collection, newest-first. Powers the recent-mints
+/// feed on /collection/[address].
+export async function fetchNftMintsByCollection(
+  collectionAddress: Address,
+  limit = 30,
+): Promise<IndexerNftMint[] | null> {
+  const data = await gqlFanout<{ nftMintss: { items: IndexerNftMint[] } }>(
+    `query NftMintsByCollection($addr: String!, $limit: Int!) {
+      nftMintss(
+        where: { collectionAddress: $addr },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId collectionAddress minter tokenId quantity
+          pricePaidWei wlUsed blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { addr: collectionAddress.toLowerCase(), limit },
+  );
+  return data?.nftMintss.items ?? null;
+}
+
 /// NFT mints where `minter` was the msg.sender. Powers the "your minted NFTs"
 /// widget on the profile page. Records mint events not current ownership, so a
 /// wallet that minted-then-transferred still shows up here as a past minter;
