@@ -48,6 +48,11 @@ export const HIDDEN_NFT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
   //     working: sig against ERC-721 address verified on-chain and the
   //     mint went through. Kept hidden anyway (it's a rehearsal).
   '4663:0x8221ba10ff881145ad80d17dcc44a52d4a75da63',
+  //   - RANDOM CHIBIS (RANDO) — first real end-to-end studio launch,
+  //     2026-09-01. Hidden while we ship the contract-level fixes
+  //     (launcher-controlled baseURI/owner + contractURI + .json tokenURI
+  //     suffix). Will re-launch through the next factory version.
+  '4663:0x46f6f77e459a4b6ddb613002ff09930f4826a4e9',
 ]);
 
 export function isHiddenNftCollection(chainId: number, collectionAddress: Address | string): boolean {

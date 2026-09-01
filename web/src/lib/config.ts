@@ -392,7 +392,7 @@ export const NFT_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: true,
+  robinhood: false,
   'robinhood-testnet': false,
 };
 
