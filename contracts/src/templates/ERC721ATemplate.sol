@@ -50,6 +50,7 @@ contract ERC721ATemplate is ERC721A, Ownable {
     // ============================================================
     event Initialized(string name, string symbol, address indexed initialOwner, uint256 maxSupply);
     event BaseURISet(string oldBaseURI, string newBaseURI);
+    event ContractURISet(string oldContractURI, string newContractURI);
 
     // ============================================================
     // VM_INJECT_EVENTS
@@ -64,6 +65,11 @@ contract ERC721ATemplate is ERC721A, Ownable {
     string private _vmBaseURI;
     uint256 private _vmMaxSupply;
     uint8 private _initialized;
+    /// Collection-level metadata URL. OpenSea + most marketplaces read
+    /// `contractURI()` for the collection's cover, description, and
+    /// featured image; falls back to an empty string when unset so the
+    /// marketplace uses on-chain name/symbol as the only identity.
+    string private _vmContractURI;
 
     // ============================================================
     // VM_INJECT_STATE
@@ -108,6 +114,39 @@ contract ERC721ATemplate is ERC721A, Ownable {
     ) external onlyOwner {
         emit BaseURISet(_vmBaseURI, newBaseURI);
         _vmBaseURI = newBaseURI;
+    }
+
+    /// @notice OpenSea collection-level metadata URL. Returns the empty string
+    ///         when unset so marketplaces render an unclaimed collection page
+    ///         using on-chain `name()` + `symbol()` only.
+    function contractURI() external view returns (string memory) {
+        return _vmContractURI;
+    }
+
+    /// @notice Owner-only setter for the collection-level metadata URL.
+    ///         Mint-module wraps this behind `setCollectionContractURI` so
+    ///         the launcher can update it without holding ERC-721 ownership.
+    function setContractURI(
+        string calldata newContractURI
+    ) external onlyOwner {
+        emit ContractURISet(_vmContractURI, newContractURI);
+        _vmContractURI = newContractURI;
+    }
+
+    /// @notice tokenURI = `_baseURI() + tokenId + ".json"`.
+    ///         Matches the ERC-721 marketplace norm (OpenSea, Etherscan, and
+    ///         nft.storage examples all use the `.json` suffix). Studio and
+    ///         most metadata pipelines pin files as `1.json`, `2.json`, etc,
+    ///         so appending here removes a per-launcher configuration knob
+    ///         that was routinely getting wrong.
+    function tokenURI(
+        uint256 tokenId
+    ) public view virtual override returns (string memory) {
+        if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
+        string memory base = _baseURI();
+        return bytes(base).length == 0
+            ? ""
+            : string(abi.encodePacked(base, LibString.toString(tokenId), ".json"));
     }
 
     // ============================================================
@@ -207,11 +246,11 @@ contract ERC721ATemplate is ERC721A, Ownable {
     // ============================================================
 
     /// @notice First minted token has id 1 (not ERC721A's default of 0).
-    /// @dev    Matches OpenSea/Blur/Magic Eden convention. Also aligns
-    ///         with metadata generators that name files 1.json, 2.json...
-    ///         (chibi studio + most other pipelines do this) so
-    ///         tokenURI(1) = baseURI + "1" resolves to the first
-    ///         intended metadata file rather than 404'ing on 0.json.
+    /// @dev    Matches OpenSea/Blur/Magic Eden convention. Combined with
+    ///         the `.json` suffix in tokenURI, tokenURI(1) resolves to
+    ///         `<baseURI>1.json` — the first intended metadata file for
+    ///         every mainstream pipeline (chibi studio, nft.storage,
+    ///         pinata's Metaplex-style uploads).
     function _startTokenId() internal pure override returns (uint256) {
         return 1;
     }

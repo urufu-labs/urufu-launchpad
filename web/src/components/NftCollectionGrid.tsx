@@ -100,17 +100,27 @@ function shortAddr(a: string): string {
 // NFT rail sits shoulder-to-shoulder with the ERC-20 token rail visually.
 // ============================================================================
 
-function useCollectionCover(collectionAddress: Address, chainId: number): string | null | undefined {
+function useCollectionCover(
+  collectionAddress: Address,
+  chainId: number,
+  indexerCover: string | undefined,
+): string | null | undefined {
+  // Prefer the indexer-resolved cover URL — resolved server-side once and
+  // stored, so every viewer gets the same warm response instantly.
+  // Chain-read + IPFS-fetch fallback only kicks in when the indexer hasn't
+  // filled the field yet (e.g. brand-new launch, indexer still backfilling).
   const cid = chainId as 4663;
+  const needFallback = !indexerCover;
   const reads = useReadContracts({
     contracts: [
       { abi: erc721Abi, address: collectionAddress, functionName: 'tokenURI', args: [1n] as const, chainId: cid },
     ] as const,
-    query: { staleTime: 60_000 },
+    query: { enabled: needFallback, staleTime: 60_000 },
   });
   const tokenUri = reads.data?.[0]?.result as string | undefined;
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   useEffect(() => {
+    if (!needFallback) return;
     if (!tokenUri) { setCover(null); return; }
     let cancelled = false;
     (async () => {
@@ -118,8 +128,8 @@ function useCollectionCover(collectionAddress: Address, chainId: number): string
       if (!cancelled) setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
-  }, [tokenUri]);
-  return cover;
+  }, [needFallback, tokenUri]);
+  return indexerCover || cover;
 }
 
 function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: number }) {
@@ -132,9 +142,12 @@ function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: num
     query: { staleTime: 30_000 },
   });
   const totalSupply = reads.data?.[0]?.result as bigint | undefined;
-  const maxSupply   = reads.data?.[1]?.result as bigint | undefined;
+  // Prefer live on-chain maxSupply for accuracy, fall back to what the
+  // indexer stored at launch time (immutable, so they'll match).
+  const maxSupply   = (reads.data?.[1]?.result as bigint | undefined)
+    ?? (row.maxSupply ? BigInt(row.maxSupply) : undefined);
 
-  const cover = useCollectionCover(row.collectionAddress, chainId);
+  const cover = useCollectionCover(row.collectionAddress, chainId, row.coverImageUrl);
 
   const progressPct = totalSupply !== undefined && maxSupply !== undefined && maxSupply > 0n
     ? Math.min(100, Math.max(0, Number((totalSupply * 10_000n) / maxSupply) / 100))
@@ -222,11 +235,11 @@ function NftCollectionCard({
   const paymentToken = cMod.data?.[1]?.result as Address | undefined;
   const isUru = paymentToken && paymentToken !== zeroAddress;
 
-  // Cover image — resolve tokenURI(1) → JSON.image → gateway, racing
-  // through multiple IPFS gateways so a single slow one (ipfs.io was
-  // routinely timing out at 20s) doesn't leave the tile art-less.
+  // Cover image — indexer-resolved wins; client-side gateway race only
+  // runs when the indexer hasn't stored one yet.
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   useEffect(() => {
+    if (row.coverImageUrl) { setCover(row.coverImageUrl); return; }
     if (!tokenUri) { setCover(null); return; }
     let cancelled = false;
     (async () => {
@@ -235,7 +248,7 @@ function NftCollectionCard({
       setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
-  }, [tokenUri]);
+  }, [row.coverImageUrl, tokenUri]);
 
   const price = useMemo(() => {
     if (basePriceWei === undefined) return '—';

@@ -578,6 +578,18 @@ export interface IndexerNftCollection {
   launchedBy: Address;
   name: string;
   ticker: string;
+  /// Server-resolved cover image URL (already gateway-transformed).
+  /// Empty string when the resolve failed. Preferred over client-side
+  /// tokenURI fetches — the indexer had a warm gateway on it once and
+  /// stored the result.
+  coverImageUrl?: string;
+  description?: string;
+  baseUri?: string;
+  contractUri?: string;
+  maxSupply?: string;
+  mintMode?: number;
+  basePriceWei?: string;
+  paymentToken?: Address;
   blockNumber: string;
   blockTimestamp: string;
 }
@@ -599,7 +611,7 @@ export async function fetchNftCollectionsByLauncher(
         limit: $limit
       ) {
         items {
-          id chainId collectionAddress mintModuleAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
           blockNumber blockTimestamp
         }
       }
@@ -620,7 +632,7 @@ export async function fetchRecentNftCollections(
     `query RecentNftCollections($limit: Int!) {
       nftCollectionss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
-          id chainId collectionAddress mintModuleAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
           blockNumber blockTimestamp
         }
       }
@@ -686,7 +698,7 @@ export async function fetchNftCollectionsByAddresses(
     `query NftCollectionsByAddresses($addresses: [String!]!) {
       nftCollectionss(where: { collectionAddress_in: $addresses }, limit: 200) {
         items {
-          id chainId collectionAddress mintModuleAddress launchedBy name ticker
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
           blockNumber blockTimestamp
         }
       }

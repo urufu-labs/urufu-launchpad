@@ -368,16 +368,22 @@ export const NFT_LAUNCHES: Record<ChainKey, NftLaunchSet | null> = {
   sepolia: null,
   base: null,
   'base-sepolia': null,
-  // NFT stack V3 deployed 2026-09-01. Fixed the ExternalNft attestation
-  // ourCollection semantics (mint module now passes `token`, not
-  // `address(this)`) so the compile-service flow works end-to-end.
-  // Superseded V1 (0xBe33…) + V2 (0x5b4D…), both dark. Site stays hidden
-  // until NFT_LAUNCHES_ENABLED[robinhood] flips true.
+  // NFT stack V4 deployed 2026-09-01. Fixes vs V3:
+  //   - ERC-721 tokenURI now appends `.json` (matches OpenSea/Etherscan
+  //     norm + how studio.urufulabs.xyz pins metadata).
+  //   - Added contractURI() + setContractURI on the ERC-721 for OpenSea
+  //     collection-level metadata (banner, description, socials).
+  //   - Added launcher-only passthroughs on the mint module:
+  //     setCollectionContractURI, setCollectionBaseURI (post-reveal
+  //     tweaks + fixing bad pins) + transferCollectionOwnership (reclaim
+  //     ownership after mint-out to claim the collection on OpenSea).
+  // Supersedes V1/V2/V3 (all dark). Site stays hidden until
+  // NFT_LAUNCHES_ENABLED[robinhood] flips true.
   robinhood: {
-    LaunchFactory: '0x861A4725d255508AA54bD5C145c0E1dFc39b44A9',
-    Erc721Impl: '0x425fa35fd79F38af6a855d31c6144d7B9Aa22E12',
-    MintModuleImpl: '0x3ADcf3DBf50D5A4E04b38f6B0437f4eF458Ff4f4',
-    WhitelistModuleImpl: '0x779E726cc39C45E96d0D95fd5eCFa0B41DD56979',
+    LaunchFactory: '0x5Efb6291EDA5e27082B51FE040555f867881fd14',
+    Erc721Impl: '0x831dA1aB14BEAA6dF3Bd2Af5f4B61E68c85C43DC',
+    MintModuleImpl: '0x77Be091e5c2Ad3c46620Af8d757000027D414bEf',
+    WhitelistModuleImpl: '0x80094904bF87E0D01eb45293F4E25172733EA718',
   },
   'robinhood-testnet': null,
 };

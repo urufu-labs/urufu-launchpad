@@ -404,10 +404,24 @@ export const nftCollections = onchainTable('nft_collections', (t) => ({
   name: t.text().notNull(),
   ticker: t.text().notNull(),
   baseUri: t.text().notNull(),
+  /// Collection-level metadata URL — the return value of the ERC-721
+  /// clone's `contractURI()`. Empty string when unset. Powers the home
+  /// / discover cards without needing a client-side chain read.
+  contractUri: t.text().notNull().default(''),
+  /// Cover image URL, already resolved from tokenURI(1)'s metadata JSON
+  /// through an IPFS gateway on the server side (more reliable than the
+  /// browser hitting Pinata directly). Empty string when the resolve
+  /// failed or hasn't run yet.
+  coverImageUrl: t.text().notNull().default(''),
+  /// Collection description extracted from tokenURI(1)'s metadata JSON
+  /// `description` field. Empty string when unset.
+  description: t.text().notNull().default(''),
   maxSupply: t.bigint().notNull(),
   mintMode: t.integer().notNull(),                 // 0=fixed, 1=linearStep
   basePriceWei: t.bigint().notNull(),
   priceStepWei: t.bigint().notNull().default(0n),
+  /// address(0) = ETH-paid, URU token address = URU-paid.
+  paymentToken: t.hex().notNull().default('0x0000000000000000000000000000000000000000'),
   wlRoot: t.hex().notNull(),                       // 0x00… means "no WL"
   wlOpenWindowSec: t.integer().notNull().default(0),
   mintedCount: t.bigint().notNull().default(0n),   // updated on Mint events

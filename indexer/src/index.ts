@@ -962,6 +962,43 @@ ponder.on('UruDepositSink:ConversionExecuted', async ({ event, context }) => {
 ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
   const { token, launcher, mintModule, whitelistModule, name, ticker } = event.args;
   const chainId = chainIdOf(context);
+
+  // Chain-read the fields the event doesn't carry so the row lands with
+  // everything a card needs to render. Failures degrade to defaults —
+  // the row still gets written so per-mint events can join to it.
+  const nftErc721Abi = [
+    { type: 'function', name: 'baseURI',     stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
+    { type: 'function', name: 'contractURI', stateMutability: 'view', inputs: [], outputs: [{ type: 'string'  }] },
+    { type: 'function', name: 'maxSupply',   stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    { type: 'function', name: 'tokenURI',    stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ type: 'string' }] },
+  ] as const;
+  const nftMintModuleAbiReads = [
+    { type: 'function', name: 'basePriceWei', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    { type: 'function', name: 'priceStepWei', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    { type: 'function', name: 'mintMode',     stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8'   }] },
+    { type: 'function', name: 'paymentToken', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  ] as const;
+
+  const safeRead = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try { return await fn(); } catch { return fallback; }
+  };
+
+  const baseUri     = await safeRead(() => context.client.readContract({ abi: nftErc721Abi, address: token,      functionName: 'baseURI'     }), '' as string);
+  const contractUri = await safeRead(() => context.client.readContract({ abi: nftErc721Abi, address: token,      functionName: 'contractURI' }), '' as string);
+  const maxSupply   = await safeRead(() => context.client.readContract({ abi: nftErc721Abi, address: token,      functionName: 'maxSupply'   }), 0n as bigint);
+  const basePriceWei = await safeRead(() => context.client.readContract({ abi: nftMintModuleAbiReads, address: mintModule, functionName: 'basePriceWei' }), 0n as bigint);
+  const priceStepWei = await safeRead(() => context.client.readContract({ abi: nftMintModuleAbiReads, address: mintModule, functionName: 'priceStepWei' }), 0n as bigint);
+  const mintMode     = await safeRead(() => context.client.readContract({ abi: nftMintModuleAbiReads, address: mintModule, functionName: 'mintMode'     }), 0);
+  const paymentToken = await safeRead(() => context.client.readContract({ abi: nftMintModuleAbiReads, address: mintModule, functionName: 'paymentToken' }), '0x0000000000000000000000000000000000000000' as `0x${string}`);
+
+  // Resolve cover image + description from the collection's own metadata.
+  // Prefer contractURI (collection-level, includes the marketplace "cover"),
+  // fall back to tokenURI(1) since the collection-level URI is optional.
+  // Runs server-side (Ponder handler) instead of client-side so a slow
+  // gateway on a viewer's browser doesn't leave the cards blank.
+  const primaryMetadataUri = contractUri || (baseUri ? `${baseUri}1` : '');
+  const meta = await resolveNftMetadata(primaryMetadataUri);
+
   await context.db.insert(nftCollections).values({
     id: `${chainId}-${token}`,
     chainId,
@@ -970,15 +1007,15 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
     launchedBy: launcher,
     name,
     ticker,
-    // Not emitted by CollectionLaunched — populated by a static call
-    // once we ship the follow-up backfill (or by adding the fields to
-    // the event in a future contract version). Nulls-friendly defaults
-    // keep the row queryable in the meantime.
-    baseUri: '',
-    maxSupply: 0n,
-    mintMode: 0,
-    basePriceWei: 0n,
-    priceStepWei: 0n,
+    baseUri,
+    contractUri,
+    coverImageUrl: meta.image,
+    description: meta.description,
+    maxSupply,
+    mintMode: Number(mintMode),
+    basePriceWei,
+    priceStepWei,
+    paymentToken,
     wlRoot: '0x0000000000000000000000000000000000000000000000000000000000000000',
     wlOpenWindowSec: 0,
     mintedCount: 0n,
@@ -988,6 +1025,47 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
   }).onConflictDoNothing();
   void whitelistModule;
 });
+
+/// Server-side NFT metadata resolver — races a small ordered list of
+/// public IPFS gateways and, when the primary path 404s (studio pinned
+/// files as `1.json` while ERC721A returns `<baseURI>1`), automatically
+/// retries with `.json` appended. Runs inside the Ponder handler so
+/// browsers never see a stalled gateway.
+async function resolveNftMetadata(uri: string): Promise<{ image: string; description: string }> {
+  const empty = { image: '', description: '' };
+  if (!uri) return empty;
+  const gateways = uri.startsWith('ipfs://')
+    ? [
+        'https://nftstorage.link/ipfs/',
+        'https://w3s.link/ipfs/',
+        'https://dweb.link/ipfs/',
+        'https://gateway.pinata.cloud/ipfs/',
+        'https://ipfs.io/ipfs/',
+      ]
+    : [''];
+  const trailing = uri.split('/').pop() ?? '';
+  const suffixes = /\.[a-z0-9]{2,5}$/i.test(trailing) ? [''] : ['', '.json'];
+  for (const gw of gateways) {
+    const path = uri.startsWith('ipfs://') ? uri.slice('ipfs://'.length) : '';
+    for (const suffix of suffixes) {
+      const url = uri.startsWith('ipfs://') ? `${gw}${path}${suffix}` : `${uri}${suffix}`;
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+        if (!res.ok) continue;
+        const json = (await res.json()) as { image?: string; description?: string };
+        const image = typeof json.image === 'string'
+          ? json.image.startsWith('ipfs://')
+            ? `https://nftstorage.link/ipfs/${json.image.slice('ipfs://'.length)}`
+            : json.image
+          : '';
+        return { image, description: typeof json.description === 'string' ? json.description : '' };
+      } catch {
+        // timeout / network / parse — try next
+      }
+    }
+  }
+  return empty;
+}
 
 // One row per mint. `paidInUru` bucketing lets the flywheel dashboard
 // separate ETH mint revenue (flows through FeeSplitter) from URU mint
