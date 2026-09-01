@@ -3,7 +3,7 @@
 /// Per-collection page.
 ///
 /// Reads live state from the ERC-721 clone + its NftMintModule (found by
-/// reading the ERC-721's Solady `owner()` — which is the mint module by
+/// reading the ERC-721's `minter()` — which returns the mint module (per the
 /// construction post-launch). Renders price + supply + mint controls.
 ///
 /// URL: /collection/[address]  (address = the ERC-721 collection).
@@ -35,10 +35,14 @@ import styles from './collection.module.css';
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
 // mint module post-`transferOwnership`. Kept inline because we don't
 // pull in Solady's full ABI just for one function.
-const soladyOwnerAbi = [
+/// The ERC-721 template's `minter()` returns the mint module (V5 two-role
+/// model: owner=launcher, minter=mintModule). Older V1-V4 collections used
+/// `owner()` for this role — they're on the hidden list and don't render
+/// through this page anymore.
+const nftErc721MinterAbi = [
   {
     type: 'function',
-    name: 'owner',
+    name: 'minter',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'address' }],
@@ -120,7 +124,7 @@ function CollectionView({
   const shortAddr = `${address.slice(0, 6)}…${address.slice(-4)}`;
 
   // ------------------------------------------------------------
-  // 1. Read the ERC-721 basics + find its mint module (== owner()).
+  // 1. Read the ERC-721 basics + find its mint module (== minter()).
   // ------------------------------------------------------------
   const { data: baseReads } = useReadContracts({
     contracts: [
@@ -129,7 +133,7 @@ function CollectionView({
       { address, abi: nftErc721Abi, functionName: 'baseURI' },
       { address, abi: nftErc721Abi, functionName: 'totalMinted' },
       { address, abi: nftErc721Abi, functionName: 'maxSupply' },
-      { address, abi: soladyOwnerAbi, functionName: 'owner' },
+      { address, abi: nftErc721MinterAbi, functionName: 'minter' },
     ],
     query: { staleTime: 10_000 },
   });

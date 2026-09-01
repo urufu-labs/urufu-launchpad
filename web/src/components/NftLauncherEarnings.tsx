@@ -5,7 +5,9 @@
 ///
 /// Data sources per collection this wallet launched on `chain`:
 ///   1. Indexer `nftCollectionss` filtered by launchedBy → collection addresses
-///   2. On-chain owner() on each ERC-721 → mint module address
+///      + the bound mintModuleAddress (from the V4 schema onward)
+///   2. On-chain minter() on each ERC-721 → mint module address (fallback
+///      for older indexer rows where mintModuleAddress isn't populated)
 ///   3. On-chain paymentToken() on the mint module → ETH mode (0x0) vs URU mode
 ///   4. On-chain launcherBalance() / launcherBalanceUru() → accrued 90% owed
 ///   5. On-chain withdraw() / withdrawUru() for the claim button
@@ -35,12 +37,12 @@ import {
   type CollectionRow,
 } from './NftLauncherEarnings.logic';
 
-// Solady Ownable — the NftLaunchFactory transfers the ERC-721 clone's
-// ownership to the mint module at launch, so `owner()` on the ERC-721 IS
-// the mint module. Kept inline to match /collection/[address]'s pattern
-// rather than pulling in Solady's full ABI just for one call.
-const soladyOwnerAbi = [
-  { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+// V5 two-role model: the ERC-721 clone's `minter()` returns the mint
+// module (Solady owner() returns the LAUNCHER in V5, not the module).
+// Kept inline to match /collection/[address]'s pattern rather than
+// pulling in the full ABI just for one call.
+const nftErc721MinterAbi = [
+  { type: 'function', name: 'minter', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
 ] as const;
 
 interface Props {
@@ -75,9 +77,9 @@ export function NftLauncherEarnings({ visibleFor, chain }: Props) {
   // Batched so a launcher with 20 collections is one round-trip, not 20.
   const ownerReads = useReadContracts({
     contracts: collections.map((c) => ({
-      abi: soladyOwnerAbi,
+      abi: nftErc721MinterAbi,
       address: c.collectionAddress,
-      functionName: 'owner' as const,
+      functionName: 'minter' as const,
       chainId: targetChainId,
     })),
     query: { enabled: collections.length > 0, refetchInterval: 30_000 },
