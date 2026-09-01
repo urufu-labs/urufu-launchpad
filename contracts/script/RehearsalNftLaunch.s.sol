@@ -103,6 +103,18 @@ contract RehearsalNftLaunch is Script {
         return _launch(p);
     }
 
+    // Row 7 — "gallery smoke": Fixed + ETH, cover art resolvable via the
+    // self-hosted /api/nft-test metadata route on urufulabs.xyz so Alchemy
+    // can cache + surface a real thumbnail in the profile "your nfts" grid.
+    // NOT hidden by hiddenNftCollections — this one is meant to appear.
+    function runGallerySmoke() external returns (address token, address mintModule, address wlModule) {
+        NftLaunchFactory.LaunchParams memory p = _defaults();
+        p.name = "Launchpad Gallery Smoke";
+        p.ticker = "SMOKE";
+        p.baseURI = "https://urufulabs.xyz/api/nft-test/";
+        return _launch(p);
+    }
+
     // ---- helpers ---------------------------------------------------------
 
     function _defaults() internal pure returns (NftLaunchFactory.LaunchParams memory p) {
