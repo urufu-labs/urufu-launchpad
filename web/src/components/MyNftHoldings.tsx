@@ -1,36 +1,39 @@
 'use client';
 
 /// "Your NFTs" gallery. Renders NFTs the wallet holds on Robinhood chain
-/// that are RELEVANT to this launchpad — either the ecosystem's own gemu
-/// NFT, or a collection launched through NftLaunchFactory. Everything
-/// else the wallet holds on RH (random airdrops, other-app NFTs) stays
-/// off this gallery because they have no in-app destination.
+/// that are RELEVANT to this launchpad — the ecosystem's gemu NFT, listed
+/// friend collections (birbs, …), and any collection launched through
+/// NftLaunchFactory. Everything else the wallet holds on RH stays off the
+/// gallery because there's no useful in-app destination.
 ///
 /// Click routing:
-///   - urufu gemu → external OpenSea collection page (opens new tab)
-///   - launchpad-launched → /collection/[address] (the mint page)
+///   - urufu gemu / birbs / other friends → external OpenSea page (new tab)
+///   - launchpad-launched → /collection/[address] (mint page)
 ///
 /// Data path:
-///   1. compile-service /wallet/:address/nfts (Alchemy NFT API v3)
-///        — one HTTP call, images pre-resolved, spam pre-filtered.
-///   2. indexer nftCollections(collectionAddress_in: [...])
-///        — resolves which contracts in the wallet were launched here.
+///   1. Alchemy scan (`/wallet/:address/nfts`) — one HTTP call, per-token
+///      entries with cached image URLs. Spam filtered server-side.
+///   2. Indexer nftMints — fallback for freshly-minted launchpad NFTs that
+///      Alchemy hasn't picked up yet (Alchemy latency is minutes on new
+///      contracts; the indexer sees them within one block). Any launchpad
+///      collection the wallet minted from AND still currently holds gets
+///      one synthesized tile whose image is lazy-resolved via tokenURI(1).
 ///
-/// Silently renders nothing on:
-///   - error (scanner down / rate limited / no API key)
-///   - wallet holds nothing relevant
-/// so it never introduces noise on a profile that has no such NFTs.
+/// Silently renders nothing while sources are loading or when the wallet
+/// holds nothing relevant.
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { type Address } from 'viem';
+import { type Address, erc721Abi } from 'viem';
+import { useReadContracts } from 'wagmi';
 
 import type { ChainKey } from '@/lib/config';
 import { ECOSYSTEM_TOKENS } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { isHiddenNftCollection } from '@/lib/hiddenNftCollections';
 import { fetchWalletNfts, type WalletNftAvatar } from '@/lib/nftAvatarApi';
-import { fetchNftCollectionsByAddresses } from '@/lib/indexer';
+import { fetchNftCollectionsByAddresses, fetchNftMintsByMinter } from '@/lib/indexer';
+import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 
 interface Props {
   visibleFor: Address;
@@ -41,14 +44,6 @@ type Destination =
   | { kind: 'launchpad'; href: string }
   | { kind: 'external'; href: string };
 
-/// External destinations for known ecosystem-friend NFTs that aren't
-/// launchpad-launched but are worth surfacing on a user's gallery.
-/// Anything not listed here AND not a launchpad collection just doesn't
-/// appear at all — no useful in-app destination.
-///
-/// Adding a friend: append a row. The map is address-keyed, so the
-/// canonical ecosystem-token address (like gemu from ECOSYSTEM_TOKENS)
-/// stays as its own single source of truth further down.
 const EXTERNAL_FRIENDS: ReadonlyArray<{ address: string; href: string }> = [
   // birbs — RH-native friend collection.
   { address: '0x94ab280f48fe30cbbb92794a0bf2d51ea07b1164', href: 'https://opensea.io/collection/birbsrh' },
@@ -65,54 +60,103 @@ function externalDestinationFor(collectionAddress: string): Destination | null {
   return null;
 }
 
+interface Tile {
+  key: string;
+  contractAddress: Address;
+  displayName: string;
+  subtitle: string;
+  imageUrl: string | null;
+  dest: Destination;
+  chainId: number;
+  needsLazyImage: boolean;
+}
+
 export function MyNftHoldings({ visibleFor, chain }: Props) {
-  const [items, setItems] = useState<Array<WalletNftAvatar & { dest: Destination }> | null>(null);
+  const targetChainId = CHAIN_KEY_TO_ID[chain];
+  const [tiles, setTiles] = useState<Tile[] | null>(null);
 
   useEffect(() => {
-    // RH-only for now. Broaden when NFT_LAUNCHES goes multi-chain.
-    if (chain !== 'robinhood') { setItems([]); return; }
+    if (chain !== 'robinhood') { setTiles([]); return; }
     let cancelled = false;
     (async () => {
-      try {
-        const scan = await fetchWalletNfts(visibleFor, { chain: 'robinhood' });
-        if (cancelled) return;
-        const rh = scan.chains.find((c) => c.id === 'robinhood');
-        const raw = (rh?.items ?? []).filter(
-          (n) => !isHiddenNftCollection(n.chainId, n.contractAddress),
-        );
+      // Fire both sources in parallel; wait for both before rendering so
+      // fresh launchpad mints show up alongside Alchemy-resolved holdings.
+      const [scan, mints] = await Promise.all([
+        fetchWalletNfts(visibleFor, { chain: 'robinhood' }).catch(() => null),
+        fetchNftMintsByMinter(visibleFor, 100).catch(() => null),
+      ]);
+      if (cancelled) return;
 
-        // Resolve which distinct contracts are launchpad-launched. One
-        // batched indexer call for the whole gallery.
-        const distinctAddrs = Array.from(new Set(raw.map((n) => n.contractAddress.toLowerCase() as Address)));
-        const launchpad = await fetchNftCollectionsByAddresses(distinctAddrs);
-        if (cancelled) return;
-        const launchpadSet = new Set((launchpad ?? []).map((c) => c.collectionAddress.toLowerCase()));
+      const rhAlchemy = scan?.chains.find((c) => c.id === 'robinhood')?.items ?? [];
+      const alchemyKept = rhAlchemy.filter(
+        (n) => !isHiddenNftCollection(n.chainId, n.contractAddress),
+      );
 
-        // Keep each item that either matches a known ecosystem destination
-        // or is a launchpad-launched collection. Everything else drops.
-        const kept: Array<WalletNftAvatar & { dest: Destination }> = [];
-        for (const n of raw) {
-          const addr = n.contractAddress.toLowerCase();
-          const ext = externalDestinationFor(addr);
-          if (ext) { kept.push({ ...n, dest: ext }); continue; }
-          if (launchpadSet.has(addr)) {
-            kept.push({ ...n, dest: { kind: 'launchpad', href: `/collection/${n.contractAddress}` } });
-          }
-        }
-        setItems(kept);
-      } catch {
-        if (!cancelled) setItems([]);
+      // Distinct launchpad candidates: Alchemy contracts + indexer mint
+      // contracts (the fresh-mint set Alchemy hasn't caught yet).
+      const alchemyAddrs = alchemyKept.map((n) => n.contractAddress.toLowerCase() as Address);
+      const indexerAddrs = (mints ?? [])
+        .filter((m) => m.chainId === targetChainId)
+        .filter((m) => !isHiddenNftCollection(m.chainId, m.collectionAddress))
+        .map((m) => m.collectionAddress.toLowerCase() as Address);
+      const distinctAddrs = Array.from(new Set([...alchemyAddrs, ...indexerAddrs]));
+      const launchpadRows = await fetchNftCollectionsByAddresses(distinctAddrs);
+      if (cancelled) return;
+      const launchpadByAddr = new Map(
+        (launchpadRows ?? []).map((c) => [c.collectionAddress.toLowerCase(), c]),
+      );
+
+      const out: Tile[] = [];
+      const seen = new Set<string>();
+
+      // First: Alchemy tiles (per-token, images resolved).
+      for (const n of alchemyKept) {
+        const addr = n.contractAddress.toLowerCase();
+        const ext = externalDestinationFor(addr);
+        const isLaunchpad = launchpadByAddr.has(addr);
+        if (!ext && !isLaunchpad) continue; // not relevant to this launchpad
+        const key = `${addr}-${n.tokenId}`;
+        seen.add(key);
+        out.push({
+          key,
+          contractAddress: n.contractAddress as Address,
+          displayName: n.tokenName?.trim() || `${n.collectionName ?? 'Untitled'} #${n.tokenId}`,
+          subtitle: (n.collectionName?.trim() || addr.slice(0, 10) + '…')
+            + (ext ? ' · opensea ↗' : ''),
+          imageUrl: n.imageUrl || null,
+          dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}` },
+          chainId: n.chainId,
+          needsLazyImage: false,
+        });
       }
+
+      // Second: launchpad collections from the indexer that Alchemy missed
+      // (fresh mints). One synthesized tile per collection.
+      for (const addr of indexerAddrs) {
+        if (!launchpadByAddr.has(addr)) continue; // hidden or non-launchpad
+        // Already covered by Alchemy for at least one tokenId? skip.
+        const alreadyShown = out.some((t) => t.contractAddress.toLowerCase() === addr);
+        if (alreadyShown) continue;
+        const meta = launchpadByAddr.get(addr)!;
+        out.push({
+          key: `synth-${addr}`,
+          contractAddress: addr as Address,
+          displayName: meta.name,
+          subtitle: `$${meta.ticker}`,
+          imageUrl: null,           // resolved lazily via tokenURI(1)
+          dest: { kind: 'launchpad', href: `/collection/${addr}` },
+          chainId: meta.chainId,
+          needsLazyImage: true,
+        });
+      }
+
+      setTiles(out);
     })();
     return () => { cancelled = true; };
-  }, [visibleFor, chain]);
+  }, [visibleFor, chain, targetChainId]);
 
-  if (items === null) return null;   // pre-first-response, no noise
-  if (items.length === 0) return null; // nothing to show
-
-  // suppress unused-var lint on the chain-id map import — kept for the
-  // future multi-chain fan-out described in the effect above.
-  void CHAIN_KEY_TO_ID;
+  if (tiles === null) return null;
+  if (tiles.length === 0) return null;
 
   return (
     <section>
@@ -129,70 +173,106 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           gap: 10,
         }}
       >
-        {items.map((n) => {
-          const key = `${n.contractAddress.toLowerCase()}-${n.tokenId}`;
-          const displayName = n.tokenName?.trim() || `${n.collectionName ?? 'Untitled'} #${n.tokenId}`;
-          const subtitle = n.collectionName?.trim() || n.contractAddress.slice(0, 10) + '…';
-          const isExternal = n.dest.kind === 'external';
-          const linkProps = isExternal
-            ? { target: '_blank' as const, rel: 'noopener noreferrer' as const }
-            : {};
-          return (
-            <Link
-              key={key}
-              href={n.dest.href}
-              title={displayName}
-              {...linkProps}
-              style={{
-                textDecoration: 'none',
-                color: 'inherit',
-                display: 'flex',
-                flexDirection: 'column',
-                borderRadius: 8,
-                overflow: 'hidden',
-                background: 'var(--paper, #fff)',
-                border: '1.5px solid var(--anchor)',
-              }}
-            >
-              <div
-                style={{
-                  aspectRatio: '1 / 1',
-                  background: n.imageUrl
-                    ? `center/cover no-repeat url("${n.imageUrl}")`
-                    : `repeating-linear-gradient(45deg, var(--cream) 0 8px, var(--cream-deep) 8px 16px)`,
-                }}
-              />
-              <div style={{ padding: '6px 8px' }}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-body), sans-serif',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {displayName}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 9,
-                    color: 'var(--anchor-soft)',
-                    textTransform: 'uppercase',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {subtitle}{isExternal ? ' · opensea ↗' : ''}
-                </div>
-              </div>
-            </Link>
-          );
-        })}
+        {tiles.map((t) => (
+          <NftTile key={t.key} tile={t} viewer={visibleFor} />
+        ))}
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tile
+// ---------------------------------------------------------------------------
+
+function NftTile({ tile, viewer }: { tile: Tile; viewer: Address }) {
+  const [lazyImage, setLazyImage] = useState<string | null>(null);
+
+  // Read balanceOf + tokenURI(1) so synthesized tiles get a cover and get
+  // dropped if the wallet has since transferred out. Alchemy-sourced tiles
+  // skip both — Alchemy already resolved the image and confirmed ownership.
+  const enabled = tile.needsLazyImage;
+  const reads = useReadContracts({
+    contracts: enabled ? [
+      { abi: erc721Abi, address: tile.contractAddress, functionName: 'balanceOf', args: [viewer] as const, chainId: tile.chainId as 4663 },
+      { abi: erc721Abi, address: tile.contractAddress, functionName: 'tokenURI',  args: [1n] as const,       chainId: tile.chainId as 4663 },
+    ] as const : [] as const,
+    query: { enabled, staleTime: 30_000 },
+  });
+  const balance = reads.data?.[0]?.result as bigint | undefined;
+  const tokenUri = reads.data?.[1]?.result as string | undefined;
+
+  useEffect(() => {
+    if (!tile.needsLazyImage || !tokenUri) return;
+    let cancelled = false;
+    (async () => {
+      const meta = await fetchIpfsJson<{ image?: string }>(tokenUri);
+      if (!cancelled) setLazyImage(toGatewayUrl(meta?.image));
+    })();
+    return () => { cancelled = true; };
+  }, [tile.needsLazyImage, tokenUri]);
+
+  // Drop the tile if a synthesized entry's balance came back zero (all
+  // transferred out). Alchemy tiles never enter this branch.
+  if (tile.needsLazyImage && balance !== undefined && balance === 0n) return null;
+
+  const image = tile.imageUrl ?? lazyImage;
+  const isExternal = tile.dest.kind === 'external';
+  const linkProps = isExternal
+    ? { target: '_blank' as const, rel: 'noopener noreferrer' as const }
+    : {};
+
+  return (
+    <Link
+      href={tile.dest.href}
+      title={tile.displayName}
+      {...linkProps}
+      style={{
+        textDecoration: 'none',
+        color: 'inherit',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--paper, #fff)',
+        border: '1.5px solid var(--anchor)',
+      }}
+    >
+      <div
+        style={{
+          aspectRatio: '1 / 1',
+          background: image
+            ? `center/cover no-repeat url("${image}")`
+            : `repeating-linear-gradient(45deg, var(--cream) 0 8px, var(--cream-deep) 8px 16px)`,
+        }}
+      />
+      <div style={{ padding: '6px 8px' }}>
+        <div
+          style={{
+            fontFamily: 'var(--font-body), sans-serif',
+            fontSize: 12,
+            fontWeight: 600,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {tile.displayName}
+        </div>
+        <div
+          style={{
+            fontFamily: 'var(--font-pixel), monospace',
+            fontSize: 9,
+            color: 'var(--anchor-soft)',
+            textTransform: 'uppercase',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {tile.subtitle}
+        </div>
+      </div>
+    </Link>
   );
 }

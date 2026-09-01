@@ -22,6 +22,7 @@ import { useReadContracts } from 'wagmi';
 import type { ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentNftCollections, type IndexerNftCollection } from '@/lib/indexer';
+import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { NftLaunchTeaser } from './NftLaunchTeaser';
 import styles from './NftCollectionGrid.module.css';
 
@@ -75,13 +76,6 @@ const mintModuleAbi = [
   { type: 'function', name: 'paymentToken',  stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
 ] as const;
 
-function resolveMetadataUrl(uri: string | undefined): string | null {
-  if (!uri) return null;
-  if (uri.startsWith('ipfs://')) return `https://ipfs.io/ipfs/${uri.slice('ipfs://'.length)}`;
-  if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
-  return null;
-}
-
 function shortAddr(a: string): string {
   return `${a.slice(0, 6)}··${a.slice(-3)}`;
 }
@@ -126,19 +120,17 @@ function NftCollectionCard({
   const paymentToken = cMod.data?.[1]?.result as Address | undefined;
   const isUru = paymentToken && paymentToken !== zeroAddress;
 
-  // Cover image — resolve tokenURI(1) → JSON.image → gateway.
+  // Cover image — resolve tokenURI(1) → JSON.image → gateway, racing
+  // through multiple IPFS gateways so a single slow one (ipfs.io was
+  // routinely timing out at 20s) doesn't leave the tile art-less.
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    const url = resolveMetadataUrl(tokenUri);
-    if (!url) { setCover(null); return; }
+    if (!tokenUri) { setCover(null); return; }
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch(url, { cache: 'force-cache' });
-        if (!res.ok) { if (!cancelled) setCover(null); return; }
-        const meta = await res.json() as { image?: string };
-        if (!cancelled) setCover(resolveMetadataUrl(meta.image));
-      } catch { if (!cancelled) setCover(null); }
+      const meta = await fetchIpfsJson<{ image?: string }>(tokenUri);
+      if (cancelled) return;
+      setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
   }, [tokenUri]);
