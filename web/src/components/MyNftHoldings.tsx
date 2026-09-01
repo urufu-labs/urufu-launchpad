@@ -41,15 +41,27 @@ type Destination =
   | { kind: 'launchpad'; href: string }
   | { kind: 'external'; href: string };
 
-/// External destinations for known ecosystem NFTs that aren't launchpad-
-/// launched. Keep this map tiny — anything not listed here AND not a
-/// launchpad collection just doesn't appear in the gallery.
+/// External destinations for known ecosystem-friend NFTs that aren't
+/// launchpad-launched but are worth surfacing on a user's gallery.
+/// Anything not listed here AND not a launchpad collection just doesn't
+/// appear at all — no useful in-app destination.
+///
+/// Adding a friend: append a row. The map is address-keyed, so the
+/// canonical ecosystem-token address (like gemu from ECOSYSTEM_TOKENS)
+/// stays as its own single source of truth further down.
+const EXTERNAL_FRIENDS: ReadonlyArray<{ address: string; href: string }> = [
+  // birbs — RH-native friend collection.
+  { address: '0x94ab280f48fe30cbbb92794a0bf2d51ea07b1164', href: 'https://opensea.io/collection/birbsrh' },
+];
+
 function externalDestinationFor(collectionAddress: string): Destination | null {
   const addr = collectionAddress.toLowerCase();
   const gemu = ECOSYSTEM_TOKENS.robinhood?.gemuNft?.toLowerCase();
   if (gemu && addr === gemu) {
     return { kind: 'external', href: 'https://opensea.io/collection/urufugemu' };
   }
+  const friend = EXTERNAL_FRIENDS.find((f) => f.address.toLowerCase() === addr);
+  if (friend) return { kind: 'external', href: friend.href };
   return null;
 }
 
