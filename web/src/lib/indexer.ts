@@ -15,6 +15,7 @@
 import type { Address } from 'viem';
 
 import { isHiddenToken, notHidden } from './hiddenTokens';
+import { notHiddenNft } from './hiddenNftCollections';
 
 /// Shared fallback for chains without their own explicit per-chain URL. `undefined`
 /// on prod when nothing is configured — in that case, indexer helpers skip the fetch
@@ -579,9 +580,8 @@ export interface IndexerNftCollection {
 
 /// NFT collections launched by `launcher`. Used by NftLauncherEarnings on the
 /// profile page to enumerate every mint module the launcher can withdraw from.
-/// Mirrors fetchLaunchesByCreator's shape (fan out across every configured
-/// indexer URL; hidden-collection filtering not applied since NFT collections
-/// aren't in the hidden-list yet).
+/// Filters out hidden collections (rehearsals, test launches) via
+/// [[hiddenNftCollections]] so those stay dark on every feed.
 export async function fetchNftCollectionsByLauncher(
   launcher: Address,
   limit = 40,
@@ -602,7 +602,7 @@ export async function fetchNftCollectionsByLauncher(
     }`,
     { launcher: launcher.toLowerCase(), limit },
   );
-  return data?.nftCollectionss.items ?? null;
+  return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
 }
 
 export interface IndexerNftMint {
@@ -623,6 +623,8 @@ export interface IndexerNftMint {
 /// widget on the profile page. Records mint events not current ownership, so a
 /// wallet that minted-then-transferred still shows up here as a past minter;
 /// live balances need a separate on-chain read against each collection.
+/// Filters out mints against hidden collections so test rehearsals don't
+/// clutter real wallets' history.
 export async function fetchNftMintsByMinter(
   minter: Address,
   limit = 100,
@@ -643,13 +645,14 @@ export async function fetchNftMintsByMinter(
     }`,
     { minter: minter.toLowerCase(), limit },
   );
-  return data?.nftMintss.items ?? null;
+  return (data?.nftMintss.items ?? []).filter(notHiddenNft);
 }
 
 /// Fetch metadata for a specific set of collection addresses. Companion to
 /// fetchNftMintsByMinter — dedupe the mint list to unique collections, feed
 /// those into this to get names/tickers/baseUri for the widget's per-row
-/// rendering.
+/// rendering. Hidden collections are filtered so a widget consumer never
+/// gets a metadata row for something it already dropped upstream.
 export async function fetchNftCollectionsByAddresses(
   addresses: Address[],
 ): Promise<IndexerNftCollection[] | null> {
@@ -665,7 +668,7 @@ export async function fetchNftCollectionsByAddresses(
     }`,
     { addresses: addresses.map((a) => a.toLowerCase()) },
   );
-  return data?.nftCollectionss.items ?? null;
+  return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
 }
 
 /// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps
