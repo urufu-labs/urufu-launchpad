@@ -6,7 +6,7 @@ import { useChainId } from 'wagmi';
 
 import styles from './catalog.module.css';
 import { MODULES, configHashFor, type ModuleSpec } from '@/lib/modules';
-import { CHAINS_ENABLED, CONTRACTS, CHAIN_LABELS, type ChainKey } from '@/lib/config';
+import { CHAINS_ENABLED, CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, explorerAddressUrl } from '@/lib/wagmi';
 
 const RECIPES: Array<{
@@ -47,6 +47,7 @@ const INDEX = [
   { id: 'modules', label: 'modules', jp: '出来' },
   { id: 'planned', label: 'planned', jp: '予定' },
   { id: 'recipes', label: 'configurations', jp: '定食' },
+  { id: 'nft-stack', label: 'NFT stack', jp: '絵札' },
 ];
 
 function short(a: string): string {
@@ -200,6 +201,19 @@ export default function CatalogPage() {
             modules={planned}
             planned
           />
+
+          <SectionHead
+            id="nft-stack"
+            title="NFT stack"
+            jp="絵札"
+            sub="Contracts an ERC-721 collection launch routes through."
+          />
+          <div className={styles.coreTable}>
+            <StackRow name="NftLaunchFactory" role="deploys collection + mint module in one tx" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.LaunchFactory} />
+            <StackRow name="ERC721 impl" role="cloned per collection" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.Erc721Impl} />
+            <StackRow name="Mint module impl" role="handles pricing, discounts, and mint accounting" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.MintModuleImpl} />
+            <StackRow name="Whitelist module impl" role="optional per-collection whitelist gate" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.WhitelistModuleImpl} />
+          </div>
 
           <SectionHead
             id="recipes"

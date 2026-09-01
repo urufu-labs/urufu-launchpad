@@ -368,9 +368,17 @@ export const NFT_LAUNCHES: Record<ChainKey, NftLaunchSet | null> = {
   sepolia: null,
   base: null,
   'base-sepolia': null,
-  // Phase-0 scaffolding: UI ships, contracts pending broadcast. Populate
-  // after NftMintModule* deploys land on RH.
-  robinhood: null,
+  // NFT stack V3 deployed 2026-09-01. Fixed the ExternalNft attestation
+  // ourCollection semantics (mint module now passes `token`, not
+  // `address(this)`) so the compile-service flow works end-to-end.
+  // Superseded V1 (0xBe33…) + V2 (0x5b4D…), both dark. Site stays hidden
+  // until NFT_LAUNCHES_ENABLED[robinhood] flips true.
+  robinhood: {
+    LaunchFactory: '0x861A4725d255508AA54bD5C145c0E1dFc39b44A9',
+    Erc721Impl: '0x425fa35fd79F38af6a855d31c6144d7B9Aa22E12',
+    MintModuleImpl: '0x3ADcf3DBf50D5A4E04b38f6B0437f4eF458Ff4f4',
+    WhitelistModuleImpl: '0x779E726cc39C45E96d0D95fd5eCFa0B41DD56979',
+  },
   'robinhood-testnet': null,
 };
 
@@ -384,7 +392,7 @@ export const NFT_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: false,
+  robinhood: true,
   'robinhood-testnet': false,
 };
 

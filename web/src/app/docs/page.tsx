@@ -1,7 +1,7 @@
 'use client';
 
-/// Public guide for the live Urufu launch flow. Keep this ERC-20-only until the
-/// product exposes NFT/mixed-item launching again.
+/// Public guide for the live Urufu launch flow. Covers ERC-20 coin launches
+/// and ERC-721 NFT collection launches on Robinhood chain.
 
 import Link from 'next/link';
 
@@ -17,6 +17,7 @@ const SECTIONS: Section[] = [
   { id: 'uru-pay', label: 'URU pay', jp: 'URU支払' },
   { id: 'trading', label: 'curve trading', jp: '曲線' },
   { id: 'graduation', label: 'V4 graduation', jp: '卒業' },
+  { id: 'nfts', label: 'NFT launches', jp: '絵札' },
   { id: 'fees', label: 'fees', jp: '料金' },
   { id: 'risk', label: 'risk', jp: '注意' },
   { id: 'chains', label: 'chains', jp: '鎖' },
@@ -179,6 +180,23 @@ export default function DocsPage() {
                 'Creator fee routing starts after graduation through the V4 hook configuration.',
                 'Optional security and buyback-burn settings are written into the pool at graduation when selected.',
                 'Graduation improves market depth, but it does not make price appreciation or future volume guaranteed.',
+              ]}
+            />
+          </DocSection>
+
+          <DocSection id="nfts" title="NFT Launches" jp="絵札">
+            <p>
+              Alongside coins, creators can launch ERC-721 collections at
+              <Link href="/create/nft" style={{ marginLeft: 4 }}>/create/nft</Link>.
+              Pick a fixed or stepped mint price, cap per-wallet mints, and choose
+              ETH or URU as the payment currency.
+            </p>
+            <FactList
+              items={[
+                'Optional whitelist: a merkle list of wallets that can mint during a set window.',
+                'Optional discounts for holders of another NFT collection (any chain the attestation service supports).',
+                'Launcher keeps 90% of every mint, 10% flows to the flywheel.',
+                'Claim launcher earnings from your profile page any time after the first mint.',
               ]}
             />
           </DocSection>
