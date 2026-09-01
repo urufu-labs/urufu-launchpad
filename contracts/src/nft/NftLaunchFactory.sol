@@ -328,16 +328,11 @@ contract NftLaunchFactory is Ownable {
         nameSaltTaken[saltKey] = true;
 
         // -- 4. Clone the ERC-721 with `this` as initial owner. We
-        //     transfer ownership to the mint module at the end.
+        //     initialize with two-role model: launcher = owner (edits on
+        //     OpenSea + can also mint if they want), mint module = minter
+        //     (holds mint rights via check in mintBatch). Deferred to
+        //     after mint-module clone so we know its address.
         token = LibClone.cloneDeterministic(erc721Impl, saltKey);
-        {
-            // ERC721ATemplate.initialize(data) expects:
-            //   (address initialOwner, string name, string symbol,
-            //    string baseURI, uint256 maxSupply, bytes[] moduleData)
-            bytes[] memory noModules = new bytes[](0);
-            bytes memory initErc = abi.encode(address(this), p.name, p.ticker, p.baseURI, p.maxSupply, noModules);
-            IInitializable(token).initialize(initErc);
-        }
 
         // -- 5. Whitelist module (if flavor != Off).
         if (p.wlFlavor != NftWhitelistModule.Flavor.Off) {
@@ -382,8 +377,16 @@ contract NftLaunchFactory is Ownable {
             IInitializable(mintModule).initialize(abi.encode(mp));
         }
 
-        // -- 7. Hand ownership of the ERC-721 to the mint module.
-        ERC721ATemplate(token).transferOwnership(mintModule);
+        // -- 7. Initialize the ERC-721 now that we know the mint-module
+        //       address. Two-role: owner = launcher (OpenSea edits +
+        //       optional airdrop mints), minter = mintModule (routine
+        //       mint path). No transferOwnership needed.
+        {
+            bytes[] memory noModules = new bytes[](0);
+            bytes memory initErc =
+                abi.encode(msg.sender, mintModule, p.name, p.ticker, p.baseURI, p.maxSupply, noModules);
+            IInitializable(token).initialize(initErc);
+        }
 
         emit CollectionLaunched(token, msg.sender, mintModule, whitelistModule, saltKey, p.uruAmount, p.name, p.ticker);
     }

@@ -58,6 +58,11 @@ export const HIDDEN_NFT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
   //     (setCollectionBaseURI + setCollectionContractURI) all update
   //     on-chain correctly. Test collection; keep off feeds.
   '4663:0xbfd79600340ec02b0c47988c76a5bf9d56eb8dc2',
+  //   - V5 factory gallery smoke (2026-09-01). Verified two-role
+  //     ownership: owner()=launcher, minter()=mintModule, mint via
+  //     module works, launcher calls setBaseURI directly and the
+  //     tokenURI reflects the update immediately.
+  '4663:0x9f9e3304c3878f9c62d0b067012ab736301e8d83',
 ]);
 
 export function isHiddenNftCollection(chainId: number, collectionAddress: Address | string): boolean {

@@ -39,6 +39,7 @@ contract ERC721ATemplate is ERC721A, Ownable {
     error ERC721ATemplate__ZeroOwner();
     error ERC721ATemplate__MaxSupplyExceeded(uint256 requested, uint256 remaining);
     error ERC721ATemplate__ZeroQuantity();
+    error ERC721ATemplate__NotMinter();
 
     // ============================================================
     // VM_INJECT_ERRORS
@@ -51,6 +52,10 @@ contract ERC721ATemplate is ERC721A, Ownable {
     event Initialized(string name, string symbol, address indexed initialOwner, uint256 maxSupply);
     event BaseURISet(string oldBaseURI, string newBaseURI);
     event ContractURISet(string oldContractURI, string newContractURI);
+    /// Fired when the minter role is set (once at init) or rotated
+    /// (owner-only). Consumers watching for who can mint from this
+    /// collection subscribe to this + the mint events.
+    event MinterSet(address indexed oldMinter, address indexed newMinter);
 
     // ============================================================
     // VM_INJECT_EVENTS
@@ -70,6 +75,12 @@ contract ERC721ATemplate is ERC721A, Ownable {
     /// featured image; falls back to an empty string when unset so the
     /// marketplace uses on-chain name/symbol as the only identity.
     string private _vmContractURI;
+    /// Address permitted to call `mintBatch`. The mint module is bound
+    /// here at initialize time so the *launcher* can hold Ownable owner
+    /// (needed for OpenSea's edit flow) while the mint module keeps
+    /// exclusive mint rights. Owner can rotate via `setMinter` — useful
+    /// if a launcher wants to swap in a new mint module post-launch.
+    address public minter;
 
     // ============================================================
     // VM_INJECT_STATE
@@ -144,9 +155,7 @@ contract ERC721ATemplate is ERC721A, Ownable {
     ) public view virtual override returns (string memory) {
         if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
         string memory base = _baseURI();
-        return bytes(base).length == 0
-            ? ""
-            : string(abi.encodePacked(base, LibString.toString(tokenId), ".json"));
+        return bytes(base).length == 0 ? "" : string(abi.encodePacked(base, LibString.toString(tokenId), ".json"));
     }
 
     // ============================================================
@@ -154,9 +163,11 @@ contract ERC721ATemplate is ERC721A, Ownable {
     // ============================================================
 
     /// @notice Initialize the clone. Called exactly once, immediately after `cloneDeterministic`.
-    /// @dev    Encoded input: `abi.encode(initialOwner, name, symbol, baseURI, maxSupply, moduleData)`.
-    ///         Factory forces `initialOwner = router` so Router can dispatch to the launcher's
-    ///         chosen `OwnershipMode` post-initialize. `maxSupply == 0` means uncapped.
+    /// @dev    Encoded input: `abi.encode(initialOwner, minter_, name, symbol, baseURI, maxSupply, moduleData)`.
+    ///         Factory sets `initialOwner = launcher` (so the launcher owns the
+    ///         collection from day one for OpenSea's edit flow) and
+    ///         `minter_ = mintModule` (so the mint module retains exclusive
+    ///         mint rights via the check in `mintBatch`).
     function initialize(
         bytes calldata data
     ) external {
@@ -165,19 +176,23 @@ contract ERC721ATemplate is ERC721A, Ownable {
 
         (
             address initialOwner,
+            address minter_,
             string memory name_,
             string memory symbol_,
             string memory baseURI_,
             uint256 maxSupply_,
             bytes[] memory moduleData
-        ) = abi.decode(data, (address, string, string, string, uint256, bytes[]));
+        ) = abi.decode(data, (address, address, string, string, string, uint256, bytes[]));
 
         if (initialOwner == address(0)) revert ERC721ATemplate__ZeroOwner();
+        if (minter_ == address(0)) revert ERC721ATemplate__NotMinter();
 
         _vmName = name_;
         _vmSymbol = symbol_;
         _vmBaseURI = baseURI_;
         _vmMaxSupply = maxSupply_;
+        minter = minter_;
+        emit MinterSet(address(0), minter_);
         _initializeOwner(initialOwner);
 
         // Clones don't run ERC721A's constructor, so its private
@@ -212,13 +227,16 @@ contract ERC721ATemplate is ERC721A, Ownable {
     // Owner-mint (bare template shipping default; modules override behavior via markers)
     // ============================================================
 
-    /// @notice Batch-mint `quantity` tokens to `to`. Owner-only in the bare template. Modules like
-    ///         `PublicMint` or `AllowlistMint` add unrestricted-caller mint paths via
-    ///         `VM_INJECT_EXTERNAL`.
+    /// @notice Batch-mint `quantity` tokens to `to`. Callable by the bound
+    ///         `minter` (the mint module) OR the `owner()` (the launcher —
+    ///         who might want an owner-mint airdrop path). Modules like
+    ///         `PublicMint` or `AllowlistMint` add unrestricted-caller mint
+    ///         paths via `VM_INJECT_EXTERNAL`.
     function mintBatch(
         address to,
         uint256 quantity
-    ) external onlyOwner {
+    ) external {
+        if (msg.sender != minter && msg.sender != owner()) revert ERC721ATemplate__NotMinter();
         if (quantity == 0) revert ERC721ATemplate__ZeroQuantity();
         if (_vmMaxSupply != 0) {
             uint256 minted = _totalMinted();
@@ -226,6 +244,18 @@ contract ERC721ATemplate is ERC721A, Ownable {
             if (quantity > remaining) revert ERC721ATemplate__MaxSupplyExceeded(quantity, remaining);
         }
         _mint(to, quantity);
+    }
+
+    /// @notice Rotate the minter role. Owner-only. Used if the launcher
+    ///         ever wants to swap in a new mint module (e.g. graduate from
+    ///         priced mint to free public mint) without redeploying the
+    ///         ERC-721. Also lets an owner effectively pause future mints
+    ///         by setting to `address(this)` or a dead address.
+    function setMinter(
+        address newMinter
+    ) external onlyOwner {
+        emit MinterSet(minter, newMinter);
+        minter = newMinter;
     }
 
     function maxSupply() external view returns (uint256) {

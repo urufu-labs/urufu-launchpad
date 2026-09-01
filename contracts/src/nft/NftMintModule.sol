@@ -31,18 +31,9 @@ interface IErc721Mintable {
     ) external;
     function totalMinted() external view returns (uint256);
     function maxSupply() external view returns (uint256);
-    function transferOwnership(
-        address newOwner
-    ) external;
     function balanceOf(
         address owner
     ) external view returns (uint256);
-    function setBaseURI(
-        string calldata newBaseURI
-    ) external;
-    function setContractURI(
-        string calldata newContractURI
-    ) external;
 }
 
 /// Minimal ERC-20 shape used for URU push transfers. We use direct
@@ -166,10 +157,6 @@ contract NftMintModule {
     event PlatformSlicePushedUru(address indexed sink, uint256 amount);
     event PlatformSliceStuck(uint256 amount); // if push failed; safe-swept via `sweepPlatformStuck`
     event PlatformSliceStuckUru(uint256 amount);
-    /// Fired when the launcher pulls ERC-721 ownership back to a wallet
-    /// (usually to claim the collection on OpenSea). Once emitted, this
-    /// mint module can no longer mint new tokens on `collection`.
-    event CollectionOwnershipTransferred(address indexed collection, address indexed newOwner);
 
     // ============================================================
     // Types
@@ -769,58 +756,6 @@ contract NftMintModule {
         } catch {
             revert NftMintModule__TransferFailed();
         }
-    }
-
-    // ============================================================
-    // Launcher passthroughs — the mint module owns the ERC-721 clone
-    // so the launcher can't call setBaseURI / setContractURI /
-    // transferOwnership directly. Expose launcher-only wrappers so:
-    //   - metadata URIs can be updated (reveal, correcting a bad pin)
-    //   - collection ownership can be reclaimed after minting completes
-    //     (buyers still hold their tokens; only mint-side is affected)
-    // ============================================================
-
-    /// @notice Update `contractURI()` on the ERC-721. Launcher-only.
-    ///         OpenSea + most marketplaces re-fetch collection metadata
-    ///         from this URL, so updating here refreshes the collection
-    ///         page (banner, description, socials) without touching the
-    ///         mint module or per-token JSONs.
-    function setCollectionContractURI(
-        string calldata newContractURI
-    ) external {
-        if (msg.sender != launcher) revert NftMintModule__NotLauncher();
-        IErc721Mintable(token).setContractURI(newContractURI);
-    }
-
-    /// @notice Update per-token `baseURI` on the ERC-721. Launcher-only.
-    ///         Useful for delayed reveals (swap the placeholder CID for
-    ///         the real one after minting closes) or correcting a bad
-    ///         initial pin. Every existing token's tokenURI resolves
-    ///         against the new base immediately.
-    function setCollectionBaseURI(
-        string calldata newBaseURI
-    ) external {
-        if (msg.sender != launcher) revert NftMintModule__NotLauncher();
-        IErc721Mintable(token).setBaseURI(newBaseURI);
-    }
-
-    /// @notice Transfer the ERC-721 ownership away from this mint module,
-    ///         to `newOwner`. Launcher-only. **BREAKS FUTURE MINTS from
-    ///         this module** (mintBatch is onlyOwner on ERC721A), so
-    ///         intended for post-mint-out reclaim — the launcher can then
-    ///         claim/edit the collection on OpenSea via wallet signature.
-    /// @dev    We deliberately don't require `totalMinted == maxSupply`
-    ///         here so a launcher can rescue misconfigured collections
-    ///         without them being permanently stuck. The event makes it
-    ///         obvious to indexers when a collection has gone past its
-    ///         module-controlled phase.
-    function transferCollectionOwnership(
-        address newOwner
-    ) external {
-        if (msg.sender != launcher) revert NftMintModule__NotLauncher();
-        if (newOwner == address(0)) revert NftMintModule__ZeroAddress();
-        IErc721Mintable(token).transferOwnership(newOwner);
-        emit CollectionOwnershipTransferred(token, newOwner);
     }
 
     // ============================================================

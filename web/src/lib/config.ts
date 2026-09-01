@@ -368,22 +368,21 @@ export const NFT_LAUNCHES: Record<ChainKey, NftLaunchSet | null> = {
   sepolia: null,
   base: null,
   'base-sepolia': null,
-  // NFT stack V4 deployed 2026-09-01. Fixes vs V3:
-  //   - ERC-721 tokenURI now appends `.json` (matches OpenSea/Etherscan
-  //     norm + how studio.urufulabs.xyz pins metadata).
-  //   - Added contractURI() + setContractURI on the ERC-721 for OpenSea
-  //     collection-level metadata (banner, description, socials).
-  //   - Added launcher-only passthroughs on the mint module:
-  //     setCollectionContractURI, setCollectionBaseURI (post-reveal
-  //     tweaks + fixing bad pins) + transferCollectionOwnership (reclaim
-  //     ownership after mint-out to claim the collection on OpenSea).
-  // Supersedes V1/V2/V3 (all dark). Site stays hidden until
+  // NFT stack V5 deployed 2026-09-01. Fixes vs V4:
+  //   - Two-role ownership on ERC-721: `owner()` = launcher from day one
+  //     (so OpenSea's edit flow works via wallet signature), `minter()` =
+  //     mint module (retains exclusive mint rights through mintBatch).
+  //     No more "transfer to reclaim" step — launcher can setBaseURI /
+  //     setContractURI / edit on OpenSea while minting is still active.
+  //   - Removed vestigial mint-module passthroughs (launcher owns the
+  //     ERC-721 directly now, so setCollectionBaseURI etc were redundant).
+  // Supersedes V1-V4 (all dark). Site stays hidden until
   // NFT_LAUNCHES_ENABLED[robinhood] flips true.
   robinhood: {
-    LaunchFactory: '0x5Efb6291EDA5e27082B51FE040555f867881fd14',
-    Erc721Impl: '0x831dA1aB14BEAA6dF3Bd2Af5f4B61E68c85C43DC',
-    MintModuleImpl: '0x77Be091e5c2Ad3c46620Af8d757000027D414bEf',
-    WhitelistModuleImpl: '0x80094904bF87E0D01eb45293F4E25172733EA718',
+    LaunchFactory: '0x6B90670a3Af0EBc0D12e006Fe25C07160e3F9486',
+    Erc721Impl: '0x507F968791ffbDD9C69957Eb07Af2873C5c51DbB',
+    MintModuleImpl: '0xC4BD678d3536D623b87782cCfa340B1450E77525',
+    WhitelistModuleImpl: '0x560C0DfFF8A541bCca7D7074DA30A7E4E09BCF0d',
   },
   'robinhood-testnet': null,
 };
