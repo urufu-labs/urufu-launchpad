@@ -396,6 +396,10 @@ export const nftCollections = onchainTable('nft_collections', (t) => ({
   id: t.text().primaryKey(),                       // `${chainId}-${collectionAddress}`
   chainId: t.integer().notNull(),
   collectionAddress: t.hex().notNull(),
+  /// Mint module clone deployed alongside the collection. Kept here so
+  /// the Mint-event handler can resolve msg.sender (the mint module) →
+  /// the underlying ERC-721 for `nftMints.collectionAddress`.
+  mintModuleAddress: t.hex().notNull().default('0x0000000000000000000000000000000000000000'),
   launchedBy: t.hex().notNull(),
   name: t.text().notNull(),
   ticker: t.text().notNull(),

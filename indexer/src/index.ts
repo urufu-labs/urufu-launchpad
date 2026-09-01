@@ -966,6 +966,7 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
     id: `${chainId}-${token}`,
     chainId,
     collectionAddress: token,
+    mintModuleAddress: mintModule,
     launchedBy: launcher,
     name,
     ticker,
@@ -985,8 +986,7 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
-  // Silence unused-var lints — kept in destructure for future backfill.
-  void mintModule; void whitelistModule;
+  void whitelistModule;
 });
 
 // One row per mint. `paidInUru` bucketing lets the flywheel dashboard
@@ -1001,20 +1001,21 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
 ponder.on('NftMintModule:Minted', async ({ event, context }) => {
   const { minter, startTokenId, quantity, grossPaidWei, discountBps, wlUsed, paidInUru } = event.args;
   const chainId = chainIdOf(context);
-  // For each token minted in this batch (quantity may be > 1), we
-  // still record ONE row keyed by (tx, logIndex) — startTokenId + qty
-  // give consumers the id range. Individual id-per-row would blow up
-  // the table for large batch mints.
+  // Resolve the mint module (event emitter) → underlying ERC-721 address.
+  // The binding was written on CollectionLaunched. If the row is missing
+  // (bad state, out-of-order backfill), fall back to the mint module
+  // address so consumers can at least see the mint happened — MyNftMints
+  // will show a raw-hex label instead of a name until the join works.
+  const bindings = await context.db.sql
+    .select({ addr: nftCollections.collectionAddress })
+    .from(nftCollections)
+    .where(eq(nftCollections.mintModuleAddress, event.log.address))
+    .limit(1);
+  const resolvedCollection = bindings[0]?.addr ?? event.log.address;
   await context.db.insert(nftMints).values({
     id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
     chainId,
-    // The mint module IS the msg.receiver in Ponder terms — but for
-    // consumer convenience we want the *collection* address. Look it
-    // up via the mint-module -> token binding at CollectionLaunched
-    // time. Deferred: for phase-0 we store the mint-module address
-    // here and let the API layer resolve to the collection. Same
-    // pattern as `curveAddress` on the trades table.
-    collectionAddress: event.log.address,
+    collectionAddress: resolvedCollection,
     minter,
     tokenId: startTokenId,
     quantity: Number(quantity),
@@ -1024,7 +1025,5 @@ ponder.on('NftMintModule:Minted', async ({ event, context }) => {
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
-  // Silence unused-var lints — kept in destructure for future
-  // per-mint-mode analytics (discountBps, paidInUru bucketing).
   void discountBps; void paidInUru;
 });

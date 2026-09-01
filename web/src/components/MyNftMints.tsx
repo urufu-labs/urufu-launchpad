@@ -135,52 +135,75 @@ export function MyNftMints({ visibleFor, chain }: Props) {
         </span>
       </div>
 
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
-        {enriched.map((r) => (
-          <li
-            key={r.collectionAddress}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '6px 8px',
-              borderRadius: 6,
-              background: 'var(--paper, #fff)',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              <Link
-                href={`/collection/${r.collectionAddress}`}
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
+        {enriched.map((r) => {
+          // If the row's "name" is a raw 0x hex address, it's the fallback for
+          // an unresolved collection metadata lookup. Show a shorter middle-elided
+          // label instead of the full 42-char string so nothing overflows.
+          const looksLikeAddress = /^0x[0-9a-fA-F]{40}$/.test(r.name);
+          const displayName = looksLikeAddress
+            ? `${r.name.slice(0, 6)}…${r.name.slice(-4)}`
+            : r.name;
+          const held = r.currentHeld !== undefined ? r.currentHeld.toString() : '…';
+          return (
+            <li
+              key={r.collectionAddress}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                columnGap: 10,
+                alignItems: 'center',
+                padding: '6px 8px',
+                borderRadius: 6,
+                background: 'var(--paper, #fff)',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <Link
+                  href={`/collection/${r.collectionAddress}`}
+                  title={r.name}
+                  style={{
+                    fontFamily: 'var(--font-body), sans-serif',
+                    fontSize: 13,
+                    color: 'var(--anchor)',
+                    textDecoration: 'none',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}
+                >
+                  {displayName}
+                </Link>
+                {!looksLikeAddress && r.ticker && r.ticker !== '?' && (
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-pixel), monospace',
+                      fontSize: 10,
+                      color: 'var(--anchor-soft)',
+                    }}
+                  >
+                    {r.ticker}
+                  </span>
+                )}
+              </div>
+              <div
                 style={{
-                  fontFamily: 'var(--font-body), sans-serif',
-                  fontSize: 13,
-                  color: 'var(--anchor)',
-                  textDecoration: 'none',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  textAlign: 'right',
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 11,
+                  lineHeight: 1.35,
                   whiteSpace: 'nowrap',
                 }}
               >
-                {r.name}
-              </Link>
-              <span
-                style={{
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--anchor-soft)',
-                }}
-              >
-                {r.ticker}
-              </span>
-            </div>
-            <div style={{ textAlign: 'right', fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
-              <div>you hold {r.currentHeld !== undefined ? r.currentHeld.toString() : '…'}</div>
-              <div style={{ fontSize: 9, color: 'var(--anchor-soft)' }}>
-                minted {r.mintedQty}
+                <div>hold {held}</div>
+                <div style={{ fontSize: 9, color: 'var(--anchor-soft)' }}>
+                  minted {r.mintedQty}
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
