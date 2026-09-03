@@ -1,7 +1,7 @@
 # SPEC — DN404 Launchpad
 
 > **Status:** draft
-> _last updated: 2026-09-02_
+> _last updated: 2026-09-03_
 
 > A third launch template that deploys a DN404 pair (one ERC-20 + one paired ERC-721 that auto-mints/burns as ERC-20 balance crosses whole units). Launcher gets a fungible token with a bonding curve AND a matching NFT collection out of the box. The ERC-20 side plugs into the existing curve stack unchanged; the ERC-721 side reuses the current /collection/[address] surface.
 
@@ -38,7 +38,7 @@ The V5 `NftLaunchFactory` deploys ERC-721 + mint module. DN404 needs ERC-20 + mi
 - Break the code-hash pinning story (one factory pinning three impls per launch type doesn't scale).
 - Force the mint-module concept onto a token that doesn't need one (pricing is handled by the curve).
 
-**Decision: build a dedicated `Dn404LaunchFactory` under `contracts/src/dn404/`.** It reuses the URU-fee + LoyaltyOracle wiring pattern from `NftLaunchFactory` (copy the fee guard verbatim, keep behavior identical) and reuses the curve stack for the ERC-20 side by calling into `CurveFactory.createCurve(...)` with the freshly-deployed base contract. The mirror ERC-721 is registered with the indexer via a new event so the /collection/[address] page renders normally.
+**Decision: build a dedicated `Dn404LaunchFactory` under `contracts/src/dn404/`.** It reuses the URU-fee + LoyaltyOracle wiring pattern from `NftLaunchFactory` (copy the fee guard verbatim, keep behavior identical) and reuses the curve stack for the ERC-20 side by calling `CurveFactory.createCurveWithConfigFor(baseAddr, ..., launcher)` on the existing V10 CurveFactory. `Dn404LaunchFactory` is added to `CurveFactory.trustedRouters` via one owner call — no CurveFactory rotation, no code change, existing curves untouched. The mirror ERC-721 is registered with the indexer via a new event so the /collection/[address] page renders normally.
 
 ---
 
@@ -84,13 +84,17 @@ The DN404 base ERC-20 is a standard ERC-20 from the curve's perspective. `Dn404L
 1. Charge URU launch fee (same helper as `NftLaunchFactory._minUruFeeFor`).
 2. Clone `Dn404Template` and `Dn404MirrorTemplate`; deterministic-salt them together so both addresses are predictable from `(launcher, name, ticker)`.
 3. Initialize the mirror with `(owner=launcher, base=<baseAddr>, mintersOnly=<baseAddr>)`.
-4. Initialize the base with `(launcher, curveAddr, totalSupply, name, ticker, baseURIStorageContract, mirrorAddr)`.
-5. Call `CurveFactory.createCurveForToken(baseAddr, launcher, curveParams)` — the curve now holds the initial supply and sells it via the standard bonding curve path.
+4. Initialize the base with `(launcher, curveAddr, totalSupply, name, ticker, baseURIStorageContract, mirrorAddr)`. Base mints its entire supply to `address(this)` (the factory) inside `_initializeDN404`.
+5. `SafeTransferLib.safeApprove(base, address(curveFactory), totalSupply)`, then call `CurveFactory.createCurveWithConfigFor(baseAddr, antiSniperBlocks, buybackBurnBps, launcher)` on the existing V10 CurveFactory. The factory pulls the supply from `msg.sender` (= Dn404LaunchFactory) and hands it to the freshly-cloned BondingCurve.
 6. Emit `Dn404Launched(base, mirror, curve, launcher, configHash, uruPaid, name, ticker)`.
 
-**CurveFactory needs one small change.** Today `CurveFactory.createCurve` internally deploys the ERC-20. Add a sibling `createCurveForToken(address existingToken, ...)` that skips the deploy step and only wires the curve + supply pull. This is a compat-safe additive change; existing `createCurve` callers keep working.
+**CurveFactory does NOT need any changes.** The existing V10 `CurveFactory.createCurveWithConfigFor(address token, uint32 antiSniperBlocks, uint16 buybackBurnBps, address launcher)` already accepts an externally-deployed token and pulls the supply from `msg.sender` (see `contracts/src/curve/CurveFactory.sol:292`). Router V10 uses this same entrypoint today. We add `Dn404LaunchFactory` to `CurveFactory.trustedRouters` via one owner call (`setTrustedRouter(dn404Factory, true)` — `contracts/src/curve/CurveFactory.sol:238`) and that's the entirety of the CurveFactory change. No rotation, no code change, no impact on existing launches.
 
 **Graduator/Uniswap v4 side.** The base ERC-20 graduates normally into a v4 pool. The pool contract MUST be skip-listed for NFT mints — the base contract exposes an owner-callable `setSkipNFT(pool, true)` that Graduator invokes as part of graduation. Verify on fork: without this, the pool contract would end up holding thousands of NFTs, wasting gas on every trade.
+
+**Graduator rotation is safe for existing launches.** Each `BondingCurve` pins its own `graduator` address at `initialize()` (`contracts/src/curve/BondingCurve.sol:140` + `:320`). Old ERC-20 launches keep graduating against the address they were born with; only DN404-era launches would use whatever new Graduator we deploy. Same posture as every prior V6→V7→V8-final rotation — existing launches are frozen against their pinned Graduator forever.
+
+**Alternative to a Graduator tweak (v1 fallback).** If we want to avoid rotating Graduator at all, the mirror can expose a permissionless `syncSkipListAfterGraduation()` that reads the pool from the pinned Graduator + PoolManager and adds it to the skip-list. Bots or the launcher call it once post-graduation. Less magical; zero blast on Graduator. Decide during slice 5.
 
 **FeeSplitter.** Skip-listed at initialize time (see sketch above). Fee flow is unchanged — a normal ERC-20 fee stream to the flywheel.
 
