@@ -143,9 +143,11 @@ export const nftMintModuleAbi = parseAbi([
 ///     CurveFactory.CurveCreated fired inside the same launch tx via
 ///     createCurveWithConfigFor). `mirror` is the ERC-721 side written
 ///     as an `nftCollections` row with `lane='dn404'` and
-///     `pairedToken=base`.
+///     `pairedToken=base`. `pairCurrency` is the ERC-20 the curve prices
+///     in (address(0) means ETH-paired, routed through V10; non-zero
+///     means routed through Dn404CurveFactory + priced in that token).
 export const dn404LaunchFactoryAbi = parseAbi([
-  'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
+  'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, address pairCurrency, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
 ]);
 
 // ---------------------------------------------------------------- network + contract build

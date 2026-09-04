@@ -1043,7 +1043,7 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
 // reads `pairedToken` to render the bidirectional token↔collection
 // link on /collection/[addr] and /token/[addr].
 ponder.on('Dn404LaunchFactory:Dn404Launched', async ({ event, context }) => {
-  const { base, mirror, launcher, totalSupply, unit, name, ticker } = event.args;
+  const { base, mirror, launcher, pairCurrency, totalSupply, unit, name, ticker } = event.args;
   const chainId = chainIdOf(context);
 
   // collectionSize (max NFTs the collection can produce) = totalSupply / unit
@@ -1094,6 +1094,7 @@ ponder.on('Dn404LaunchFactory:Dn404Launched', async ({ event, context }) => {
     lane: 'dn404',
     pairedToken: base,
     unitWei: unit,
+    pairCurrency,
     // No mint module — DN404 mints are driven by ERC-20 balance transitions
     // on the base, not by a per-mint call. Left at zero to make the absence
     // explicit; frontend lane='dn404' branch never dereferences this.

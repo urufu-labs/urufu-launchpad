@@ -414,6 +414,12 @@ export const nftCollections = onchainTable('nft_collections', (t) => ({
   /// Frontend uses this to render the "hold N tokens, get one NFT"
   /// story on the paired-token strip. Zero for legacy 'nft' rows.
   unitWei: t.bigint().notNull().default(0n),
+  /// DN404 curve pair currency. `address(0)` when `lane='dn404'` and
+  /// the curve prices in ETH (routed through V10 CurveFactory). Any
+  /// other address means the curve prices in that ERC-20 (USDG, COST,
+  /// NVDA, ...); frontend renders trade-page prices + graduation
+  /// target in the label of this token instead of ETH.
+  pairCurrency: t.hex().notNull().default('0x0000000000000000000000000000000000000000'),
   /// Mint module clone deployed alongside the collection. Kept here so
   /// the Mint-event handler can resolve msg.sender (the mint module) →
   /// the underlying ERC-721 for `nftMints.collectionAddress`. Zero for
