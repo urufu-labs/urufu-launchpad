@@ -1026,6 +1026,99 @@ ponder.on('NftLaunchFactory:CollectionLaunched', async ({ event, context }) => {
   void whitelistModule;
 });
 
+// ============================================================
+// DN404 lane (Dn404LaunchFactory)
+// ============================================================
+//
+// One row per DN404 pair. The BASE ERC-20 is registered elsewhere:
+// Dn404LaunchFactory calls CurveFactory.createCurveWithConfigFor
+// inside the same launch tx, which fires CurveCreated on the live
+// CurveFactory — the BondingCurve dynamic-factory subscription
+// already picks up the base as a curve token automatically.
+//
+// This handler only writes the MIRROR side: an nftCollections row
+// with `lane='dn404'`, `pairedToken=base`, `unitWei=<unit>`, and
+// zero mint-module-ish fields. Frontend joins on
+// (chainId, collectionAddress) exactly like ERC-721 launches, plus
+// reads `pairedToken` to render the bidirectional token↔collection
+// link on /collection/[addr] and /token/[addr].
+ponder.on('Dn404LaunchFactory:Dn404Launched', async ({ event, context }) => {
+  const { base, mirror, launcher, totalSupply, unit, name, ticker } = event.args;
+  const chainId = chainIdOf(context);
+
+  // collectionSize (max NFTs the collection can produce) = totalSupply / unit
+  // both in wei; unit is guaranteed non-zero by the factory.
+  const collectionSize = unit === 0n ? 0n : totalSupply / unit;
+
+  // Chain-read metadata off the mirror (`baseURI`, `contractURI`). Defensive
+  // reads that fall back to '' — matches the NFT-lane pattern above.
+  const dn404MirrorAbiReads = [
+    { type: 'function', name: 'baseURI',     stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+    { type: 'function', name: 'contractURI', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  ] as const;
+  const dn404BaseAbiReads = [
+    { type: 'function', name: 'baseURI',     stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+    { type: 'function', name: 'contractURI', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  ] as const;
+
+  const safeRead = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try { return await fn(); } catch { return fallback; }
+  };
+
+  // Mirror doesn't store baseURI/contractURI itself — DN404's design puts
+  // that state on the BASE contract and the mirror reads through. Read
+  // from base directly; if that fails, try the mirror as a fallback for
+  // any future revision that flips the storage side.
+  const baseUri = (await safeRead(
+    () => context.client.readContract({ abi: dn404BaseAbiReads, address: base, functionName: 'baseURI' }),
+    '' as string,
+  )) || (await safeRead(
+    () => context.client.readContract({ abi: dn404MirrorAbiReads, address: mirror, functionName: 'baseURI' }),
+    '' as string,
+  ));
+  const contractUri = (await safeRead(
+    () => context.client.readContract({ abi: dn404BaseAbiReads, address: base, functionName: 'contractURI' }),
+    '' as string,
+  )) || (await safeRead(
+    () => context.client.readContract({ abi: dn404MirrorAbiReads, address: mirror, functionName: 'contractURI' }),
+    '' as string,
+  ));
+
+  const primaryMetadataUri = contractUri || (baseUri ? `${baseUri}1` : '');
+  const meta = await resolveNftMetadata(primaryMetadataUri);
+
+  await context.db.insert(nftCollections).values({
+    id: `${chainId}-${mirror}`,
+    chainId,
+    collectionAddress: mirror,
+    lane: 'dn404',
+    pairedToken: base,
+    unitWei: unit,
+    // No mint module — DN404 mints are driven by ERC-20 balance transitions
+    // on the base, not by a per-mint call. Left at zero to make the absence
+    // explicit; frontend lane='dn404' branch never dereferences this.
+    mintModuleAddress: '0x0000000000000000000000000000000000000000',
+    launchedBy: launcher,
+    name,
+    ticker,
+    baseUri,
+    contractUri,
+    coverImageUrl: meta.image,
+    description: meta.description,
+    maxSupply: collectionSize,
+    mintMode: 0,           // unused for DN404 (price is curve-driven)
+    basePriceWei: 0n,      // unused for DN404
+    priceStepWei: 0n,      // unused for DN404
+    paymentToken: '0x0000000000000000000000000000000000000000',
+    wlRoot: '0x0000000000000000000000000000000000000000000000000000000000000000',
+    wlOpenWindowSec: 0,
+    mintedCount: 0n,       // updated on future Transfer events (out of scope for this handler)
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
 /// Server-side NFT metadata resolver — races a small ordered list of
 /// public IPFS gateways and, when the primary path 404s (studio pinned
 /// files as `1.json` while ERC721A returns `<baseURI>1`), automatically

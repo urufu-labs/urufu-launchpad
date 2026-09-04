@@ -142,6 +142,13 @@ export const ADDRESS_KEYS = [
   /// as the BondingCurve subscription). Chains without a factory are
   /// silently skipped so pre-deploy env stays valid.
   'NFT_LAUNCH_FACTORY',
+  /// Dn404LaunchFactory — the DN404 launch lane. Each `Dn404Launched`
+  /// event registers BOTH a base ERC-20 (auto-indexed as a curve token
+  /// via CurveFactory.CurveCreated fired inside the same tx) AND a
+  /// mirror ERC-721 (written as an `nftCollections` row with
+  /// `lane='dn404'` and `pairedToken=<base>`). Chains without a factory
+  /// are silently skipped so pre-deploy env stays valid.
+  'DN404_LAUNCH_FACTORY',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 

@@ -137,6 +137,17 @@ export const nftMintModuleAbi = parseAbi([
   'event Minted(address indexed minter, uint256 startTokenId, uint256 quantity, uint256 grossPaidWei, uint256 discountBps, bool wlUsed, bool paidInUru)',
 ]);
 
+/// DN404 stack ABI.
+///   Dn404LaunchFactory.Dn404Launched — one row per DN404 pair launched.
+///     `base` is the ERC-20 side (auto-registered as a curve token by
+///     CurveFactory.CurveCreated fired inside the same launch tx via
+///     createCurveWithConfigFor). `mirror` is the ERC-721 side written
+///     as an `nftCollections` row with `lane='dn404'` and
+///     `pairedToken=base`.
+export const dn404LaunchFactoryAbi = parseAbi([
+  'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
+]);
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -456,6 +467,7 @@ const contracts = {
   UruDepositSink: { abi: uruDepositSinkAbi, network: netFor('URU_DEPOSIT_SINK') },
   NftLaunchFactory: { abi: nftLaunchFactoryAbi, network: netFor('NFT_LAUNCH_FACTORY') },
   NftMintModule: { abi: nftMintModuleAbi, network: nftMintModuleNet() },
+  Dn404LaunchFactory: { abi: dn404LaunchFactoryAbi, network: netFor('DN404_LAUNCH_FACTORY') },
 };
 
 // ---------------------------------------------------------------- database

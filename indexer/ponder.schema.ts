@@ -396,9 +396,28 @@ export const nftCollections = onchainTable('nft_collections', (t) => ({
   id: t.text().primaryKey(),                       // `${chainId}-${collectionAddress}`
   chainId: t.integer().notNull(),
   collectionAddress: t.hex().notNull(),
+  /// Launch lane this collection came from.
+  ///   'nft'   — bare ERC-721A via NftLaunchFactory (has a mint module,
+  ///             priced mints, optional whitelist).
+  ///   'dn404' — mirror half of a DN404 pair via Dn404LaunchFactory. NO
+  ///             mint module — mints are driven by ERC-20 balance
+  ///             transitions on `pairedToken`. Priced by the curve, not
+  ///             a per-mint fee.
+  /// Defaults to 'nft' so existing rows and legacy inserts stay valid.
+  lane: t.text().notNull().default('nft'),
+  /// DN404 paired base ERC-20 address. Non-zero when `lane='dn404'`
+  /// (this is the token holders trade on the curve; whole-unit balance
+  /// transitions on it drive NFT mints/burns on THIS mirror). Zero for
+  /// legacy 'nft' rows.
+  pairedToken: t.hex().notNull().default('0x0000000000000000000000000000000000000000'),
+  /// DN404 unit (tokens-per-NFT), in wei. Non-zero when `lane='dn404'`.
+  /// Frontend uses this to render the "hold N tokens, get one NFT"
+  /// story on the paired-token strip. Zero for legacy 'nft' rows.
+  unitWei: t.bigint().notNull().default(0n),
   /// Mint module clone deployed alongside the collection. Kept here so
   /// the Mint-event handler can resolve msg.sender (the mint module) →
-  /// the underlying ERC-721 for `nftMints.collectionAddress`.
+  /// the underlying ERC-721 for `nftMints.collectionAddress`. Zero for
+  /// `lane='dn404'` (no mint module exists).
   mintModuleAddress: t.hex().notNull().default('0x0000000000000000000000000000000000000000'),
   launchedBy: t.hex().notNull(),
   name: t.text().notNull(),
