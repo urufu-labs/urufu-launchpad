@@ -428,6 +428,11 @@ export const dn404LaunchFactoryAbi = [
           { name: 'founderPremintBps', type: 'uint16' },
           { name: 'antiSniperBlocks', type: 'uint32' },
           { name: 'buybackBurnBps', type: 'uint16' },
+          // Pair currency the DN404 trades against on the bonding
+          // curve. address(0) = ETH (routed through V10 CurveFactory);
+          // any other address = allowlisted ERC-20 (USDG, COST, ...)
+          // routed through Dn404CurveFactory. Added slice B.
+          { name: 'pairCurrency', type: 'address' },
           { name: 'uruAmount', type: 'uint256' },
         ],
       },
@@ -463,6 +468,9 @@ export const dn404LaunchFactoryAbi = [
       { name: 'mirror', type: 'address', indexed: true },
       { name: 'curve', type: 'address', indexed: true },
       { name: 'launcher', type: 'address' },
+      // Pair currency the curve prices in. address(0) = ETH (V10 path);
+      // any other = allowlisted ERC-20 (Dn404 path). Added slice B.
+      { name: 'pairCurrency', type: 'address' },
       { name: 'configHash', type: 'bytes32' },
       { name: 'uruPaid', type: 'uint256' },
       { name: 'totalSupply', type: 'uint256' },
