@@ -32,6 +32,7 @@ import {
   DN404_LAUNCHES,
   DN404_LAUNCHES_ENABLED,
   ECOSYSTEM_TOKENS,
+  activePairCurrencies,
   isDn404DeployReady,
 } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -74,6 +75,13 @@ function CreateDn404Form() {
   const [founderPremintBps, setFounderPremintBps] = useState('0');
   const [antiSniperBlocks, setAntiSniperBlocks] = useState('0');
   const [buybackBurnBps, setBuybackBurnBps] = useState('0');
+  // Pair currency the DN404 trades against on the bonding curve.
+  // Default: ETH (address(0)) — routes through V10 CurveFactory
+  // unchanged. Non-ETH values route through Dn404CurveFactory and are
+  // gated by the on-chain Dn404PairCurrencyAllowlist.
+  const [pairCurrency, setPairCurrency] = useState<Address>('0x0000000000000000000000000000000000000000');
+  const pairOptions = useMemo(() => activePairCurrencies(activeChain), [activeChain]);
+  const pairLabel = pairOptions.find((o) => o.address === pairCurrency)?.label ?? 'ETH';
 
   // Live derived values
   const collectionSizeBig = useMemo(() => {
@@ -214,6 +222,7 @@ function CreateDn404Form() {
           founderPremintBps: bpsNum,
           antiSniperBlocks: Number(antiSniperBlocks || '0'),
           buybackBurnBps: Number(buybackBurnBps || '0'),
+          pairCurrency,
           uruAmount: requiredUruFee,
         },
       ],
@@ -377,8 +386,28 @@ function CreateDn404Form() {
           {/* Curve params */}
           <section className="uru-shell">
             <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">✦ curve params (optional)</span>
-              <span className={styles.sectionEye}>same knobs as ERC-20 launches</span>
+              <span className="uru-eyebrow">✦ curve params</span>
+              <span className={styles.sectionEye}>pair currency + hook knobs</span>
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="dn-pair">pair currency (what buyers pay in)</label>
+              <select
+                id="dn-pair"
+                className="uru-input"
+                value={pairCurrency}
+                onChange={(e) => setPairCurrency(e.target.value as Address)}
+              >
+                {pairOptions.map((opt) => (
+                  <option key={opt.address} value={opt.address}>
+                    {opt.label} — {opt.description}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.fieldHint}>
+                buyers spend {pairLabel} to receive ${ticker || 'TICK'}. graduation happens
+                when curve reserves cross the target (also denominated in {pairLabel}).
+              </span>
             </div>
 
             <div className={styles.rowInputsShort}>

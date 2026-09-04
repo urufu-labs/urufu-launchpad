@@ -467,6 +467,67 @@ export function isDn404DeployReady(chain: ChainKey): boolean {
   return DN404_LAUNCHES_ENABLED[chain] === true && DN404_LAUNCHES[chain] !== null;
 }
 
+/// DN404 pair-currency dropdown options, hardcoded mirror of the
+/// on-chain `Dn404PairCurrencyAllowlist` contract. When the governance
+/// multisig adds a new token to the allowlist, add it here too so the
+/// dropdown surfaces it — the on-chain check is authoritative but this
+/// list controls the UI. Order matters: shown top-to-bottom in the
+/// dropdown.
+///
+/// address(0) means ETH — the DN404 factory routes those launches
+/// through the untouched V10 CurveFactory. Non-zero addresses route
+/// through Dn404CurveFactory (parallel stack).
+///
+/// The 10 stock tickers below (NVDA, TSLA, AAPL, AMZN, GOOGL, PLTR,
+/// COST, HIMS, RBLX, GME) are placeholders — replace `0x0…` with the
+/// canonical Robinhood Chain stock-token address for each as they
+/// come online at `docs.robinhood.com/chain/contracts`. SPCX/SPCE
+/// pending canonical-ticker confirmation from that registry.
+export interface PairCurrencyOption {
+  /// Token address on `chain`. `address(0)` = ETH.
+  address: Address;
+  /// Short human label shown in the dropdown ("ETH", "USDG", "NVDA").
+  label: string;
+  /// Longer description shown as helper text underneath ("Costco stock", "USD stablecoin").
+  description: string;
+}
+
+export const DN404_PAIR_CURRENCIES: Record<ChainKey, PairCurrencyOption[]> = {
+  mainnet: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  sepolia: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  base: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  'base-sepolia': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  robinhood: [
+    { address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' },
+    // USDG — RH-issued stablecoin. Address per docs.robinhood.com/chain/contracts.
+    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'USD stablecoin' },
+    // Stock tokens — populate with canonical addresses from the RH
+    // registry as governance onboards each. Leaving as address(0)
+    // means "not yet allowlisted" — dropdown skips address(0) entries
+    // that appear after the first (the intentional first entry is ETH).
+    // Order chosen to match the v1 stock list from 2026-09-03.
+    { address: '0x0000000000000000000000000000000000000000', label: 'NVDA', description: 'Nvidia stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'TSLA', description: 'Tesla stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AAPL', description: 'Apple stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AMZN', description: 'Amazon stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'GOOGL', description: 'Alphabet stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'PLTR', description: 'Palantir stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'COST', description: 'Costco stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'HIMS', description: 'Hims stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'RBLX', description: 'Roblox stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'GME', description: 'GameStop stock (pending canonical addr)' },
+  ],
+  'robinhood-testnet': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+};
+
+/// Return only the options that have a real (non-zero) address AND
+/// are the special ETH sentinel at index 0. Used by the dropdown to
+/// hide stock tokens that haven't been onboarded yet.
+export function activePairCurrencies(chain: ChainKey): PairCurrencyOption[] {
+  const all = DN404_PAIR_CURRENCIES[chain] ?? [];
+  return all.filter((opt, i) => i === 0 || opt.address !== '0x0000000000000000000000000000000000000000');
+}
+
 export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   mainnet: null,
   sepolia: null,
