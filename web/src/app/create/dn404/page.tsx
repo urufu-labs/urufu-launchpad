@@ -31,8 +31,10 @@ import { NotLiveYet } from '@/components/NotLiveYet';
 import {
   DN404_LAUNCHES,
   DN404_LAUNCHES_ENABLED,
+  DN404_TAX_MODES,
   ECOSYSTEM_TOKENS,
   activePairCurrencies,
+  activeTaxDestinations,
   isDn404DeployReady,
 } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
@@ -82,6 +84,18 @@ function CreateDn404Form() {
   const [pairCurrency, setPairCurrency] = useState<Address>('0x0000000000000000000000000000000000000000');
   const pairOptions = useMemo(() => activePairCurrencies(activeChain), [activeChain]);
   const pairLabel = pairOptions.find((o) => o.address === pairCurrency)?.label ?? 'ETH';
+
+  // Tax hook: default Off (routes through bare Dn404Template, no
+  // per-transfer hook, cheaper transfers). Non-Off routes through
+  // Dn404TaxTemplate + wires the destination-specific keeper flow.
+  const [taxMode, setTaxMode] = useState<number>(0);
+  const [taxBps, setTaxBps] = useState<string>('0');
+  const [taxTarget, setTaxTarget] = useState<Address>('0x0000000000000000000000000000000000000000');
+  const taxModeOption = DN404_TAX_MODES.find((m) => m.value === taxMode) ?? DN404_TAX_MODES[0];
+  const taxDestOptions = useMemo(() => activeTaxDestinations(activeChain), [activeChain]);
+  const taxBpsNum = Math.min(Number(taxBps || '0'), 500);
+  const taxBpsOk = taxMode === 0 || (taxBpsNum >= 0 && taxBpsNum <= 500);
+  const taxTargetOk = !taxModeOption.needsAllowlistedTarget || taxTarget !== '0x0000000000000000000000000000000000000000';
 
   // Live derived values
   const collectionSizeBig = useMemo(() => {
@@ -201,6 +215,8 @@ function CreateDn404Form() {
     unitOk &&
     founderBpsOk &&
     premintNftsOk &&
+    taxBpsOk &&
+    taxTargetOk &&
     !isLaunching &&
     !isWaitingLaunch;
 
@@ -223,12 +239,9 @@ function CreateDn404Form() {
           antiSniperBlocks: Number(antiSniperBlocks || '0'),
           buybackBurnBps: Number(buybackBurnBps || '0'),
           pairCurrency,
-          // Tax hook fields — form UI for these comes in slice C5.
-          // For now every launch is taxMode=0 (Off), which routes to
-          // baseImpl (bare Dn404Template) with no per-transfer hook.
-          taxMode: 0,
-          taxBps: 0,
-          taxTarget: '0x0000000000000000000000000000000000000000' as Address,
+          taxMode,
+          taxBps: taxBpsNum,
+          taxTarget,
           uruAmount: requiredUruFee,
         },
       ],
@@ -387,6 +400,87 @@ function CreateDn404Form() {
                 )}
               </span>
             </div>
+          </section>
+
+          {/* Tax hook (optional) */}
+          <section className="uru-shell">
+            <div className={styles.sectionHead}>
+              <span className="uru-eyebrow">✧ tax hook (optional)</span>
+              <span className={styles.sectionEye}>tax every transfer + route the take somewhere</span>
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor="dn-taxmode">tax mode</label>
+              <select
+                id="dn-taxmode"
+                className="uru-input"
+                value={taxMode}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setTaxMode(v);
+                  // Clear target when switching to a mode that doesn't use it.
+                  const opt = DN404_TAX_MODES.find((m) => m.value === v);
+                  if (!opt?.needsAllowlistedTarget) {
+                    setTaxTarget('0x0000000000000000000000000000000000000000' as Address);
+                  }
+                }}
+              >
+                {DN404_TAX_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.description}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.fieldHint}>
+                {taxMode === 0
+                  ? 'no tax hook (default; cheapest transfers).'
+                  : `every transfer routes ${(taxBpsNum / 100).toFixed(2)}% to the destination. immutable after launch.`}
+              </span>
+            </div>
+
+            {taxMode !== 0 && (
+              <div className={styles.rowInputsShort}>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="dn-taxbps">tax bps (0 – 500)</label>
+                  <input
+                    id="dn-taxbps"
+                    type="text"
+                    inputMode="numeric"
+                    className="uru-input"
+                    value={taxBps}
+                    onChange={(e) => setTaxBps(digitsOnly(e.target.value))}
+                    placeholder="100"
+                  />
+                  <span className={styles.fieldHint}>
+                    {taxBpsNum > 500 && <span style={{ color: 'var(--pink-hot)' }}>max 500 bps (5%).</span>}
+                    {taxBpsNum <= 500 && `= ${(taxBpsNum / 100).toFixed(2)}%`}
+                  </span>
+                </div>
+                {taxModeOption.needsAllowlistedTarget && (
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel} htmlFor="dn-taxtarget">buy target</label>
+                    <select
+                      id="dn-taxtarget"
+                      className="uru-input"
+                      value={taxTarget}
+                      onChange={(e) => setTaxTarget(e.target.value as Address)}
+                    >
+                      <option value="0x0000000000000000000000000000000000000000">
+                        — pick a target —
+                      </option>
+                      {taxDestOptions.map((opt) => (
+                        <option key={opt.address} value={opt.address}>
+                          {opt.label} — {opt.description}
+                        </option>
+                      ))}
+                    </select>
+                    <span className={styles.fieldHint}>
+                      keeper swaps accumulated tax into this token. only allowlisted tokens shown.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Curve params */}

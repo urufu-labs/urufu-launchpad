@@ -528,6 +528,73 @@ export function activePairCurrencies(chain: ChainKey): PairCurrencyOption[] {
   return all.filter((opt, i) => i === 0 || opt.address !== '0x0000000000000000000000000000000000000000');
 }
 
+/// DN404 per-transfer tax mode menu — mirrors Dn404TaxTemplate.TaxMode
+/// exactly. Numeric values match the on-chain enum ordering:
+///   0=Off, 1=BurnDead, 2=BuybackURU, 3=BuyAllowedToken,
+///   4=AddToLP, 5=HolderReflections, 6=MirrorFloorSupport
+///
+/// The launcher's dropdown surfaces the human-readable label +
+/// description. `needsAllowlistedTarget` flags whether picking this
+/// mode should also show the tax-target dropdown (only true for
+/// BuyAllowedToken; every other mode has an implicit target).
+export interface TaxModeOption {
+  value: number;
+  label: string;
+  description: string;
+  /// True → picking this mode requires selecting a target token from
+  /// DN404_TAX_DESTINATIONS. False → no additional selection needed;
+  /// destination is implicit (0xdEaD, URU, LP, holders, mirror NFT).
+  needsAllowlistedTarget: boolean;
+}
+
+export const DN404_TAX_MODES: TaxModeOption[] = [
+  { value: 0, label: 'Off',               description: 'no per-transfer tax (default, cheapest)',                     needsAllowlistedTarget: false },
+  { value: 1, label: 'BurnDead',          description: 'burn taxBps of every transfer to 0x…dEaD',                    needsAllowlistedTarget: false },
+  { value: 2, label: 'BuybackURU',        description: 'accumulate taxBps, keeper swaps to $URU (aligns w/ flywheel)', needsAllowlistedTarget: false },
+  { value: 3, label: 'BuyAllowedToken',   description: 'accumulate taxBps, keeper swaps to the token you pick below',   needsAllowlistedTarget: true  },
+  { value: 4, label: 'AddToLP',           description: 'accumulate taxBps, keeper adds to graduated v4 pool LP',        needsAllowlistedTarget: false },
+  { value: 5, label: 'HolderReflections', description: 'accumulate taxBps, keeper distributes to holders via merkle drop', needsAllowlistedTarget: false },
+  { value: 6, label: 'MirrorFloorSupport',description: 'accumulate taxBps, keeper buys + burns mirror NFTs (novel)',     needsAllowlistedTarget: false },
+];
+
+/// Tax destination allowlist mirror for the BuyAllowedToken mode.
+/// Governance-managed on-chain via Dn404TaxAllowlist; this frontend
+/// list must be kept in sync when tokens are added or removed.
+/// Different from DN404_PAIR_CURRENCIES because the two allowlists are
+/// independent — a token can be safe as a pair currency but not yet as
+/// a tax-destination target if the on-chain buy path isn't liquid.
+export interface TaxDestinationOption {
+  address: Address;
+  label: string;
+  description: string;
+}
+
+export const DN404_TAX_DESTINATIONS: Record<ChainKey, TaxDestinationOption[]> = {
+  mainnet: [],
+  sepolia: [],
+  base: [],
+  'base-sepolia': [],
+  robinhood: [
+    // URU is technically also BuybackURU-reachable via the implicit
+    // route, but it's listed here so launchers can pick it via
+    // BuyAllowedToken as well (identical outcome; convenience).
+    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'RH stablecoin' },
+    // Stock tokens land here as governance onboards them + calls
+    // taxAllowlist.setAllowed on-chain. Placeholders below match the
+    // pair-currency list; replace 0x0 with canonical addresses.
+    { address: '0x0000000000000000000000000000000000000000', label: 'NVDA', description: 'Nvidia stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'TSLA', description: 'Tesla stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AAPL', description: 'Apple stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'COST', description: 'Costco stock (pending addr)' },
+  ],
+  'robinhood-testnet': [],
+};
+
+export function activeTaxDestinations(chain: ChainKey): TaxDestinationOption[] {
+  const all = DN404_TAX_DESTINATIONS[chain] ?? [];
+  return all.filter((opt) => opt.address !== '0x0000000000000000000000000000000000000000');
+}
+
 export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   mainnet: null,
   sepolia: null,
