@@ -406,6 +406,74 @@ export const nftLaunchFactoryAbi = [
   },
 ] as const;
 
+/// Dn404LaunchFactory ABI. One-tx DN404 launch: deploys base ERC-20 +
+/// mirror ERC-721 pair, wires the curve, charges URU fee. See
+/// contracts/src/dn404/Dn404LaunchFactory.sol.
+export const dn404LaunchFactoryAbi = [
+  {
+    type: 'function',
+    name: 'launch',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'p',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'ticker', type: 'string' },
+          { name: 'baseURI', type: 'string' },
+          { name: 'contractURI', type: 'string' },
+          { name: 'collectionSize', type: 'uint256' },
+          { name: 'unit', type: 'uint256' },
+          { name: 'founderPremintBps', type: 'uint16' },
+          { name: 'antiSniperBlocks', type: 'uint32' },
+          { name: 'buybackBurnBps', type: 'uint16' },
+          { name: 'uruAmount', type: 'uint256' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'base', type: 'address' },
+      { name: 'mirror', type: 'address' },
+      { name: 'curve', type: 'address' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'minUruFeeFor',
+    stateMutability: 'view',
+    inputs: [{ name: 'launcher', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'previewTotalSupply',
+    stateMutability: 'pure',
+    inputs: [
+      { name: 'collectionSize', type: 'uint256' },
+      { name: 'unit', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'event',
+    name: 'Dn404Launched',
+    inputs: [
+      { name: 'base', type: 'address', indexed: true },
+      { name: 'mirror', type: 'address', indexed: true },
+      { name: 'curve', type: 'address', indexed: true },
+      { name: 'launcher', type: 'address' },
+      { name: 'configHash', type: 'bytes32' },
+      { name: 'uruPaid', type: 'uint256' },
+      { name: 'totalSupply', type: 'uint256' },
+      { name: 'unit', type: 'uint256' },
+      { name: 'founderPremint', type: 'uint256' },
+      { name: 'name', type: 'string' },
+      { name: 'ticker', type: 'string' },
+    ],
+  },
+] as const;
+
 export const nftMintModuleAbi = [
   {
     type: 'function',
