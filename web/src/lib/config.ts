@@ -407,6 +407,66 @@ export function isNftDeployReady(chain: ChainKey): boolean {
   return NFT_LAUNCHES_ENABLED[chain] === true && NFT_LAUNCHES[chain] !== null;
 }
 
+/// DN404 launch modules — the third launch lane (base ERC-20 + mirror
+/// ERC-721 pair with unit-based auto-mint/burn). Populated after
+/// Dn404LaunchFactory + Dn404Template + Dn404MirrorTemplate broadcasts.
+/// Independent from the NFT lane; deliberately its own factory and its
+/// own feature flag so audit + rollout stay isolated.
+///
+/// While `null`, the /create/dn404 UI still renders (so we can iterate
+/// on the form) but the actual submit button is disabled — the launch
+/// flow refuses to broadcast a tx against zero-address slots. Once the
+/// contracts ship, populate the slot and the UI unlocks.
+export interface Dn404LaunchSet {
+  /// Single user-facing entrypoint. `launch(LaunchParams)` here deploys
+  /// the DN404 base + mirror + wires the curve in one tx.
+  LaunchFactory: Address;
+  // Impl addresses — informational, not called directly from the frontend
+  // (the factory clones them internally). Kept in config for indexer +
+  // Blockscout verification workflows, matching the NFT-lane posture.
+  BaseImpl: Address;
+  MirrorImpl: Address;
+}
+
+export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  // DN404 lane awaits contract deploy (slice 12 of the DN404 build).
+  // Site stays hidden until DN404_LAUNCHES_ENABLED[robinhood] flips true
+  // AND this slot is populated.
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+/// Per-chain feature flag for the DN404 launch experience. Controls
+/// whether the "dn404" option in the create picker, the /create/dn404
+/// route, and the paired-token strip on /collection/[address] render at
+/// all. Independent from DN404_LAUNCHES (which gates the actual on-chain
+/// submit), so we can ship UI ahead of contracts.
+///
+/// Flip flow per project decision (2026-09-03): NFT and DN404 lanes both
+/// go live in the same commit — hold this AND NFT_LAUNCHES_ENABLED off
+/// until the DN404 audit + testnet rehearsal + dark deploy are all
+/// green. Two flags flipped together = one launch moment for the
+/// community.
+export const DN404_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  robinhood: false,
+  'robinhood-testnet': false,
+};
+
+/// Convenience: submit-time gate. UI is enabled iff
+/// `DN404_LAUNCHES_ENABLED[chain]` is true AND every impl address in
+/// `DN404_LAUNCHES[chain]` is populated.
+export function isDn404DeployReady(chain: ChainKey): boolean {
+  return DN404_LAUNCHES_ENABLED[chain] === true && DN404_LAUNCHES[chain] !== null;
+}
+
 export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   mainnet: null,
   sepolia: null,
