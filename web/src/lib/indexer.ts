@@ -585,6 +585,11 @@ export interface IndexerNftCollection {
   /// rows with `lane='nft'`. Rendered as-is by frontends that show the
   /// "hold N tokens, get 1 NFT" story.
   unitWei?: string;
+  /// DN404 curve pair currency. `address(0)` when `lane='dn404'` and
+  /// the curve prices in ETH; any other address is the ERC-20 the
+  /// curve prices in (USDG, COST, NVDA, ...). Frontend maps the
+  /// address to a human label via DN404_PAIR_CURRENCIES.
+  pairCurrency?: Address;
   /// Mint module clone bound to this collection. Populated on all rows
   /// indexed after the mintModuleAddress schema addition (2026-09-01);
   /// missing / zeroAddress on older rows. For `lane='dn404'` this is
@@ -739,7 +744,7 @@ export async function fetchNftCollectionsByAddresses(
       nftCollectionss(where: { collectionAddress_in: $addresses }, limit: 200) {
         items {
           id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
-          lane pairedToken unitWei
+          lane pairedToken unitWei pairCurrency
           blockNumber blockTimestamp
         }
       }
@@ -765,7 +770,7 @@ export async function fetchDn404MirrorForBase(
       nftCollectionss(where: { pairedToken: $base }, limit: 1) {
         items {
           id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
-          lane pairedToken unitWei
+          lane pairedToken unitWei pairCurrency
           blockNumber blockTimestamp
         }
       }

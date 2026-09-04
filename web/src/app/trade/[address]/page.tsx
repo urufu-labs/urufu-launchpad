@@ -28,7 +28,7 @@ import {
 } from 'viem';
 
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
-import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, type ChainKey } from '@/lib/config';
+import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, DN404_PAIR_CURRENCIES, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
@@ -1214,16 +1214,27 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               </span>
             )}
             <span className={styles.statusPill}>{graduated ? 'v4 pool' : 'curve live'}</span>
-            {pairedMirror && (
-              <Link
-                href={`/collection/${pairedMirror.collectionAddress}`}
-                className="uru-chip"
-                style={{ padding: '2px 8px', fontSize: 10, textDecoration: 'none' }}
-                title={`hold ${pairedMirror.unitWei && pairedMirror.unitWei !== '0' ? (BigInt(pairedMirror.unitWei) / 10n ** 18n).toString() : '?'} ${pairedMirror.ticker || 'TICK'} to hold 1 NFT`}
-              >
-                ✧ dn404 art →
-              </Link>
-            )}
+            {pairedMirror && (() => {
+              const pairAddr = pairedMirror.pairCurrency ?? '0x0000000000000000000000000000000000000000';
+              const pairLabel = pairAddr === '0x0000000000000000000000000000000000000000'
+                ? 'ETH'
+                : (DN404_PAIR_CURRENCIES[activeChain as ChainKey] ?? [])
+                    .find((o) => o.address.toLowerCase() === pairAddr.toLowerCase())?.label
+                  ?? 'ERC-20';
+              const unitStr = pairedMirror.unitWei && pairedMirror.unitWei !== '0'
+                ? (BigInt(pairedMirror.unitWei) / 10n ** 18n).toString()
+                : '?';
+              return (
+                <Link
+                  href={`/collection/${pairedMirror.collectionAddress}`}
+                  className="uru-chip"
+                  style={{ padding: '2px 8px', fontSize: 10, textDecoration: 'none' }}
+                  title={`priced in ${pairLabel} · hold ${unitStr} ${pairedMirror.ticker || 'TICK'} to hold 1 NFT`}
+                >
+                  ✧ dn404 · {pairLabel}-paired →
+                </Link>
+              );
+            })()}
             {/* Legacy pill — surfaces that this token's v4 pool was seeded by
                 the old raw-ratio graduator (pre-V3). Only shows once the token
                 has actually graduated — pre-graduation curves have no pool yet
