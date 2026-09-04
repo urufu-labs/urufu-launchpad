@@ -456,6 +456,42 @@ function CollectionView({
             </div>
           </section>
 
+          {indexerRow?.lane === 'dn404' && indexerRow.pairedToken && indexerRow.pairedToken !== '0x0000000000000000000000000000000000000000' && (
+            <section
+              className="uru-shell-tight"
+              style={{ marginBottom: 10, background: 'var(--cream)' }}
+            >
+              <div className="uru-eyebrow" style={{ marginBottom: 4 }}>✧ dn404 pair</div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: 8,
+                  fontFamily: 'var(--font-pixel), monospace',
+                  fontSize: 10.5,
+                }}
+              >
+                <span style={{ color: 'var(--anchor-soft)' }}>
+                  hold{' '}
+                  <b style={{ color: 'var(--anchor)' }}>
+                    {indexerRow.unitWei && indexerRow.unitWei !== '0'
+                      ? (BigInt(indexerRow.unitWei) / 10n ** 18n).toString()
+                      : '?'}
+                  </b>
+                  {' '}${indexerRow.ticker || 'TICK'} to hold 1 art piece
+                </span>
+                <Link
+                  href={`/trade/${indexerRow.pairedToken}`}
+                  className="uru-chip"
+                  style={{ padding: '2px 8px', fontSize: 10, textDecoration: 'none' }}
+                >
+                  trade ${indexerRow.ticker || 'TICK'} →
+                </Link>
+              </div>
+            </section>
+          )}
+
           <section className="uru-shell">
             <div className={styles.sectionHead}>
               <span className="uru-eyebrow">♡ holders</span>

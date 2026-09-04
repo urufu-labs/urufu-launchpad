@@ -571,9 +571,24 @@ export interface IndexerNftCollection {
   id: string;
   chainId: number;
   collectionAddress: Address;
+  /// Launch lane the collection was minted from.
+  ///   'nft'   — bare ERC-721A via NftLaunchFactory
+  ///   'dn404' — mirror half of a DN404 pair; look up `pairedToken` for
+  ///             the ERC-20 side and `unitWei` for the tokens-per-NFT knob
+  /// Missing on rows indexed before the lane column existed — treat
+  /// as 'nft' at the call site.
+  lane?: 'nft' | 'dn404';
+  /// DN404 paired base ERC-20 address. Zero on legacy rows and on rows
+  /// with `lane='nft'`.
+  pairedToken?: Address;
+  /// DN404 unit (tokens-per-NFT), in wei. Zero on legacy rows and on
+  /// rows with `lane='nft'`. Rendered as-is by frontends that show the
+  /// "hold N tokens, get 1 NFT" story.
+  unitWei?: string;
   /// Mint module clone bound to this collection. Populated on all rows
   /// indexed after the mintModuleAddress schema addition (2026-09-01);
-  /// missing / zeroAddress on older rows.
+  /// missing / zeroAddress on older rows. For `lane='dn404'` this is
+  /// zero — DN404 has no mint module.
   mintModuleAddress?: Address;
   launchedBy: Address;
   name: string;
@@ -724,6 +739,7 @@ export async function fetchNftCollectionsByAddresses(
       nftCollectionss(where: { collectionAddress_in: $addresses }, limit: 200) {
         items {
           id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
+          lane pairedToken unitWei
           blockNumber blockTimestamp
         }
       }
@@ -731,6 +747,33 @@ export async function fetchNftCollectionsByAddresses(
     { addresses: addresses.map((a) => a.toLowerCase()) },
   );
   return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
+}
+
+/// DN404 reverse lookup — given a base ERC-20 address, find the paired
+/// mirror ERC-721 collection (if any). Powers the "paired collection"
+/// strip on /trade/[address]. Returns `null` if no mirror is bound to
+/// this token (typical for plain ERC-20 launches, which have no mirror).
+///
+/// The indexer's `pairedToken` is filled only when `lane='dn404'`, so
+/// this query naturally scopes to the DN404 lane without an explicit
+/// lane filter.
+export async function fetchDn404MirrorForBase(
+  base: Address,
+): Promise<IndexerNftCollection | null> {
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query Dn404MirrorForBase($base: String!) {
+      nftCollectionss(where: { pairedToken: $base }, limit: 1) {
+        items {
+          id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
+          lane pairedToken unitWei
+          blockNumber blockTimestamp
+        }
+      }
+    }`,
+    { base: base.toLowerCase() },
+  );
+  const rows = (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
+  return rows[0] ?? null;
 }
 
 /// Post-graduation trades keyed by the actual user wallet. Queries the v4RouterSwaps

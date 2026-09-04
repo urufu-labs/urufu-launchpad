@@ -43,6 +43,8 @@ import {
   fetchV4SwapsForToken,
   fetchV4SwapsForPoolId,
   fetchV4RouterSwapsForToken,
+  fetchDn404MirrorForBase,
+  type IndexerNftCollection,
 } from '@/lib/indexer';
 import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
 import { legacyHookOverride, willGraduateLegacy } from '@/lib/legacyGraduations';
@@ -157,6 +159,20 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       const key = CHAIN_ID_TO_KEY[row.chainId];
       if (key) setTokenHomeChain(key);
       if (row.launchedBy) setLaunchInfoLauncher(row.launchedBy as Address);
+    })();
+    return () => { cancelled = true; };
+  }, [tokenAddress]);
+
+  // DN404 reverse lookup: if this token is the base half of a DN404 pair,
+  // the indexer has an `nftCollections` row with `pairedToken=<this>` for
+  // the mirror. Non-DN404 tokens return null and the strip is elided.
+  const [pairedMirror, setPairedMirror] = useState<IndexerNftCollection | null>(null);
+  useEffect(() => {
+    if (!tokenAddress) return;
+    let cancelled = false;
+    (async () => {
+      const mirror = await fetchDn404MirrorForBase(tokenAddress);
+      if (!cancelled) setPairedMirror(mirror);
     })();
     return () => { cancelled = true; };
   }, [tokenAddress]);
@@ -1198,6 +1214,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               </span>
             )}
             <span className={styles.statusPill}>{graduated ? 'v4 pool' : 'curve live'}</span>
+            {pairedMirror && (
+              <Link
+                href={`/collection/${pairedMirror.collectionAddress}`}
+                className="uru-chip"
+                style={{ padding: '2px 8px', fontSize: 10, textDecoration: 'none' }}
+                title={`hold ${pairedMirror.unitWei && pairedMirror.unitWei !== '0' ? (BigInt(pairedMirror.unitWei) / 10n ** 18n).toString() : '?'} ${pairedMirror.ticker || 'TICK'} to hold 1 NFT`}
+              >
+                ✧ dn404 art →
+              </Link>
+            )}
             {/* Legacy pill — surfaces that this token's v4 pool was seeded by
                 the old raw-ratio graduator (pre-V3). Only shows once the token
                 has actually graduated — pre-graduation curves have no pool yet
