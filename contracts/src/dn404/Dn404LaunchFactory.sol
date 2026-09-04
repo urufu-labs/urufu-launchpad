@@ -57,6 +57,23 @@ interface ICurveFactoryLike {
     ) external returns (address curve);
 }
 
+/// Dn404CurveFactory — same shape as ICurveFactoryLike but every
+/// entrypoint takes an explicit `pairCurrency` arg. Route target for
+/// non-ETH DN404 launches. See `contracts/src/dn404/Dn404CurveFactory.sol`.
+interface IDn404CurveFactoryLike {
+    function implementation() external view returns (address);
+    function predictCurveAddress(
+        address token
+    ) external view returns (address);
+    function createCurveWithConfigFor(
+        address token,
+        address pairCurrency,
+        uint32 antiSniperBlocks,
+        uint16 buybackBurnBps,
+        address launcher
+    ) external returns (address curve);
+}
+
 interface INftLaunchFactoryFee {
     function minUruFee() external view returns (uint256);
 }
@@ -112,6 +129,10 @@ contract Dn404LaunchFactory is Ownable {
     error Dn404LaunchFactory__CodeHashNotPinned();
     error Dn404LaunchFactory__ImplsNotSet();
     error Dn404LaunchFactory__CurveFactoryNotSet();
+    /// New for stock-pair: launcher passed a non-zero pairCurrency but
+    /// the Dn404CurveFactory (which handles the non-ETH path) hasn't
+    /// been wired via `setDn404CurveFactory` yet.
+    error Dn404LaunchFactory__Dn404CurveFactoryNotSet();
     error Dn404LaunchFactory__NameEmpty();
     error Dn404LaunchFactory__TickerEmpty();
     error Dn404LaunchFactory__CollectionSizeZero();
@@ -131,12 +152,19 @@ contract Dn404LaunchFactory is Ownable {
     event UruConfigSet(address uru, address uruSink, uint256 minUruFee, address loyaltyOracle);
     event FeeSplitterSet(address feeSplitter);
     event CurveFactorySet(address curveFactory);
+    event Dn404CurveFactorySet(address dn404CurveFactory);
     event NftFactoryRefSet(address nftFactory);
     event Dn404Launched(
         address indexed base,
         address indexed mirror,
         address indexed curve,
         address launcher,
+        /// Pair currency the curve prices in. `address(0)` means ETH
+        /// (routed through V10 CurveFactory); any other address is an
+        /// allowlisted ERC-20 (routed through Dn404CurveFactory).
+        /// Indexers use this to render trade-page prices in the right
+        /// unit ("0.02 COST", "0.5 USDG", "0.001 ETH").
+        address pairCurrency,
         bytes32 configHash,
         uint256 uruPaid,
         uint256 totalSupply,
@@ -184,7 +212,14 @@ contract Dn404LaunchFactory is Ownable {
     ILoyaltyOracleLike public loyaltyOracle;
 
     address public feeSplitter;
+    /// V10 CurveFactory reference. Handles the ETH-paired DN404 launches
+    /// (pairCurrency == address(0)). Unchanged by pair-currency support —
+    /// per feedback_dn404_no_erc20_touch.md, V10 stays untouched forever.
     ICurveFactoryLike public curveFactory;
+    /// Dn404CurveFactory reference. Handles non-ETH DN404 launches
+    /// (any allowlisted pair currency). Parallel deployment; V10 code
+    /// path never sees this factory.
+    IDn404CurveFactoryLike public dn404CurveFactory;
 
     /// Kept as a reference (not required at launch time) so future
     /// governance can re-seed the URU fee at 2× the NFT fee if the NFT
@@ -280,6 +315,19 @@ contract Dn404LaunchFactory is Ownable {
         emit CurveFactorySet(address(curveFactory_));
     }
 
+    /// @notice Set the Dn404CurveFactory reference — required for
+    ///         non-ETH pair-currency launches. Rotatable so governance
+    ///         can point at a future Dn404 curve stack rev without
+    ///         redeploying this factory. Existing launches unaffected
+    ///         (each curve pins its own factory at creation).
+    function setDn404CurveFactory(
+        IDn404CurveFactoryLike dn404CurveFactory_
+    ) external onlyOwner {
+        if (address(dn404CurveFactory_) == address(0)) revert Dn404LaunchFactory__ZeroAddress();
+        dn404CurveFactory = dn404CurveFactory_;
+        emit Dn404CurveFactorySet(address(dn404CurveFactory_));
+    }
+
     // ============================================================
     // Views
     // ============================================================
@@ -329,6 +377,19 @@ contract Dn404LaunchFactory is Ownable {
         uint32 antiSniperBlocks;
         uint16 buybackBurnBps;
 
+        /// Pair currency for the curve.
+        ///   `address(0)` — trade against ETH; routed through V10
+        ///                  CurveFactory unchanged. Default choice for
+        ///                  launches wanting the classic memecoin-vs-ETH
+        ///                  bonding curve.
+        ///   any ERC-20 — trade against that token (USDG, COST, NVDA...);
+        ///                routed through Dn404CurveFactory, which
+        ///                validates against Dn404PairCurrencyAllowlist.
+        /// The launcher never touches the allowlist directly — passing
+        /// an un-allowlisted address reverts inside Dn404CurveFactory
+        /// with Dn404CurveFactory__PairCurrencyDisallowed.
+        address pairCurrency;
+
         /// URU launch fee (on-chain recomputed + rejected if too low).
         uint256 uruAmount;
     }
@@ -340,7 +401,16 @@ contract Dn404LaunchFactory is Ownable {
     ) external returns (address base, address mirror, address curve) {
         // -- 1. Sanity gates (fail fast before any state change).
         if (baseImpl == address(0)) revert Dn404LaunchFactory__ImplsNotSet();
-        if (address(curveFactory) == address(0)) revert Dn404LaunchFactory__CurveFactoryNotSet();
+        if (p.pairCurrency == address(0)) {
+            // ETH path — V10 CurveFactory must be wired.
+            if (address(curveFactory) == address(0)) revert Dn404LaunchFactory__CurveFactoryNotSet();
+        } else {
+            // Non-ETH path — Dn404CurveFactory must be wired. The
+            // allowlist check happens inside Dn404CurveFactory itself
+            // (Dn404CurveFactory__PairCurrencyDisallowed), so we don't
+            // duplicate it here — one authoritative check point.
+            if (address(dn404CurveFactory) == address(0)) revert Dn404LaunchFactory__Dn404CurveFactoryNotSet();
+        }
         if (bytes(p.name).length == 0) revert Dn404LaunchFactory__NameEmpty();
         if (bytes(p.ticker).length == 0) revert Dn404LaunchFactory__TickerEmpty();
         if (p.collectionSize == 0) revert Dn404LaunchFactory__CollectionSizeZero();
@@ -397,12 +467,16 @@ contract Dn404LaunchFactory is Ownable {
         mirror = LibClone.cloneDeterministic(mirrorImpl, keccak256(abi.encode(saltKey, "mirror")));
         base = LibClone.cloneDeterministic(baseImpl, keccak256(abi.encode(saltKey, "base")));
 
-        // -- 6. Predict the curve address. CurveFactory clones the curve
-        //       impl deterministically with salt keccak256(abi.encode(
-        //       token, block.chainid)) — computed for us by the factory
-        //       helper. We use this predicted address to skip-list the
-        //       curve BEFORE it receives a single wei.
-        address predictedCurve = curveFactory.predictCurveAddress(base);
+        // -- 6. Predict the curve address. Both CurveFactory variants
+        //       use the same salt shape (keccak256(abi.encode(token,
+        //       block.chainid))) and expose predictCurveAddress with
+        //       the same signature, so we can dispatch to whichever
+        //       factory this launch will land on and get the right
+        //       predicted address. We use it to skip-list the curve
+        //       BEFORE it receives a single wei.
+        address predictedCurve = p.pairCurrency == address(0)
+            ? curveFactory.predictCurveAddress(base)
+            : dn404CurveFactory.predictCurveAddress(base);
 
         // -- 7. Initialize base. This ALSO links the mirror atomically
         //       via _initializeDN404 (calls mirror.linkMirrorContract in
@@ -436,18 +510,37 @@ contract Dn404LaunchFactory is Ownable {
             SafeTransferLib.safeTransfer(base, msg.sender, founderMintWei);
         }
 
-        // -- 9. Hand remaining supply to CurveFactory.
-        //       CurveFactory pulls IERC20(token).balanceOf(msg.sender) —
+        // -- 9. Hand remaining supply to the appropriate CurveFactory.
+        //       Both factories pull IERC20(token).balanceOf(msg.sender) —
         //       our full remaining balance — so approve exactly that
-        //       amount and expect zero residue.
+        //       amount to whichever we route to and expect zero residue.
         uint256 curveSupply = totalSupplyWei - founderMintWei;
-        SafeTransferLib.safeApprove(base, address(curveFactory), curveSupply);
-        curve = curveFactory.createCurveWithConfigFor(
-            base,
-            p.antiSniperBlocks,
-            p.buybackBurnBps,
-            msg.sender
-        );
+        if (p.pairCurrency == address(0)) {
+            // ETH path — V10 CurveFactory. Existing wire from slice 5,
+            // unchanged. `Dn404LaunchFactory` must already be on
+            // CurveFactory.trustedRouters (ops setup).
+            SafeTransferLib.safeApprove(base, address(curveFactory), curveSupply);
+            curve = curveFactory.createCurveWithConfigFor(
+                base,
+                p.antiSniperBlocks,
+                p.buybackBurnBps,
+                msg.sender
+            );
+        } else {
+            // Non-ETH path — Dn404CurveFactory. Passes pair currency;
+            // Dn404CurveFactory validates against the allowlist before
+            // deploying the curve. `Dn404LaunchFactory` must also be
+            // on Dn404CurveFactory.trustedRouters (separate ops setup;
+            // called out in the deploy script for slice 12).
+            SafeTransferLib.safeApprove(base, address(dn404CurveFactory), curveSupply);
+            curve = dn404CurveFactory.createCurveWithConfigFor(
+                base,
+                p.pairCurrency,
+                p.antiSniperBlocks,
+                p.buybackBurnBps,
+                msg.sender
+            );
+        }
 
         // -- 10. Sanity: the deployed curve MUST match the address we
         //        skip-listed. Any mismatch means CurveFactory's salt or
@@ -463,6 +556,7 @@ contract Dn404LaunchFactory is Ownable {
             mirror,
             curve,
             msg.sender,
+            p.pairCurrency,
             saltKey,
             p.uruAmount,
             totalSupplyWei,
