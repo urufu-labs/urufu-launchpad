@@ -155,6 +155,13 @@ contract ERC721ATemplate is ERC721A, Ownable {
     ) public view virtual override returns (string memory) {
         if (!_exists(tokenId)) revert URIQueryForNonexistentToken();
         string memory base = _baseURI();
+        // The concatenation result is a URI string returned as-is; it is
+        // never hashed on-chain, so a packed-encoding collision between
+        // (base, tokenId) pairs (e.g. base=".../a1", id="0" vs.
+        // base=".../a", id="10" — both yield ".../a10.json") is not an
+        // auth-bypass risk. The detector's true concern is
+        // keccak256(abi.encodePacked(dynA, dynB)) which does not apply.
+        // slither-disable-next-line encode-packed-collision
         return bytes(base).length == 0 ? "" : string(abi.encodePacked(base, LibString.toString(tokenId), ".json"));
     }
 

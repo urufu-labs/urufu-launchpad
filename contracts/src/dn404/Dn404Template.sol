@@ -194,6 +194,12 @@ contract Dn404Template is DN404, Ownable {
         uint256 id
     ) internal view virtual override returns (string memory) {
         if (bytes(_vmBaseURI).length == 0) return "";
+        // Same rationale as ERC721ATemplate.tokenURI — URI string is
+        // returned as-is, never hashed on-chain. Packed-encoding
+        // collision between (baseURI, id) pairs is not an auth-bypass
+        // risk here. Kept for symmetry with the ERC-721A lane so any
+        // future audit trace lines up cleanly.
+        // slither-disable-next-line encode-packed-collision
         return string(abi.encodePacked(_vmBaseURI, LibString.toString(id), ".json"));
     }
 

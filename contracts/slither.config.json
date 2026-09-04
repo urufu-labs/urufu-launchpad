@@ -14,6 +14,7 @@
     "v4-periphery/=lib/v4-periphery/src/",
     "@uniswap/v4-core/src/=lib/v4-core/src/",
     "@uniswap/v4-core/=lib/v4-core/",
-    "@uniswap/v4-periphery/=lib/v4-periphery/"
+    "@uniswap/v4-periphery/=lib/v4-periphery/",
+    "dn404/=lib/dn404/src/"
   ]
 }
