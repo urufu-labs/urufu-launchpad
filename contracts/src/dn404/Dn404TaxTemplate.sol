@@ -117,6 +117,7 @@ contract Dn404TaxTemplate is Dn404Template {
     error Dn404TaxTemplate__TaxBpsTooHigh(uint16 bps, uint16 max);
     error Dn404TaxTemplate__TaxTargetNotAllowed(address target);
     error Dn404TaxTemplate__NotKeeper();
+    error Dn404TaxTemplate__NotGovernance();
     error Dn404TaxTemplate__InsufficientAccumulated(uint256 requested, uint256 available);
     error Dn404TaxTemplate__ZeroAddress();
 
@@ -128,6 +129,7 @@ contract Dn404TaxTemplate is Dn404Template {
     event TaxExemptSet(address indexed target, bool exempt);
     event KeeperSet(address indexed oldKeeper, address indexed newKeeper);
     event KeeperTreasurySet(address indexed oldTreasury, address indexed newTreasury);
+    event PlatformGovernanceSet(address indexed oldGov, address indexed newGov);
     /// Emitted for the immediate destinations (BurnDead).
     event TaxApplied(
         address indexed from,
@@ -181,6 +183,25 @@ contract Dn404TaxTemplate is Dn404Template {
     /// `BuyAllowedToken` mode; other modes have implicit targets.
     IDn404TaxAllowlistView public taxAllowlist;
 
+    /// Platform governance address — the multisig with authority to
+    /// rotate the keeper wallet + keeper treasury. **Distinct from
+    /// `owner()` on this contract, which is the LAUNCHER (Solady
+    /// Ownable).** Split so a launcher cannot drain the accumulator
+    /// by rotating the keeper role to a wallet they control.
+    ///
+    /// Set at `initializeTax` from the launch factory's own `owner()`
+    /// (the platform-level multisig that governs the launchpad).
+    /// Governance can rotate itself via `setPlatformGovernance`
+    /// (guarded on the CURRENT gov, so a stale key can't reclaim
+    /// authority).
+    ///
+    /// The launcher still owns the token (via Solady Ownable) for
+    /// launcher-scoped controls: `setBaseURI`, `setContractURI`,
+    /// `setSkipNFTFor`, `setTaxDestination` (enum-typed — cannot
+    /// escape the menu), `setTaxExempt`. Only the keeper role is
+    /// governance-gated.
+    address public platformGovernance;
+
     /// Auto-exempted from tax on either side of a transfer. Factory,
     /// curve, feeSplitter, launcher, DEAD_ADDRESS, address(this).
     mapping(address => bool) public taxExempt;
@@ -194,6 +215,19 @@ contract Dn404TaxTemplate is Dn404Template {
     /// `_initialized` since the two init phases are called separately
     /// by the factory.
     uint8 private _taxInitialized;
+
+    // ============================================================
+    // Modifiers
+    // ============================================================
+
+    /// @dev Guards keeper-role rotation (setKeeper, setKeeperTreasury,
+    ///      setPlatformGovernance). Distinct from `onlyOwner` because
+    ///      `owner()` = launcher; only `platformGovernance` may touch
+    ///      the keeper role.
+    modifier onlyGovernance() {
+        if (msg.sender != platformGovernance) revert Dn404TaxTemplate__NotGovernance();
+        _;
+    }
 
     // ============================================================
     // Init
@@ -223,13 +257,15 @@ contract Dn404TaxTemplate is Dn404Template {
             address keeperTreasury_,
             address taxAllowlist_,
             address uruToken_,
+            address platformGovernance_,
             address[] memory exemptions
         ) = abi.decode(
             data,
-            (TaxMode, uint16, address, address, address, address, address, address[])
+            (TaxMode, uint16, address, address, address, address, address, address, address[])
         );
 
         if (bps_ > MAX_TAX_BPS) revert Dn404TaxTemplate__TaxBpsTooHigh(bps_, MAX_TAX_BPS);
+        if (platformGovernance_ == address(0)) revert Dn404TaxTemplate__ZeroAddress();
         _validateDestination(mode_, target_, IDn404TaxAllowlistView(taxAllowlist_));
 
         taxMode = mode_;
@@ -239,6 +275,8 @@ contract Dn404TaxTemplate is Dn404Template {
         keeperTreasury = keeperTreasury_;
         taxAllowlist = IDn404TaxAllowlistView(taxAllowlist_);
         uruToken = uruToken_;
+        platformGovernance = platformGovernance_;
+        emit PlatformGovernanceSet(address(0), platformGovernance_);
 
         // Auto-exempt: the tax template's own address (accumulator
         // sink) + DEAD_ADDRESS (BurnDead sink) + every wallet the
@@ -291,25 +329,50 @@ contract Dn404TaxTemplate is Dn404Template {
         emit TaxExemptSet(target, exempt);
     }
 
-    /// @notice Owner (governance) rotates the keeper wallet. Should be
-    ///         the platform-level ops multisig; not the launcher.
-    ///         Kept owner-controlled (not launcher-controlled) so a
-    ///         compromised launcher can't drain the accumulator by
-    ///         pointing it at their own wallet.
+    /// @notice Platform governance rotates the keeper wallet.
+    ///
+    /// @dev **`onlyGovernance` — NOT `onlyOwner`.** `owner()` on this
+    ///      contract is the launcher (Solady Ownable); routing keeper
+    ///      rotation through `onlyOwner` would let a malicious
+    ///      launcher rotate the keeper to a self-controlled wallet
+    ///      and drain the accumulated tax stream in one tx (via
+    ///      sweepAccumulated). Split via `platformGovernance` so the
+    ///      keeper role is strictly platform-managed.
+    ///
+    ///      Fixed as an atomic security patch on `dn404-lane` after
+    ///      the /security-review pass caught the misalignment
+    ///      (docstring said governance-only, code was launcher-only).
     function setKeeper(
         address newKeeper
-    ) external onlyOwner {
+    ) external onlyGovernance {
         if (newKeeper == address(0)) revert Dn404TaxTemplate__ZeroAddress();
         emit KeeperSet(keeper, newKeeper);
         keeper = newKeeper;
     }
 
+    /// @notice Platform governance rotates the treasury that receives
+    ///         the 5% keeper fee. Same rationale as `setKeeper` — a
+    ///         launcher rotating the treasury to their own wallet
+    ///         would also let them siphon the keeper cut.
     function setKeeperTreasury(
         address newTreasury
-    ) external onlyOwner {
+    ) external onlyGovernance {
         if (newTreasury == address(0)) revert Dn404TaxTemplate__ZeroAddress();
         emit KeeperTreasurySet(keeperTreasury, newTreasury);
         keeperTreasury = newTreasury;
+    }
+
+    /// @notice Rotate the platform governance address itself. Guarded
+    ///         on the CURRENT governance (not owner / not keeper) so
+    ///         a stale gov key can't reclaim authority. Governance is
+    ///         expected to be a multisig; this function is the sole
+    ///         path for it to evolve.
+    function setPlatformGovernance(
+        address newGov
+    ) external onlyGovernance {
+        if (newGov == address(0)) revert Dn404TaxTemplate__ZeroAddress();
+        emit PlatformGovernanceSet(platformGovernance, newGov);
+        platformGovernance = newGov;
     }
 
     // ============================================================

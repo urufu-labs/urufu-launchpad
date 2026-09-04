@@ -644,6 +644,15 @@ contract Dn404LaunchFactory is Ownable {
             exemptions[1] = predictedCurve;      // curve — already skip-listed but taxExempt is separate
             exemptions[2] = msg.sender;          // launcher wallet
             exemptions[3] = feeSplitter;         // may be zero; setTaxExempt guards zero-address
+            // Platform governance for the tax template = this factory's
+            // OWN Solady Ownable owner (the launchpad's multisig).
+            // Passed as an explicit field so the template gates keeper
+            // rotation on a distinct role from the launcher.
+            //
+            // See security-review finding fix on `dn404-lane`: without
+            // this split, a malicious launcher could rotate keeper +
+            // treasury to self-controlled wallets and drain the
+            // accumulated tax stream via sweepAccumulated.
             bytes memory initTax = abi.encode(
                 p.taxMode,
                 p.taxBps,
@@ -652,6 +661,7 @@ contract Dn404LaunchFactory is Ownable {
                 taxKeeperTreasury,
                 taxAllowlist,
                 address(uru),
+                owner(),
                 exemptions
             );
             ITaxInitializable(base).initializeTax(initTax);
