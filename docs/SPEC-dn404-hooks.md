@@ -1,7 +1,7 @@
-# SPEC — DN404 Transfer Hooks + Tax Destinations
+# SPEC — DN404 Transfer Hooks + Tax Destinations + Stock-Pair Launches
 
 > **Status:** 🟡 DRAFT — scope + architecture only. No code yet.
-> _last updated: 2026-09-03_
+> _last updated: 2026-09-03_ (rev 2: SPEC Q answers + pair-currency scope)
 > **Depends on:** the base DN404 lane (`SPEC-dn404-launchpad.md`,
 > already shipped through slice 9d on branch `dn404-lane`).
 > **Blast radius:** additive — a new mixin on the base template and a
@@ -225,35 +225,161 @@ If the DN404 audit has already started when this SPEC gets
 greenlit, punt hooks to a v1.1 rotation to avoid re-opening the
 scope.
 
-## Open questions
+## Decisions (rev 2, 2026-09-03)
 
-1. Should launchers be able to CHANGE tax destination post-launch?
-   Argument for: markets evolve, they should be able to switch to
-   BurnDead if BuybackURU stops being interesting. Argument
-   against: adds a "rug the tax destination" attack surface.
-   Recommend: one-shot at launch, no post-launch mutation.
-2. Should the tax rate be adjustable? Same tradeoff. Recommend:
-   set once, immutable.
-3. `MirrorFloorSupport` — who runs the keeper? Us (matches
-   existing keeper-per-flywheel posture) or the launcher (their
-   problem)? Recommend: us, to keep the promise credible for
-   launchers who couldn't run a keeper themselves. Adds ops load.
-4. Fee for the keeper — take ~5-10% of the tax stream as
-   compensation, transparent up-front? Or roll into the launch
-   fee? Recommend: transparent per-transaction cut.
+1. **Post-launch tax destination change:** ALLOWED, but only among
+   the enum options we shipped. Since destination is an enum, this
+   is enforced by construction — the launcher (via Ownable) can call
+   `setTaxDestination(newEnum, newTarget?)` and the setter validates
+   the enum is in-range + target is on the allowlist. No escape
+   outside the menu is possible. Emits `TaxDestinationChanged` for
+   consumers.
+2. **Tax rate:** NOT adjustable. Set once at initialize, immutable
+   for the life of the pair. Removes the "raise tax after launch"
+   rug vector entirely.
+3. **Keeper (MirrorFloorSupport):** WE run it. Same posture as the
+   flywheel keeper. Adds ops load — one more process to monitor —
+   but keeps the promise credible for launchers who couldn't
+   operate one themselves.
+4. **Keeper fee:** 5% of the tax stream, transparent per-transaction.
+   Emitted in the `MirrorFloorSweep` event as a separate line item so
+   the launcher and holders can see what the keeper took vs. what
+   went to floor buys. Held in an owner-managed treasury; consumed
+   for keeper gas + operational overhead.
 
-## Not-shipping-but-explored
+## Stock-pair DN404 launches (rev 2 — MOVED INTO SCOPE)
+
+Launcher picks a **pair currency** at launch time from a curated
+allowlist. The DN404's bonding curve prices in that currency
+instead of ETH — buyers pay in the chosen currency to receive the
+base token, and post-graduation the v4 pool trades against it.
+
+Combined with the existing "launcher brings their own art" flow
+(baseURI + contractURI from studio-pinned metadata, already
+shipped in slice 9b), a launcher can now ship: **a DN404 pair
+where the token trades against $NVDA, with the mirror NFTs being
+their own studio-uploaded art**.
+
+Nothing about this needs us to become a broker-dealer — the RH
+stock tokens are already issued compliantly on RH chain (see the
+canonical registry at `docs.robinhood.com/chain/contracts`). We
+route to already-existing regulated tokens; the launcher trades
+against them via a normal ERC-20-paired bonding curve.
+
+### v1 pair-currency allowlist
+
+Governance-managed, seeded from the RH stock registry. Adding /
+removing entries is a multisig call, same posture as
+`Dn404TaxAllowlist` and `CurveFactory.trustedRouters`.
+
+Requested v1 set:
+
+- **URU** (ecosystem token, baseline)
+- **USDG** (RH stablecoin — quietest starting pair)
+- **WETH** (identical to today's ETH-paired behavior, kept as
+  default for existing memecoin launches)
+- **NVDA, TSLA, AAPL, AMZN, GOOGL, PLTR, COST, HIMS, RBLX, GME**
+  (10 stock tokens — subject to canonical addresses actually
+  being live on the RH registry at build time)
+- **SPCX / SPCE** (space-exposure asset — needs canonical ticker
+  confirmation from the RH registry; flagged as "if available")
+
+Any ticker whose canonical RH registry entry isn't populated at
+build time drops from v1 and gets added post-launch via
+governance — no re-audit needed because the mechanic is generic
+over the allowlist.
+
+### What has to change to ship this
+
+The DN404 lane itself is agnostic to pair currency — the base is
+just an ERC-20 that the curve prices. The heavy lift is in the
+curve stack, which today assumes ETH:
+
+**`BondingCurve.sol`:**
+- `initialize()` gains a `pairCurrency` field (address; zero =
+  ETH for backward compatibility with all existing launches).
+- Buy path: replace `msg.value` accounting with
+  `IERC20(pairCurrency).transferFrom(buyer, curve, amount)` when
+  the pair is non-zero.
+- Sell path: transfer pair currency out instead of ETH.
+- Graduation math already works in units of "pair currency"
+  internally, so the change is at the I/O boundary.
+
+**`CurveFactory.sol`:**
+- `createCurveWithConfigFor` gains a `pairCurrency` argument.
+- Pair currency validated against the allowlist at create time
+  (revert `CurveFactory__UnallowedPairCurrency`).
+
+**`Graduator.sol`:**
+- Graduation into a v4 pool needs the pair currency as pool
+  key's `currency0` / `currency1` slot instead of hard-wired
+  ETH/WETH.
+- Existing ETH graduations continue to route through WETH.
+
+**`Dn404LaunchFactory.sol`:**
+- `LaunchParams` gains `pairCurrency` field.
+- Validated against `Dn404PairCurrencyAllowlist` (new contract,
+  or reuse the tax allowlist — TBD in impl).
+
+**Frontend:**
+- `/create/dn404` gains a pair-currency dropdown populated from
+  the allowlist (indexer surfaces this from the on-chain
+  contract).
+- `/trade/[address]` price / mcap displays render in the pair
+  currency for the token (e.g. "0.02 NVDA" not "0.02 ETH").
+- Live-price rail on the home + discover cards render pair-
+  currency-appropriately.
+
+**Indexer:**
+- `curves` and `launches` tables gain a `pairCurrency` column.
+- Price computations in v4Router indexing use the correct pair.
+
+### Audit blast radius
+
+The DN404 lane audit was scoped as ~$20–40k for the base build.
+Adding pair-currency support materially expands scope because it
+touches CurveFactory + Graduator + BondingCurve — three
+production contracts that already serve every live ERC-20 launch.
+A CurveFactory rotation (or the equivalent additive
+`createCurveV2` sibling) is the safest way to isolate audit
+surface from existing curves.
+
+**Recommendation:** split into a distinct rotation, not folded
+into the DN404 hook round. Sequence:
+
+1. **DN404 v1** (contracts + hooks with ETH-only pair currency) —
+   audit + ship. Already 90% done on `dn404-lane`.
+2. **Pair-currency v2** (CurveFactory + Graduator additive
+   rotation + BondingCurve v2 impl + DN404 pair-currency knob)
+   — separate audit round, ship after v1 lands and we have live
+   feedback on the hook mechanics.
+
+This is a real product-vs-scope tradeoff — if the "stock pair"
+story is critical to the launch narrative, we can fold it in
+now and delay the whole launch by roughly 4–6 weeks (extra
+audit round + extra rehearsal). If it's a "next quarter"
+feature, ship v1 first and follow with v2.
+
+**Compromise middle path:** ship v1 with `pairCurrency = USDG`
+support only (single non-ETH pair, minimal delta to
+CurveFactory), then add the stock tokens in v1.1 as pure
+allowlist additions with no additional audit. Gets a "launch
+against USDG" story on day one, buys time to audit the full
+pair-currency surface for v2.
+
+## Not-shipping-but-explored (unchanged)
 
 - **Oracle-priced DN404**: launcher picks a Chainlink price feed
   (e.g. NVDA), the DN404's price is pegged to the feed via a
   rebalancing mechanic. Interesting but pulls oracle risk into
   the launch surface. Deferred to a possible v1.2 lane once
   we've observed how launchers actually use the tax hook.
-- **DN404 pair currency = a Robinhood stock token**: launcher
-  launches a DN404 whose bonding curve prices in USDG or TSLA
-  instead of ETH. Requires a CurveFactory change (allow the pair
-  currency to be an ERC-20, not just ETH). Bigger surface,
-  bigger audit; defer.
 - **Cross-lane composition**: allow the tax destination to be
   ANOTHER DN404 pair on the launchpad, so launcher A's trades
   buy launcher B's NFTs. Cute; adds coordination risk; defer.
+- **NFT wrapping / fractionalization**: let launchers "bring an
+  existing ERC-721 collection" and wrap it as the DN404 mirror
+  side. Distinct from "bring your own art metadata" (which is
+  already shipped as baseURI + contractURI). Wrapping requires
+  custody logic + redemption + per-collection deployment; a
+  bigger product than the tax hooks. Defer.
