@@ -44,6 +44,15 @@ interface IInitializable {
     ) external;
 }
 
+/// Second-phase initializer on Dn404TaxTemplate. Called by the factory
+/// right after `initialize(baseData)` for launches with `taxMode != 0`.
+/// See `contracts/src/dn404/Dn404TaxTemplate.sol`.
+interface ITaxInitializable {
+    function initializeTax(
+        bytes calldata data
+    ) external;
+}
+
 interface ICurveFactoryLike {
     function implementation() external view returns (address);
     function predictCurveAddress(
@@ -133,6 +142,13 @@ contract Dn404LaunchFactory is Ownable {
     /// the Dn404CurveFactory (which handles the non-ETH path) hasn't
     /// been wired via `setDn404CurveFactory` yet.
     error Dn404LaunchFactory__Dn404CurveFactoryNotSet();
+    /// New for tax hooks: launcher chose a non-Off taxMode but the
+    /// baseTaxImpl (which handles tax-enabled launches) hasn't been
+    /// wired via `setBaseTaxImpl` yet.
+    error Dn404LaunchFactory__BaseTaxImplNotSet();
+    /// Tax bps out of range. Ceiling matches Dn404TaxTemplate.MAX_TAX_BPS
+    /// (5%). Rejecting here saves the launcher a URU fee on a doomed config.
+    error Dn404LaunchFactory__TaxBpsTooHigh(uint16 bps, uint16 max);
     error Dn404LaunchFactory__NameEmpty();
     error Dn404LaunchFactory__TickerEmpty();
     error Dn404LaunchFactory__CollectionSizeZero();
@@ -149,6 +165,7 @@ contract Dn404LaunchFactory is Ownable {
     // ============================================================
     event ImplsRegistered(address baseImpl, address mirrorImpl);
     event ExpectedCodeHashesSet(bytes32 baseHash, bytes32 mirrorHash);
+    event BaseTaxImplSet(address baseTaxImpl, bytes32 codeHash);
     event UruConfigSet(address uru, address uruSink, uint256 minUruFee, address loyaltyOracle);
     event FeeSplitterSet(address feeSplitter);
     event CurveFactorySet(address curveFactory);
@@ -165,6 +182,12 @@ contract Dn404LaunchFactory is Ownable {
         /// Indexers use this to render trade-page prices in the right
         /// unit ("0.02 COST", "0.5 USDG", "0.001 ETH").
         address pairCurrency,
+        /// Tax mode chosen at launch. 0 = Off (no hook, launched using
+        /// bare Dn404Template); non-zero = one of the enum values in
+        /// Dn404TaxTemplate.TaxMode (launched using Dn404TaxTemplate).
+        /// Indexer uses this to flag tax-enabled launches in the UI.
+        uint8 taxMode,
+        uint16 taxBps,
         bytes32 configHash,
         uint256 uruPaid,
         uint256 totalSupply,
@@ -203,6 +226,17 @@ contract Dn404LaunchFactory is Ownable {
     bytes32 public expectedBaseHash;
     bytes32 public expectedMirrorHash;
 
+    /// Optional tax-enabled base impl (Dn404TaxTemplate). Rotatable so
+    /// governance can ship v1.1 tax templates without redeploying this
+    /// factory — DIFFERENT posture from the frozen baseImpl / mirrorImpl
+    /// pair (URU-A08 one-shot) because the tax mixin is expected to
+    /// evolve (new destinations, better keeper hooks) and each version
+    /// needs its own code-hash-pinned impl slot. Existing launches
+    /// aren't affected by a rotation — they cloned whatever impl was
+    /// current at launch time.
+    address public baseTaxImpl;
+    bytes32 public expectedBaseTaxHash;
+
     // ============================================================
     // URU fee wiring
     // ============================================================
@@ -225,6 +259,21 @@ contract Dn404LaunchFactory is Ownable {
     /// governance can re-seed the URU fee at 2× the NFT fee if the NFT
     /// fee moves. Read once at construction to compute the initial floor.
     address public nftFactory;
+
+    // ============================================================
+    // Tax-hook wiring (slice C3) — only used when a launch chooses
+    // taxMode != Off. All rotatable via owner setters so governance can
+    // adjust keeper posture without redeploying this factory.
+    // ============================================================
+
+    /// Keeper wallet passed into every tax-enabled launch's
+    /// initializeTax. Governance-managed; NOT the launcher.
+    address public taxKeeper;
+    /// Where the 5% keeper fee lands from every sweep.
+    address public taxKeeperTreasury;
+    /// Reference to Dn404TaxAllowlist. Passed into initializeTax so
+    /// the tax template can validate BuyAllowedToken targets.
+    address public taxAllowlist;
 
     // ============================================================
     // Name uniqueness — namespaced by launcher+name+ticker so two
@@ -285,6 +334,27 @@ contract Dn404LaunchFactory is Ownable {
         emit ImplsRegistered(baseImpl_, mirrorImpl_);
     }
 
+    /// @notice Bind the tax-enabled base impl (Dn404TaxTemplate). Unlike
+    ///         setImpls, this is rotatable — governance can upgrade the
+    ///         tax mixin over time without redeploying this factory.
+    ///         The `expected` code hash is pinned per-rotation so a
+    ///         rogue owner can't bind arbitrary bytecode.
+    ///
+    ///         Existing tax-enabled launches are unaffected — each
+    ///         cloned whatever impl was current when it launched.
+    function setBaseTaxImpl(
+        address baseTaxImpl_,
+        bytes32 expectedBaseTaxHash_
+    ) external onlyOwner {
+        if (baseTaxImpl_ == address(0)) revert Dn404LaunchFactory__ZeroAddress();
+        if (baseTaxImpl_.code.length == 0) revert Dn404LaunchFactory__NotAContract();
+        if (expectedBaseTaxHash_ == bytes32(0)) revert Dn404LaunchFactory__CodeHashNotPinned();
+        _requireCodeHash(baseTaxImpl_, expectedBaseTaxHash_);
+        baseTaxImpl = baseTaxImpl_;
+        expectedBaseTaxHash = expectedBaseTaxHash_;
+        emit BaseTaxImplSet(baseTaxImpl_, expectedBaseTaxHash_);
+    }
+
     function setUruConfig(
         IERC20 uru_,
         address uruSink_,
@@ -326,6 +396,24 @@ contract Dn404LaunchFactory is Ownable {
         if (address(dn404CurveFactory_) == address(0)) revert Dn404LaunchFactory__ZeroAddress();
         dn404CurveFactory = dn404CurveFactory_;
         emit Dn404CurveFactorySet(address(dn404CurveFactory_));
+    }
+
+    /// @notice Set the tax-hook wiring — keeper, treasury, allowlist.
+    ///         All required for tax-enabled launches (taxMode != Off).
+    ///         Rotatable governance-side so keeper posture can evolve.
+    ///         Existing tax-enabled launches keep the wiring they were
+    ///         initialized with (each has its own state).
+    function setTaxWiring(
+        address taxKeeper_,
+        address taxKeeperTreasury_,
+        address taxAllowlist_
+    ) external onlyOwner {
+        if (taxKeeper_ == address(0) || taxKeeperTreasury_ == address(0) || taxAllowlist_ == address(0)) {
+            revert Dn404LaunchFactory__ZeroAddress();
+        }
+        taxKeeper = taxKeeper_;
+        taxKeeperTreasury = taxKeeperTreasury_;
+        taxAllowlist = taxAllowlist_;
     }
 
     // ============================================================
@@ -390,6 +478,28 @@ contract Dn404LaunchFactory is Ownable {
         /// with Dn404CurveFactory__PairCurrencyDisallowed.
         address pairCurrency;
 
+        /// Per-transfer tax mode. See Dn404TaxTemplate.TaxMode.
+        ///   0 = Off (no hook, launched using bare Dn404Template — no
+        ///           per-transfer gas overhead)
+        ///   1..6 = one of: BurnDead, BuybackURU, BuyAllowedToken,
+        ///                  AddToLP, HolderReflections, MirrorFloorSupport
+        ///          (launched using Dn404TaxTemplate; keeper sweep for
+        ///          accumulator destinations)
+        /// When non-zero, `taxBps` and `taxTarget` are used; when zero,
+        /// they're ignored.
+        uint8 taxMode;
+
+        /// Basis points of every transfer routed to the tax destination.
+        /// Hard-capped at MAX_TAX_BPS (500 = 5%) in Dn404TaxTemplate; the
+        /// factory reflects the cap here so launcher gets a clear error
+        /// before paying the URU launch fee. Ignored when `taxMode == 0`.
+        uint16 taxBps;
+
+        /// Target token for `BuyAllowedToken` mode — validated against
+        /// Dn404TaxAllowlist inside Dn404TaxTemplate.initializeTax.
+        /// Ignored for all other tax modes (they have implicit targets).
+        address taxTarget;
+
         /// URU launch fee (on-chain recomputed + rejected if too low).
         uint256 uruAmount;
     }
@@ -417,6 +527,16 @@ contract Dn404LaunchFactory is Ownable {
         if (p.unit == 0) revert Dn404LaunchFactory__UnitZero();
         if (p.founderPremintBps > MAX_FOUNDER_PREMINT_BPS) {
             revert Dn404LaunchFactory__FounderPremintBpsTooHigh(p.founderPremintBps, MAX_FOUNDER_PREMINT_BPS);
+        }
+
+        // Tax params: only enforced when the launcher picked a
+        // non-Off mode. Rejecting a > cap bps here saves them the
+        // URU fee on a doomed config; the tax template also enforces
+        // its own MAX_TAX_BPS as defense-in-depth.
+        if (p.taxMode != 0) {
+            if (baseTaxImpl == address(0)) revert Dn404LaunchFactory__BaseTaxImplNotSet();
+            // Mirror Dn404TaxTemplate.MAX_TAX_BPS = 500 verbatim.
+            if (p.taxBps > 500) revert Dn404LaunchFactory__TaxBpsTooHigh(p.taxBps, 500);
         }
 
         // -- 2. Compute supplies (revert on overflow before touching state).
@@ -464,8 +584,16 @@ contract Dn404LaunchFactory is Ownable {
         // -- 5. Clone mirror first so its address is known for base.initialize.
         //       Both clones share saltKey with a domain separator so no
         //       cross-tenant collision is possible.
+        //
+        //       Base impl choice depends on tax mode:
+        //         taxMode == 0 -> clone bare Dn404Template (baseImpl)
+        //                         cheaper transfers, no tax hook code
+        //         taxMode != 0 -> clone Dn404TaxTemplate (baseTaxImpl)
+        //                         adds ~2k gas per transfer for the
+        //                         hook check + splits when active
         mirror = LibClone.cloneDeterministic(mirrorImpl, keccak256(abi.encode(saltKey, "mirror")));
-        base = LibClone.cloneDeterministic(baseImpl, keccak256(abi.encode(saltKey, "base")));
+        address baseImplToClone = p.taxMode == 0 ? baseImpl : baseTaxImpl;
+        base = LibClone.cloneDeterministic(baseImplToClone, keccak256(abi.encode(saltKey, "base")));
 
         // -- 6. Predict the curve address. Both CurveFactory variants
         //       use the same salt shape (keccak256(abi.encode(token,
@@ -501,6 +629,32 @@ contract Dn404LaunchFactory is Ownable {
                 unitWei
             );
             IInitializable(base).initialize(initBase);
+        }
+
+        // For tax-enabled launches, second-phase init: call
+        // initializeTax(bytes) on the same clone so the tax config
+        // lands before any transfer runs. Same tx — no window between
+        // initialize and initializeTax where the wrong-state hook
+        // could fire.
+        if (p.taxMode != 0) {
+            // Curve, factory, launcher, feeSplitter auto-exempt. address(this)
+            // and DEAD are added inside Dn404TaxTemplate.initializeTax itself.
+            address[] memory exemptions = new address[](4);
+            exemptions[0] = address(this);       // factory
+            exemptions[1] = predictedCurve;      // curve — already skip-listed but taxExempt is separate
+            exemptions[2] = msg.sender;          // launcher wallet
+            exemptions[3] = feeSplitter;         // may be zero; setTaxExempt guards zero-address
+            bytes memory initTax = abi.encode(
+                p.taxMode,
+                p.taxBps,
+                p.taxTarget,
+                taxKeeper,
+                taxKeeperTreasury,
+                taxAllowlist,
+                address(uru),
+                exemptions
+            );
+            ITaxInitializable(base).initializeTax(initTax);
         }
 
         // -- 8. Founder pre-mint. Transfer to launcher — NFTs auto-mint
@@ -557,6 +711,8 @@ contract Dn404LaunchFactory is Ownable {
             curve,
             msg.sender,
             p.pairCurrency,
+            p.taxMode,
+            p.taxBps,
             saltKey,
             p.uruAmount,
             totalSupplyWei,
