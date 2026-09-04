@@ -291,9 +291,26 @@ over the allowlist.
 
 ### What has to change to ship this
 
-The DN404 lane itself is agnostic to pair currency — the base is
-just an ERC-20 that the curve prices. The heavy lift is in the
-curve stack, which today assumes ETH:
+**Scope narrowed 2026-09-03: pair-currency support is DN404-ONLY.**
+ERC-20 launches through `Router.launch` continue to price in ETH,
+unchanged. This means the existing V10 curve stack (CurveFactory,
+BondingCurve impl, Graduator) keeps serving every existing and
+future plain ERC-20 launch untouched — zero blast radius on that
+path. The rotation described below is DN404-exclusive:
+
+- Existing V10 CurveFactory + BondingCurve impl + V8 Graduator:
+  still the target for `Router.launch` ERC-20 flows. Unchanged
+  behavior, unchanged code.
+- NEW V11 CurveFactory + BondingCurve impl + V9 Graduator: **only
+  the `Dn404LaunchFactory` routes to these.** Adds pair-currency
+  support; no other lane sees them.
+
+Both factories are whitelisted trusted routers on their respective
+curve factories. Old ERC-20 launches are physically incapable of
+picking a non-ETH pair currency because their factory (Router) never
+exposes the argument.
+
+The heavy lift is in the curve stack, which today assumes ETH:
 
 **`BondingCurve.sol`:**
 - `initialize()` gains a `pairCurrency` field (address; zero =
@@ -336,36 +353,49 @@ curve stack, which today assumes ETH:
 
 ### Audit blast radius
 
-The DN404 lane audit was scoped as ~$20–40k for the base build.
-Adding pair-currency support materially expands scope because it
-touches CurveFactory + Graduator + BondingCurve — three
-production contracts that already serve every live ERC-20 launch.
-A CurveFactory rotation (or the equivalent additive
-`createCurveV2` sibling) is the safest way to isolate audit
-surface from existing curves.
+Now that pair-currency is DN404-only, the audit picture is
+materially smaller than rev 1 suggested. The V11 curve stack is
+new code that nobody has run in production yet, so it does need
+audit — but it does NOT need re-audit of the V10 stack, and it
+does NOT change any live launch's code path.
 
-**Recommendation:** split into a distinct rotation, not folded
-into the DN404 hook round. Sequence:
+**What needs new audit:**
+- CurveFactoryV11 (delta vs. V10: adds `pairCurrency` arg + allowlist
+  gate on `createCurveWithConfigFor`)
+- BondingCurveV11 impl (delta vs. V10: ETH I/O replaced with
+  IERC20 transfers when `pairCurrency != address(0)`; otherwise
+  identical)
+- GraduatorV9 (delta vs. V8: v4 PoolKey built from `pairCurrency`
+  instead of hardcoded WETH; otherwise identical)
+- Dn404LaunchFactory delta (adds `pairCurrency` to LaunchParams
+  and forwards it to the new curve stack)
+- Dn404PairCurrencyAllowlist (new tiny contract)
 
-1. **DN404 v1** (contracts + hooks with ETH-only pair currency) —
-   audit + ship. Already 90% done on `dn404-lane`.
-2. **Pair-currency v2** (CurveFactory + Graduator additive
-   rotation + BondingCurve v2 impl + DN404 pair-currency knob)
-   — separate audit round, ship after v1 lands and we have live
-   feedback on the hook mechanics.
+**What does NOT need re-audit:**
+- V10 CurveFactory, V10 BondingCurve impl, V8 Graduator — no code
+  change, and no ERC-20 launcher will ever reach the V11 stack.
 
-This is a real product-vs-scope tradeoff — if the "stock pair"
-story is critical to the launch narrative, we can fold it in
-now and delay the whole launch by roughly 4–6 weeks (extra
-audit round + extra rehearsal). If it's a "next quarter"
-feature, ship v1 first and follow with v2.
+Audit-round-wise this could still fold into the DN404 audit round
+because the delta is characterized (three targeted rotations vs.
+V10/V8, plus one factory field, plus one allowlist contract).
 
-**Compromise middle path:** ship v1 with `pairCurrency = USDG`
-support only (single non-ETH pair, minimal delta to
-CurveFactory), then add the stock tokens in v1.1 as pure
-allowlist additions with no additional audit. Gets a "launch
-against USDG" story on day one, buys time to audit the full
-pair-currency surface for v2.
+**Rollout paths, rev 2:**
+
+1. **Full stock-pair support in v1** (Recommended given scope is
+   DN404-only): fold V11 curve rotation into the DN404 audit
+   round. Adds ~2-3 weeks vs. shipping DN404 with ETH-only, but
+   ships one coherent story ("DN404 pairs, choose ETH / USDG /
+   any RH stock token"). Two-lanes launch (NFT + DN404) still
+   hits its window with modest slip.
+
+2. **Compromise: v1 = USDG only, stocks in v1.1**: ships fastest.
+   USDG allowlist as day-one non-ETH option; other stock tokens
+   added as pure allowlist entries after launch with zero
+   additional audit. Adds ~1 week vs. ETH-only.
+
+3. **Serial: v1 ETH-only, stock pairs v2 later**: unchanged from
+   rev 1. Zero delay on v1; stock story lands 4-6 weeks after
+   launch as a separate rotation.
 
 ## Not-shipping-but-explored (unchanged)
 
