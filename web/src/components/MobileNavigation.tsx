@@ -13,6 +13,7 @@ import styles from './MobileNavigation.module.css';
 const primaryLinks = [
   { href: '/create', label: '✦ launch token', primary: true },
   { href: '/create/nft', label: '❁ launch nft', primary: true },
+  { href: '/create/dn404', label: '✧ launch dn404', primary: true },
   { href: '/discover', label: '❁ launches' },
   { href: '/trade', label: '✦ trade' },
   { href: '/feed', label: '☆ feed' },
