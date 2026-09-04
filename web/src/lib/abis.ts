@@ -433,6 +433,19 @@ export const dn404LaunchFactoryAbi = [
           // any other address = allowlisted ERC-20 (USDG, COST, ...)
           // routed through Dn404CurveFactory. Added slice B.
           { name: 'pairCurrency', type: 'address' },
+          // Per-transfer tax mode. 0 = Off (no hook, bare template).
+          // 1..6 = one of Dn404TaxTemplate.TaxMode: BurnDead,
+          // BuybackURU, BuyAllowedToken, AddToLP, HolderReflections,
+          // MirrorFloorSupport. Non-zero routes launch through
+          // baseTaxImpl (Dn404TaxTemplate) instead of baseImpl.
+          // Added slice C3.
+          { name: 'taxMode', type: 'uint8' },
+          // Basis points of every transfer routed to the tax
+          // destination (0..500 = 0..5% cap enforced on-chain).
+          // Ignored when taxMode == 0.
+          { name: 'taxBps', type: 'uint16' },
+          // Target token for BuyAllowedToken mode. Ignored otherwise.
+          { name: 'taxTarget', type: 'address' },
           { name: 'uruAmount', type: 'uint256' },
         ],
       },
@@ -471,6 +484,9 @@ export const dn404LaunchFactoryAbi = [
       // Pair currency the curve prices in. address(0) = ETH (V10 path);
       // any other = allowlisted ERC-20 (Dn404 path). Added slice B.
       { name: 'pairCurrency', type: 'address' },
+      // Tax mode + bps chosen at launch. 0 = Off. See slice C3.
+      { name: 'taxMode', type: 'uint8' },
+      { name: 'taxBps', type: 'uint16' },
       { name: 'configHash', type: 'bytes32' },
       { name: 'uruPaid', type: 'uint256' },
       { name: 'totalSupply', type: 'uint256' },

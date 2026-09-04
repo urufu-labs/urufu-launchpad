@@ -223,6 +223,12 @@ function CreateDn404Form() {
           antiSniperBlocks: Number(antiSniperBlocks || '0'),
           buybackBurnBps: Number(buybackBurnBps || '0'),
           pairCurrency,
+          // Tax hook fields — form UI for these comes in slice C5.
+          // For now every launch is taxMode=0 (Off), which routes to
+          // baseImpl (bare Dn404Template) with no per-transfer hook.
+          taxMode: 0,
+          taxBps: 0,
+          taxTarget: '0x0000000000000000000000000000000000000000' as Address,
           uruAmount: requiredUruFee,
         },
       ],
