@@ -174,10 +174,44 @@ contract DeployDn404Lane is Script {
         bool v10Trusted;
     }
 
-    function run() external returns (Deployed memory out) {
-        Inputs memory i = _readInputs();
+    /// Fork-test flag. When set, `_runInner` uses `vm.startPrank(admin)`
+    /// instead of `vm.startBroadcast()` and skips the address-book write —
+    /// same pattern as DeployFreshLocal.runForTest. Every CREATE2 op still
+    /// goes through the canonical `CREATE2_DEPLOYER` singleton (via a raw
+    /// call), so the mined MHH address matches in both modes.
+    bool internal _isTestContext;
 
-        vm.startBroadcast();
+    /// Cached admin for the prank re-entry. Set at the top of `_runInner`
+    /// so `_startBroadcastOrPrank` doesn't have to re-read env.
+    address internal _adminForPrank;
+
+    function run() external returns (Deployed memory out) {
+        return _runInner(true);
+    }
+
+    /// Fork-test entrypoint. See `_isTestContext` above.
+    function runForTest() external returns (Deployed memory out) {
+        _isTestContext = true;
+        return _runInner(false);
+    }
+
+    function _startBroadcastOrPrank() internal {
+        if (_isTestContext) vm.startPrank(_adminForPrank);
+        else vm.startBroadcast();
+    }
+
+    function _stopBroadcastOrPrank() internal {
+        if (_isTestContext) vm.stopPrank();
+        else vm.stopBroadcast();
+    }
+
+    function _runInner(
+        bool /* useBroadcast */
+    ) internal returns (Deployed memory out) {
+        Inputs memory i = _readInputs();
+        _adminForPrank = i.admin;
+
+        _startBroadcastOrPrank();
 
         // -- 1..2: registries. Constructed empty; governance populates via
         //         setAllowedBatch post-deploy. Keeps this script authority-
@@ -214,20 +248,12 @@ contract DeployDn404Lane is Script {
         //       same permission mask V10 uses (BEFORE_INITIALIZE +
         //       BEFORE_SWAP + AFTER_SWAP + AFTER_SWAP_RETURNS_DELTA).
         //
-        //       The `_deployer` constructor arg is critical: MHH's
-        //       setInitializer is guarded by `msg.sender == deployer`.
-        //       Because we deploy via the canonical CREATE2 deployer,
-        //       `msg.sender` inside the constructor is the CREATE2
-        //       factory, not this script's broadcaster. We pass
-        //       `address(this)` — the script's runtime address during
-        //       vm.startBroadcast — so the setInitializer call below,
-        //       still in the same broadcast, is authorized.
-        //
-        //       Actually simpler + more portable: pass msg.sender as the
-        //       deployer. `vm.startBroadcast()` makes every subsequent
-        //       call originate from the broadcaster wallet, including
-        //       the CREATE2 delegate — so the wallet running this script
-        //       is the eventual `msg.sender` seen by setInitializer.
+        //       MHH's `_deployer` constructor arg is passed as `admin` (not
+        //       msg.sender). MHH's setInitializer is guarded by
+        //       `msg.sender == deployer`, and the setInitializer call below
+        //       runs under vm.startBroadcast (broadcaster == admin) or
+        //       vm.startPrank(admin) (test context) — either way, admin is
+        //       the effective msg.sender when the check fires.
         out.multiHookHost = _mineAndDeployMhh(i);
 
         // -- 9: Graduator wired to the freshly-mined MHH. Deploy AFTER
@@ -305,10 +331,10 @@ contract DeployDn404Lane is Script {
             out.v10Trusted = false;
         }
 
-        vm.stopBroadcast();
+        _stopBroadcastOrPrank();
 
         _assertInvariants(out, i);
-        _writeBook(vm.toString(block.chainid), out, i);
+        if (!_isTestContext) _writeBook(vm.toString(block.chainid), out, i);
         _logSummary(out, i);
     }
 
@@ -328,39 +354,33 @@ contract DeployDn404Lane is Script {
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args = abi.encode(
             IPoolManager(i.poolManager),
-            i.feeSplitter,   // platform (fee recipient)
-            i.admin,         // fallback creator (only fires for pools that skip setCreator)
+            i.feeSplitter,     // platform (fee recipient)
+            i.admin,           // fallback creator (only fires for pools that skip setCreator)
             i.mhhPlatformBps,
             i.mhhCreatorBps,
-            msg.sender       // deployer — must be the broadcaster so setInitializer below works
+            i.admin            // deployer — pins the one-shot setInitializer caller to admin
         );
 
-        // Bump past any salt whose predicted address is already deployed.
-        // Same pattern as DeployV10WlImmediateStack: rare in practice but
-        // possible when a partially-completed prior deploy left the address
-        // occupied.
-        address miner = CREATE2_DEPLOYER;
+        // Both `forge script` (via broadcast) and `forge test` (via runForTest)
+        // deploy MHH through the canonical CREATE2 singleton — Solidity's
+        // `new X{salt}` sugar would deploy from `address(this)` under test,
+        // mismatching the mined prediction. Same pattern DeployFreshLocal uses.
         uint256 startSalt = 0;
         uint256 salt;
         address predicted;
         for (uint256 attempt = 0; attempt < 10; ++attempt) {
-            (salt, predicted) = HookMiner.findFrom(miner, requiredFlags, creation, args, 500_000, startSalt);
+            (salt, predicted) = HookMiner.findFrom(CREATE2_DEPLOYER, requiredFlags, creation, args, 500_000, startSalt);
             if (predicted.code.length == 0) break;
             console2.log("  [skip] Dn404 MHH salt already deployed, bumping past", salt);
             startSalt = salt + 1;
         }
         require(predicted.code.length == 0, "could not find empty Dn404 MHH salt in 10 attempts");
 
-        MultiHookHost mhh = new MultiHookHost{salt: bytes32(salt)}(
-            IPoolManager(i.poolManager),
-            i.feeSplitter,
-            i.admin,
-            i.mhhPlatformBps,
-            i.mhhCreatorBps,
-            msg.sender
-        );
-        require(address(mhh) == predicted, "Dn404 MHH salt drift");
-        return address(mhh);
+        bytes memory init = bytes.concat(creation, args);
+        (bool ok,) = CREATE2_DEPLOYER.call(abi.encodePacked(bytes32(salt), init));
+        require(ok, "CREATE2 Dn404 MHH deploy call failed");
+        require(predicted.code.length > 0, "Dn404 MHH salt drift: no code at predicted");
+        return predicted;
     }
 
     // ============================================================
