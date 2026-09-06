@@ -4,6 +4,16 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+
+/// Same MultiHookHost source the V10 stack uses — we deploy a FRESH instance
+/// at a mined CREATE2 address and lock its initializer to the Dn404Graduator.
+/// V10's live MHH is untouched (its `setInitializer` is one-shot locked to
+/// the V10 Graduator). Reusing the source file, not modifying it, honors
+/// feedback_dn404_no_erc20_touch.md — DN404 shares the hook implementation
+/// but never crosses V10's runtime state.
+import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
+import {HookMiner} from "src/hooks/HookMiner.sol";
 
 import {Dn404Template} from "src/dn404/Dn404Template.sol";
 import {Dn404MirrorTemplate} from "src/dn404/Dn404MirrorTemplate.sol";
@@ -45,30 +55,32 @@ interface IV10CurveFactoryAdmin {
 ///         launches route through the shared curve stack.
 ///
 ///         Deploy order (all-or-nothing):
-///           1. Dn404PairCurrencyAllowlist  (governance registry)
-///           2. Dn404TaxAllowlist           (BuyAllowedToken destinations)
-///           3. Dn404Template               (base impl, tax-off launches)
-///           4. Dn404MirrorTemplate         (mirror impl, every launch)
-///           5. Dn404TaxTemplate            (base impl, tax-on launches)
-///           6. Dn404BondingCurve           (curve impl, cloned per launch)
-///           7. Dn404CurveFactory           (owner + curve impl + allowlist)
-///           8. Dn404Graduator              (pool manager + hook + CF ref)
-///           9. Dn404LaunchFactory          (owner + nftFactory for URU floor)
+///            1. Dn404PairCurrencyAllowlist  (governance registry)
+///            2. Dn404TaxAllowlist           (BuyAllowedToken destinations)
+///            3. Dn404Template               (base impl, tax-off launches)
+///            4. Dn404MirrorTemplate         (mirror impl, every launch)
+///            5. Dn404TaxTemplate            (base impl, tax-on launches)
+///            6. Dn404BondingCurve           (curve impl, cloned per launch)
+///            7. Dn404CurveFactory           (owner + curve impl + allowlist)
+///            8. Dn404 MultiHookHost         (mined via HookMiner + CREATE2)
+///            9. Dn404Graduator              (pool manager + MHH + CF ref)
+///           10. Dn404LaunchFactory          (owner + nftFactory for URU floor)
 ///
 ///         Wiring (same broadcast):
-///           a. Dn404CurveFactory.setGraduator(Dn404Graduator)
-///           b. Dn404CurveFactory.setTrustedRouter(Dn404LaunchFactory, true)
-///           c. Dn404LaunchFactory.setExpectedCodeHashes(baseHash, mirrorHash)
-///           d. Dn404LaunchFactory.setImpls(base, mirror)
-///           e. Dn404LaunchFactory.setBaseTaxImpl(taxImpl, taxHash)
-///           f. Dn404LaunchFactory.setUruConfig(uru, uruSink, minFee, oracle)
-///           g. Dn404LaunchFactory.setFeeSplitter(feeSplitter)
-///           h. Dn404LaunchFactory.setCurveFactory(V10 CurveFactory)
-///           i. Dn404LaunchFactory.setDn404CurveFactory(Dn404 CurveFactory)
-///           j. Dn404LaunchFactory.setTaxWiring(keeper, treasury, taxAllowlist)
+///           a. Dn404 MHH.setInitializer(Dn404Graduator)  — one-shot lock
+///           b. Dn404CurveFactory.setGraduator(Dn404Graduator)
+///           c. Dn404CurveFactory.setTrustedRouter(Dn404LaunchFactory, true)
+///           d. Dn404LaunchFactory.setExpectedCodeHashes(baseHash, mirrorHash)
+///           e. Dn404LaunchFactory.setImpls(base, mirror)
+///           f. Dn404LaunchFactory.setBaseTaxImpl(taxImpl, taxHash)
+///           g. Dn404LaunchFactory.setUruConfig(uru, uruSink, minFee, oracle)
+///           h. Dn404LaunchFactory.setFeeSplitter(feeSplitter)
+///           i. Dn404LaunchFactory.setCurveFactory(V10 CurveFactory)
+///           j. Dn404LaunchFactory.setDn404CurveFactory(Dn404 CurveFactory)
+///           k. Dn404LaunchFactory.setTaxWiring(keeper, treasury, taxAllowlist)
 ///
 ///         Optional (same broadcast, only if `msg.sender == V10 CF owner`):
-///           k. V10 CurveFactory.setTrustedRouter(Dn404LaunchFactory, true)
+///           l. V10 CurveFactory.setTrustedRouter(Dn404LaunchFactory, true)
 ///
 ///         If the deployer does NOT own the V10 CurveFactory, step (k) is
 ///         skipped and the script logs the exact call the V10 CF owner must
@@ -79,9 +91,14 @@ interface IV10CurveFactoryAdmin {
 ///           URU_TOKEN_ADDRESS      — URU ERC-20
 ///           DN404_TAX_KEEPER       — keeper wallet (governance-run)
 ///           DN404_TAX_TREASURY     — 5% keeper-fee recipient
-///           DN404_GRAD_HOOK        — v4 hook for graduated pools (default: 0x0 = hookless)
+///           DN404_MHH_PLATFORM_BPS — MHH platform fee share (default 100 = 1%)
+///           DN404_MHH_CREATOR_BPS  — MHH creator fee share  (default 100 = 1%)
 ///           DN404_GRAD_FEE         — v4 pool fee tier   (default 3000 = 30 bps)
 ///           DN404_GRAD_TICKSPACING — v4 tick spacing    (default 60)
+///
+///         Post-deploy manual step: submit the mined Dn404 MHH address to the
+///         Uniswap hook allowlist. Not automated because the allowlist is an
+///         off-chain review process — see project_uniswap_hook_allowlist.md.
 ///
 ///         Reads (chain-scoped):
 ///           deployment-live-rh.<chainid>.json  — V10 CurveFactory, PoolManager,
@@ -115,6 +132,17 @@ contract DeployDn404Lane is Script {
     uint24 internal constant DEFAULT_GRAD_FEE = 3000;
     int24 internal constant DEFAULT_GRAD_TICK_SPACING = 60;
 
+    /// MHH split defaults — mirror the V10 stack (1% platform + 1% creator).
+    /// Rotatable per deploy via DN404_MHH_PLATFORM_BPS / _CREATOR_BPS.
+    uint16 internal constant DEFAULT_MHH_PLATFORM_BPS = 100;
+    uint16 internal constant DEFAULT_MHH_CREATOR_BPS = 100;
+
+    /// Canonical CREATE2 deployer used by every foundry broadcast. Its address
+    /// is the CREATE2 origin baked into the mined MHH init-code hash, so we
+    /// must give HookMiner the same address that will actually run the
+    /// CREATE2 op — otherwise the salt yields a different runtime address.
+    address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
     struct Inputs {
         address admin;
         address uru;
@@ -126,7 +154,8 @@ contract DeployDn404Lane is Script {
         address nftFactory;
         address taxKeeper;
         address taxKeeperTreasury;
-        address gradHook;
+        uint16 mhhPlatformBps;
+        uint16 mhhCreatorBps;
         uint24 gradFee;
         int24 gradTickSpacing;
     }
@@ -139,6 +168,7 @@ contract DeployDn404Lane is Script {
         address taxImpl;
         address bondingCurveImpl;
         address curveFactory;
+        address multiHookHost;
         address graduator;
         address launchFactory;
         bool v10Trusted;
@@ -178,19 +208,45 @@ contract DeployDn404Lane is Script {
         );
         out.curveFactory = address(dn404Cf);
 
-        // -- 8: Graduator wired to the same PoolManager as the ERC-20 lane
-        //       so a graduated DN404 pair lives alongside every other RH
-        //       pool. Hook defaults to zero (no MHH) — v1 policy; if the
-        //       operator wants a hook, DN404_GRAD_HOOK env supplies it.
+        // -- 8: Mine + deploy a FRESH MultiHookHost for the DN404 lane.
+        //       v4 encodes hook permissions in the low 14 bits of the hook
+        //       address, so this needs a mined CREATE2 salt matching the
+        //       same permission mask V10 uses (BEFORE_INITIALIZE +
+        //       BEFORE_SWAP + AFTER_SWAP + AFTER_SWAP_RETURNS_DELTA).
+        //
+        //       The `_deployer` constructor arg is critical: MHH's
+        //       setInitializer is guarded by `msg.sender == deployer`.
+        //       Because we deploy via the canonical CREATE2 deployer,
+        //       `msg.sender` inside the constructor is the CREATE2
+        //       factory, not this script's broadcaster. We pass
+        //       `address(this)` — the script's runtime address during
+        //       vm.startBroadcast — so the setInitializer call below,
+        //       still in the same broadcast, is authorized.
+        //
+        //       Actually simpler + more portable: pass msg.sender as the
+        //       deployer. `vm.startBroadcast()` makes every subsequent
+        //       call originate from the broadcaster wallet, including
+        //       the CREATE2 delegate — so the wallet running this script
+        //       is the eventual `msg.sender` seen by setInitializer.
+        out.multiHookHost = _mineAndDeployMhh(i);
+
+        // -- 9: Graduator wired to the freshly-mined MHH. Deploy AFTER
+        //       the MHH is at its final address so we can pass it in.
         Dn404Graduator grad = new Dn404Graduator(
             IPoolManager(i.poolManager),
-            IHooks(i.gradHook),
+            IHooks(out.multiHookHost),
             i.gradFee,
             i.gradTickSpacing,
             address(dn404Cf),
             i.admin
         );
         out.graduator = address(grad);
+
+        // -- a: one-shot lock the MHH's initializer to this graduator.
+        //       After this line the MHH will only accept beforeInitialize
+        //       calls where sender == this Dn404Graduator; every other
+        //       call reverts. Any redeploy needs a fresh MHH.
+        MultiHookHost(payable(out.multiHookHost)).setInitializer(address(grad));
 
         // -- 9: LaunchFactory. Constructor reads NftLaunchFactory.minUruFee
         //       and seeds our URU floor at 2× that value (SPEC decision #2).
@@ -199,24 +255,24 @@ contract DeployDn404Lane is Script {
         Dn404LaunchFactory lf = new Dn404LaunchFactory(i.admin, i.nftFactory);
         out.launchFactory = address(lf);
 
-        // -- a: point DN404 curve factory at the graduator we just deployed.
+        // -- b: point DN404 curve factory at the graduator we just deployed.
         dn404Cf.setGraduator(address(grad));
-        // -- b: trust the launch factory on the DN404 curve factory — every
+        // -- c: trust the launch factory on the DN404 curve factory — every
         //       non-ETH launch routes through this trust bit.
         dn404Cf.setTrustedRouter(address(lf), true);
 
-        // -- c..d: pin base + mirror impl hashes, then bind the impls. Both
+        // -- d..e: pin base + mirror impl hashes, then bind the impls. Both
         //         are URU-A08 one-shot on this factory; a future rev needs
         //         a fresh Dn404LaunchFactory deploy.
         lf.setExpectedCodeHashes(keccak256(out.baseImpl.code), keccak256(out.mirrorImpl.code));
         lf.setImpls(out.baseImpl, out.mirrorImpl);
 
-        // -- e: bind the tax-enabled impl (rotatable slot, code-hash pinned
+        // -- f: bind the tax-enabled impl (rotatable slot, code-hash pinned
         //       per rotation). Existing launches keep whatever impl they
         //       cloned at launch time; only new tax-on launches see rotations.
         lf.setBaseTaxImpl(out.taxImpl, keccak256(out.taxImpl.code));
 
-        // -- f..g: URU fee + fee splitter wiring. minUruFee from the
+        // -- g..h: URU fee + fee splitter wiring. minUruFee from the
         //         constructor's 2× read is preserved — passing minUruFee()
         //         back in keeps it unchanged.
         lf.setUruConfig(
@@ -227,16 +283,16 @@ contract DeployDn404Lane is Script {
         );
         lf.setFeeSplitter(i.feeSplitter);
 
-        // -- h..i: both curve factory routes. h wires the ETH path (V10),
-        //         i wires the pair-currency path (freshly deployed above).
+        // -- i..j: both curve factory routes. i wires the ETH path (V10),
+        //         j wires the pair-currency path (freshly deployed above).
         lf.setCurveFactory(ICurveFactoryLike(i.v10CurveFactory));
         lf.setDn404CurveFactory(IDn404CurveFactoryLike(address(dn404Cf)));
 
-        // -- j: tax keeper wiring. Required at deploy so the very first
+        // -- k: tax keeper wiring. Required at deploy so the very first
         //       tax-enabled launch has a valid keeper address baked in.
         lf.setTaxWiring(i.taxKeeper, i.taxKeeperTreasury, out.taxAllowlist);
 
-        // -- k (best-effort): trust the launch factory on V10 CF too. Skipped
+        // -- l (best-effort): trust the launch factory on V10 CF too. Skipped
         //     silently when authority is elsewhere — script logs the exact
         //     follow-up call the V10 CF owner must make.
         IV10CurveFactoryAdmin v10 = IV10CurveFactoryAdmin(i.v10CurveFactory);
@@ -251,8 +307,112 @@ contract DeployDn404Lane is Script {
 
         vm.stopBroadcast();
 
+        _assertInvariants(out, i);
         _writeBook(vm.toString(block.chainid), out, i);
         _logSummary(out, i);
+    }
+
+    // ============================================================
+    // Hook mining — deploys a fresh MultiHookHost at a CREATE2 address
+    // whose low 14 bits match v4's required permission mask for MHH.
+    // Same permission set the V10 stack uses so aggregators indexing
+    // both lanes see identical hook shapes.
+    // ============================================================
+
+    function _mineAndDeployMhh(
+        Inputs memory i
+    ) internal returns (address) {
+        uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+            | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+
+        bytes memory creation = type(MultiHookHost).creationCode;
+        bytes memory args = abi.encode(
+            IPoolManager(i.poolManager),
+            i.feeSplitter,   // platform (fee recipient)
+            i.admin,         // fallback creator (only fires for pools that skip setCreator)
+            i.mhhPlatformBps,
+            i.mhhCreatorBps,
+            msg.sender       // deployer — must be the broadcaster so setInitializer below works
+        );
+
+        // Bump past any salt whose predicted address is already deployed.
+        // Same pattern as DeployV10WlImmediateStack: rare in practice but
+        // possible when a partially-completed prior deploy left the address
+        // occupied.
+        address miner = CREATE2_DEPLOYER;
+        uint256 startSalt = 0;
+        uint256 salt;
+        address predicted;
+        for (uint256 attempt = 0; attempt < 10; ++attempt) {
+            (salt, predicted) = HookMiner.findFrom(miner, requiredFlags, creation, args, 500_000, startSalt);
+            if (predicted.code.length == 0) break;
+            console2.log("  [skip] Dn404 MHH salt already deployed, bumping past", salt);
+            startSalt = salt + 1;
+        }
+        require(predicted.code.length == 0, "could not find empty Dn404 MHH salt in 10 attempts");
+
+        MultiHookHost mhh = new MultiHookHost{salt: bytes32(salt)}(
+            IPoolManager(i.poolManager),
+            i.feeSplitter,
+            i.admin,
+            i.mhhPlatformBps,
+            i.mhhCreatorBps,
+            msg.sender
+        );
+        require(address(mhh) == predicted, "Dn404 MHH salt drift");
+        return address(mhh);
+    }
+
+    // ============================================================
+    // Post-deploy invariants — script reverts if any wiring is off.
+    // ============================================================
+
+    function _assertInvariants(
+        Deployed memory d,
+        Inputs memory i
+    ) internal view {
+        // MHH ↔ Graduator pair
+        require(
+            MultiHookHost(payable(d.multiHookHost)).initializer() == d.graduator,
+            "Dn404 MHH.initializer != Dn404 Graduator"
+        );
+        require(
+            address(Dn404Graduator(payable(d.graduator)).defaultHook()) == d.multiHookHost,
+            "Dn404 Graduator.defaultHook != Dn404 MHH"
+        );
+
+        // DN404 CurveFactory wiring
+        require(
+            Dn404CurveFactory(d.curveFactory).graduator() == d.graduator,
+            "Dn404 CF.graduator != Dn404 Graduator"
+        );
+        require(
+            Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory),
+            "Dn404 CF must trust Dn404 LaunchFactory"
+        );
+        require(
+            Dn404CurveFactory(d.curveFactory).implementation() == d.bondingCurveImpl,
+            "Dn404 CF.implementation != Dn404 BondingCurve impl"
+        );
+
+        // LaunchFactory wiring
+        require(Dn404LaunchFactory(d.launchFactory).baseImpl() == d.baseImpl, "LF.baseImpl mismatch");
+        require(Dn404LaunchFactory(d.launchFactory).mirrorImpl() == d.mirrorImpl, "LF.mirrorImpl mismatch");
+        require(Dn404LaunchFactory(d.launchFactory).baseTaxImpl() == d.taxImpl, "LF.baseTaxImpl mismatch");
+        require(
+            address(Dn404LaunchFactory(d.launchFactory).curveFactory()) == i.v10CurveFactory,
+            "LF.curveFactory != V10 CF"
+        );
+        require(
+            address(Dn404LaunchFactory(d.launchFactory).dn404CurveFactory()) == d.curveFactory,
+            "LF.dn404CurveFactory != Dn404 CF"
+        );
+        require(
+            Dn404LaunchFactory(d.launchFactory).taxKeeper() == i.taxKeeper, "LF.taxKeeper mismatch"
+        );
+        require(
+            Dn404LaunchFactory(d.launchFactory).taxAllowlist() == d.taxAllowlist, "LF.taxAllowlist mismatch"
+        );
     }
 
     // ============================================================
@@ -284,7 +444,8 @@ contract DeployDn404Lane is Script {
         i.taxKeeperTreasury = vm.envAddress("DN404_TAX_TREASURY");
         if (i.taxKeeperTreasury == address(0)) revert DeployDn404Lane__ZeroTreasury();
 
-        i.gradHook = vm.envOr("DN404_GRAD_HOOK", address(0));
+        i.mhhPlatformBps = uint16(vm.envOr("DN404_MHH_PLATFORM_BPS", uint256(DEFAULT_MHH_PLATFORM_BPS)));
+        i.mhhCreatorBps = uint16(vm.envOr("DN404_MHH_CREATOR_BPS", uint256(DEFAULT_MHH_CREATOR_BPS)));
         i.gradFee = uint24(vm.envOr("DN404_GRAD_FEE", uint256(DEFAULT_GRAD_FEE)));
         i.gradTickSpacing =
             int24(int256(vm.envOr("DN404_GRAD_TICKSPACING", uint256(uint24(DEFAULT_GRAD_TICK_SPACING)))));
@@ -314,6 +475,7 @@ contract DeployDn404Lane is Script {
         vm.serializeAddress(obj, "Dn404TaxTemplate", d.taxImpl);
         vm.serializeAddress(obj, "Dn404BondingCurveImpl", d.bondingCurveImpl);
         vm.serializeAddress(obj, "Dn404CurveFactory", d.curveFactory);
+        vm.serializeAddress(obj, "Dn404MultiHookHost", d.multiHookHost);
         vm.serializeAddress(obj, "Dn404Graduator", d.graduator);
         vm.serializeAddress(obj, "Dn404LaunchFactory", d.launchFactory);
         // Cross-refs to the V10 stack this lane wires against; captured
@@ -327,7 +489,8 @@ contract DeployDn404Lane is Script {
         vm.serializeAddress(obj, "NftLaunchFactory", i.nftFactory);
         vm.serializeAddress(obj, "TaxKeeper", i.taxKeeper);
         vm.serializeAddress(obj, "TaxKeeperTreasury", i.taxKeeperTreasury);
-        vm.serializeAddress(obj, "GradHook", i.gradHook);
+        vm.serializeUint(obj, "MhhPlatformBps", uint256(i.mhhPlatformBps));
+        vm.serializeUint(obj, "MhhCreatorBps", uint256(i.mhhCreatorBps));
         vm.serializeUint(obj, "GradFee", uint256(i.gradFee));
         vm.serializeInt(obj, "GradTickSpacing", int256(i.gradTickSpacing));
         string memory finalJson = vm.serializeBool(obj, "V10TrustedRouterSet", d.v10Trusted);
@@ -349,6 +512,7 @@ contract DeployDn404Lane is Script {
         console2.log("taxImpl              ", d.taxImpl);
         console2.log("bondingCurveImpl     ", d.bondingCurveImpl);
         console2.log("dn404CurveFactory    ", d.curveFactory);
+        console2.log("dn404MultiHookHost   ", d.multiHookHost);
         console2.log("dn404Graduator       ", d.graduator);
         console2.log("dn404LaunchFactory   ", d.launchFactory);
         console2.log("---");
@@ -366,5 +530,7 @@ contract DeployDn404Lane is Script {
         console2.log("     seed: URU, WETH (if paired), plus RH stock tokens");
         console2.log("  Dn404TaxAllowlist.setAllowedBatch(tokens, labels)");
         console2.log("     seed: URU + any BuyAllowedToken destinations");
+        console2.log("  Submit dn404MultiHookHost to Uniswap hook allowlist");
+        console2.log("     see project_uniswap_hook_allowlist.md");
     }
 }
