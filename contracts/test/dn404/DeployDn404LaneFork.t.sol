@@ -29,6 +29,11 @@ contract DeployDn404LaneForkTest is Test {
     address internal constant RH_URU = 0x9fbe210007dDd8389f98d0253018e65CC48b9D24;
 
     DeployDn404Lane internal script;
+    /// Deployed stack — populated once in setUp so each test body reads the
+    /// same wiring rather than re-invoking runForTest(). The re-invoke
+    /// pattern races with sibling fork-test contracts running in parallel
+    /// that also `vm.setEnv` on the same process-shared env vars.
+    DeployDn404Lane.Deployed internal stack;
     address internal admin;
     address internal keeper;
     address internal treasury;
@@ -46,9 +51,13 @@ contract DeployDn404LaneForkTest is Test {
         if (block.chainid != RH_CHAIN_ID) vm.skip(true);
         if (RH_POOL_MANAGER.code.length == 0) vm.skip(true);
 
-        admin = makeAddr("dn404-deploy-admin");
-        keeper = makeAddr("dn404-tax-keeper");
-        treasury = makeAddr("dn404-tax-treasury");
+        // Shared labels with sibling Dn404GraduationForkTest so parallel test
+        // execution can't race on the process-shared env vars — whichever
+        // contract's setUp wins the last `vm.setEnv`, both stacks land with
+        // the same known addresses.
+        admin = makeAddr("dn404-fork-admin");
+        keeper = makeAddr("dn404-fork-keeper");
+        treasury = makeAddr("dn404-fork-treasury");
 
         // Wire every env the script reads. `ADMIN` steers ownership of all
         // fresh contracts; the keeper wallets get baked into
@@ -59,6 +68,9 @@ contract DeployDn404LaneForkTest is Test {
         vm.setEnv("DN404_TAX_TREASURY", vm.toString(treasury));
 
         script = new DeployDn404Lane();
+        // Deploy once in setUp so tests aren't racing sibling fork contracts
+        // over process-shared env vars.
+        stack = script.runForTest();
     }
 
     // ================================================================
@@ -67,7 +79,7 @@ contract DeployDn404LaneForkTest is Test {
     // mismatch; a green pass here proves the whole flow is producible.
     // ================================================================
     function test_ForkDeploy_RunsCleanAgainstLiveRhFork() public {
-        DeployDn404Lane.Deployed memory d = script.runForTest();
+        DeployDn404Lane.Deployed memory d = stack;
 
         // Bytecode present at every address the script returns.
         assertGt(d.pairCurrencyAllowlist.code.length, 0, "pairCurrencyAllowlist no code");
@@ -88,7 +100,7 @@ contract DeployDn404LaneForkTest is Test {
     // PoolManager.initialize would reject the pool at graduation time.
     // ================================================================
     function test_ForkDeploy_MinedMhhAddressHasCorrectPermissionMask() public {
-        DeployDn404Lane.Deployed memory d = script.runForTest();
+        DeployDn404Lane.Deployed memory d = stack;
 
         uint160 requiredFlags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
             | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
@@ -104,7 +116,7 @@ contract DeployDn404LaneForkTest is Test {
     // first graduation attempt (MHH would reject sender).
     // ================================================================
     function test_ForkDeploy_MhhInitializerLockedToGraduator() public {
-        DeployDn404Lane.Deployed memory d = script.runForTest();
+        DeployDn404Lane.Deployed memory d = stack;
 
         assertEq(
             MultiHookHost(payable(d.multiHookHost)).initializer(),
@@ -124,7 +136,7 @@ contract DeployDn404LaneForkTest is Test {
     // separation is in place.
     // ================================================================
     function test_ForkDeploy_LaunchFactoryRoutesBothCurveFactories() public {
-        DeployDn404Lane.Deployed memory d = script.runForTest();
+        DeployDn404Lane.Deployed memory d = stack;
         Dn404LaunchFactory lf = Dn404LaunchFactory(d.launchFactory);
 
         assertTrue(address(lf.curveFactory()) != address(0), "V10 CurveFactory unset");
@@ -145,7 +157,7 @@ contract DeployDn404LaneForkTest is Test {
     // Dn404LaunchFactory.launch (the createCurveWithConfigFor call).
     // ================================================================
     function test_ForkDeploy_Dn404CurveFactoryTrustsLaunchFactory() public {
-        DeployDn404Lane.Deployed memory d = script.runForTest();
+        DeployDn404Lane.Deployed memory d = stack;
         assertTrue(
             Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory),
             "Dn404 CF must trust Dn404 LaunchFactory"
