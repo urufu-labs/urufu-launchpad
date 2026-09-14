@@ -30,6 +30,7 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { nftErc721Abi, nftMintModuleAbi } from '@/lib/abis';
+import { useDiscountTiers, TierKind } from '@/lib/useDiscountTiers';
 import {
   fetchNftCollectionsByAddresses,
   fetchNftMintsByCollection,
@@ -266,8 +267,40 @@ function CollectionView({
     args: [BigInt(mintQty)],
     query: { enabled: hasMintModule && mintQty > 0, staleTime: 5_000 },
   });
-  const price = (quotedWei as bigint | undefined) ?? 0n;
+  const grossPrice = (quotedWei as bigint | undefined) ?? 0n;
+
+  // ------------------------------------------------------------
+  // 3b. Discount tiers — read every tier the mint module exposes, fetch
+  //     attestations for ExternalNft tiers the wallet qualifies for,
+  //     then quote the net price with the sum of tier discounts applied.
+  //     Wallet-list tiers aren't wired to the merkle-lookup service yet
+  //     (post-launch slice); ExternalNft is the flow that ships now.
+  // ------------------------------------------------------------
+  const {
+    tiers,
+    externalProofs,
+    fetchingAttestations,
+    attestationErrors,
+    claimedDiscountBps,
+  } = useDiscountTiers(mintModule as Address | undefined, address);
+
+  const { data: netPriceQuoted } = useReadContract({
+    address: mintModule as Address | undefined,
+    abi: nftMintModuleAbi,
+    functionName: 'netPriceFor',
+    args: [BigInt(mintQty), claimedDiscountBps],
+    query: {
+      enabled: hasMintModule && mintQty > 0 && claimedDiscountBps > 0n,
+      staleTime: 5_000,
+    },
+  });
+  const price =
+    claimedDiscountBps > 0n && netPriceQuoted !== undefined
+      ? (netPriceQuoted as bigint)
+      : grossPrice;
   const priceDisplay = price > 0n ? formatUnits(price, 18) : '—';
+  const savings = grossPrice > price ? grossPrice - price : 0n;
+  const savingsDisplay = savings > 0n ? formatUnits(savings, 18) : null;
 
   // ------------------------------------------------------------
   // 4. URU allowance (only relevant when paidInUru).
@@ -325,6 +358,17 @@ function CollectionView({
 
   const doMint = () => {
     if (!hasMintModule || !mintModule) return;
+    // Discount proofs — ExternalNft tiers only for now; each proof was
+    // signed by compile-service for THIS wallet + collection, so the
+    // on-chain verifier accepts them one-shot. WalletList tiers pass
+    // through empty until the merkle-lookup service ships.
+    const discountProofs = externalProofs.map((p) => ({
+      tierId: p.tierId,
+      merkleProof: p.merkleProof,
+      count: p.count,
+      expiry: p.expiry,
+      sig: p.sig,
+    }));
     if (paidInUru) {
       writeMint({
         address: mintModule as Address,
@@ -337,7 +381,7 @@ function CollectionView({
           0n,
           0n,
           '0x' as `0x${string}`,
-          [],
+          discountProofs,
         ],
       });
     } else {
@@ -351,7 +395,7 @@ function CollectionView({
           0n,
           0n,
           '0x' as `0x${string}`,
-          [],
+          discountProofs,
         ],
         value: price,
       });
@@ -635,7 +679,40 @@ function CollectionView({
                     <dd>{Number(discountFloorBps) / 100}% min</dd>
                   </>
                 )}
+                {claimedDiscountBps > 0n && (
+                  <>
+                    <dt>tier discount</dt>
+                    <dd>
+                      −{(Number(claimedDiscountBps) / 100).toFixed(2)}%
+                      {savingsDisplay && (
+                        <span style={{ opacity: 0.75, marginLeft: 6 }}>
+                          (saves {savingsDisplay} {priceUnitLabel})
+                        </span>
+                      )}
+                    </dd>
+                  </>
+                )}
               </dl>
+
+              {tiers.some((t) => t.kind === TierKind.ExternalNft) && (
+                <p
+                  style={{
+                    fontSize: 12,
+                    opacity: 0.8,
+                    margin: '4px 0 8px',
+                  }}
+                >
+                  {fetchingAttestations
+                    ? '~ checking your external NFT holdings ~'
+                    : externalProofs.length > 0
+                      ? `✿ discount applied for ${externalProofs.length} tier${externalProofs.length === 1 ? '' : 's'}`
+                      : Object.keys(attestationErrors).length > 0
+                        ? '⚠ discount check failed — mint proceeds at full price'
+                        : walletAddress
+                          ? 'no external NFTs held → no tier discount'
+                          : 'connect wallet to check ExternalNft-tier discounts'}
+                </p>
+              )}
 
               <div className={styles.qtyRow}>
                 <span className={styles.qtyLabel}>qty</span>

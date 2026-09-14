@@ -566,6 +566,37 @@ export const nftMintModuleAbi = [
   },
   { type: 'function', name: 'launcherBalance', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'launcherBalanceUru', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'tiersCount', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'function',
+    name: 'tierAt',
+    stateMutability: 'view',
+    inputs: [{ name: 'i', type: 'uint256' }],
+    outputs: [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'kind', type: 'uint8' },
+          { name: 'walletListRoot', type: 'bytes32' },
+          { name: 'externalCollection', type: 'address' },
+          { name: 'externalChainId', type: 'uint256' },
+          { name: 'percentPerNftBps', type: 'uint256' },
+          { name: 'maxCountedNfts', type: 'uint256' },
+          { name: 'fixedDiscountBps', type: 'uint256' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'netPriceFor',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'quantity', type: 'uint256' },
+      { name: 'discountBps', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
   {
     type: 'function',
     name: 'withdraw',
