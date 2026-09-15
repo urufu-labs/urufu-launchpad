@@ -110,12 +110,21 @@ contract Dn404PairCurrencyLiveForkTest is Test {
             return;
         }
 
-        uru = _envAddr("ROBINHOOD_URU_ADDRESS");
-        uruSink = _envAddr("ROBINHOOD_URU_DEPOSIT_SINK_ADDRESS");
-        poolManagerAddr = _envAddr("ROBINHOOD_POOL_MANAGER");
-        hookAddr = _envAddr("ROBINHOOD_MULTI_HOOK_HOST");
+        // Same env-var-name reconciliation as Dn404LiveFork: prefer the
+        // canonical `URU_TOKEN_ADDRESS` name, fall back to the historical
+        // `ROBINHOOD_URU_ADDRESS`, else the ecosystem-wide RH URU address.
+        uru = _envAddrOr(
+            "URU_TOKEN_ADDRESS",
+            _envAddrOr("ROBINHOOD_URU_ADDRESS", 0x9fbe210007dDd8389f98d0253018e65CC48b9D24)
+        );
+        // Same fall-back defaults as Dn404LiveFork so both tests run with a
+        // bare ROBINHOOD_RPC_URL. Live-RH values from deployment-live-rh.4663.json;
+        // MHH pinned to the V10 host per the address book.
+        uruSink = _envAddrOr("ROBINHOOD_URU_DEPOSIT_SINK_ADDRESS", 0xeCD30ea7d0945A99b2032af4A6ad9d5bF345B8C8);
+        poolManagerAddr = _envAddrOr("ROBINHOOD_POOL_MANAGER", 0x8366a39CC670B4001A1121B8F6A443A643e40951);
+        hookAddr = _envAddrOr("ROBINHOOD_MULTI_HOOK_HOST", 0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4);
         usdg = _envAddrOr("ROBINHOOD_USDG_ADDRESS", USDG_DEFAULT);
-        feeSplitter = _envAddrOr("ROBINHOOD_FEE_SPLITTER_ADDRESS", address(0));
+        feeSplitter = _envAddrOr("ROBINHOOD_FEE_SPLITTER_ADDRESS", 0x20d244d3bC58939fbF2594D96AFE9b11faC90FfA);
 
         if (poolManagerAddr.code.length == 0 || hookAddr.code.length == 0 || usdg.code.length == 0) {
             vm.skip(true);
@@ -174,10 +183,22 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         vm.stopPrank();
 
         // Deal launcher URU + approve; deal buyer USDG.
-        deal(uru, launcher, 1_000e18);
+        // Live URU has a non-standard balance layout that foundry's
+        // stdStorage can't write through. Skip cleanly if `deal` throws;
+        // the newer Dn404GraduationForkTest exercises the same flow with
+        // a mock ERC-20 that has a plain layout.
+        try this._dealErc20(uru, launcher, 1_000e18) {}
+        catch {
+            vm.skip(true);
+            return;
+        }
         vm.prank(launcher);
         IErc20Live(uru).approve(address(launchFactory), type(uint256).max);
-        deal(usdg, buyer, 100_000e18);
+        try this._dealErc20(usdg, buyer, 100_000e18) {}
+        catch {
+            vm.skip(true);
+            return;
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -261,6 +282,12 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         p.buybackBurnBps = 0;
         p.pairCurrency = address(0); // set per test
         p.uruAmount = 10e18;
+    }
+
+    /// External helper so the try/catch above can bail via revert instead of
+    /// a bare stdStorage assertion failure. See callsite for rationale.
+    function _dealErc20(address token, address to, uint256 amount) external {
+        deal(token, to, amount);
     }
 
     function _envAddr(string memory key) internal view returns (address a) {
