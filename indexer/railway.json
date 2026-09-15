@@ -9,6 +9,7 @@
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 300
+    "//healthcheckTimeout": "Ponder's boot sequence — build-cache detection, revert-unfinalized-ops across every schema table, then start the Hono HTTP server that serves /health — takes longer than the Railway default 5-minute window after any crash recovery (e.g. the 2026-09-15 disk-full incident). 900s gives real breathing room on cold starts without hiding a genuine hang.",
+    "healthcheckTimeout": 900
   }
 }
