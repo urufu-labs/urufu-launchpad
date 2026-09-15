@@ -433,10 +433,13 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
   sepolia: null,
   base: null,
   'base-sepolia': null,
-  // DN404 lane awaits contract deploy (slice 12 of the DN404 build).
-  // Site stays hidden until DN404_LAUNCHES_ENABLED[robinhood] flips true
-  // AND this slot is populated.
-  robinhood: null,
+  // DN404 lane V1 deployed 2026-09-15 (see project_dn404_v1_deploy memory).
+  // Site stays hidden until DN404_LAUNCHES_ENABLED[robinhood] flips true.
+  robinhood: {
+    LaunchFactory: '0x3026C71eB13C599BAd0e7a687689D20F8c37A64B',
+    BaseImpl: '0x4459C3Ed55Ee23b32277D6fc330B658b04566f0a',
+    MirrorImpl: '0xf0d47334fcFc56eCE484fAf9b31Ba0486Bd9c265',
+  },
   'robinhood-testnet': null,
 };
 
