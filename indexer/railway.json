@@ -8,8 +8,6 @@
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
-    "healthcheckPath": "/health",
-    "//healthcheckTimeout": "Ponder's boot sequence — build-cache detection, revert-unfinalized-ops across every schema table, then start the Hono HTTP server that serves /health — takes longer than the Railway default 5-minute window after any crash recovery (e.g. the 2026-09-15 disk-full incident). 900s gives real breathing room on cold starts without hiding a genuine hang.",
-    "healthcheckTimeout": 900
+    "//healthcheck-dropped": "The indexer is a background worker that writes to Postgres. Its /health endpoint is only served AFTER Ponder finishes its sync-store init + reconnect. After the 2026-09-15 disk-full incident that init routinely takes >15min because the sync-store has hundreds of thousands of intervals to reconcile before the HTTP server opens. Railway's healthcheck window was killing the deploy while Ponder was still starting up normally. Dropping the healthcheckPath means Railway falls back to 'is the process alive' — which is what actually matters for a worker. If Ponder exits, restartPolicyType=ON_FAILURE will restart it. Re-add healthcheckPath=/health + a large timeout after we prune the sync-store intervals table (Ponder 0.7 doesn't auto-prune)."
   }
 }
