@@ -19,6 +19,11 @@
 import type { Address } from 'viem';
 
 export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
+  // DN404-SMOKE ($SMOKE) — first real mainnet DN404 launch, 2026-09-16,
+  // block 64796708. Deployer-owned smoke test proving buy→NFT-mint and
+  // sell→NFT-burn on the live Dn404LaunchFactory. Base ERC-20 half; the
+  // mirror ERC-721 is hidden in hiddenNftCollections.ts. Not a real launch.
+  '4663:0x26903cc300c81d056051e50c6cdec16054427122',
   '8453:0xde1323b369b362bc1ad3d036bef964279e8eb1c7',
   '84532:0x92462af2c2c8d2a18dcbbddd66c8aa401ec2de6d',
   // V6 Smoke Bare (V6SmokeLaunch.s.sol, block 21058832)
