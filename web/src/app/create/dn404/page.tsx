@@ -173,6 +173,16 @@ function CreateDn404Form() {
     if (isApproved) refetchAllowance();
   }, [isApproved, refetchAllowance]);
 
+  // Re-hydrate when the studio deep-links after mount (back/forward or a
+  // fresh generate that re-navigates). Mirrors /create/nft so a studio
+  // session that regenerates art lands the new baseUri here too.
+  useEffect(() => {
+    const n = search.get('name'); if (n !== null) setName(n);
+    const t = search.get('ticker'); if (t !== null) setTicker(sanitizeTicker(t));
+    const b = search.get('baseUri'); if (b !== null) setBaseUri(b);
+    const c = search.get('collectionSize'); if (c !== null) setCollectionSize(c);
+  }, [search]);
+
   const approveUru = () => {
     if (!uruTokenAddress || !factoryAddress) return;
     writeApprove({
@@ -259,6 +269,13 @@ function CreateDn404Form() {
           </div>
         </div>
       </div>
+      <p className={styles.heroSub}>
+        got your own baseURI? paste it. or build one in{' '}
+        <a href="https://studio.urufulabs.xyz/" target="_blank" rel="noopener noreferrer">
+          chibi studio ↗
+        </a>
+        . same art pipeline as the nft launcher, the mirror collection reads it the same way.
+      </p>
 
       {!chainEnabled && (
         <div className="uru-shell-tight" style={{ marginBottom: 10 }}>
