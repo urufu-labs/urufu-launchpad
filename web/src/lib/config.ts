@@ -407,6 +407,197 @@ export function isNftDeployReady(chain: ChainKey): boolean {
   return NFT_LAUNCHES_ENABLED[chain] === true && NFT_LAUNCHES[chain] !== null;
 }
 
+/// DN404 launch modules — the third launch lane (base ERC-20 + mirror
+/// ERC-721 pair with unit-based auto-mint/burn). Populated after
+/// Dn404LaunchFactory + Dn404Template + Dn404MirrorTemplate broadcasts.
+/// Independent from the NFT lane; deliberately its own factory and its
+/// own feature flag so audit + rollout stay isolated.
+///
+/// While `null`, the /create/dn404 UI still renders (so we can iterate
+/// on the form) but the actual submit button is disabled — the launch
+/// flow refuses to broadcast a tx against zero-address slots. Once the
+/// contracts ship, populate the slot and the UI unlocks.
+export interface Dn404LaunchSet {
+  /// Single user-facing entrypoint. `launch(LaunchParams)` here deploys
+  /// the DN404 base + mirror + wires the curve in one tx.
+  LaunchFactory: Address;
+  // Impl addresses — informational, not called directly from the frontend
+  // (the factory clones them internally). Kept in config for indexer +
+  // Blockscout verification workflows, matching the NFT-lane posture.
+  BaseImpl: Address;
+  MirrorImpl: Address;
+}
+
+export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  // DN404 lane V1 deployed 2026-09-15 (see project_dn404_v1_deploy memory).
+  // Site stays hidden until DN404_LAUNCHES_ENABLED[robinhood] flips true.
+  robinhood: {
+    LaunchFactory: '0x3026C71eB13C599BAd0e7a687689D20F8c37A64B',
+    BaseImpl: '0x4459C3Ed55Ee23b32277D6fc330B658b04566f0a',
+    MirrorImpl: '0xf0d47334fcFc56eCE484fAf9b31Ba0486Bd9c265',
+  },
+  'robinhood-testnet': null,
+};
+
+/// Per-chain feature flag for the DN404 launch experience. Controls
+/// whether the "dn404" option in the create picker, the /create/dn404
+/// route, and the paired-token strip on /collection/[address] render at
+/// all. Independent from DN404_LAUNCHES (which gates the actual on-chain
+/// submit), so we can ship UI ahead of contracts.
+///
+/// Flip flow per project decision (2026-09-03): NFT and DN404 lanes both
+/// go live in the same commit — hold this AND NFT_LAUNCHES_ENABLED off
+/// until the DN404 audit + testnet rehearsal + dark deploy are all
+/// green. Two flags flipped together = one launch moment for the
+/// community.
+export const DN404_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  robinhood: false,
+  'robinhood-testnet': false,
+};
+
+/// Convenience: submit-time gate. UI is enabled iff
+/// `DN404_LAUNCHES_ENABLED[chain]` is true AND every impl address in
+/// `DN404_LAUNCHES[chain]` is populated.
+export function isDn404DeployReady(chain: ChainKey): boolean {
+  return DN404_LAUNCHES_ENABLED[chain] === true && DN404_LAUNCHES[chain] !== null;
+}
+
+/// DN404 pair-currency dropdown options, hardcoded mirror of the
+/// on-chain `Dn404PairCurrencyAllowlist` contract. When the governance
+/// multisig adds a new token to the allowlist, add it here too so the
+/// dropdown surfaces it — the on-chain check is authoritative but this
+/// list controls the UI. Order matters: shown top-to-bottom in the
+/// dropdown.
+///
+/// address(0) means ETH — the DN404 factory routes those launches
+/// through the untouched V10 CurveFactory. Non-zero addresses route
+/// through Dn404CurveFactory (parallel stack).
+///
+/// The 10 stock tickers below (NVDA, TSLA, AAPL, AMZN, GOOGL, PLTR,
+/// COST, HIMS, RBLX, GME) are placeholders — replace `0x0…` with the
+/// canonical Robinhood Chain stock-token address for each as they
+/// come online at `docs.robinhood.com/chain/contracts`. SPCX/SPCE
+/// pending canonical-ticker confirmation from that registry.
+export interface PairCurrencyOption {
+  /// Token address on `chain`. `address(0)` = ETH.
+  address: Address;
+  /// Short human label shown in the dropdown ("ETH", "USDG", "NVDA").
+  label: string;
+  /// Longer description shown as helper text underneath ("Costco stock", "USD stablecoin").
+  description: string;
+}
+
+export const DN404_PAIR_CURRENCIES: Record<ChainKey, PairCurrencyOption[]> = {
+  mainnet: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  sepolia: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  base: [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  'base-sepolia': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+  robinhood: [
+    { address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' },
+    // USDG — RH-issued stablecoin. Address per docs.robinhood.com/chain/contracts.
+    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'USD stablecoin' },
+    // Stock tokens — populate with canonical addresses from the RH
+    // registry as governance onboards each. Leaving as address(0)
+    // means "not yet allowlisted" — dropdown skips address(0) entries
+    // that appear after the first (the intentional first entry is ETH).
+    // Order chosen to match the v1 stock list from 2026-09-03.
+    { address: '0x0000000000000000000000000000000000000000', label: 'NVDA', description: 'Nvidia stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'TSLA', description: 'Tesla stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AAPL', description: 'Apple stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AMZN', description: 'Amazon stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'GOOGL', description: 'Alphabet stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'PLTR', description: 'Palantir stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'COST', description: 'Costco stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'HIMS', description: 'Hims stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'RBLX', description: 'Roblox stock (pending canonical addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'GME', description: 'GameStop stock (pending canonical addr)' },
+  ],
+  'robinhood-testnet': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
+};
+
+/// Return only the options that have a real (non-zero) address AND
+/// are the special ETH sentinel at index 0. Used by the dropdown to
+/// hide stock tokens that haven't been onboarded yet.
+export function activePairCurrencies(chain: ChainKey): PairCurrencyOption[] {
+  const all = DN404_PAIR_CURRENCIES[chain] ?? [];
+  return all.filter((opt, i) => i === 0 || opt.address !== '0x0000000000000000000000000000000000000000');
+}
+
+/// DN404 per-transfer tax mode menu — mirrors Dn404TaxTemplate.TaxMode
+/// exactly. Numeric values match the on-chain enum ordering:
+///   0=Off, 1=BurnDead, 2=BuybackURU, 3=BuyAllowedToken,
+///   4=AddToLP, 5=HolderReflections, 6=MirrorFloorSupport
+///
+/// The launcher's dropdown surfaces the human-readable label +
+/// description. `needsAllowlistedTarget` flags whether picking this
+/// mode should also show the tax-target dropdown (only true for
+/// BuyAllowedToken; every other mode has an implicit target).
+export interface TaxModeOption {
+  value: number;
+  label: string;
+  description: string;
+  /// True → picking this mode requires selecting a target token from
+  /// DN404_TAX_DESTINATIONS. False → no additional selection needed;
+  /// destination is implicit (0xdEaD, URU, LP, holders, mirror NFT).
+  needsAllowlistedTarget: boolean;
+}
+
+export const DN404_TAX_MODES: TaxModeOption[] = [
+  { value: 0, label: 'Off',               description: 'no per-transfer tax (default, cheapest)',                     needsAllowlistedTarget: false },
+  { value: 1, label: 'BurnDead',          description: 'burn taxBps of every transfer to 0x…dEaD',                    needsAllowlistedTarget: false },
+  { value: 2, label: 'BuybackURU',        description: 'accumulate taxBps, keeper swaps to $URU (aligns w/ flywheel)', needsAllowlistedTarget: false },
+  { value: 3, label: 'BuyAllowedToken',   description: 'accumulate taxBps, keeper swaps to the token you pick below',   needsAllowlistedTarget: true  },
+  { value: 4, label: 'AddToLP',           description: 'accumulate taxBps, keeper adds to graduated v4 pool LP',        needsAllowlistedTarget: false },
+  { value: 5, label: 'HolderReflections', description: 'accumulate taxBps, keeper distributes to holders via merkle drop', needsAllowlistedTarget: false },
+  { value: 6, label: 'MirrorFloorSupport',description: 'accumulate taxBps, keeper buys + burns mirror NFTs (novel)',     needsAllowlistedTarget: false },
+];
+
+/// Tax destination allowlist mirror for the BuyAllowedToken mode.
+/// Governance-managed on-chain via Dn404TaxAllowlist; this frontend
+/// list must be kept in sync when tokens are added or removed.
+/// Different from DN404_PAIR_CURRENCIES because the two allowlists are
+/// independent — a token can be safe as a pair currency but not yet as
+/// a tax-destination target if the on-chain buy path isn't liquid.
+export interface TaxDestinationOption {
+  address: Address;
+  label: string;
+  description: string;
+}
+
+export const DN404_TAX_DESTINATIONS: Record<ChainKey, TaxDestinationOption[]> = {
+  mainnet: [],
+  sepolia: [],
+  base: [],
+  'base-sepolia': [],
+  robinhood: [
+    // URU is technically also BuybackURU-reachable via the implicit
+    // route, but it's listed here so launchers can pick it via
+    // BuyAllowedToken as well (identical outcome; convenience).
+    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'RH stablecoin' },
+    // Stock tokens land here as governance onboards them + calls
+    // taxAllowlist.setAllowed on-chain. Placeholders below match the
+    // pair-currency list; replace 0x0 with canonical addresses.
+    { address: '0x0000000000000000000000000000000000000000', label: 'NVDA', description: 'Nvidia stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'TSLA', description: 'Tesla stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'AAPL', description: 'Apple stock (pending addr)' },
+    { address: '0x0000000000000000000000000000000000000000', label: 'COST', description: 'Costco stock (pending addr)' },
+  ],
+  'robinhood-testnet': [],
+};
+
+export function activeTaxDestinations(chain: ChainKey): TaxDestinationOption[] {
+  const all = DN404_TAX_DESTINATIONS[chain] ?? [];
+  return all.filter((opt) => opt.address !== '0x0000000000000000000000000000000000000000');
+}
+
 export const ECOSYSTEM_TOKENS: Record<ChainKey, EcosystemTokens | null> = {
   mainnet: null,
   sepolia: null,

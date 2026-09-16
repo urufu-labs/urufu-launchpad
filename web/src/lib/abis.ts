@@ -406,6 +406,98 @@ export const nftLaunchFactoryAbi = [
   },
 ] as const;
 
+/// Dn404LaunchFactory ABI. One-tx DN404 launch: deploys base ERC-20 +
+/// mirror ERC-721 pair, wires the curve, charges URU fee. See
+/// contracts/src/dn404/Dn404LaunchFactory.sol.
+export const dn404LaunchFactoryAbi = [
+  {
+    type: 'function',
+    name: 'launch',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        name: 'p',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'ticker', type: 'string' },
+          { name: 'baseURI', type: 'string' },
+          { name: 'contractURI', type: 'string' },
+          { name: 'collectionSize', type: 'uint256' },
+          { name: 'unit', type: 'uint256' },
+          { name: 'founderPremintBps', type: 'uint16' },
+          { name: 'antiSniperBlocks', type: 'uint32' },
+          { name: 'buybackBurnBps', type: 'uint16' },
+          // Pair currency the DN404 trades against on the bonding
+          // curve. address(0) = ETH (routed through V10 CurveFactory);
+          // any other address = allowlisted ERC-20 (USDG, COST, ...)
+          // routed through Dn404CurveFactory. Added slice B.
+          { name: 'pairCurrency', type: 'address' },
+          // Per-transfer tax mode. 0 = Off (no hook, bare template).
+          // 1..6 = one of Dn404TaxTemplate.TaxMode: BurnDead,
+          // BuybackURU, BuyAllowedToken, AddToLP, HolderReflections,
+          // MirrorFloorSupport. Non-zero routes launch through
+          // baseTaxImpl (Dn404TaxTemplate) instead of baseImpl.
+          // Added slice C3.
+          { name: 'taxMode', type: 'uint8' },
+          // Basis points of every transfer routed to the tax
+          // destination (0..500 = 0..5% cap enforced on-chain).
+          // Ignored when taxMode == 0.
+          { name: 'taxBps', type: 'uint16' },
+          // Target token for BuyAllowedToken mode. Ignored otherwise.
+          { name: 'taxTarget', type: 'address' },
+          { name: 'uruAmount', type: 'uint256' },
+        ],
+      },
+    ],
+    outputs: [
+      { name: 'base', type: 'address' },
+      { name: 'mirror', type: 'address' },
+      { name: 'curve', type: 'address' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'minUruFeeFor',
+    stateMutability: 'view',
+    inputs: [{ name: 'launcher', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'previewTotalSupply',
+    stateMutability: 'pure',
+    inputs: [
+      { name: 'collectionSize', type: 'uint256' },
+      { name: 'unit', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'event',
+    name: 'Dn404Launched',
+    inputs: [
+      { name: 'base', type: 'address', indexed: true },
+      { name: 'mirror', type: 'address', indexed: true },
+      { name: 'curve', type: 'address', indexed: true },
+      { name: 'launcher', type: 'address' },
+      // Pair currency the curve prices in. address(0) = ETH (V10 path);
+      // any other = allowlisted ERC-20 (Dn404 path). Added slice B.
+      { name: 'pairCurrency', type: 'address' },
+      // Tax mode + bps chosen at launch. 0 = Off. See slice C3.
+      { name: 'taxMode', type: 'uint8' },
+      { name: 'taxBps', type: 'uint16' },
+      { name: 'configHash', type: 'bytes32' },
+      { name: 'uruPaid', type: 'uint256' },
+      { name: 'totalSupply', type: 'uint256' },
+      { name: 'unit', type: 'uint256' },
+      { name: 'founderPremint', type: 'uint256' },
+      { name: 'name', type: 'string' },
+      { name: 'ticker', type: 'string' },
+    ],
+  },
+] as const;
+
 export const nftMintModuleAbi = [
   {
     type: 'function',
@@ -474,6 +566,37 @@ export const nftMintModuleAbi = [
   },
   { type: 'function', name: 'launcherBalance', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'launcherBalanceUru', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'tiersCount', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'function',
+    name: 'tierAt',
+    stateMutability: 'view',
+    inputs: [{ name: 'i', type: 'uint256' }],
+    outputs: [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'kind', type: 'uint8' },
+          { name: 'walletListRoot', type: 'bytes32' },
+          { name: 'externalCollection', type: 'address' },
+          { name: 'externalChainId', type: 'uint256' },
+          { name: 'percentPerNftBps', type: 'uint256' },
+          { name: 'maxCountedNfts', type: 'uint256' },
+          { name: 'fixedDiscountBps', type: 'uint256' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'netPriceFor',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'quantity', type: 'uint256' },
+      { name: 'discountBps', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
   {
     type: 'function',
     name: 'withdraw',

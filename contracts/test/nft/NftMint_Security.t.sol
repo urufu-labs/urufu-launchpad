@@ -150,8 +150,10 @@ contract NftMint_Security is NftHarness {
         _launch(p);
         uint256 expiry = block.timestamp + 1 hours;
         // "attestation" for 1000 count
+        // ourCollection = ERC-721 clone per commit 01c2318 (see Correctness
+        // suite for the full rationale).
         bytes memory sig =
-            _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 1000, expiry);
+            _signAttestation(attSignerPk, buyer1, deployedToken, address(0xBEEF), 1, 0, 1000, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 1000, expiry: expiry, sig: sig});
@@ -364,13 +366,23 @@ contract NftMint_Security is NftHarness {
         ERC721ATemplate(deployedToken).mintBatch(buyer1, 1);
     }
 
-    /// Even the launcher can't bypass — they gave up ownership to the
-    /// mint module at launch time.
-    function test_MintBatch_LauncherCant_Bypass() public {
+    /// V5 two-role model (commit 9ba7e03): the launcher is the Ownable
+    /// owner and MAY mint directly via mintBatch (owner airdrop path).
+    /// The security property that matters is that a RANDOM wallet can't
+    /// — mintBatch is gated `msg.sender == minter || msg.sender == owner()`.
+    /// Pre-V5 the launcher had given up ownership to the module, so the
+    /// old test asserted the launcher was blocked too.
+    function test_MintBatch_OwnerAndMinterOnly_RandomBlocked() public {
         _launch(_defaultLaunchParams());
-        vm.expectRevert();
+        // Launcher (owner) can mint.
         vm.prank(launcher);
         ERC721ATemplate(deployedToken).mintBatch(launcher, 1);
+        assertEq(ERC721ATemplate(deployedToken).balanceOf(launcher), 1, "owner airdrop path");
+        // Random wallet cannot.
+        address rando = makeAddr("rando");
+        vm.expectRevert();
+        vm.prank(rando);
+        ERC721ATemplate(deployedToken).mintBatch(rando, 1);
     }
 
     // --------------------------------------------------------------

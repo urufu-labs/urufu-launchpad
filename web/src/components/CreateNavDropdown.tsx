@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
 export function CreateNavDropdown() {
@@ -23,6 +23,7 @@ export function CreateNavDropdown() {
   const pathname = usePathname();
   const activeChain = useActiveChain();
   const nftEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
+  const dn404Enabled = DN404_LAUNCHES_ENABLED[activeChain] === true;
 
   const openNow = () => {
     if (closeTimer.current) {
@@ -133,6 +134,29 @@ export function CreateNavDropdown() {
               }}
             >
               ❁ nft <span style={{ fontSize: 10 }}>soon ✧</span>
+            </span>
+          )}
+          {dn404Enabled ? (
+            <Link
+              href="/create/dn404"
+              role="menuitem"
+              className="hover:underline"
+              style={{ color: 'var(--anchor)', padding: '4px 8px', borderRadius: 4 }}
+            >
+              ✧ dn404
+            </Link>
+          ) : (
+            <span
+              role="menuitem"
+              aria-disabled="true"
+              style={{
+                color: 'var(--anchor)',
+                opacity: 0.45,
+                padding: '4px 8px',
+                cursor: 'not-allowed',
+              }}
+            >
+              ✧ dn404 <span style={{ fontSize: 10 }}>soon ✧</span>
             </span>
           )}
         </div>

@@ -1,0 +1,20 @@
+{
+  "name": "@vm/keeper",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DN404 tax-hook keeper — watches TaxAccumulated events, sweeps at threshold, executes destination-specific action off-chain.",
+  "scripts": {
+    "dev": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env src/index.ts",
+    "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "viem": "^2.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

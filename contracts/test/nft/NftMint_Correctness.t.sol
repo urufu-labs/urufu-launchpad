@@ -257,7 +257,10 @@ contract NftMint_Correctness is NftHarness {
         _launch(p);
         // Attestation: buyer1 holds 3 NFTs on chain 1.
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 3, expiry);
+        // ourCollection = the ERC-721 clone (commit 01c2318), matching what
+        // the compile-service signs against and what NftMintModule.mint
+        // passes into the verifier. Pre-fix it was the mint module.
+        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedToken, address(0xBEEF), 1, 0, 3, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 3, expiry: expiry, sig: sig});
@@ -285,7 +288,7 @@ contract NftMint_Correctness is NftHarness {
         _launch(p);
         // Attestation says buyer1 holds 100 NFTs → but cap counts only 4 → 20% off.
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedMintModule, address(0xBEEF), 1, 0, 100, expiry);
+        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedToken, address(0xBEEF), 1, 0, 100, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 100, expiry: expiry, sig: sig});
@@ -457,8 +460,11 @@ contract NftMint_Correctness is NftHarness {
         NftMintModule(deployedMintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
         // ERC721ATemplate overrides _startTokenId() to 1 so the first
         // mint is token #1 (matches OpenSea / metadata 1-index).
+        // V4 (commit 6eb2fc2) appends `.json` so marketplaces resolve the
+        // metadata file directly. Matches how the studio pins per-token
+        // metadata (`1.json`, `2.json`, ...).
         string memory uri = ERC721ATemplate(deployedToken).tokenURI(1);
-        assertEq(uri, "ipfs://cid/1", "baseURI + tokenId (1-indexed)");
+        assertEq(uri, "ipfs://cid/1.json", "baseURI + tokenId + .json (1-indexed)");
     }
 
     // --------------------------------------------------------------
