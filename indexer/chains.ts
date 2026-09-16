@@ -180,6 +180,28 @@ export function readStartBlock(slug: ChainSlug): number {
   return Number(process.env[`PONDER_START_BLOCK_${prefix}`] ?? 0);
 }
 
+/// Per-contract start block override: `PONDER_START_BLOCK_<PREFIX>_<KEY>`.
+/// Falls back to the chain-wide `readStartBlock(slug)` when unset.
+///
+/// Why this exists: contracts added long after the chain-wide start block
+/// (NftLaunchFactory 2026-09-01, Dn404LaunchFactory 2026-09-15) don't need
+/// to be scanned from block ~29M — nothing of theirs exists before their
+/// deploy block. Giving them their own start block (a) makes their initial
+/// historical sync a few-million-block job instead of a ~36M one, and (b)
+/// changes the Ponder build hash for ONLY that source, which is the
+/// supported lever to force a clean re-sync of one source without
+/// rebuilding every other table. Never set this LOWER than the chain-wide
+/// value; never touch `PONDER_START_BLOCK_<PREFIX>` itself for this.
+export function readStartBlockFor(slug: ChainSlug, key: AddressKey): number {
+  const prefix = CHAIN_CATALOG[slug].envPrefix;
+  const specific = process.env[`PONDER_START_BLOCK_${prefix}_${key}`];
+  if (specific !== undefined && specific !== '') {
+    const n = Number(specific);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return readStartBlock(slug);
+}
+
 /// The chains this indexer will actually subscribe to. A slug is enabled iff:
 ///   - it appears in `requestedChains()`, AND
 ///   - `readRpcUrl(slug)` returns a non-empty URL, AND

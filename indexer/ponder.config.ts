@@ -7,6 +7,7 @@ import {
   readAddress,
   readRpcUrl,
   readStartBlock,
+  readStartBlockFor,
   type AddressKey,
   type ChainSlug,
 } from './chains';
@@ -178,7 +179,11 @@ function netFor(
   for (const slug of ENABLED) {
     const a = readAddress(slug, key);
     if (!a) continue;
-    out[slug] = { address: a, startBlock: readStartBlock(slug) };
+    // Per-key start block when `PONDER_START_BLOCK_<PREFIX>_<KEY>` is set,
+    // else the chain-wide value. Lets late-added factories (NFT, DN404) sync
+    // from their own deploy block instead of the chain-wide ~29M. See
+    // chains.ts::readStartBlockFor for why this is also the re-sync lever.
+    out[slug] = { address: a, startBlock: readStartBlockFor(slug, key) };
   }
   return out;
 }
@@ -262,7 +267,9 @@ function nftMintModuleNet() {
     if (!f) continue;
     out[slug] = {
       factory: { address: f, event, parameter: 'mintModule' },
-      startBlock: readStartBlock(slug),
+      // Mint modules are children of NftLaunchFactory — none exist before the
+      // factory's own deploy block, so they share its per-source start block.
+      startBlock: readStartBlockFor(slug, 'NFT_LAUNCH_FACTORY'),
     };
   }
   return out;
