@@ -144,10 +144,15 @@ contract NftLaunchFactoryTest is NftHarness {
     // Ownership wiring
     // --------------------------------------------------------------
 
-    function test_Launch_Ownership_TransferredToMintModule() public {
+    /// V5 two-role model (commit 9ba7e03): launcher owns the ERC-721 from
+    /// launch day (so OpenSea "Edit collection" works via wallet sig), and
+    /// the mint module holds a SEPARATE `minter` role for exclusive mint
+    /// rights. Pre-V5 the module was Ownable owner; that's the old shape
+    /// this test used to assert.
+    function test_Launch_Ownership_LauncherOwns_MintModuleIsMinter() public {
         _launch(_defaultLaunchParams());
-        // ERC721A owner should be the mint module (Solady Ownable).
-        assertEq(ERC721ATemplate(deployedToken).owner(), deployedMintModule);
+        assertEq(ERC721ATemplate(deployedToken).owner(), launcher, "launcher = Ownable owner");
+        assertEq(ERC721ATemplate(deployedToken).minter(), deployedMintModule, "mint module = minter");
     }
 
     // --------------------------------------------------------------
