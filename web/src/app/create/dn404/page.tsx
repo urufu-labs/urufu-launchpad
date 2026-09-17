@@ -71,7 +71,7 @@ function CreateDn404Form() {
   const [name, setName] = useState(search.get('name') ?? '');
   const [ticker, setTicker] = useState(sanitizeTicker(search.get('ticker') ?? ''));
   const [baseUri, setBaseUri] = useState(search.get('baseUri') ?? '');
-  const [contractUri, setContractUri] = useState('');
+  const [contractUri, setContractUri] = useState(search.get('contractUri') ?? '');
   const [collectionSize, setCollectionSize] = useState(search.get('collectionSize') ?? '');
   const [unit, setUnit] = useState('');
   const [founderPremintBps, setFounderPremintBps] = useState('0');
@@ -180,6 +180,7 @@ function CreateDn404Form() {
     const n = search.get('name'); if (n !== null) setName(n);
     const t = search.get('ticker'); if (t !== null) setTicker(sanitizeTicker(t));
     const b = search.get('baseUri'); if (b !== null) setBaseUri(b);
+    const cu = search.get('contractUri'); if (cu !== null) setContractUri(cu);
     const c = search.get('collectionSize'); if (c !== null) setCollectionSize(c);
   }, [search]);
 

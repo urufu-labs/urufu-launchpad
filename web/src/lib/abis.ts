@@ -626,4 +626,17 @@ export const nftErc721Abi = [
     inputs: [{ name: 'owner', type: 'address' }],
     outputs: [{ type: 'uint256' }],
   },
+  // Two-role model (V5): owner() is the LAUNCHER, minter() is the mint module.
+  { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  // Collection-level metadata OpenSea reads for the collection page (banner,
+  // description). Launcher-settable post-launch; the NFT-lane LaunchParams
+  // has no slot for it, so this is the only way it gets populated.
+  { type: 'function', name: 'contractURI', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  {
+    type: 'function',
+    name: 'setContractURI',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newContractURI', type: 'string' }],
+    outputs: [],
+  },
 ] as const;

@@ -143,6 +143,9 @@ function CollectionView({
       { address, abi: nftErc721Abi, functionName: 'totalMinted' },
       { address, abi: nftErc721Abi, functionName: 'maxSupply' },
       { address, abi: nftErc721MinterAbi, functionName: 'minter' },
+      // Launcher-only collection-metadata control below reads these two.
+      { address, abi: nftErc721Abi, functionName: 'owner' },
+      { address, abi: nftErc721Abi, functionName: 'contractURI' },
     ],
     query: { staleTime: 10_000 },
   });
@@ -154,6 +157,42 @@ function CollectionView({
   const maxSupply = baseReads?.[4]?.result as bigint | undefined;
   const mintModule = baseReads?.[5]?.result as Address | undefined;
   const hasMintModule = mintModule && mintModule !== zeroAddress;
+  const collectionOwner = baseReads?.[6]?.result as Address | undefined;
+  const onChainContractUri = (baseReads?.[7]?.result as string | undefined) ?? '';
+  const isLauncher =
+    !!walletAddress && !!collectionOwner && walletAddress.toLowerCase() === collectionOwner.toLowerCase();
+
+  // ------------------------------------------------------------
+  // Launcher-only: set collection-level metadata (contractURI). OpenSea
+  // reads this for the collection PAGE (banner, description) — separate
+  // from per-token tokenURI. The NFT-lane LaunchParams has no slot for
+  // it, so every collection launches with it empty; this is the only way
+  // it gets populated. The studio publishes `collection.json` next to the
+  // per-token files, so the natural value is `<baseURI>collection.json`.
+  // ------------------------------------------------------------
+  const [contractUriDraft, setContractUriDraft] = useState('');
+  const {
+    writeContract: writeContractUri,
+    data: contractUriTxHash,
+    isPending: isSettingContractUri,
+    error: contractUriError,
+  } = useWriteContract();
+  const { isLoading: isWaitingContractUri, isSuccess: contractUriSet } =
+    useWaitForTransactionReceipt({ hash: contractUriTxHash });
+  const suggestedContractUri = baseUri ? `${baseUri}collection.json` : '';
+  const contractUriDraftOk =
+    contractUriDraft.startsWith('ipfs://') ||
+    contractUriDraft.startsWith('ar://') ||
+    contractUriDraft.startsWith('https://');
+  const doSetContractUri = () => {
+    if (!isLauncher || !contractUriDraftOk) return;
+    writeContractUri({
+      address,
+      abi: nftErc721Abi,
+      functionName: 'setContractURI',
+      args: [contractUriDraft.trim()],
+    });
+  };
 
   // ------------------------------------------------------------
   // 1b. Indexer-side collection metadata — cover image, description,
@@ -799,6 +838,59 @@ function CollectionView({
                 }}>
                   tx {mintReceipt.transactionHash.slice(0, 10)}… mined
                 </p>
+              )}
+
+              {isLauncher && (
+                <div
+                  className="uru-shell-tight"
+                  style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}
+                >
+                  <div className="uru-eyebrow">❁ collection metadata (launcher only)</div>
+                  <p style={{ fontSize: 11, opacity: 0.8, margin: 0, lineHeight: 1.45 }}>
+                    {onChainContractUri
+                      ? <>set to <span className="uru-num">{onChainContractUri}</span></>
+                      : <>not set. OpenSea shows no banner or description for this collection until it is.</>}
+                  </p>
+                  <input
+                    type="text"
+                    className="uru-input"
+                    value={contractUriDraft}
+                    onChange={(e) => setContractUriDraft(e.target.value)}
+                    placeholder={suggestedContractUri || 'ipfs://.../collection.json'}
+                    aria-label="collection metadata URI"
+                  />
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {suggestedContractUri && contractUriDraft !== suggestedContractUri && (
+                      <button
+                        type="button"
+                        className="uru-chip"
+                        onClick={() => setContractUriDraft(suggestedContractUri)}
+                        title="the studio publishes collection.json next to the per-token files"
+                      >
+                        use {'<baseURI>'}collection.json
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="uru-btn"
+                      disabled={!contractUriDraftOk || isSettingContractUri || isWaitingContractUri}
+                      onClick={doSetContractUri}
+                    >
+                      {contractUriSet
+                        ? '✓ saved'
+                        : isWaitingContractUri
+                          ? 'waiting for receipt ~'
+                          : isSettingContractUri
+                            ? 'confirming in wallet ~'
+                            : 'save'}
+                    </button>
+                  </div>
+                  {contractUriError && (
+                    <p style={{ fontSize: 11, color: 'var(--pink-hot)', margin: 0 }}>
+                      {contractUriError.message.split('\n')[0]}
+                    </p>
+                  )}
+                </div>
               )}
               {!walletAddress && (
                 <p style={{
