@@ -147,8 +147,13 @@ export const nftMintModuleAbi = parseAbi([
 ///     `pairedToken=base`. `pairCurrency` is the ERC-20 the curve prices
 ///     in (address(0) means ETH-paired, routed through V10; non-zero
 ///     means routed through Dn404CurveFactory + priced in that token).
+/// MUST match Dn404LaunchFactory.Dn404Launched field-for-field — Ponder filters
+/// eth_getLogs by topic0 = keccak(signature), so a stale signature here silently
+/// drops every launch (no error, handler never fires). Web has its own copy in
+/// web/src/lib/abis.ts; test/dn404-abi.test.ts pins both to the on-chain topic0.
+/// Slice C3 added taxMode + taxBps after pairCurrency.
 export const dn404LaunchFactoryAbi = parseAbi([
-  'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, address pairCurrency, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
+  'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, address pairCurrency, uint8 taxMode, uint16 taxBps, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
 ]);
 
 // ---------------------------------------------------------------- network + contract build
