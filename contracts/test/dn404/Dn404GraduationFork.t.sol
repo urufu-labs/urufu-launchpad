@@ -10,6 +10,8 @@ import {Dn404BondingCurve} from "src/dn404/Dn404BondingCurve.sol";
 import {Dn404Graduator} from "src/dn404/Dn404Graduator.sol";
 import {Dn404PairCurrencyAllowlist} from "src/dn404/Dn404PairCurrencyAllowlist.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {
     IERC20 as FactoryIERC20,
     ILoyaltyOracleLike
@@ -289,6 +291,135 @@ contract Dn404GraduationForkTest is Test {
 
         assertFalse(c.graduated(), "should not have graduated on 99% buy");
         assertLt(c.ethReserve(), target, "ethReserve unexpectedly hit target");
+    }
+
+    // ================================================================
+    // PRICE CONTINUITY AT GRADUATION — the "no cliff" proof.
+    //
+    // The ERC-20 lane once shipped a graduator that seeded the v4 pool
+    // from the curve's raw real-reserve ratio instead of its marginal
+    // (virtual + real) price, opening the pool ~50% away from the last
+    // curve trade. Dn404Graduator is ported from the fixed GraduatorV3,
+    // AND adds a branch V3 never had: with an ERC-20 pair, the token can
+    // sort as currency0 or currency1, and the seed must be inverted in
+    // one of those cases. A wrong inversion is a cliff.
+    //
+    // These tests do not trust the derivation. They graduate on the live
+    // fork, read the pool's ACTUAL slot0 price, and assert it equals the
+    // curve's marginal price at graduation within 1% — once per address
+    // ordering, forced deterministically by pinning the mock pair token
+    // at a low / high address with deployCodeTo. Each test also asserts
+    // the ordering it claims, so the two can never silently test the
+    // same branch.
+    // ================================================================
+
+    /// keccak256("Dn404Graduated(address,address,address,uint256,uint256,uint160,uint128)")
+    bytes32 internal constant DN404_GRADUATED_TOPIC0 =
+        keccak256("Dn404Graduated(address,address,address,uint256,uint256,uint160,uint128)");
+
+    function test_NoCliff_PairIsCurrency0() public {
+        // Low address => pair < base => pair is currency0 (non-inverted branch).
+        address pairAddr = address(0x0000000000000000000000000000000000001001);
+        _assertNoCliffForPairAt(pairAddr, true);
+    }
+
+    function test_NoCliff_TokenIsCurrency0() public {
+        // High address => base < pair => token is currency0 (inverted branch).
+        address pairAddr = address(0xFFfffFFfFFfffFfFffFFfFfFfFffFfffFFFFFf01);
+        _assertNoCliffForPairAt(pairAddr, false);
+    }
+
+    /// Full launch → buy-to-graduate → pool-price-vs-curve-price check for a
+    /// mock pair token pinned at `pairAddr`. `expectPairIsC0` is the ordering
+    /// the caller intends to exercise; asserted, not assumed.
+    function _assertNoCliffForPairAt(address pairAddr, bool expectPairIsC0) internal {
+        // Pin the mock at the chosen address. MockPairErc20 has no constructor
+        // state (constants + empty mappings), so runtime-only placement is
+        // a complete deployment.
+        deployCodeTo("Dn404GraduationFork.t.sol:MockPairErc20", pairAddr);
+        MockPairErc20 p = MockPairErc20(pairAddr);
+
+        vm.prank(admin);
+        Dn404PairCurrencyAllowlist(stack.pairCurrencyAllowlist).setAllowed(pairAddr, true, "MPAIR-ORD");
+
+        Dn404LaunchFactory.LaunchParams memory lp = _minimalLaunchParams(pairAddr);
+        lp.name = expectPairIsC0 ? "NoCliff PairC0" : "NoCliff TokenC0";
+        lp.ticker = expectPairIsC0 ? "NCP" : "NCT";
+        vm.prank(launcher);
+        (address base,, address curve) = Dn404LaunchFactory(stack.launchFactory).launch(lp);
+
+        // The ordering this test exists to exercise MUST hold, or the test is
+        // lying about which branch it covers.
+        bool pairIsC0 = pairAddr < base;
+        assertEq(pairIsC0, expectPairIsC0, "address ordering did not land on the intended branch");
+
+        Dn404BondingCurve c = Dn404BondingCurve(curve);
+        uint256 virtPair = c.virtualEthReserve();
+        uint256 virtTok = c.virtualTokenReserve();
+        uint256 target = c.graduationTargetEth();
+        uint256 buyAmount = (target * 125) / 100;
+        p.mint(buyer, buyAmount);
+
+        vm.recordLogs();
+        vm.startPrank(buyer);
+        p.approve(curve, buyAmount);
+        c.buy(buyAmount, 0);
+        vm.stopPrank();
+        assertTrue(c.graduated(), "did not graduate");
+
+        // Pull the graduator's emitted (pairAmount, tokenAmount, sqrtPriceX96).
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 pairAmount; uint256 tokenAmount; uint160 emittedSqrt;
+        bool found;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == stack.graduator && logs[i].topics[0] == DN404_GRADUATED_TOPIC0) {
+                (pairAmount, tokenAmount, emittedSqrt,) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint160, uint128));
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "Dn404Graduated not emitted by the graduator");
+
+        // Curve marginal price at graduation, pair-per-token, 1e18 fixed point.
+        // pairAmount/tokenAmount are the REAL reserves the curve handed over
+        // (see Dn404BondingCurve._graduate), so this is the true spot price.
+        uint256 curvePriceX18 = ((virtPair + pairAmount) * 1e18) / (virtTok + tokenAmount);
+
+        // What the POOL actually opened at — read slot0, don't trust the event.
+        (address c0, address c1) = pairIsC0 ? (pairAddr, base) : (base, pairAddr);
+        PoolKey memory key = PoolKey({
+            currency0: Currency.wrap(c0),
+            currency1: Currency.wrap(c1),
+            fee: V4_FEE,
+            tickSpacing: V4_TICK_SPACING,
+            hooks: IHooks(stack.multiHookHost)
+        });
+        (uint160 slotSqrt,,,) = IPoolManager(RH_POOL_MANAGER).getSlot0(key.toId());
+        assertGt(slotSqrt, 0, "pool not initialized");
+        assertEq(slotSqrt, emittedSqrt, "graduator emitted a different sqrtPrice than it initialized with");
+
+        // v4: sqrtPriceX96 = sqrt(currency1 per currency0) * 2^96.
+        // poolPriceX18 = (sqrt^2 / 2^192) * 1e18, computed as two mulDivs.
+        uint256 sq = uint256(slotSqrt);
+        uint256 poolPriceX18 = FixedPointMathLib.fullMulDiv(
+            FixedPointMathLib.fullMulDiv(sq, sq, 1 << 96), 1e18, 1 << 96
+        );
+
+        // If pair is currency0 the pool encodes token-per-pair = 1/curvePrice.
+        // If token is currency0 the pool encodes pair-per-token = curvePrice.
+        uint256 expectedX18 = pairIsC0 ? (1e36 / curvePriceX18) : curvePriceX18;
+
+        uint256 diff = poolPriceX18 > expectedX18 ? poolPriceX18 - expectedX18 : expectedX18 - poolPriceX18;
+        // 1% tolerance: covers the 1e9 sqrt truncation in the seed. A real
+        // cliff (wrong branch / raw ratio) is off by ~50% or by orders of
+        // magnitude, nowhere near this band.
+        assertLe(diff * 100, expectedX18, "CLIFF: pool opening price != curve marginal price");
+
+        emit log_named_uint("curve price (pair/token, x1e18)", curvePriceX18);
+        emit log_named_uint("pool price   (c1/c0,       x1e18)", poolPriceX18);
+        emit log_named_uint("expected     (c1/c0,       x1e18)", expectedX18);
+        emit log_named_uint("deviation bps", (diff * 10_000) / expectedX18);
     }
 
     function _minimalLaunchParams(
