@@ -502,8 +502,14 @@ export const DN404_PAIR_CURRENCIES: Record<ChainKey, PairCurrencyOption[]> = {
   'base-sepolia': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
   robinhood: [
     { address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' },
-    // USDG — RH-issued stablecoin. Address per docs.robinhood.com/chain/contracts.
-    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'USD stablecoin' },
+    // URU — ecosystem token, 18 decimals. On the on-chain pair allowlist
+    // since 2026-09-23 (tx 0xf681f74c…). First URU-paired graduation is
+    // the $REH404 rehearsal, pool 0xe866d28f…80c7 on the DN404 host.
+    { address: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24', label: 'URU', description: 'ecosystem token' },
+    // USDG was removed from the on-chain pair allowlist 2026-09-23
+    // (tx 0x2ba97b52…). It is 6-decimal and Dn404CurveFactory's defaults
+    // are raw 1e18, so a USDG curve could never graduate. Re-add only
+    // after setDefaults is scaled for it (or per-pair defaults ship).
     // Stock tokens — populate with canonical addresses from the RH
     // registry as governance onboards each. Leaving as address(0)
     // means "not yet allowlisted" — dropdown skips address(0) entries
@@ -578,10 +584,11 @@ export const DN404_TAX_DESTINATIONS: Record<ChainKey, TaxDestinationOption[]> = 
   base: [],
   'base-sepolia': [],
   robinhood: [
-    // URU is technically also BuybackURU-reachable via the implicit
-    // route, but it's listed here so launchers can pick it via
-    // BuyAllowedToken as well (identical outcome; convenience).
-    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'RH stablecoin' },
+    // URU is the only token on the live Dn404TaxAllowlist (seeded
+    // 2026-09-16, tx 0xf140fdf2…; USDG was never added there). It is
+    // also BuybackURU-reachable via the implicit route, but listing it
+    // here lets launchers pick it via BuyAllowedToken too (same outcome).
+    { address: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24', label: 'URU', description: 'ecosystem token' },
     // Stock tokens land here as governance onboards them + calls
     // taxAllowlist.setAllowed on-chain. Placeholders below match the
     // pair-currency list; replace 0x0 with canonical addresses.
