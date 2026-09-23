@@ -143,8 +143,13 @@ contract RehearseDn404UruPair is Script {
         //   nothing is stranded. unit = 100M tokens per NFT keeps the mirror
         //   collection tiny (8 NFTs) so the graduating buy doesn't spend gas
         //   minting hundreds of NFTs to the buyer in one tx.
+        //   The factory keys name uniqueness on (launcher, name, ticker), and
+        //   the 2026-09-23 broadcast already took the bare name for the
+        //   deployer, so every run salts the name with a tag (default: the
+        //   fork block) to stay re-runnable as a regression test.
+        string memory tag = vm.envOr("REHEARSAL_TAG", vm.toString(block.number));
         Dn404LaunchFactory.LaunchParams memory p;
-        p.name = "DN404 URU Rehearsal";
+        p.name = string.concat("DN404 URU Rehearsal ", tag);
         p.ticker = "REH404";
         p.baseURI = "ipfs://rehearsal/";
         p.contractURI = "ipfs://rehearsal/collection.json";
