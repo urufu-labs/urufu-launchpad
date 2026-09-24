@@ -826,6 +826,52 @@ body {
   transition: opacity 360ms ease-out;
 }
 .uru-home-hero-art[data-video-ready='true'] .uru-home-hero-video { opacity: 1; }
+.uru-home-pasture-link {
+  position: absolute;
+  right: 18px;
+  bottom: 58px;
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  max-width: 188px;
+  border: 1.5px solid var(--anchor);
+  background: color-mix(in srgb, var(--cream) 94%, transparent);
+  box-shadow: 3px 3px 0 var(--anchor);
+  color: var(--anchor);
+  padding: 9px 11px 10px;
+  font-family: var(--font-round), "Klee One", cursive;
+  text-decoration: none;
+  transform: rotate(-2deg);
+  transition: background 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
+}
+.uru-home-pasture-kicker {
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.uru-home-pasture-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.uru-home-pasture-link:hover,
+.uru-home-pasture-link:focus-visible {
+  background: var(--pink-hot);
+  box-shadow: 5px 5px 0 var(--anchor), var(--glow-pink);
+  color: #fff;
+  outline: none;
+  transform: translate(-2px, -2px) rotate(-2deg);
+}
+.uru-home-pasture-link:hover .uru-home-pasture-kicker,
+.uru-home-pasture-link:focus-visible .uru-home-pasture-kicker {
+  color: var(--cream);
+}
 .uru-home-art-label {
   position: absolute;
   right: 18px;
@@ -840,6 +886,62 @@ body {
   transform: rotate(2deg);
 }
 .uru-home-art-label b { color: var(--pink-hot); }
+
+.uru-pasture-shell {
+  display: grid;
+  min-height: calc(100vh - 130px);
+  place-items: center;
+  padding: clamp(20px, 4vw, 48px);
+}
+.uru-pasture-frame {
+  width: min(100%, 760px);
+  border: 3px double var(--anchor);
+  background:
+    linear-gradient(color-mix(in srgb, var(--cream) 82%, transparent), color-mix(in srgb, var(--cream) 94%, transparent)),
+    url('/urufu-altar-light-poster-v1.png') center / cover;
+  box-shadow: 7px 7px 0 rgba(255,136,179,0.32), 0 24px 60px rgba(0,0,0,0.18);
+  padding: clamp(34px, 7vw, 82px);
+  text-align: center;
+}
+.uru-pasture-kicker {
+  margin: 0 0 12px;
+  color: var(--pink-hot);
+  font-family: var(--font-pixel), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.uru-pasture-title {
+  max-width: 590px;
+  margin: 0 auto 18px;
+  color: var(--anchor);
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: clamp(42px, 8vw, 82px);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 0.96;
+  text-shadow: 3px 3px 0 var(--cream-shadow), 6px 6px 0 color-mix(in srgb, var(--pink-hot) 26%, transparent);
+}
+.uru-pasture-title span {
+  color: var(--yolk);
+  text-shadow: 2px 2px 0 var(--anchor);
+}
+.uru-pasture-copy {
+  max-width: 510px;
+  margin: 0 auto 25px;
+  color: var(--anchor-soft);
+  font-family: var(--font-round), "Klee One", cursive;
+  font-size: clamp(16px, 1.8vw, 20px);
+  font-weight: 600;
+  line-height: 1.42;
+}
+.uru-pasture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
 
 .uru-home-stat-strip {
   display: grid;

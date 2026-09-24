@@ -9,7 +9,9 @@
 ///
 /// Removal flow: flip this to `true`, delete web/src/components/NotLiveYet.tsx,
 /// clean up the import + branch in web/src/app/page.tsx + web/src/app/create/page.tsx.
-export const LAUNCHPAD_LIVE = false;
+// Local visual-review override for the pasture entry. Keep false in any commit
+// until the launchpad's real release decision is made.
+export const LAUNCHPAD_LIVE = true;
 
 /// Block number the /flywheel dashboard treats as the "start of history"
 /// on Robinhood chain. Events (splits, buybacks, conversions) at a lower

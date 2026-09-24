@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 
 type Theme = 'light' | 'dark';
 
@@ -81,8 +82,6 @@ export function CultureHeroArt() {
     <div
       className="uru-home-hero-art"
       data-video-ready={videoReady}
-      role="img"
-      aria-label="An Urufu creator tending a glowing token-launch altar"
     >
       {videoSource && (
         <video
@@ -96,6 +95,16 @@ export function CultureHeroArt() {
           tabIndex={-1}
         />
       )}
+      <Link
+        href="/pasture"
+        className="uru-home-pasture-link"
+        aria-label="Follow the flock. Open the pasture game."
+      >
+        <span className="uru-home-pasture-kicker">the flock is wandering</span>
+        <span className="uru-home-pasture-title">
+          follow the flock <span aria-hidden="true">→</span>
+        </span>
+      </Link>
       <span className="uru-home-art-label">
         <b>❋ urufu gēmu</b> / soft + cruel
       </span>
