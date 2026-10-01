@@ -61,3 +61,40 @@ test('computePairPoolId reproduces the live REH404/URU pool id', () => {
 test('computePairPoolId is order-independent (sorts like the graduator)', () => {
   assert.equal(computePairPoolId(URU, REH404, DN404_HOST), REH404_POOL_ID);
 });
+
+// ---- PairPoolSwaps decoder, pinned to REAL PoolManager Swap logs ----
+// Captured 2026-10-01 by replaying Universal Router swaps against the live
+// REH404/URU pool on an anvil fork of Robinhood (block ~77.45M):
+//   sell = 1,000,000 REH404 in  -> ~9.886 URU out
+//   buy  = 100 URU in           -> ~3,584,062.7 REH404 out
+// v4 emits amounts from the SWAPPER side (negative = paid in), which these
+// fixtures prove; the natspec's "delta of the pool balance" wording is wrong.
+import { decodePairSwap, V4_SWAP_TOPIC0 } from '../poolId.ts';
+const FIX = JSON.parse(readFileSync(join(HERE, 'fixtures-reh404-swaps.json'), 'utf8'));
+
+test('V4_SWAP_TOPIC0 matches the real Swap logs', () => {
+  assert.equal(FIX.sell.topics[0], V4_SWAP_TOPIC0);
+  assert.equal(FIX.sell.topics[1], REH404_POOL_ID);
+});
+
+test('decodePairSwap: real sell decodes as a sell with exact token amount', () => {
+  const d = decodePairSwap(FIX.sell, REH404, URU);
+  assert.equal(d.isBuy, false);
+  assert.equal(d.tokenAmount, 1_000_000n * 10n ** 18n);
+  assert.ok(d.pairAmount > 9n * 10n ** 18n && d.pairAmount < 11n * 10n ** 18n, `pair ${d.pairAmount}`);
+  assert.ok(d.pricePairPerToken > 0n);
+});
+
+test('decodePairSwap: real buy decodes as a buy with exact URU amount', () => {
+  const d = decodePairSwap(FIX.buy, REH404, URU);
+  assert.equal(d.isBuy, true);
+  assert.equal(d.pairAmount, 100n * 10n ** 18n);
+  assert.ok(d.tokenAmount > 3_500_000n * 10n ** 18n && d.tokenAmount < 3_700_000n * 10n ** 18n, `token ${d.tokenAmount}`);
+});
+
+test('PairPoolSwaps job is registered and its interval fits the RPC 5000-block cap', async () => {
+  const { PAIR_POOL_SWAPS_INTERVAL } = await import('../poolId.ts');
+  assert.ok(PAIR_POOL_SWAPS_INTERVAL > 0 && PAIR_POOL_SWAPS_INTERVAL <= 5000);
+  assert.match(CONFIG, /PairPoolSwaps:\s*\{\s*network:\s*pairPoolSwapsNet\(\)\s*\}/);
+  assert.match(CONFIG, /\r?\n\s+blocks,\r?\n/);
+});

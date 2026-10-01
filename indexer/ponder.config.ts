@@ -11,6 +11,7 @@ import {
   type AddressKey,
   type ChainSlug,
 } from './chains';
+import { PAIR_POOL_SWAPS_INTERVAL } from './poolId';
 
 /// Multi-chain Ponder config. One process subscribes to every chain in
 /// `enabledChains()` at once — no more one-service-per-chain on Railway.
@@ -525,6 +526,29 @@ const contracts = {
   Dn404BondingCurve: { abi: dn404BondingCurveAbi, network: dn404BondingCurveNet() },
 };
 
+// ---------------------------------------------------------------- blocks
+//
+// PairPoolSwaps — timed job that pulls post-graduation swaps for pair-currency
+// (URU) pools. Those swaps go through Uniswap's Universal Router, which does
+// ~20 swaps/s across ~260 pools on Robinhood (measured 2026-10-01), so a
+// PoolManager subscription on sender=UR would flood the DB. Instead, every
+// PAIR_POOL_SWAPS_INTERVAL blocks the handler requests Swap logs filtered to
+// exactly the pool ids in pair_graduations. Interval stays <= 5000 because the
+// RPC caps unbounded-response eth_getLogs at a 5000-block range.
+
+function pairPoolSwapsNet(): Partial<Record<ChainSlug, { startBlock: number; interval: number }>> {
+  const out: Partial<Record<ChainSlug, { startBlock: number; interval: number }>> = {};
+  for (const slug of ENABLED) {
+    if (!readAddress(slug, 'DN404_MULTI_HOOK_HOST') || !readAddress(slug, 'POOL_MANAGER')) continue;
+    out[slug] = { startBlock: readStartBlockFor(slug, 'DN404_CURVE_FACTORY'), interval: PAIR_POOL_SWAPS_INTERVAL };
+  }
+  return out;
+}
+
+const blocks = {
+  PairPoolSwaps: { network: pairPoolSwapsNet() },
+};
+
 // ---------------------------------------------------------------- database
 
 /// Postgres in prod (Railway attaches DATABASE_URL from its Postgres plugin), pglite
@@ -546,4 +570,5 @@ export default createConfig({
     : { kind: 'pglite' },
   networks,
   contracts,
+  blocks,
 });
