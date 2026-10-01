@@ -140,6 +140,15 @@ export const dn404BaseAbi = parseAbi([
   `function getSkipNFT(address owner) view returns (bool)`,
 ] as const);
 
+/// Dn404TaxTemplate (V1/V2) tax config views. Only tax-template clones have
+/// these; plain Dn404Template and ERC-20 launches revert, so read with
+/// allowFailure and treat a failure as "untaxed".
+export const dn404TaxAbi = parseAbi([
+  `function taxMode() view returns (uint8)`,
+  `function taxBps() view returns (uint16)`,
+  `function taxTarget() view returns (address)`,
+] as const);
+
 /// Dn404BondingCurve — the ERC-20-paired curve behind DN404 launches whose
 /// `pairCurrency != address(0)` (URU today). Same shape as `bondingCurveAbi`
 /// EXCEPT the buy side: `buy(pairAmountIn, minTokensOut)` is NOT payable and

@@ -12,6 +12,7 @@ import { decodeAbiParameters, encodeFunctionData, toFunctionSelector } from 'vie
 import {
   buildErc20PoolKey,
   encodeV4ExactInSingle,
+  encodeV4ExactInSingleSettleFirst,
   pairPerTokenFromSqrt,
   poolIdOf,
   sortCurrencies,
@@ -127,5 +128,62 @@ describe('dn404BondingCurveAbi', () => {
       encodeFunctionData({ abi: dn404BondingCurveAbi, functionName: 'buy', args: [1n, 2n] }).slice(0, 10),
       toFunctionSelector('buy(uint256,uint256)'),
     );
+  });
+});
+
+// Fee-on-transfer-safe order for TAXED sells. Must match the fork-proven
+// layout in contracts/test/dn404/Dn404TaxTemplateV2Fork.t.sol::_fotSell:
+// actions 0x0b 0x06 0x0f, SETTLE(currencyIn, amountIn, payerIsUser=true),
+// SWAP_EXACT_IN_SINGLE with amountIn = OPEN_DELTA (0), TAKE_ALL(out, min).
+describe('encodeV4ExactInSingleSettleFirst', () => {
+  const TOKEN = '0x46377623F4Dd0470f5eA6F6120146F0801a26514';
+  const ETH = '0x0000000000000000000000000000000000000000';
+  const HOST = '0x83d6fa59BEF503112887b16277CF559fDC93E0C4';
+  const ethKey = buildErc20PoolKey(TOKEN, ETH, HOST);
+  const amountIn = 1_000n * 10n ** 18n;
+  const call = encodeV4ExactInSingleSettleFirst({ chainId: 4663, key: ethKey, zeroForOne: false, amountIn, amountOutMinimum: 7n });
+  const [actions, params] = decodeAbiParameters([{ type: 'bytes' }, { type: 'bytes[]' }], call.inputs[0]);
+
+  it('ETH pool sorts native ETH to currency0', () => {
+    assert.equal(ethKey.currency0, ETH);
+    assert.equal(ethKey.currency1, TOKEN);
+  });
+  it('uses V4_SWAP with actions SETTLE, SWAP_EXACT_IN_SINGLE, TAKE_ALL', () => {
+    assert.equal(call.commands, '0x10');
+    assert.equal(actions, '0x0b060f');
+  });
+  it('SETTLE pays the full amountIn from the user', () => {
+    const [cur, amt, payerIsUser] = decodeAbiParameters([{ type: 'address' }, { type: 'uint256' }, { type: 'bool' }], params[0]);
+    assert.equal(cur, TOKEN);
+    assert.equal(amt, amountIn);
+    assert.equal(payerIsUser, true);
+  });
+  it('swap amountIn is OPEN_DELTA (0) with the RH minHopPriceX36 layout', () => {
+    const [d] = decodeAbiParameters([{
+      type: 'tuple',
+      components: [
+        { name: 'poolKey', type: 'tuple', components: [
+          { name: 'currency0', type: 'address' }, { name: 'currency1', type: 'address' },
+          { name: 'fee', type: 'uint24' }, { name: 'tickSpacing', type: 'int24' }, { name: 'hooks', type: 'address' },
+        ] },
+        { name: 'zeroForOne', type: 'bool' },
+        { name: 'amountIn', type: 'uint128' },
+        { name: 'amountOutMinimum', type: 'uint128' },
+        { name: 'minHopPriceX36', type: 'uint256' },
+        { name: 'hookData', type: 'bytes' },
+      ],
+    }], params[1]);
+    assert.equal(d.amountIn, 0n);
+    assert.equal(d.zeroForOne, false);
+    assert.equal(d.amountOutMinimum, 7n);
+    assert.equal(d.poolKey.hooks, HOST);
+  });
+  it('TAKE_ALL takes native ETH with the min', () => {
+    const [cur, min] = decodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], params[2]);
+    assert.equal(cur, ETH);
+    assert.equal(min, 7n);
+  });
+  it('refuses native ETH as the taxed input', () => {
+    assert.throws(() => encodeV4ExactInSingleSettleFirst({ chainId: 4663, key: ethKey, zeroForOne: true, amountIn, amountOutMinimum: 0n }));
   });
 });
