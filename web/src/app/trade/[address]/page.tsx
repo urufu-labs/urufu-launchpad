@@ -27,7 +27,7 @@ import {
   type Hex,
 } from 'viem';
 
-import { bondingCurveAbi, curveFactoryAbi, dn404BondingCurveAbi, dn404CurveFactoryAbi, erc20TokenAbi, permit2Abi, universalRouterAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
+import { bondingCurveAbi, curveFactoryAbi, dn404BaseAbi, dn404BondingCurveAbi, dn404CurveFactoryAbi, erc20TokenAbi, permit2Abi, universalRouterAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, DN404_PAIR_CURRENCIES, DN404_LAUNCHES, UNIVERSAL_ROUTERS, PERMIT2, type ChainKey } from '@/lib/config';
 import { buildErc20PoolKey, encodeV4ExactInSingle, pairPerTokenFromSqrt, poolIdOf } from '@/lib/v4Erc20Swap';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
@@ -48,6 +48,14 @@ import {
   type IndexerNftCollection,
 } from '@/lib/indexer';
 import { isHiddenAddressAnywhere } from '@/lib/hiddenTokens';
+import {
+  MAX_NFTS_PER_TX,
+  maxTokensInForNfts,
+  maxTokensOutForNfts,
+  nftsBurned,
+  nftsMinted,
+  scaleInputForOutput,
+} from '@/lib/dn404Gas';
 import { legacyHookOverride, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
@@ -878,6 +886,36 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   /// needs an allowance first. Always false on ETH curves.
   const needsPairApproval = isErc20Pair && side === 'buy' && buyPayValue > 0n && pairCurveAllowance < buyPayValue;
 
+  // ---------- DN404 per-tx NFT gas guard ----------
+  // Robinhood caps a tx at 32M gas and each mirror NFT minted or burned costs
+  // ~11.5k, so a buy/sell crossing more than MAX_NFTS_PER_TX unit boundaries
+  // would revert on-chain. DN404 tokens only (pairedMirror present); plain
+  // ERC-20 launches never reach this. skipNFT wallets mint/burn nothing.
+  const dn404UnitWei = pairedMirror?.unitWei && pairedMirror.unitWei !== '0' ? BigInt(pairedMirror.unitWei) : 0n;
+  const isDn404Token = dn404UnitWei > 0n;
+  const skipNftQ = useReadContract({
+    abi: dn404BaseAbi,
+    address: tokenAddress,
+    functionName: 'getSkipNFT',
+    args: wallet ? [wallet] : undefined,
+    chainId: readChainId,
+    query: { enabled: isDn404Token && !!wallet, refetchInterval: 30_000 },
+  });
+  const walletSkipNft = skipNftQ.data === true;
+  const curveNftGuard = useMemo(() => {
+    if (!isDn404Token || graduated) return null;
+    const bal = (walletBal as bigint | undefined) ?? 0n;
+    if (side === 'buy') {
+      const n = nftsMinted(bal, quoteOut, dn404UnitWei, walletSkipNft);
+      if (n <= MAX_NFTS_PER_TX) return null;
+      const maxTokens = maxTokensInForNfts(bal, dn404UnitWei, walletSkipNft) ?? 0n;
+      return { side: 'buy' as const, nfts: n, maxTokens, aboutInput: scaleInputForOutput(buyPayValue, quoteOut, maxTokens) };
+    }
+    const n = nftsBurned(bal, inputWei, dn404UnitWei, walletSkipNft);
+    if (n <= MAX_NFTS_PER_TX) return null;
+    return { side: 'sell' as const, nfts: n, maxTokens: maxTokensOutForNfts(bal, dn404UnitWei, walletSkipNft) ?? 0n, aboutInput: 0n };
+  }, [isDn404Token, graduated, walletBal, side, quoteOut, dn404UnitWei, walletSkipNft, buyPayValue, inputWei]);
+
   // Simulations MUST target the same chain the wallet will sign on — otherwise wagmi picks
   // whatever the wallet is currently on and the sim silently succeeds against the wrong
   // chain (or fails against a missing contract). Gate sims on wallet-being-on-active-chain
@@ -1637,6 +1675,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 }}
                 switchPending={switchPending}
                 poolSpotPairPerToken={poolSpotPriceEthPerToken}
+                dn404UnitWei={isDn404Token ? dn404UnitWei : undefined}
+                walletSkipNft={walletSkipNft}
                 onSwapComplete={() => {
                   slot0Q.refetch();
                   walletBalQ.refetch();
@@ -1659,6 +1699,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 hookAddr={hookAddr}
                 tokenSymbol={(tokenSymbol as string) ?? ''}
                 tokenTotalSupply={(tokenTotalSupply as bigint | undefined) ?? 0n}
+                dn404UnitWei={isDn404Token ? dn404UnitWei : undefined}
+                walletSkipNft={walletSkipNft}
                 walletTokenBal={(walletBal as bigint | undefined) ?? 0n}
                 walletOnActiveChain={walletOnActiveChain}
                 onSwitchChain={() => {
@@ -1741,6 +1783,14 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       ✿ capped at {isErc20Pair ? Number(fmtPair(ethToGraduate)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : Number(formatEther(ethToGraduate)).toFixed(4)} {pairSym} — only this much needed to graduate. rest stays in your wallet.
                     </div>
                   )}
+                  {curveNftGuard && (
+                    <Dn404GasNotice
+                      guard={curveNftGuard}
+                      tokenSymbol={(tokenSymbol as string) ?? ''}
+                      inputLabel={curveNftGuard.side === 'buy' ? pairSym : (tokenSymbol as string) ?? ''}
+                      formatInput={(v) => isErc20Pair ? Number(fmtPair(v)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : Number(formatEther(v)).toFixed(4)}
+                    />
+                  )}
                 </label>
 
                 {/* Quick pick chips — always visible on buy, only if balance>0 on sell */}
@@ -1814,6 +1864,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     // BondingCurve__WlWindowActive. Only buyWithProof works
                     // during this window (shown in the WL panel above).
                     (wlEnabled && wlPreFallback && side === 'buy') ||
+                    curveNftGuard !== null ||
                     (walletOnActiveChain && side === 'buy' && needsPairApproval && !pairApproveSim.data) ||
                     (walletOnActiveChain && side === 'buy' && !needsPairApproval && !activeBuySim.data) ||
                     (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
@@ -2291,6 +2342,8 @@ function GraduatedPanel({
   switchPending,
   poolSpotEthPerToken,
   onSwapComplete,
+  dn404UnitWei,
+  walletSkipNft,
 }: {
   chain: ChainKey | null;
   tokenAddress: Address;
@@ -2314,6 +2367,10 @@ function GraduatedPanel({
   /// this to force-refetch pool spot + wallet balance + trade list without waiting for
   /// the natural polling intervals (8-30s).
   onSwapComplete: () => void;
+  /// DN404 only: tokens per NFT in wei, and the wallet's skipNFT flag. Omitted
+  /// (or 0) for plain ERC-20 tokens, which disables the NFT gas guard.
+  dn404UnitWei?: bigint;
+  walletSkipNft?: boolean;
 }) {
   const { address: wallet, isConnected } = useAccount();
   const [mounted, setMounted] = useState(false);
@@ -2360,6 +2417,23 @@ function GraduatedPanel({
   });
   const currentAllowance = (allowanceQ.data as bigint | undefined) ?? 0n;
   const needsApproval = side === 'sell' && inputWei > 0n && currentAllowance < inputWei;
+
+  // DN404 per-tx NFT gas guard (see web/src/lib/dn404Gas.ts). Inert for
+  // non-DN404 tokens: the outer page only passes dn404UnitWei for DN404 bases.
+  const poolNftGuard = useMemo(() => {
+    const unit = dn404UnitWei ?? 0n;
+    if (unit <= 0n || inputWei === 0n) return null;
+    if (side === 'buy') {
+      const est = poolSpotEthPerToken > 0n ? (inputWei * 10n ** 18n) / poolSpotEthPerToken : 0n;
+      const n = nftsMinted(walletTokenBal, est, unit, !!walletSkipNft);
+      if (n <= MAX_NFTS_PER_TX) return null;
+      const maxTokens = maxTokensInForNfts(walletTokenBal, unit, !!walletSkipNft) ?? 0n;
+      return { side: 'buy' as const, nfts: n, maxTokens, aboutInput: scaleInputForOutput(inputWei, est, maxTokens) };
+    }
+    const n = nftsBurned(walletTokenBal, inputWei, unit, !!walletSkipNft);
+    if (n <= MAX_NFTS_PER_TX) return null;
+    return { side: 'sell' as const, nfts: n, maxTokens: maxTokensOutForNfts(walletTokenBal, unit, !!walletSkipNft) ?? 0n, aboutInput: 0n };
+  }, [dn404UnitWei, walletSkipNft, inputWei, side, walletTokenBal, poolSpotEthPerToken]);
 
   // slippage → minOut is done inside sim to keep it live. Rough: 2% default.
   const slippageBps = Math.max(0, Math.min(5000, Math.round(Number(slippagePct || '0') * 100)));
@@ -2573,6 +2647,14 @@ function GraduatedPanel({
           final differs by slippage + 2% swap fee
         </div>
       </div>
+      {poolNftGuard && (
+        <Dn404GasNotice
+          guard={poolNftGuard}
+          tokenSymbol={tokenSymbol || 'TKN'}
+          inputLabel={poolNftGuard.side === 'buy' ? 'ETH' : tokenSymbol || 'TKN'}
+          formatInput={(v) => Number(formatEther(v)).toFixed(4)}
+        />
+      )}
 
       {/* Slippage */}
       <label style={{ display: 'block', marginTop: 8 }}>
@@ -2604,6 +2686,7 @@ function GraduatedPanel({
           writePending ||
           receipt.isLoading ||
           switchPending ||
+          poolNftGuard !== null ||
           (walletOnActiveChain && side === 'buy' && !buySim.data) ||
           (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
         }
@@ -2703,6 +2786,8 @@ function Erc20GraduatedPanel({
   switchPending,
   poolSpotPairPerToken,
   onSwapComplete,
+  dn404UnitWei,
+  walletSkipNft,
 }: {
   chain: ChainKey | null;
   tokenAddress: Address;
@@ -2720,6 +2805,9 @@ function Erc20GraduatedPanel({
   switchPending: boolean;
   /// Pair-token atomic units per WHOLE token, from slot0.
   poolSpotPairPerToken: bigint;
+  /// DN404 only: tokens per NFT in wei + the wallet's skipNFT flag (NFT gas guard).
+  dn404UnitWei?: bigint;
+  walletSkipNft?: boolean;
   onSwapComplete: () => void;
 }) {
   const { address: wallet, isConnected } = useAccount();
@@ -2782,6 +2870,23 @@ function Erc20GraduatedPanel({
   }, [inputWei, poolSpotPairPerToken, side]);
   const feeAndSlipBps = 230 + slippageBps;
   const minOut = feeAndSlipBps >= 10_000 ? 0n : (expectedOut * BigInt(10_000 - feeAndSlipBps)) / 10_000n;
+
+  // DN404 per-tx NFT gas guard (see web/src/lib/dn404Gas.ts). Inert for
+  // non-DN404 tokens: the outer page only passes dn404UnitWei for DN404 bases.
+  const poolNftGuard = useMemo(() => {
+    const unit = dn404UnitWei ?? 0n;
+    if (unit <= 0n || inputWei === 0n) return null;
+    if (side === 'buy') {
+      const est = expectedOut;
+      const n = nftsMinted(walletTokenBal, est, unit, !!walletSkipNft);
+      if (n <= MAX_NFTS_PER_TX) return null;
+      const maxTokens = maxTokensInForNfts(walletTokenBal, unit, !!walletSkipNft) ?? 0n;
+      return { side: 'buy' as const, nfts: n, maxTokens, aboutInput: scaleInputForOutput(inputWei, est, maxTokens) };
+    }
+    const n = nftsBurned(walletTokenBal, inputWei, unit, !!walletSkipNft);
+    if (n <= MAX_NFTS_PER_TX) return null;
+    return { side: 'sell' as const, nfts: n, maxTokens: maxTokensOutForNfts(walletTokenBal, unit, !!walletSkipNft) ?? 0n, aboutInput: 0n };
+  }, [dn404UnitWei, walletSkipNft, inputWei, side, walletTokenBal, expectedOut]);
 
   // buy: pair -> token. zeroForOne = input is currency0.
   const zeroForOne = side === 'buy' ? !tokenIsCurrency0 : tokenIsCurrency0;
@@ -2923,6 +3028,14 @@ function Erc20GraduatedPanel({
           min {Number(formatUnits(minOut, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} {outSym} after fees + slippage
         </div>
       </div>
+      {poolNftGuard && (
+        <Dn404GasNotice
+          guard={poolNftGuard}
+          tokenSymbol={tokenSymbol || 'TKN'}
+          inputLabel={poolNftGuard.side === 'buy' ? pairSym : tokenSymbol || 'TKN'}
+          formatInput={(v) => Number(formatUnits(v, pairDecimals)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+        />
+      )}
 
       <label style={{ display: 'block', marginTop: 8 }}>
         <span className={styles.fieldLabel}>slippage %</span>
@@ -2950,6 +3063,7 @@ function Erc20GraduatedPanel({
           writePending ||
           receipt.isLoading ||
           switchPending ||
+          poolNftGuard !== null ||
           (walletOnActiveChain && !activeSim.data)
         }
         className={`${side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'} ${styles.primaryAction}`}
@@ -2994,6 +3108,29 @@ function Erc20GraduatedPanel({
 /// wlPreFallback gate should hide this block once that happens anyway, but
 /// the label is here as a defensive fallback in case the parent takes a
 /// second to re-render).
+/// Plain-language notice shown when a DN404 buy or sell would mint or burn more
+/// NFTs than one Robinhood transaction can hold (see web/src/lib/dn404Gas.ts).
+function Dn404GasNotice({
+  guard,
+  tokenSymbol,
+  inputLabel,
+  formatInput,
+}: {
+  guard: { side: 'buy' | 'sell'; nfts: bigint; maxTokens: bigint; aboutInput: bigint };
+  tokenSymbol: string;
+  inputLabel: string;
+  formatInput: (v: bigint) => string;
+}) {
+  const maxTok = Number(formatUnits(guard.maxTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (
+    <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--pink-hot)' }}>
+      {guard.side === 'buy'
+        ? <>too big for one buy: it would mint {guard.nfts.toLocaleString()} NFTs, and one transaction can mint up to {MAX_NFTS_PER_TX.toLocaleString()}. max for one buy is {maxTok} {tokenSymbol}{guard.aboutInput > 0n ? <> (about {formatInput(guard.aboutInput)} {inputLabel})</> : null}. split it into smaller buys.</>
+        : <>too big for one sell: it would burn {guard.nfts.toLocaleString()} NFTs, and one transaction can burn up to {MAX_NFTS_PER_TX.toLocaleString()}. max for one sell is {maxTok} {tokenSymbol}. split it into smaller sells.</>}
+    </div>
+  );
+}
+
 function WlCountdown({ fallbackTs }: { fallbackTs: bigint }) {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {

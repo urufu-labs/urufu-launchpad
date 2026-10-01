@@ -133,6 +133,13 @@ export const bondingCurveAbi = parseAbi([
   `event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter)`,
 ] as const);
 
+/// DN404 base token (Vectorized DN404). `getSkipNFT(owner)` true means transfers
+/// to/from `owner` never mint or burn mirror NFTs, so the per-tx NFT gas cap
+/// (web/src/lib/dn404Gas.ts) does not apply to that wallet.
+export const dn404BaseAbi = parseAbi([
+  `function getSkipNFT(address owner) view returns (bool)`,
+] as const);
+
 /// Dn404BondingCurve — the ERC-20-paired curve behind DN404 launches whose
 /// `pairCurrency != address(0)` (URU today). Same shape as `bondingCurveAbi`
 /// EXCEPT the buy side: `buy(pairAmountIn, minTokensOut)` is NOT payable and

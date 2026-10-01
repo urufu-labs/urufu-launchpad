@@ -39,6 +39,7 @@ import {
 } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { MAX_DN404_COLLECTION_SIZE } from '@/lib/dn404Gas';
 import { dn404LaunchFactoryAbi } from '@/lib/abis';
 import styles from '../nft/nft-studio.module.css';
 
@@ -114,7 +115,11 @@ function CreateDn404Form() {
   // launcher sees the failure before they pay gas).
   const nameOk = name.trim().length > 0;
   const tickerOk = ticker.length > 0;
-  const collectionSizeOk = collectionSizeBig > 0n;
+  // Robinhood caps each tx at 32M gas and every mirror NFT minted costs ~11.5k,
+  // so huge collections (tiny units) make ordinary buys cross too many NFTs.
+  // Never silently clamp a studio-prefilled value; show the error instead.
+  const collectionSizeTooBig = collectionSizeBig > MAX_DN404_COLLECTION_SIZE;
+  const collectionSizeOk = collectionSizeBig > 0n && !collectionSizeTooBig;
   const unitOk = unitBig > 0n;
   const premintNftsOk = premintNfts <= BigInt(MAX_PREMINT_NFT_COUNT);
   const founderBpsOk = bpsNum <= MAX_FOUNDER_PREMINT_BPS;
@@ -233,6 +238,8 @@ function CreateDn404Form() {
 
   const submit = () => {
     if (!factoryAddress) return;
+    if (!collectionSizeOk) return; // also gated by canSubmit; belt and braces
+
     resetLaunch();
     writeContract({
       address: factoryAddress,
@@ -330,6 +337,11 @@ function CreateDn404Form() {
                   onChange={(e) => setCollectionSize(digitsOnly(e.target.value))}
                   placeholder="1000"
                 />
+                {collectionSizeTooBig && (
+                  <span className={styles.fieldHint} style={{ color: 'var(--pink-hot)' }}>
+                    max 10,000 NFTs per collection, so buys stay under Robinhood&apos;s gas limit.
+                  </span>
+                )}
               </div>
             </div>
 
