@@ -1460,7 +1460,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       <div className={styles.terminalGrid}>
         {/* MAIN — chart + recent trades */}
         <div className={`${styles.mainStack} space-y-3`}>
-          <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
+          <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} pairSymbol={isErc20Pair ? pairSym : undefined} />
 
           {/* Per-token holder actions — renders only if the token was launched
               with Staking, Vesting, or Votes modules installed (probes marker

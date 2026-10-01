@@ -326,7 +326,63 @@ export async function fetchTradesForCurve(curve: Address, limit = 500): Promise<
     }`,
     { curve: curve.toLowerCase(), limit },
   );
-  return data?.tradess.items ?? null;
+  const items = data?.tradess.items ?? null;
+  if (items && items.length > 0) return items;
+  // ERC-20-paired DN404 curves (URU today) are indexed into `pair_trades`, never
+  // `trades`, so ETH aggregates can't absorb URU amounts. Map them into the
+  // IndexerTrade shape: every "eth" field here is in PAIR-token units, and the
+  // trade page formats them with the pair symbol/decimals for these curves.
+  const pair = await fetchPairTradesForCurve(curve, limit);
+  if (pair && pair.length > 0) return pair;
+  return items;
+}
+
+/// Trades on an ERC-20-paired curve from `pair_trades`, oldest → newest, in the
+/// IndexerTrade shape (eth* fields carry pair-token amounts). Returns null when the
+/// indexer predates the pair tables (query error) so callers keep the ETH result.
+export async function fetchPairTradesForCurve(curve: Address, limit = 500): Promise<IndexerTrade[] | null> {
+  const data = await gqlFanout<{
+    pairTradess: {
+      items: Array<{
+        id: string; chainId: number; curveAddress: Address; tokenAddress: Address; trader: Address;
+        isBuy: boolean; pairAmount: string; tokenAmount: string; pairReserveAfter: string;
+        tokenReserveAfter: string; pricePairPerToken: string; blockNumber: string;
+        blockTimestamp: string; txHash: `0x${string}`;
+      }>;
+    };
+  }>(
+    `query PairTradesForCurve($curve: String!, $limit: Int!) {
+      pairTradess(
+        where: { curveAddress: $curve },
+        orderBy: "blockTimestamp",
+        orderDirection: "asc",
+        limit: $limit
+      ) {
+        items {
+          id chainId curveAddress tokenAddress trader isBuy pairAmount tokenAmount
+          pairReserveAfter tokenReserveAfter pricePairPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { curve: curve.toLowerCase(), limit },
+  );
+  if (!data) return null;
+  return data.pairTradess.items.map((t) => ({
+    id: t.id,
+    chainId: t.chainId,
+    curveAddress: t.curveAddress,
+    tokenAddress: t.tokenAddress,
+    trader: t.trader,
+    isBuy: t.isBuy,
+    ethAmount: t.pairAmount,
+    tokenAmount: t.tokenAmount,
+    ethReserveAfter: t.pairReserveAfter,
+    tokenReserveAfter: t.tokenReserveAfter,
+    priceWeiPerToken: t.pricePairPerToken,
+    blockNumber: t.blockNumber,
+    blockTimestamp: t.blockTimestamp,
+    txHash: t.txHash,
+  }));
 }
 
 /// Post-graduation swaps indexed from Uniswap v4 PoolManager.Swap. Same rough shape as

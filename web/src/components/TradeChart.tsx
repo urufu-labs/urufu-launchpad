@@ -49,7 +49,10 @@ export interface TradePoint {
 const UP_COLOR = '#2fbf6a';
 const DOWN_COLOR = '#ff88b3';
 
-function toDisplay(weiPerToken: bigint, useUsd: boolean, ethUsd: number | null): number {
+/// `pairSymbol` set = ERC-20-paired curve (URU): plot whole pair tokens per token,
+/// never USD (no URU/USD feed) and never gwei (that unit is ETH-only).
+function toDisplay(weiPerToken: bigint, useUsd: boolean, ethUsd: number | null, pairSymbol?: string): number {
+  if (pairSymbol) return Number(weiPerToken) / 1e18;
   if (useUsd && ethUsd) return (Number(weiPerToken) / 1e18) * ethUsd;
   return Number(weiPerToken) / 1e9;
 }
@@ -75,8 +78,8 @@ function normalize(points: TradePoint[]): TradePoint[] {
   return Array.from(byTime.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function toAreaData(p: TradePoint, useUsd: boolean, ethUsd: number | null): AreaData | null {
-  const value = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
+function toAreaData(p: TradePoint, useUsd: boolean, ethUsd: number | null, pairSymbol?: string): AreaData | null {
+  const value = toDisplay(p.priceWeiPerToken, useUsd, ethUsd, pairSymbol);
   if (!Number.isFinite(value) || value <= 0 || Math.abs(value) > CHART_MAX_ABS) return null;
   return { time: p.timestamp as AreaData['time'], value };
 }
@@ -101,10 +104,13 @@ export function TradeChart({
   points,
   flashKey,
   flashSide,
+  pairSymbol,
 }: {
   points: TradePoint[];
   flashKey?: number | string | null;
   flashSide?: 'buy' | 'sell';
+  /// Symbol of an ERC-20 pair currency (e.g. "URU"). Omit for ETH curves.
+  pairSymbol?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -122,7 +128,9 @@ export function TradeChart({
 
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
-  const useUsd = unit === 'usd' && ethUsd !== null && ethUsd > 0;
+  const useUsd = !pairSymbol && unit === 'usd' && ethUsd !== null && ethUsd > 0;
+  const pairSymbolRef = useRef(pairSymbol);
+  pairSymbolRef.current = pairSymbol;
 
   const sorted = useMemo(() => normalize(points), [points]);
 
@@ -137,13 +145,13 @@ export function TradeChart({
     if (sorted.length === 0) return 4;
     let min = Infinity;
     for (const p of sorted) {
-      const v = toDisplay(p.priceWeiPerToken, useUsd, ethUsd);
+      const v = toDisplay(p.priceWeiPerToken, useUsd, ethUsd, pairSymbol);
       if (v < min) min = v;
     }
     if (!Number.isFinite(min) || min <= 0) return 6;
     const magnitude = Math.floor(Math.log10(min));
     return Math.max(2, Math.min(8, 4 - magnitude));
-  }, [sorted, useUsd, ethUsd]);
+  }, [sorted, useUsd, ethUsd, pairSymbol]);
 
   // Auto-mode the price scale. Linear is much easier to read when trades
   // sit within a couple percent of each other (early curve activity), but
@@ -246,6 +254,8 @@ export function TradeChart({
           // change. Chart is created ONCE; this formatter runs on every
           // hover / axis tick.
           if (!Number.isFinite(p) || p <= 0) return '~';
+          const sym = pairSymbolRef.current;
+          if (sym) return `${p.toPrecision(4)} ${sym}`;
           const uUsd = useUsdRef.current;
           const eUsd = ethUsdRef.current;
           const weiPerToken = uUsd && eUsd
@@ -358,7 +368,7 @@ export function TradeChart({
     if (needsFullLoad) {
       const data: AreaData[] = [];
       for (const p of sorted) {
-        const d = toAreaData(p, useUsd, ethUsd);
+        const d = toAreaData(p, useUsd, ethUsd, pairSymbol);
         if (d) data.push(d);
       }
       if (data.length > 0) {
@@ -378,7 +388,7 @@ export function TradeChart({
       const cutoff = lastTimeRef.current;
       for (const p of sorted) {
         if (p.timestamp <= cutoff) continue;
-        const d = toAreaData(p, useUsd, ethUsd);
+        const d = toAreaData(p, useUsd, ethUsd, pairSymbol);
         if (!d) continue;
         series.update(d);
         lastTimeRef.current = p.timestamp;
@@ -396,7 +406,7 @@ export function TradeChart({
       }
       markers.setMarkers(list);
     }
-  }, [sorted, useUsd, ethUsd]);
+  }, [sorted, useUsd, ethUsd, pairSymbol]);
 
   const hasData = sorted.length > 0;
 
@@ -444,7 +454,7 @@ export function TradeChart({
           zIndex: 4,
         }}
       >
-        {useUsd ? 'USD per token' : 'gwei per token'} · {wantLogScale ? 'log' : 'linear'} scale
+        {pairSymbol ? `${pairSymbol} per token` : useUsd ? 'USD per token' : 'gwei per token'} · {wantLogScale ? 'log' : 'linear'} scale
       </div>
       {!hasData && (
         <div
