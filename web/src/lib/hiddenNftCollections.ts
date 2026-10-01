@@ -19,6 +19,8 @@ export const HIDDEN_NFT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
   // URU-paired DN404, graduated to seed the Uniswap allowlist pool on the
   // DN404 MultiHookHost. Base half hidden in hiddenTokens.ts. Not a launch.
   '4663:0x8eb1398dc1c82b3c15cf5438b7358dc82eaf5044',
+  // URU Pair Test ($UPT) mirror — 2026-10-01 test launch, see hiddenTokens.ts.
+  '4663:0x947c6a238b8a3a8536d6192d434d9a7effb52883',
   // Rehearsal launches broadcast 2026-09-01 through the freshly-deployed
   // NftLaunchFactory (0xBe33…525A). All deployer-owned test collections
   // to prove the workflow end-to-end; not real launches.
