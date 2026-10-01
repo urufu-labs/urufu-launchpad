@@ -68,7 +68,7 @@ export class ForkSeaportProvider implements ListingsProvider {
       },
       fulfillerConduitKey: ZERO32,
     };
-    const listing: Listing = { orderHash: signature.slice(0, 66) as Hex, protocolAddress: RH.seaport, tokenId, priceWei };
+    const listing: Listing = { orderHash: signature.slice(0, 66) as Hex, protocolAddress: RH.seaport, tokenId, currency: '0x0000000000000000000000000000000000000000', amount: priceWei, priceWei };
     this.orders.set(listing.orderHash, { listing, mirror, tx: { to: RH.seaport, value: priceWei, function: FULFILL_ORDER, input_data } });
     return listing;
   }

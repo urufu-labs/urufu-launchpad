@@ -121,7 +121,7 @@ test('pro-rata split by balance, floor division, dust skipped', () => {
 
 // ---- floor selection ----
 test('floor picks cheapest listings under the margin, within budget and max', () => {
-  const L = (id: number, p: bigint) => ({ orderHash: '0x00' as const, protocolAddress: OTHER, tokenId: BigInt(id), priceWei: p });
+  const L = (id: number, p: bigint) => ({ orderHash: '0x00' as const, protocolAddress: OTHER, tokenId: BigInt(id), currency: '0x0000000000000000000000000000000000000000' as const, amount: p, priceWei: p });
   const picked = selectListings([L(1, 95n), L(2, 50n), L(3, 80n), L(4, 89n)], 100n, 1000n, 2, 1000n);
   assert.deepEqual(picked.map((l) => l.tokenId), [2n, 3n]); // ceiling 90; cheapest two
   assert.deepEqual(selectListings([L(1, 50n), L(2, 60n)], 100n, 1000n, 5, 100n).map((l) => l.tokenId), [1n]); // budget

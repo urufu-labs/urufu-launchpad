@@ -131,6 +131,10 @@ export const FEED_HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // Deployer-owned test, not a real launch; tradeable by direct link for the
   // wallet test of the URU-pair trade page.
   '4663:0x1e3100abfdceba1de7b51b1ad9713177b177b7c1',
+  // Floor Keeper Live Test ($FLT) — 2026-10-01. Taxed V2 DN404 (MirrorFloorSupport
+  // 5%, URU-paired, graduated at rehearsal scale) used to prove the keeper buys a
+  // real OpenSea USDG listing and burns it. Launch tx 0x35955349…. Test only.
+  '4663:0x6afbe2c60fe1745ed9ff592302df005575e1a172',
 ]);
 
 export function isHiddenToken(chainId: number, tokenAddress: Address | string): boolean {

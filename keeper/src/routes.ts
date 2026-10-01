@@ -9,7 +9,7 @@
 import type { Address } from 'viem';
 import type { KeeperConfig } from './config.ts';
 import { ZERO } from './constants.ts';
-import { launchPoolKey, uruWethPoolKey } from './pools.ts';
+import { ethUsdgPoolKey, launchPoolKey, uruWethPoolKey } from './pools.ts';
 import { swapExactIn, unwrapWeth, wrapEth, type SwapResult } from './swap.ts';
 import type { Ctx } from './tx.ts';
 
@@ -54,6 +54,18 @@ export async function uruToEth(ctx: Ctx, cfg: KeeperConfig, amountUru: bigint): 
   const r = await swapExactIn(ctx, cfg, key, zeroForOne, amountUru, 'swap URU -> WETH');
   await unwrapWeth(ctx, cfg, r.amountOut);
   return r;
+}
+
+/// Native ETH -> USDG (OpenSea's required listing currency on Robinhood).
+export async function ethToUsdg(ctx: Ctx, cfg: KeeperConfig, amountEth: bigint): Promise<SwapResult> {
+  if (amountEth === 0n) return { amountIn: 0n, amountOut: 0n };
+  return swapExactIn(ctx, cfg, ethUsdgPoolKey(cfg), true, amountEth, 'swap ETH -> USDG');
+}
+
+/// USDG -> native ETH (returns unspent floor-buy USDG to ETH).
+export async function usdgToEth(ctx: Ctx, cfg: KeeperConfig, amountUsdg: bigint): Promise<SwapResult> {
+  if (amountUsdg === 0n) return { amountIn: 0n, amountOut: 0n };
+  return swapExactIn(ctx, cfg, ethUsdgPoolKey(cfg), false, amountUsdg, 'swap USDG -> ETH');
 }
 
 /// Launch token -> URU. Direct for URU pairs, via ETH for ETH pairs.

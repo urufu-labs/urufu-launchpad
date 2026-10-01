@@ -10,7 +10,7 @@ import { OpenSeaProvider } from './opensea.ts';
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const { public: pc, wallet: wc, account } = makeClients(cfg);
-  const listings = cfg.openseaApiKey ? new OpenSeaProvider(cfg.openseaApiKey, cfg.openseaChain) : null;
+  const listings = cfg.openseaApiKey ? new OpenSeaProvider(cfg.openseaApiKey, cfg.openseaChain, cfg.usdg) : null;
   console.log(
     `[keeper] boot chain=${cfg.chainId} keeper=${account.address} factory=${cfg.launchFactory} from block ${cfg.discoveryStartBlock} opensea=${listings ? 'on' : 'OFF (floor mode burns only)'}`,
   );

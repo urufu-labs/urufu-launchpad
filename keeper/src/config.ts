@@ -52,6 +52,10 @@ export interface KeeperConfig {
   readonly graduatorPair: Address;
   readonly uruWethHook: Address;
   readonly uruWethPoolId: Hex;
+  readonly usdg: Address;
+  readonly ethUsdgFee: number;
+  readonly ethUsdgTickSpacing: number;
+  readonly conduitController: Address;
 
   /// Where BuybackURU sends the bought URU. Default 0x…dEaD (buy + burn).
   readonly uruBuybackSink: Address;
@@ -125,6 +129,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KeeperConfig {
     graduatorPair: addr('KEEPER_GRADUATOR_PAIR', RH.graduatorPair),
     uruWethHook: addr('KEEPER_URU_WETH_HOOK', RH.uruWethHook),
     uruWethPoolId: (env.KEEPER_URU_WETH_POOL_ID ?? RH.uruWethPoolId) as Hex,
+    usdg: addr('KEEPER_USDG', RH.usdg),
+    ethUsdgFee: Number(env.KEEPER_ETH_USDG_FEE ?? RH.ethUsdgFee),
+    ethUsdgTickSpacing: Number(env.KEEPER_ETH_USDG_TICK_SPACING ?? RH.ethUsdgTickSpacing),
+    conduitController: addr('KEEPER_CONDUIT_CONTROLLER', RH.conduitController),
     uruBuybackSink: addr('KEEPER_URU_BUYBACK_SINK', DEAD),
     buyAllowedRecipients: parseRecipients(env.KEEPER_BUY_ALLOWED_RECIPIENTS),
     minSweepBpsOfSupply: BigInt(env.KEEPER_MIN_SWEEP_BPS_OF_SUPPLY ?? 1),
