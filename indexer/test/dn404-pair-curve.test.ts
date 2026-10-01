@@ -92,9 +92,15 @@ test('decodePairSwap: real buy decodes as a buy with exact URU amount', () => {
   assert.ok(d.tokenAmount > 3_500_000n * 10n ** 18n && d.tokenAmount < 3_700_000n * 10n ** 18n, `token ${d.tokenAmount}`);
 });
 
-test('PairPoolSwaps job is registered and its interval fits the RPC 5000-block cap', async () => {
-  const { PAIR_POOL_SWAPS_INTERVAL } = await import('../poolId.ts');
-  assert.ok(PAIR_POOL_SWAPS_INTERVAL > 0 && PAIR_POOL_SWAPS_INTERVAL <= 5000);
-  assert.match(CONFIG, /PairPoolSwaps:\s*\{\s*network:\s*pairPoolSwapsNet\(\)\s*\}/);
-  assert.match(CONFIG, /\r?\n\s+blocks,\r?\n/);
+// Post-grad URU swaps come from the DN404 host's FeeAccrued (+ tx receipt),
+// not a timed job: the timed job made every indexer restart replay ~22k block
+// events (~2h on 2026-10-01). The forked REH404 sell and buy receipts each held
+// exactly one FeeAccrued from the DN404 host and one PoolManager Swap.
+test('Dn404HookHost source: FeeAccrued with receipts, no block jobs', () => {
+  assert.match(CONFIG, /Dn404HookHost:\s*\{[\s\S]*?netFor\('DN404_MULTI_HOOK_HOST'\)[\s\S]*?includeTransactionReceipts:\s*true/);
+  assert.doesNotMatch(CONFIG, /PairPoolSwaps|\bblocks,\r?\n/);
+});
+
+test('indexer FeeAccrued signature matches the real DN404 host topic0', () => {
+  assert.equal(topic0FromConfig('FeeAccrued'), '0x3001032df6bcdb6b5b70f3e8d9f8913991b3a538d3186e38137447ebc9973fab');
 });
