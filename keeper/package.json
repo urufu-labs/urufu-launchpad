@@ -8,7 +8,9 @@
     "dev": "node --experimental-strip-types --disable-warning=ExperimentalWarning --env-file=.env src/index.ts",
     "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "test:fork": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/fork/*.fork.ts\"",
+    "test:live-opensea": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/live/*.live.ts\""
   },
   "dependencies": {
     "viem": "^2.20.0"

@@ -1,15 +1,15 @@
 /**
- * Keeper configuration.
+ * Keeper configuration, loaded from env. Secrets (private key, OpenSea key)
+ * come only from env; every address has a verified Robinhood default in
+ * constants.ts so a deploy needs just secrets + RPC.
  *
- * Env-driven so ops can rotate values without a redeploy. Every process
- * loads the same source of truth here, then `loadConfig()` parses +
- * validates, throwing loudly on any missing / malformed input.
+ * Launches are DISCOVERED from Dn404LaunchFactory.Dn404Launched logs (see
+ * discovery.ts); there is no hand-maintained launch list anymore.
  */
-
 import type { Address, Hex } from 'viem';
+import { DEAD, RH } from './constants.ts';
 
-/// Tax modes — mirror Dn404TaxTemplate.TaxMode. Order MUST match the
-/// on-chain enum (uint8) so `taxMode() -> TaxMode[uint]` round-trips.
+/// Mirrors Dn404TaxTemplate.TaxMode exactly (uint8 on chain).
 export const TaxMode = {
   Off: 0,
   BurnDead: 1,
@@ -21,103 +21,125 @@ export const TaxMode = {
 } as const;
 export type TaxModeValue = (typeof TaxMode)[keyof typeof TaxMode];
 
-/// Human-readable name for logs.
 export const taxModeName = (m: number): string => {
-  const found = Object.entries(TaxMode).find(([, v]) => v === m);
-  return found ? found[0] : `Unknown(${m})`;
+  const entry = Object.entries(TaxMode).find(([, v]) => v === m);
+  return entry ? entry[0] : `Unknown(${m})`;
 };
-
-export interface LaunchWatch {
-  /// Base ERC-20 (Dn404TaxTemplate clone) address.
-  readonly base: Address;
-  /// Sweep-trigger threshold in wei. Once `accumulatedTax` >= this value,
-  /// keeper submits sweepAccumulated for the full accumulated amount.
-  readonly threshold: bigint;
-  /// Optional per-launch destination override. For BuyAllowedToken this
-  /// is the swap-target token; for BuybackURU it's implicit (URU).
-  /// Advisory: authoritative target still comes from the on-chain
-  /// `taxTarget()` view; this override is only used by handlers that
-  /// need extra config the on-chain state doesn't expose (e.g. where
-  /// to send URU after the buyback).
-  readonly finalDestination?: Address;
-}
 
 export interface KeeperConfig {
   readonly rpcUrl: string;
   readonly chainId: number;
   readonly keeperPrivateKey: Hex;
 
-  /// Contracts the keeper interacts with regardless of which launch it
-  /// is sweeping. All chain-scoped, loaded from env.
-  readonly v4SwapRouter: Address;
-  readonly uruToken: Address;
-  /// Where post-buyback URU lands. Typically the URU burn address
-  /// (0x0000...dead) or the UruBuybackVault so the flywheel picks it up.
+  readonly launchFactory: Address;
+  /// First block to scan for Dn404Launched (the factory deploy block).
+  readonly discoveryStartBlock: bigint;
+  /// eth_getLogs window. RH's RPC allows unbounded responses only for
+  /// ranges of <= 5000 blocks.
+  readonly logChunk: bigint;
+
+  readonly poolManager: Address;
+  readonly stateView: Address;
+  readonly universalRouter: Address;
+  readonly permit2: Address;
+  readonly positionManager: Address;
+  readonly seaport: Address;
+  readonly uru: Address;
+  readonly weth: Address;
+  readonly hookEth: Address;
+  readonly hookPair: Address;
+  readonly graduatorEth: Address;
+  readonly graduatorPair: Address;
+  readonly uruWethHook: Address;
+  readonly uruWethPoolId: Hex;
+
+  /// Where BuybackURU sends the bought URU. Default 0x…dEaD (buy + burn).
   readonly uruBuybackSink: Address;
-  /// Fallback sink for advanced destinations that don't yet have an
-  /// automated action (AddToLP / HolderReflections / MirrorFloorSupport).
-  /// Keeper sweeps to this address and logs a TODO — ops handles the
-  /// destination-specific action manually until the automation ships.
-  readonly advancedDestinationTreasury: Address;
+  /// Per-launch BuyAllowedToken recipient overrides (base -> recipient).
+  /// Default recipient is the token's owner() (the launcher).
+  readonly buyAllowedRecipients: ReadonlyMap<string, Address>;
 
-  /// Which launches to watch. Loaded from KEEPER_LAUNCHES env as a
-  /// JSON array — `[{"base":"0x..","threshold":"1000000000000000000000"}, ...]`.
-  /// Advisory `finalDestination` field optional per entry.
-  readonly launches: readonly LaunchWatch[];
+  /// Sweep once accumulatedTax >= this many bps of the token's totalSupply.
+  readonly minSweepBpsOfSupply: bigint;
+  /// Refuse (and alert) if accumulatedTax exceeds this many bps of supply.
+  readonly maxSweepBpsOfSupply: bigint;
+  /// Max slippage vs pool spot for every keeper swap, in bps. Never 0-min.
+  readonly maxSlippageBps: bigint;
+  /// Halve a swap until its quote is within this many bps of spot output.
+  readonly maxPriceImpactBps: bigint;
 
-  /// Poll cadence — how often the keeper reads every launch's
-  /// `accumulatedTax` value. 30s is a reasonable v1 default; can be
-  /// tightened if launches accumulate faster than that.
+  /// HolderReflections: skip payouts below this many token wei.
+  readonly reflectionMinPayout: bigint;
+  /// HolderReflections: max payout txs per launch per tick.
+  readonly reflectionMaxTxPerTick: number;
+
+  /// MirrorFloorSupport: only buy listings priced at least this many bps
+  /// below the NFT's pool-implied value.
+  readonly floorSafetyMarginBps: bigint;
+  /// MirrorFloorSupport: max NFTs bought per launch per tick.
+  readonly floorMaxBuysPerTick: number;
+  readonly openseaApiKey?: string;
+  readonly openseaChain: string;
+
   readonly pollIntervalMs: number;
-
-  /// Safety guard: if `accumulatedTax` exceeds this value in a single
-  /// poll interval (i.e. a launch is receiving tax faster than the
-  /// keeper can sweep), refuse to sweep and log LOUD. Prevents the
-  /// keeper from becoming a MEV target in pathological states.
-  readonly maxSweepPerPoll: bigint;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): KeeperConfig {
   const rpcUrl = required(env, 'KEEPER_RPC_URL');
-  const chainId = Number(required(env, 'KEEPER_CHAIN_ID'));
-  if (!Number.isFinite(chainId) || chainId <= 0) {
-    throw new Error(`KEEPER_CHAIN_ID must be a positive integer, got ${chainId}`);
-  }
-
+  const chainId = Number(env.KEEPER_CHAIN_ID ?? RH.chainId);
+  if (!Number.isFinite(chainId) || chainId <= 0) throw new Error(`KEEPER_CHAIN_ID invalid: ${chainId}`);
   const keeperPrivateKey = requiredHex(env, 'KEEPER_PRIVATE_KEY');
-  const v4SwapRouter = requiredAddress(env, 'KEEPER_V4_SWAP_ROUTER');
-  const uruToken = requiredAddress(env, 'KEEPER_URU_TOKEN');
-  const uruBuybackSink = requiredAddress(env, 'KEEPER_URU_BUYBACK_SINK');
-  const advancedDestinationTreasury = requiredAddress(env, 'KEEPER_ADVANCED_DEST_TREASURY');
 
-  const launchesRaw = required(env, 'KEEPER_LAUNCHES');
-  const launches = parseLaunches(launchesRaw);
-  if (launches.length === 0) {
-    throw new Error('KEEPER_LAUNCHES parsed to zero launches — nothing to watch');
-  }
+  const addr = (key: string, dflt: Address): Address => {
+    const v = env[key];
+    if (v === undefined || v === '') return dflt;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`${key} must be a 20-byte hex address`);
+    return v as Address;
+  };
 
   const pollIntervalMs = Number(env.KEEPER_POLL_INTERVAL_MS ?? 30_000);
   if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 1000) {
     throw new Error(`KEEPER_POLL_INTERVAL_MS must be >= 1000ms, got ${pollIntervalMs}`);
   }
-
-  const maxSweepPerPoll = BigInt(env.KEEPER_MAX_SWEEP_PER_POLL ?? '10000000000000000000000000');
+  const maxSlippageBps = BigInt(env.KEEPER_MAX_SLIPPAGE_BPS ?? 300);
+  if (maxSlippageBps <= 0n || maxSlippageBps >= 10_000n) throw new Error('KEEPER_MAX_SLIPPAGE_BPS must be in (0, 10000)');
 
   return {
     rpcUrl,
     chainId,
     keeperPrivateKey,
-    v4SwapRouter,
-    uruToken,
-    uruBuybackSink,
-    advancedDestinationTreasury,
-    launches,
+    launchFactory: addr('KEEPER_LAUNCH_FACTORY', RH.launchFactory),
+    discoveryStartBlock: BigInt(env.KEEPER_DISCOVERY_START_BLOCK ?? RH.launchFactoryDeployBlock),
+    logChunk: BigInt(env.KEEPER_LOG_CHUNK ?? 5000),
+    poolManager: addr('KEEPER_POOL_MANAGER', RH.poolManager),
+    stateView: addr('KEEPER_STATE_VIEW', RH.stateView),
+    universalRouter: addr('KEEPER_UNIVERSAL_ROUTER', RH.universalRouter),
+    permit2: addr('KEEPER_PERMIT2', RH.permit2),
+    positionManager: addr('KEEPER_POSITION_MANAGER', RH.positionManager),
+    seaport: addr('KEEPER_SEAPORT', RH.seaport),
+    uru: addr('KEEPER_URU_TOKEN', RH.uru),
+    weth: addr('KEEPER_WETH', RH.weth),
+    hookEth: addr('KEEPER_HOOK_ETH', RH.hookEth),
+    hookPair: addr('KEEPER_HOOK_PAIR', RH.hookPair),
+    graduatorEth: addr('KEEPER_GRADUATOR_ETH', RH.graduatorEth),
+    graduatorPair: addr('KEEPER_GRADUATOR_PAIR', RH.graduatorPair),
+    uruWethHook: addr('KEEPER_URU_WETH_HOOK', RH.uruWethHook),
+    uruWethPoolId: (env.KEEPER_URU_WETH_POOL_ID ?? RH.uruWethPoolId) as Hex,
+    uruBuybackSink: addr('KEEPER_URU_BUYBACK_SINK', DEAD),
+    buyAllowedRecipients: parseRecipients(env.KEEPER_BUY_ALLOWED_RECIPIENTS),
+    minSweepBpsOfSupply: BigInt(env.KEEPER_MIN_SWEEP_BPS_OF_SUPPLY ?? 1),
+    maxSweepBpsOfSupply: BigInt(env.KEEPER_MAX_SWEEP_BPS_OF_SUPPLY ?? 500),
+    maxSlippageBps,
+    maxPriceImpactBps: BigInt(env.KEEPER_MAX_PRICE_IMPACT_BPS ?? 1000),
+    reflectionMinPayout: BigInt(env.KEEPER_REFLECTION_MIN_PAYOUT_WEI ?? 10n ** 18n),
+    reflectionMaxTxPerTick: Number(env.KEEPER_REFLECTION_MAX_TX_PER_TICK ?? 50),
+    floorSafetyMarginBps: BigInt(env.KEEPER_FLOOR_SAFETY_MARGIN_BPS ?? 1000),
+    floorMaxBuysPerTick: Number(env.KEEPER_FLOOR_MAX_BUYS_PER_TICK ?? 5),
+    openseaApiKey: env.OPENSEA_API_KEY || undefined,
+    openseaChain: env.KEEPER_OPENSEA_CHAIN ?? 'robinhood',
     pollIntervalMs,
-    maxSweepPerPoll,
   };
 }
-
-// -- validation helpers ----------------------------------------------
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
   const v = env[key];
@@ -131,46 +153,16 @@ function requiredHex(env: NodeJS.ProcessEnv, key: string): Hex {
   return v as Hex;
 }
 
-function requiredAddress(env: NodeJS.ProcessEnv, key: string): Address {
-  const v = required(env, key);
-  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) throw new Error(`${key} must be a 20-byte hex address`);
-  return v as Address;
-}
-
-function parseLaunches(raw: string): readonly LaunchWatch[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`KEEPER_LAUNCHES not valid JSON: ${(err as Error).message}`);
+/// `{"0xbase":"0xrecipient", ...}` JSON, optional.
+function parseRecipients(raw: string | undefined): ReadonlyMap<string, Address> {
+  const m = new Map<string, Address>();
+  if (!raw) return m;
+  const parsed = JSON.parse(raw) as Record<string, string>;
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(k) || !/^0x[0-9a-fA-F]{40}$/.test(v)) {
+      throw new Error('KEEPER_BUY_ALLOWED_RECIPIENTS entries must be address -> address');
+    }
+    m.set(k.toLowerCase(), v as Address);
   }
-  if (!Array.isArray(parsed)) throw new Error('KEEPER_LAUNCHES must be a JSON array');
-  return parsed.map((entry, i) => {
-    if (typeof entry !== 'object' || entry === null) {
-      throw new Error(`KEEPER_LAUNCHES[${i}] not an object`);
-    }
-    const e = entry as Record<string, unknown>;
-    const base = e.base;
-    const threshold = e.threshold;
-    if (typeof base !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(base)) {
-      throw new Error(`KEEPER_LAUNCHES[${i}].base must be a 20-byte hex address`);
-    }
-    if (typeof threshold !== 'string') {
-      throw new Error(`KEEPER_LAUNCHES[${i}].threshold must be a string bigint`);
-    }
-    const finalDestination = e.finalDestination;
-    if (
-      finalDestination !== undefined &&
-      (typeof finalDestination !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(finalDestination))
-    ) {
-      throw new Error(
-        `KEEPER_LAUNCHES[${i}].finalDestination when set must be a 20-byte hex address`,
-      );
-    }
-    return {
-      base: base as Address,
-      threshold: BigInt(threshold),
-      finalDestination: finalDestination as Address | undefined,
-    };
-  });
+  return m;
 }
