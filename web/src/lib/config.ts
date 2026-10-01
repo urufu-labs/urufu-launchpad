@@ -426,6 +426,15 @@ export interface Dn404LaunchSet {
   // Blockscout verification workflows, matching the NFT-lane posture.
   BaseImpl: Address;
   MirrorImpl: Address;
+  /// Dn404CurveFactory — owns the ERC-20-paired curves (pairCurrency != 0).
+  /// ETH-paired DN404 launches live on the V10 CurveFactory instead, so the
+  /// trade page asks V10 first and falls back to this one.
+  CurveFactory: Address;
+  /// The DN404 lane's own MultiHookHost. Only ERC-20-paired graduations land
+  /// here (via Dn404Graduator); ETH-paired DN404 pools use the ERC-20 lane's
+  /// host like every other curve. The trade page derives the v4 PoolKey for
+  /// pair-currency tokens from this address.
+  MultiHookHost: Address;
 }
 
 export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
@@ -439,7 +448,34 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
     LaunchFactory: '0x3026C71eB13C599BAd0e7a687689D20F8c37A64B',
     BaseImpl: '0x4459C3Ed55Ee23b32277D6fc330B658b04566f0a',
     MirrorImpl: '0xf0d47334fcFc56eCE484fAf9b31Ba0486Bd9c265',
+    CurveFactory: '0xFa8C3E10F81355059343f684f7268F1E7a8Df24a',
+    // First pool on this host: REH404/URU 0xe866d28f…80c7 (2026-09-23 rehearsal).
+    MultiHookHost: '0x6d8701058E4eecA3bF80D14bD6C13A89575460C4',
   },
+  'robinhood-testnet': null,
+};
+
+/// Uniswap Universal Router + Permit2, per chain. Used ONLY for post-graduation
+/// swaps on ERC-20/ERC-20 pools (DN404 pair-currency tokens); our V4SwapRouter
+/// is native-ETH-only and stays the path for every ETH pool. Robinhood's router
+/// runs the newer v4-periphery struct (`minHopPriceX36`), handled in
+/// `web/src/lib/v4Erc20Swap.ts`. Addresses from the RH v4 address book
+/// (project_robinhood_addresses memory), code verified on-chain 2026-09-23.
+export const UNIVERSAL_ROUTERS: Record<ChainKey, Address | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: '0x8876789976dEcBfCbBbe364623C63652db8C0904',
+  'robinhood-testnet': null,
+};
+
+export const PERMIT2: Record<ChainKey, Address | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
   'robinhood-testnet': null,
 };
 

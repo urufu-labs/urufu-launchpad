@@ -133,6 +133,53 @@ export const bondingCurveAbi = parseAbi([
   `event WlBought(address indexed buyer, uint256 ethIn, uint256 tokensOut, uint256 wlPurchasedAfter)`,
 ] as const);
 
+/// Dn404BondingCurve — the ERC-20-paired curve behind DN404 launches whose
+/// `pairCurrency != address(0)` (URU today). Same shape as `bondingCurveAbi`
+/// EXCEPT the buy side: `buy(pairAmountIn, minTokensOut)` is NOT payable and
+/// pulls `pairAmountIn` of the pair token via transferFrom (buyer approves the
+/// curve first). Every "eth" view/field is in pair-token units. ETH-paired
+/// DN404 launches use the ordinary V10 BondingCurve, not this.
+export const dn404BondingCurveAbi = parseAbi([
+  `function token() view returns (address)`,
+  `function pairCurrency() view returns (address)`,
+  `function tokenReserve() view returns (uint256)`,
+  `function ethReserve() view returns (uint256)`,
+  `function virtualTokenReserve() view returns (uint256)`,
+  `function virtualEthReserve() view returns (uint256)`,
+  `function graduationTargetEth() view returns (uint256)`,
+  `function curveSupply() view returns (uint256)`,
+  `function tradeFeeBps() view returns (uint16)`,
+  `function graduated() view returns (bool)`,
+  `function priceWeiPerToken() view returns (uint256)`,
+  `function quoteBuy(uint256 pairIn) view returns (uint256 tokensOut, uint256 fee)`,
+  `function quoteSell(uint256 tokensIn) view returns (uint256 pairOut, uint256 fee)`,
+  `function buy(uint256 pairAmountIn, uint256 minTokensOut) returns (uint256 tokensOut)`,
+  `function sell(uint256 tokensIn, uint256 minPairOut) returns (uint256 pairOut)`,
+  `event Dn404Trade(address indexed trader, address indexed pairCurrency, bool isBuy, uint256 pairAmount, uint256 tokenAmount, uint256 pairReserve, uint256 tokenReserve, uint256 timestamp)`,
+  `event Dn404Graduated(address indexed pairCurrency, uint256 pairReserve, uint256 tokenReserve, uint256 timestamp)`,
+] as const);
+
+/// Dn404CurveFactory — creates + tracks the ERC-20-paired curves. The trade
+/// page asks it for a curve when the V10 CurveFactory has none for the token.
+export const dn404CurveFactoryAbi = parseAbi([
+  `function curveFor(address token) view returns (address)`,
+] as const);
+
+/// Uniswap Permit2 — the Universal Router pulls ERC-20 input through it, so an
+/// ERC-20 → ERC-20 swap needs BOTH `token.approve(permit2)` and
+/// `permit2.approve(token, router, amount, expiration)`.
+export const permit2Abi = parseAbi([
+  `function allowance(address owner, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)`,
+  `function approve(address token, address spender, uint160 amount, uint48 expiration)`,
+] as const);
+
+/// Uniswap Universal Router — `execute` with a V4_SWAP command. Only used for
+/// ERC-20/ERC-20 pools (DN404 pair-currency graduations); ETH pools keep going
+/// through our own V4SwapRouter. Calldata is built by `web/src/lib/v4Erc20Swap.ts`.
+export const universalRouterAbi = parseAbi([
+  `function execute(bytes commands, bytes[] inputs, uint256 deadline) payable`,
+] as const);
+
 export const curveFactoryAbi = parseAbi([
   `function curveFor(address token) view returns (address)`,
   `function predictCurveAddress(address token) view returns (address)`,
