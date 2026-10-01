@@ -15,6 +15,10 @@ export const HIDDEN_NFT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
   // 2026-09-16, block 64796708. Deployer-owned smoke test; paired base
   // ERC-20 is hidden in hiddenTokens.ts. Not a real launch.
   '4663:0x375f4d9ce84607dbe0fce6b55b1c5b9335b87ba3',
+  // DN404 URU Rehearsal ($REH404) mirror ERC-721 — 2026-09-23. First
+  // URU-paired DN404, graduated to seed the Uniswap allowlist pool on the
+  // DN404 MultiHookHost. Base half hidden in hiddenTokens.ts. Not a launch.
+  '4663:0x8eb1398dc1c82b3c15cf5438b7358dc82eaf5044',
   // Rehearsal launches broadcast 2026-09-01 through the freshly-deployed
   // NftLaunchFactory (0xBe33…525A). All deployer-owned test collections
   // to prove the workflow end-to-end; not real launches.

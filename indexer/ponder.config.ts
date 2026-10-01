@@ -156,6 +156,23 @@ export const dn404LaunchFactoryAbi = parseAbi([
   'event Dn404Launched(address indexed base, address indexed mirror, address indexed curve, address launcher, address pairCurrency, uint8 taxMode, uint16 taxBps, bytes32 configHash, uint256 uruPaid, uint256 totalSupply, uint256 unit, uint256 founderPremint, string name, string ticker)',
 ]);
 
+/// Dn404BondingCurve — the ERC-20-PAIRED curve (pairCurrency != 0). Different
+/// event names AND shapes from the V10 BondingCurve, so it is its own Ponder
+/// source. MUST match contracts/src/dn404/Dn404BondingCurve.sol field-for-field
+/// (topic0 filter, see the Dn404Launched note above); test/dn404-abi.test.ts
+/// pins these too.
+export const dn404BondingCurveAbi = parseAbi([
+  'event Dn404CurveInitialized(address indexed token, address indexed pairCurrency, address indexed feeReceiver, uint256 curveSupply, uint256 virtualTokenReserve, uint256 virtualPairReserve, uint256 graduationTargetPair, uint16 tradeFeeBps)',
+  'event Dn404Trade(address indexed trader, address indexed pairCurrency, bool isBuy, uint256 pairAmount, uint256 tokenAmount, uint256 pairReserve, uint256 tokenReserve, uint256 timestamp)',
+  'event Dn404Graduated(address indexed pairCurrency, uint256 pairReserve, uint256 tokenReserve, uint256 timestamp)',
+]);
+
+/// Dn404CurveFactory.Dn404CurveCreated — the dynamic-factory root for the
+/// Dn404BondingCurve source.
+export const dn404CurveCreatedEvent = parseAbiItem(
+  'event Dn404CurveCreated(address indexed token, address indexed curve, address indexed launcher, address pairCurrency)',
+);
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -212,6 +229,29 @@ function bondingCurveNet() {
     out[slug] = {
       factory: { address: cf, event, parameter: 'curve' },
       startBlock: readStartBlock(slug),
+    };
+  }
+  return out;
+}
+
+/// Dn404BondingCurve subscription: dynamic factory rooted at Dn404CurveFactory.
+/// Only ERC-20-paired DN404 curves are created there; ETH-paired DN404 curves
+/// come from the V10 CurveFactory and are covered by bondingCurveNet above.
+/// Children can't predate the factory, so they share its per-source start block.
+function dn404BondingCurveNet() {
+  const event = dn404CurveCreatedEvent;
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof event; parameter: 'curve' }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const f = readAddress(slug, 'DN404_CURVE_FACTORY');
+    if (!f) continue;
+    out[slug] = {
+      factory: { address: f, event, parameter: 'curve' },
+      startBlock: readStartBlockFor(slug, 'DN404_CURVE_FACTORY'),
     };
   }
   return out;
@@ -482,6 +522,7 @@ const contracts = {
   NftLaunchFactory: { abi: nftLaunchFactoryAbi, network: netFor('NFT_LAUNCH_FACTORY') },
   NftMintModule: { abi: nftMintModuleAbi, network: nftMintModuleNet() },
   Dn404LaunchFactory: { abi: dn404LaunchFactoryAbi, network: netFor('DN404_LAUNCH_FACTORY') },
+  Dn404BondingCurve: { abi: dn404BondingCurveAbi, network: dn404BondingCurveNet() },
 };
 
 // ---------------------------------------------------------------- database

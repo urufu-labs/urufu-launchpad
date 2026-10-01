@@ -27,8 +27,9 @@ import {
   type Hex,
 } from 'viem';
 
-import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
-import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, DN404_PAIR_CURRENCIES, type ChainKey } from '@/lib/config';
+import { bondingCurveAbi, curveFactoryAbi, dn404BondingCurveAbi, dn404CurveFactoryAbi, erc20TokenAbi, permit2Abi, universalRouterAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
+import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, DN404_PAIR_CURRENCIES, DN404_LAUNCHES, UNIVERSAL_ROUTERS, PERMIT2, type ChainKey } from '@/lib/config';
+import { buildErc20PoolKey, encodeV4ExactInSingle, pairPerTokenFromSqrt, poolIdOf } from '@/lib/v4Erc20Swap';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
@@ -235,7 +236,44 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const factoryCurveAddress = curveQuery.data && curveQuery.data !== '0x0000000000000000000000000000000000000000'
     ? (curveQuery.data as Address)
     : null;
-  const curveAddress: Address | null = indexedCurveAddress ?? factoryCurveAddress;
+  // 3. ERC-20-paired DN404 curves (pairCurrency != 0, URU today) live on the
+  //    Dn404CurveFactory, not the V10 one. Only asked once both the indexer and
+  //    V10 came back empty, so ETH tokens never pay for this read.
+  const dn404CurveFactory = activeChain ? DN404_LAUNCHES[activeChain]?.CurveFactory : undefined;
+  const dn404CurveQuery = useReadContract({
+    abi: dn404CurveFactoryAbi,
+    address: dn404CurveFactory,
+    functionName: 'curveFor',
+    args: [tokenAddress],
+    chainId: readChainId,
+    query: {
+      enabled: !!dn404CurveFactory && indexerChecked && !indexedCurveAddress && curveQuery.isFetched && !factoryCurveAddress,
+      staleTime: 15_000,
+    },
+  });
+  const dn404FactoryCurveAddress = dn404CurveQuery.data && dn404CurveQuery.data !== '0x0000000000000000000000000000000000000000'
+    ? (dn404CurveQuery.data as Address)
+    : null;
+  const curveAddress: Address | null = indexedCurveAddress ?? factoryCurveAddress ?? dn404FactoryCurveAddress;
+
+  // ---------- Pair currency (DN404 ERC-20 pairs) ----------
+  // ETH for every V10 curve. For a DN404 launch that picked an ERC-20 pair the
+  // indexer's mirror row carries it; otherwise read pairCurrency() off the
+  // curve. V10 curves have no such function, so a failed read means ETH.
+  const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+  const mirrorPair = pairedMirror?.pairCurrency && pairedMirror.pairCurrency !== ZERO_ADDR
+    ? (pairedMirror.pairCurrency as Address)
+    : null;
+  const curvePairQ = useReadContract({
+    abi: dn404BondingCurveAbi,
+    address: curveAddress ?? undefined,
+    functionName: 'pairCurrency',
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !mirrorPair, retry: false, staleTime: Infinity },
+  });
+  const curvePair = curvePairQ.data && curvePairQ.data !== ZERO_ADDR ? (curvePairQ.data as Address) : null;
+  const pairCurrency: Address | null = mirrorPair ?? curvePair;
+  const isErc20Pair = !!pairCurrency;
 
   // ---------- Live curve + token state ----------
   const curveState = useReadContracts({
@@ -351,6 +389,36 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     query: { enabled: !!wallet, refetchInterval: 15_000 },
   });
   const walletEthBal = walletEthBalQ.data?.value;
+
+  // Pair-token metadata + wallet state, only for ERC-20-paired DN404 curves.
+  // `pairSym` / `pairDecimals` collapse to ETH / 18 otherwise, so every label
+  // below can use them unconditionally without changing the ETH path.
+  const pairMeta = useReadContracts({
+    contracts: pairCurrency
+      ? ([
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'symbol' },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'decimals' },
+        ] as const)
+      : [],
+    ...(readChainId ? { chainId: readChainId } : {}),
+    query: { enabled: !!pairCurrency, staleTime: Infinity },
+  });
+  const pairState = useReadContracts({
+    contracts: pairCurrency && wallet && curveAddress
+      ? ([
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'balanceOf', args: [wallet] },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'allowance', args: [wallet, curveAddress] },
+        ] as const)
+      : [],
+    ...(readChainId ? { chainId: readChainId } : {}),
+    query: { enabled: !!pairCurrency && !!wallet && !!curveAddress, refetchInterval: 15_000 },
+  });
+  const pairSym = isErc20Pair ? ((pairMeta.data?.[0]?.result as string | undefined) ?? 'PAIR') : 'ETH';
+  const pairDecimals = isErc20Pair ? Number((pairMeta.data?.[1]?.result as number | undefined) ?? 18) : 18;
+  const walletPairBal = isErc20Pair ? (pairState.data?.[0]?.result as bigint | undefined) : walletEthBal;
+  const pairCurveAllowance = (pairState.data?.[1]?.result as bigint | undefined) ?? 0n;
+  /// Pair-side amount → display string. ETH keeps formatEther (identical output).
+  const fmtPair = (v: bigint) => (isErc20Pair ? formatUnits(v, pairDecimals) : formatEther(v));
 
   // ---------- Metadata (local snapshot + remote hydrate) ----------
   // Keyed by `readChainId` (the resolved read chain) NOT the wallet's `chainId` — a
@@ -549,9 +617,19 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     return () => { cancelled = true; };
   }, [tokenAddress, overrideHookAddr]);
   const configHookAddr = activeChain ? HOOKS[activeChain]?.MultiHookHost : undefined;
-  const hookAddr = overrideHookAddr ?? indexedHookAddr ?? configHookAddr;
+  // ERC-20-paired DN404 curves graduate through Dn404Graduator onto the DN404
+  // lane's own host, never the ERC-20 lane's. Pinned from config so it can't
+  // fall through to configHookAddr while the indexer lacks the graduation row.
+  const dn404Host = activeChain ? DN404_LAUNCHES[activeChain]?.MultiHookHost : undefined;
+  const hookAddr = isErc20Pair ? dn404Host : (overrideHookAddr ?? indexedHookAddr ?? configHookAddr);
+  const erc20PoolKey = useMemo(
+    () => (isErc20Pair && pairCurrency && dn404Host ? buildErc20PoolKey(tokenAddress, pairCurrency, dn404Host) : null),
+    [isErc20Pair, pairCurrency, dn404Host, tokenAddress],
+  );
+  const tokenIsCurrency0 = !!erc20PoolKey && erc20PoolKey.currency0.toLowerCase() === tokenAddress.toLowerCase();
   const poolManagerAddr = activeChain ? HOOKS[activeChain]?.PoolManager : undefined;
   const poolId = useMemo(() => {
+    if (erc20PoolKey) return poolIdOf(erc20PoolKey);
     if (!hookAddr) return undefined;
     return keccak256(
       encodeAbiParameters(
@@ -561,7 +639,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         ['0x0000000000000000000000000000000000000000', tokenAddress, 3000, 60, hookAddr],
       ),
     );
-  }, [tokenAddress, hookAddr]);
+  }, [tokenAddress, hookAddr, erc20PoolKey]);
   const [v4TradePoints, setV4TradePoints] = useState<TradePoint[]>([]);
   /// Post-graduation swaps surfaced into the "recent trades" list. Sourced from the
   /// same v4 log pull as v4TradePoints so we don't double the RPC work.
@@ -632,7 +710,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           if (sqrtPriceX96 === 0n) return null;
           const sqSq = sqrtPriceX96 * sqrtPriceX96;
           if (sqSq === 0n) return null;
-          const weiPerToken = ((10n ** 18n) << 192n) / sqSq;
+          const weiPerToken = erc20PoolKey
+            ? pairPerTokenFromSqrt(sqrtPriceX96, tokenIsCurrency0)
+            : ((10n ** 18n) << 192n) / sqSq;
           if (weiPerToken === 0n) return null;
           const amt0 = BigInt(r.amount0);
           const amt1 = BigInt(r.amount1);
@@ -641,7 +721,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           // the pool to the swapper, negative = flowing IN from the swapper. For our
           // ETH(currency0)/token(currency1) pools a BUY is +token (amount1 > 0),
           // a SELL is +ETH (amount0 > 0). abs the values so recent-trades reads clean.
-          const isBuy = amt1 > 0n;
+          // ERC-20 pools: the token may sit on either side; a buy is +token out.
+          const isBuy = erc20PoolKey ? (tokenIsCurrency0 ? amt0 > 0n : amt1 > 0n) : amt1 > 0n;
           // Prefer the real user address from V4SwapRouter.Swapped(user, ...).
           // Fall back to r.sender (router address) only if the router swap event
           // is missing for this tx — that would only happen for swaps submitted
@@ -652,8 +733,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             priceWeiPerToken: weiPerToken,
             sqrtPriceX96,
             isBuy,
-            eth: abs(amt0),
-            tokens: abs(amt1),
+            eth: erc20PoolKey && tokenIsCurrency0 ? abs(amt1) : abs(amt0),
+            tokens: erc20PoolKey && tokenIsCurrency0 ? abs(amt0) : abs(amt1),
             trader,
             blockNumber: BigInt(r.blockNumber),
           };
@@ -689,7 +770,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     // handle it at the trade-page scale (single-token filter, small window).
     const id = setInterval(load, 5_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [graduated, tokenAddress, v4RefetchTick]);
+  }, [graduated, tokenAddress, v4RefetchTick, erc20PoolKey, tokenIsCurrency0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Chart consumes curve + v4 points, chronologically merged.
   const chartPoints = useMemo(() => {
@@ -721,10 +802,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
   const inputWei = useMemo(() => {
     try {
-      if (side === 'buy') return parseEther(inputAmount || '0');
+      if (side === 'buy') return isErc20Pair ? parseUnits(inputAmount || '0', pairDecimals) : parseEther(inputAmount || '0');
       return parseUnits(inputAmount || '0', 18);
     } catch { return 0n; }
-  }, [inputAmount, side]);
+  }, [inputAmount, side, isErc20Pair, pairDecimals]);
 
   // Anti-overshoot cap. If a buyer sends more ETH than the curve needs to
   // reach `gradTarget`, the curve accepts it all (no refund logic), the
@@ -793,6 +874,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   }, [quoteOut, slippagePct]);
 
   const needsApproval = side === 'sell' && (curveAllowance as bigint | undefined ?? 0n) < inputWei;
+  /// ERC-20-paired buys pull the pair token via transferFrom, so the curve
+  /// needs an allowance first. Always false on ETH curves.
+  const needsPairApproval = isErc20Pair && side === 'buy' && buyPayValue > 0n && pairCurveAllowance < buyPayValue;
 
   // Simulations MUST target the same chain the wallet will sign on — otherwise wagmi picks
   // whatever the wallet is currently on and the sim silently succeeds against the wrong
@@ -806,8 +890,33 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     value: buyPayValue,
     account: wallet,
     chainId: readChainId,
-    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && buyPayValue > 0n && !graduated },
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && buyPayValue > 0n && !graduated && !isErc20Pair },
   });
+  // Dn404BondingCurve.buy(pairAmountIn, minTokensOut): non-payable, pulls the
+  // pair token. Only for ERC-20-paired DN404 curves.
+  const erc20BuySim = useSimulateContract({
+    abi: dn404BondingCurveAbi,
+    address: curveAddress ?? undefined,
+    functionName: 'buy',
+    args: [buyPayValue, slippage],
+    account: wallet,
+    chainId: readChainId,
+    query: {
+      enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy' && buyPayValue > 0n
+        && !graduated && isErc20Pair && !needsPairApproval,
+    },
+  });
+  const pairApproveSim = useSimulateContract({
+    abi: erc20TokenAbi,
+    address: pairCurrency ?? undefined,
+    functionName: 'approve',
+    args: curveAddress ? [curveAddress, 2n ** 256n - 1n] : undefined,
+    account: wallet,
+    chainId: readChainId,
+    query: { enabled: !!curveAddress && !!wallet && walletOnActiveChain && needsPairApproval && !graduated },
+  });
+  /// Single "buy" sim the UI reads, whichever curve flavour this is.
+  const activeBuySim = isErc20Pair ? erc20BuySim : buySim;
   const sellSim = useSimulateContract({
     abi: bondingCurveAbi,
     address: curveAddress ?? undefined,
@@ -891,7 +1000,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     chainId: readChainId,
     query: {
       enabled: !!curveAddress && !!wallet && walletOnActiveChain && side === 'buy'
-        && buyPayValue > 0n && !graduated && wlEnabled && wlPreFallback && !!wlProof,
+        && buyPayValue > 0n && !graduated && wlEnabled && wlPreFallback && !!wlProof && !isErc20Pair,
     },
   });
 
@@ -938,6 +1047,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     curveState.refetch();
     walletBalQ.refetch();
     curveAllowanceQ.refetch();
+    if (isErc20Pair) pairState.refetch();
     // Clear the input on tx success. Without this, wagmi's useSimulateContract re-runs
     // the same amount against post-tx state and often reverts with an opaque signature
     // (curve reserves shifted, slippage, WL slice exhausted, etc.) -- users saw a
@@ -951,7 +1061,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const submit = () => {
     if (side === 'sell' && needsApproval && approveSim.data) {
       writeContract(approveSim.data.request);
-    } else if (side === 'buy' && buySim.data) {
+    } else if (side === 'buy' && needsPairApproval && pairApproveSim.data) {
+      writeContract(pairApproveSim.data.request);
+    } else if (side === 'buy' && isErc20Pair && erc20BuySim.data) {
+      writeContract(erc20BuySim.data.request);
+    } else if (side === 'buy' && !isErc20Pair && buySim.data) {
       writeContract(buySim.data.request);
     } else if (side === 'sell' && sellSim.data) {
       writeContract(sellSim.data.request);
@@ -1004,8 +1118,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     // with slot0 yet, or when the reader is on a chain where StateView isn't wired.
     const src = poolSqrtPriceX96 && poolSqrtPriceX96 > 0n ? poolSqrtPriceX96 : v4LatestSqrt;
     if (!src || src === 0n) return 0n;
+    // ERC-20 pair: pair-token atomic units per whole token, either ordering.
+    if (erc20PoolKey) return pairPerTokenFromSqrt(src, tokenIsCurrency0);
     return ((10n ** 18n) << 192n) / (src * src);
-  }, [poolSqrtPriceX96, v4LatestSqrt]);
+  }, [poolSqrtPriceX96, v4LatestSqrt, erc20PoolKey, tokenIsCurrency0]);
 
   /// Single source of truth for the sidebar's price row. Post-graduation the curve's
   /// priceWeiPerToken() reads virtual reserves (real ones were drained to the pool) so
@@ -1036,6 +1152,18 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
 
   const unit = usePriceUnit();
   const ethUsd = useEthUsd();
+  // ERC-20-paired curves price in the pair token, not ETH. There is no
+  // URU/USD feed here, so those render in pair units only (never a USD number
+  // computed from the ETH rate, which would be wrong).
+  const showPrice = (v: bigint) => {
+    if (!isErc20Pair) return formatPrice(v, unit, ethUsd);
+    const n = Number(formatUnits(v, pairDecimals));
+    return `${n >= 1 ? n.toLocaleString(undefined, { maximumFractionDigits: 4 }) : n.toPrecision(4)} ${pairSym}`;
+  };
+  const showMcap = (v: bigint) => {
+    if (!isErc20Pair) return formatMcap(v, unit, ethUsd);
+    return `${Number(formatUnits(v, pairDecimals)).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${pairSym}`;
+  };
 
   // Fetch total supply from the indexer as a fallback when wagmi's read
   // hasn't returned (anon users pre-hydration). Every launched token uses
@@ -1275,7 +1403,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           <div className="uru-eyebrow">mkt cap</div>
           <div className={styles.metricValue}>
             <FlashCell value={marketCap ?? undefined}>
-              {marketCap ? formatMcap(marketCap, unit, ethUsd) : '—'}
+              {marketCap ? showMcap(marketCap) : '—'}
             </FlashCell>
           </div>
         </div>
@@ -1283,7 +1411,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           <div className="uru-eyebrow">spot</div>
           <div className={styles.metricValue}>
             <FlashCell value={effectiveSpotPrice}>
-              {effectiveSpotPrice > 0n ? formatPrice(effectiveSpotPrice, unit, ethUsd) : '—'}
+              {effectiveSpotPrice > 0n ? showPrice(effectiveSpotPrice) : '—'}
             </FlashCell>
           </div>
         </div>
@@ -1295,8 +1423,17 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           <div className={styles.progressTop}>
             <span className="uru-eyebrow">{graduated ? 'graduated' : 'grad -> v4'}</span>
             <span>
-              {typeof ethReserve === 'bigint' ? Number(formatEther(ethReserve)).toFixed(3) : '—'} /
-              {' '}{typeof gradTarget === 'bigint' ? Number(formatEther(gradTarget)).toFixed(1) : '—'} Ξ
+              {isErc20Pair ? (
+                <>
+                  {typeof ethReserve === 'bigint' ? Number(fmtPair(ethReserve)).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} /
+                  {' '}{typeof gradTarget === 'bigint' ? Number(fmtPair(gradTarget)).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'} {pairSym}
+                </>
+              ) : (
+                <>
+                  {typeof ethReserve === 'bigint' ? Number(formatEther(ethReserve)).toFixed(3) : '—'} /
+                  {' '}{typeof gradTarget === 'bigint' ? Number(formatEther(gradTarget)).toFixed(1) : '—'} Ξ
+                </>
+              )}
               {' '}({progressPct.toFixed(1)}%)
             </span>
           </div>
@@ -1323,7 +1460,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       <div className={styles.terminalGrid}>
         {/* MAIN — chart + recent trades */}
         <div className={`${styles.mainStack} space-y-3`}>
-          <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} />
+          <TradeChart points={chartPoints} flashKey={chartFlashKey} flashSide={chartFlashSide} pairSymbol={isErc20Pair ? pairSym : undefined} />
 
           {/* Per-token holder actions — renders only if the token was launched
               with Staking, Vesting, or Votes modules installed (probes marker
@@ -1396,7 +1533,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               <>
                 <div className={`${styles.tradeGrid} ${styles.tradeHead}`}>
                   <span>side</span>
-                  <span>eth</span>
+                  <span>{isErc20Pair ? pairSym.toLowerCase() : 'eth'}</span>
                   <span className={styles.alignRight}>tokens</span>
                   <span className={styles.alignRight}>trader</span>
                 </div>
@@ -1410,7 +1547,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         {t.isBuy ? 'BUY' : 'SELL'}
                       </span>
                       <span className={styles.clip}>
-                        {Number(formatEther(t.eth)).toFixed(4)}
+                        {isErc20Pair
+                          ? Number(fmtPair(t.eth)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                          : Number(formatEther(t.eth)).toFixed(4)}
                       </span>
                       <span className={`${styles.clip} ${styles.alignRight}`}>
                         {Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -1479,7 +1618,33 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             )}
             <div className={styles.tradeCardBody}>
 
-            {graduated ? (
+            {graduated && isErc20Pair && erc20PoolKey && pairCurrency && curveAddress ? (
+              <Erc20GraduatedPanel
+                chain={activeChain}
+                tokenAddress={tokenAddress}
+                curveAddress={curveAddress}
+                poolKey={erc20PoolKey}
+                tokenIsCurrency0={tokenIsCurrency0}
+                pairCurrency={pairCurrency}
+                pairSym={pairSym}
+                pairDecimals={pairDecimals}
+                tokenSymbol={(tokenSymbol as string) ?? ''}
+                walletTokenBal={(walletBal as bigint | undefined) ?? 0n}
+                walletPairBal={walletPairBal ?? 0n}
+                walletOnActiveChain={walletOnActiveChain}
+                onSwitchChain={() => {
+                  if (activeChain) switchChain({ chainId: CHAIN_KEY_TO_ID[activeChain] });
+                }}
+                switchPending={switchPending}
+                poolSpotPairPerToken={poolSpotPriceEthPerToken}
+                onSwapComplete={() => {
+                  slot0Q.refetch();
+                  walletBalQ.refetch();
+                  pairState.refetch();
+                  setV4RefetchTick((n) => n + 1);
+                }}
+              />
+            ) : graduated ? (
               <GraduatedPanel
                 chain={activeChain}
                 tokenAddress={tokenAddress}
@@ -1525,8 +1690,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       <button
                         type="button"
                         onClick={() => {
-                          if (side === 'buy' && walletEthBal !== undefined) {
-                            setInputAmount(formatEther(walletEthBal));
+                          if (side === 'buy' && walletPairBal !== undefined) {
+                            setInputAmount(fmtPair(walletPairBal));
                           } else if (side === 'sell' && walletBal !== undefined) {
                             setInputAmount(formatUnits(walletBal as bigint, 18));
                           }
@@ -1543,7 +1708,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         title="click to set max"
                       >
                         {side === 'buy'
-                          ? `balance: ${walletEthBal !== undefined ? Number(formatEther(walletEthBal)).toFixed(4) : '—'} ETH`
+                          ? isErc20Pair
+                            ? `balance: ${walletPairBal !== undefined ? Number(fmtPair(walletPairBal)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'} ${pairSym}`
+                            : `balance: ${walletEthBal !== undefined ? Number(formatEther(walletEthBal)).toFixed(4) : '—'} ETH`
                           : `balance: ${walletBal !== undefined ? Number(formatUnits(walletBal as bigint, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'} ${(tokenSymbol as string) ?? ''}`}
                       </button>
                     )}
@@ -1560,7 +1727,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       style={{ flex: 1 }}
                     />
                     <span className={styles.assetLabel}>
-                      {side === 'buy' ? 'ETH' : (tokenSymbol as string) ?? ''}
+                      {side === 'buy' ? pairSym : (tokenSymbol as string) ?? ''}
                     </span>
                   </div>
                   {/* Anti-overshoot notice — the curve accepts every wei sent
@@ -1571,7 +1738,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       no residual. Buyers see what happened. */}
                   {buyCapped && ethToGraduate !== null && (
                     <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-                      ✿ capped at {Number(formatEther(ethToGraduate)).toFixed(4)} ETH — only this much needed to graduate. rest stays in your wallet.
+                      ✿ capped at {isErc20Pair ? Number(fmtPair(ethToGraduate)).toLocaleString(undefined, { maximumFractionDigits: 2 }) : Number(formatEther(ethToGraduate)).toFixed(4)} {pairSym} — only this much needed to graduate. rest stays in your wallet.
                     </div>
                   )}
                 </label>
@@ -1581,11 +1748,12 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                   <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginBottom: 4 }}>
                     quick pick ✿
                   </div>
-                  <QuickAmounts
+                  {/* Buy-side presets are ETH amounts; hidden for ERC-20 pairs. */}
+                  {!(isErc20Pair && side === 'buy') && <QuickAmounts
                     side={side}
                     walletBal={walletBal as bigint | undefined}
                     onPick={(amount) => setInputAmount(amount)}
-                  />
+                  />}
                 </div>
 
                 <div className={styles.quoteBox}>
@@ -1597,11 +1765,13 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                       ? '—'
                       : side === 'buy'
                         ? `${Number(formatUnits(quoteOut, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${(tokenSymbol as string) ?? ''}`
-                        : `${Number(formatEther(quoteOut)).toFixed(6)} ETH`}
+                        : isErc20Pair
+                          ? `${Number(fmtPair(quoteOut)).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${pairSym}`
+                          : `${Number(formatEther(quoteOut)).toFixed(6)} ETH`}
                   </div>
                   {quoteFee > 0n && (
                     <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)', marginTop: 2 }}>
-                      fee: {side === 'buy' ? `${formatEther(quoteFee)} ETH` : `${formatEther(quoteFee)} ETH`}
+                      fee: {`${fmtPair(quoteFee)} ${pairSym}`}
                     </div>
                   )}
                 </div>
@@ -1644,7 +1814,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     // BondingCurve__WlWindowActive. Only buyWithProof works
                     // during this window (shown in the WL panel above).
                     (wlEnabled && wlPreFallback && side === 'buy') ||
-                    (walletOnActiveChain && side === 'buy' && !buySim.data) ||
+                    (walletOnActiveChain && side === 'buy' && needsPairApproval && !pairApproveSim.data) ||
+                    (walletOnActiveChain && side === 'buy' && !needsPairApproval && !activeBuySim.data) ||
                     (walletOnActiveChain && side === 'sell' && !needsApproval && !sellSim.data)
                   }
                   className={`${side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'} ${styles.primaryAction}`}
@@ -1663,14 +1834,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                             ? 'public buys open after WL window'
                             : side === 'sell' && needsApproval
                               ? '✿ approve first'
+                              : needsPairApproval
+                                ? `✿ approve ${pairSym} first`
                               : side === 'buy'
                                 ? `✿ buy ${(tokenSymbol as string) ?? ''}`
                                 : `sell ${(tokenSymbol as string) ?? ''} ✿`}
                 </button>
 
-                {(buySim.error || sellSim.error) && (
+                {(activeBuySim.error || sellSim.error) && (
                   <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 10 }}>
-                    sim failed: {(buySim.error ?? sellSim.error)?.message.slice(0, 120)}
+                    sim failed: {(activeBuySim.error ?? sellSim.error)?.message.slice(0, 120)}
                   </div>
                 )}
 
@@ -1801,7 +1974,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 <span>price</span>
                 <FlashCell value={effectiveSpotPrice}>
                   <span className={styles.statStrong}>
-                    {effectiveSpotPrice > 0n ? formatPrice(effectiveSpotPrice, unit, ethUsd) : '—'}
+                    {effectiveSpotPrice > 0n ? showPrice(effectiveSpotPrice) : '—'}
                   </span>
                 </FlashCell>
               </li>
@@ -1845,7 +2018,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           <details className={`uru-shell-tight ${styles.accordion}`}>
             <summary>pool truth + risk</summary>
             <ul className={styles.riskList}>
-              <li>{graduated ? 'Curve trading is closed; swaps route through the graduated Uniswap V4 pool.' : 'Buys and sells route through the bonding curve until the ETH target is reached.'}</li>
+              <li>{graduated ? 'Curve trading is closed; swaps route through the graduated Uniswap V4 pool.' : `Buys and sells route through the bonding curve until the ${pairSym} target is reached.`}</li>
               <li>Quotes can move before confirmation. Slippage protects the minimum output, not final price movement after submission.</li>
               <li>Creator and fee data come from indexed launch and on-chain curve reads when available.</li>
             </ul>
@@ -2501,6 +2674,316 @@ function GraduatedPanel({
       {/* Silence unused ref warnings for tokenTotalSupply — kept in the API for a future
           "your position vs float" line. */}
       <span style={{ display: 'none' }}>{tokenTotalSupply.toString()}</span>
+    </div>
+  );
+}
+
+/// Post-graduation swap widget for ERC-20-paired DN404 tokens (pool = token /
+/// pair, e.g. REH404 / URU, on the DN404 MultiHookHost). Our V4SwapRouter only
+/// handles native-ETH pools, so this goes through Uniswap's Universal Router:
+///   1. inputToken.approve(Permit2, max)          (once per token)
+///   2. Permit2.approve(inputToken, UR, max160, +30d)  (when short or expired)
+///   3. UR.execute([V4_SWAP], [SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL])
+/// Buy = pair -> token, sell = token -> pair. The ETH GraduatedPanel is
+/// untouched; the outer page picks one or the other on `isErc20Pair`.
+function Erc20GraduatedPanel({
+  chain,
+  tokenAddress,
+  curveAddress,
+  poolKey,
+  tokenIsCurrency0,
+  pairCurrency,
+  pairSym,
+  pairDecimals,
+  tokenSymbol,
+  walletTokenBal,
+  walletPairBal,
+  walletOnActiveChain,
+  onSwitchChain,
+  switchPending,
+  poolSpotPairPerToken,
+  onSwapComplete,
+}: {
+  chain: ChainKey | null;
+  tokenAddress: Address;
+  curveAddress: Address;
+  poolKey: ReturnType<typeof buildErc20PoolKey>;
+  tokenIsCurrency0: boolean;
+  pairCurrency: Address;
+  pairSym: string;
+  pairDecimals: number;
+  tokenSymbol: string;
+  walletTokenBal: bigint;
+  walletPairBal: bigint;
+  walletOnActiveChain: boolean;
+  onSwitchChain: () => void;
+  switchPending: boolean;
+  /// Pair-token atomic units per WHOLE token, from slot0.
+  poolSpotPairPerToken: bigint;
+  onSwapComplete: () => void;
+}) {
+  const { address: wallet, isConnected } = useAccount();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const connectedForRender = mounted && isConnected;
+
+  const chainId = chain ? CHAIN_KEY_TO_ID[chain] : undefined;
+  const router = chain ? UNIVERSAL_ROUTERS[chain] : null;
+  const permit2 = chain ? PERMIT2[chain] : null;
+
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [amountInput, setAmountInput] = useState('');
+  const [slippagePct, setSlippagePct] = useState('2');
+
+  const inputToken: Address = side === 'buy' ? pairCurrency : tokenAddress;
+  const inputDecimals = side === 'buy' ? pairDecimals : 18;
+  const inputWei = useMemo(() => {
+    try { return parseUnits(amountInput || '0', inputDecimals); } catch { return 0n; }
+  }, [amountInput, inputDecimals]);
+
+  // Clock anchor for the swap deadline + Permit2 expiry. Kept in state and
+  // refreshed every 30s so sim args stay stable between renders.
+  const [nowSec, setNowSec] = useState<number>(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const txDeadline = BigInt(nowSec + 300);
+  const permitExpiry = nowSec + 30 * 24 * 3600;
+
+  // Step 1: ERC-20 allowance to Permit2. Step 2: Permit2 allowance to the router.
+  const approvals = useReadContracts({
+    contracts: wallet && permit2 && router
+      ? [
+          { abi: erc20TokenAbi, address: inputToken, functionName: 'allowance', args: [wallet, permit2] } as const,
+          { abi: permit2Abi, address: permit2, functionName: 'allowance', args: [wallet, inputToken, router] } as const,
+        ]
+      : [],
+    ...(chainId ? { chainId } : {}),
+    query: { enabled: !!wallet && !!permit2 && !!router, refetchInterval: 15_000 },
+  });
+  const erc20ToPermit2 = (approvals.data?.[0]?.result as bigint | undefined) ?? 0n;
+  const p2 = approvals.data?.[1]?.result as readonly [bigint, number, number] | undefined;
+  const p2Amount = p2?.[0] ?? 0n;
+  const p2Expiry = p2?.[1] ?? 0;
+  const needsErc20Approve = inputWei > 0n && erc20ToPermit2 < inputWei;
+  const needsPermit2Approve = !needsErc20Approve && inputWei > 0n && (p2Amount < inputWei || p2Expiry <= nowSec + 60);
+
+  // Expected output from slot0 spot. No v4 Quoter read exists in this app, so
+  // minOut is spot-based: expected * (1 - 0.3% LP fee - 2% hook fee - slippage).
+  // Price impact is NOT modelled; a large trade will fail the sim (and the
+  // button stays disabled) rather than execute at a bad price.
+  const slippageBps = Math.max(0, Math.min(5000, Math.round(Number(slippagePct || '0') * 100)));
+  const expectedOut = useMemo(() => {
+    if (inputWei === 0n || poolSpotPairPerToken === 0n) return 0n;
+    return side === 'buy'
+      ? (inputWei * 10n ** 18n) / poolSpotPairPerToken
+      : (inputWei * poolSpotPairPerToken) / 10n ** 18n;
+  }, [inputWei, poolSpotPairPerToken, side]);
+  const feeAndSlipBps = 230 + slippageBps;
+  const minOut = feeAndSlipBps >= 10_000 ? 0n : (expectedOut * BigInt(10_000 - feeAndSlipBps)) / 10_000n;
+
+  // buy: pair -> token. zeroForOne = input is currency0.
+  const zeroForOne = side === 'buy' ? !tokenIsCurrency0 : tokenIsCurrency0;
+  const swapCall = useMemo(() => {
+    if (!chainId || inputWei === 0n || inputWei >= 2n ** 128n) return null;
+    try {
+      return encodeV4ExactInSingle({ chainId, key: poolKey, zeroForOne, amountIn: inputWei, amountOutMinimum: minOut });
+    } catch { return null; }
+  }, [chainId, poolKey, zeroForOne, inputWei, minOut]);
+
+  const erc20ApproveSim = useSimulateContract({
+    abi: erc20TokenAbi,
+    address: inputToken,
+    functionName: 'approve',
+    args: permit2 ? [permit2, 2n ** 256n - 1n] : undefined,
+    account: wallet,
+    chainId,
+    query: { enabled: !!permit2 && !!wallet && walletOnActiveChain && needsErc20Approve },
+  });
+  const permit2ApproveSim = useSimulateContract({
+    abi: permit2Abi,
+    address: permit2 ?? undefined,
+    functionName: 'approve',
+    args: router ? [inputToken, router, 2n ** 160n - 1n, permitExpiry] : undefined,
+    account: wallet,
+    chainId,
+    query: { enabled: !!permit2 && !!router && !!wallet && walletOnActiveChain && needsPermit2Approve },
+  });
+  const swapSim = useSimulateContract({
+    abi: universalRouterAbi,
+    address: router ?? undefined,
+    functionName: 'execute',
+    args: swapCall ? [swapCall.commands, swapCall.inputs, txDeadline] : undefined,
+    account: wallet,
+    chainId,
+    query: {
+      enabled: !!router && !!wallet && walletOnActiveChain && !!swapCall && !needsErc20Approve && !needsPermit2Approve,
+    },
+  });
+
+  const { writeContract, isPending: writePending, data: txHash } = useWriteContract();
+  const receipt = useWaitForTransactionReceipt({ hash: txHash as Hex | undefined });
+  const notifiedRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const h = receipt.data?.transactionHash;
+    if (!h || h === notifiedRef.current) return;
+    notifiedRef.current = h;
+    approvals.refetch();
+    // Approval txs must not clear the amount the user is about to swap.
+    if (!needsErc20Approve && !needsPermit2Approve) {
+      onSwapComplete();
+      setAmountInput('');
+    }
+  }, [receipt.data?.transactionHash]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submit = () => {
+    if (needsErc20Approve && erc20ApproveSim.data) writeContract(erc20ApproveSim.data.request);
+    else if (needsPermit2Approve && permit2ApproveSim.data) writeContract(permit2ApproveSim.data.request);
+    else if (swapSim.data) writeContract(swapSim.data.request);
+  };
+
+  if (!router || !permit2) {
+    return (
+      <div style={{ padding: 16, textAlign: 'center', background: 'var(--pink-warm)', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 13 }}>
+        ✿ graduated ✿<br />
+        <span style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>in-app swap not available on this chain yet.</span>
+      </div>
+    );
+  }
+
+  const balance = side === 'buy' ? walletPairBal : walletTokenBal;
+  const outSym = side === 'buy' ? tokenSymbol || 'TKN' : pairSym;
+  const outDecimals = side === 'buy' ? 18 : pairDecimals;
+  const activeSim = needsErc20Approve ? erc20ApproveSim : needsPermit2Approve ? permit2ApproveSim : swapSim;
+
+  return (
+    <div
+      style={{
+        padding: 14,
+        background: 'linear-gradient(180deg, var(--mint) 0%, var(--paper-base) 100%)',
+        border: '1.5px solid var(--anchor)',
+        boxShadow: '3px 3px 0 var(--anchor)',
+        fontFamily: 'var(--font-round), Klee One, cursive',
+      }}
+    >
+      <div style={{ fontSize: 18, marginBottom: 8 }}>graduated · trade on v4</div>
+
+      <div className={styles.tabGrid} style={{ marginBottom: 10 }}>
+        {(['buy', 'sell'] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => { setSide(s); setAmountInput(''); }}
+            className={styles.tabButton}
+            data-active={side === s}
+            data-side={s}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      <label style={{ display: 'block' }}>
+        <span className={styles.fieldLabel}>you pay</span>
+        <div className={styles.inputRow}>
+          <input
+            className="uru-input"
+            type="number"
+            step="0.001"
+            min="0"
+            value={amountInput}
+            onChange={(e) => setAmountInput(e.target.value)}
+            placeholder="0.0"
+            style={{ flex: 1 }}
+          />
+          <span className={styles.assetLabel}>{side === 'buy' ? pairSym : tokenSymbol || 'TKN'}</span>
+        </div>
+      </label>
+
+      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+        <span>bal: {Number(formatUnits(balance, inputDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+        <button
+          type="button"
+          onClick={() => setAmountInput(formatUnits(balance, inputDecimals))}
+          style={{ background: 'transparent', border: 'none', color: 'var(--link-blue)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline' }}
+        >
+          max
+        </button>
+      </div>
+
+      <div className={styles.quoteBox}>
+        <div className={styles.fieldLabel}>you receive (est.)</div>
+        <div className={styles.quoteValue}>
+          {expectedOut === 0n
+            ? '—'
+            : `≈ ${Number(formatUnits(expectedOut, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${outSym}`}
+        </div>
+        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', marginTop: 2 }}>
+          min {Number(formatUnits(minOut, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} {outSym} after fees + slippage
+        </div>
+      </div>
+
+      <label style={{ display: 'block', marginTop: 8 }}>
+        <span className={styles.fieldLabel}>slippage %</span>
+        <input
+          className="uru-input"
+          type="number"
+          step="0.1"
+          min="0"
+          max="50"
+          value={slippagePct}
+          onChange={(e) => setSlippagePct(e.target.value)}
+          style={{ marginTop: 3, width: '100%' }}
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={() => {
+          if (connectedForRender && !walletOnActiveChain) { onSwitchChain(); return; }
+          submit();
+        }}
+        disabled={
+          !connectedForRender ||
+          inputWei === 0n ||
+          writePending ||
+          receipt.isLoading ||
+          switchPending ||
+          (walletOnActiveChain && !activeSim.data)
+        }
+        className={`${side === 'buy' ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'} ${styles.primaryAction}`}
+      >
+        {!connectedForRender
+          ? 'connect wallet'
+          : !walletOnActiveChain
+            ? switchPending ? 'switching..' : `switch to ${chain} ✿`
+            : writePending
+              ? 'confirming ~~'
+              : receipt.isLoading
+                ? 'waiting..'
+                : needsErc20Approve
+                  ? `✿ approve ${side === 'buy' ? pairSym : tokenSymbol || 'TKN'} (1/2)`
+                  : needsPermit2Approve
+                    ? '✿ allow swap router (2/2)'
+                    : side === 'buy'
+                      ? `✿ buy ${tokenSymbol || ''}`
+                      : `sell ${tokenSymbol || ''} ✿`}
+      </button>
+
+      {activeSim.error && (
+        <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 10 }}>
+          sim failed: {activeSim.error.message.slice(0, 120)}
+        </div>
+      )}
+
+      {chain && (
+        <div style={{ marginTop: 12, fontFamily: 'var(--font-pixel), monospace', fontSize: 10 }}>
+          <a href={explorerAddressUrl(chain, curveAddress)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
+            curve on explorer →
+          </a>
+        </div>
+      )}
     </div>
   );
 }

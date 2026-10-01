@@ -426,6 +426,15 @@ export interface Dn404LaunchSet {
   // Blockscout verification workflows, matching the NFT-lane posture.
   BaseImpl: Address;
   MirrorImpl: Address;
+  /// Dn404CurveFactory — owns the ERC-20-paired curves (pairCurrency != 0).
+  /// ETH-paired DN404 launches live on the V10 CurveFactory instead, so the
+  /// trade page asks V10 first and falls back to this one.
+  CurveFactory: Address;
+  /// The DN404 lane's own MultiHookHost. Only ERC-20-paired graduations land
+  /// here (via Dn404Graduator); ETH-paired DN404 pools use the ERC-20 lane's
+  /// host like every other curve. The trade page derives the v4 PoolKey for
+  /// pair-currency tokens from this address.
+  MultiHookHost: Address;
 }
 
 export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
@@ -439,7 +448,34 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
     LaunchFactory: '0x3026C71eB13C599BAd0e7a687689D20F8c37A64B',
     BaseImpl: '0x4459C3Ed55Ee23b32277D6fc330B658b04566f0a',
     MirrorImpl: '0xf0d47334fcFc56eCE484fAf9b31Ba0486Bd9c265',
+    CurveFactory: '0xFa8C3E10F81355059343f684f7268F1E7a8Df24a',
+    // First pool on this host: REH404/URU 0xe866d28f…80c7 (2026-09-23 rehearsal).
+    MultiHookHost: '0x6d8701058E4eecA3bF80D14bD6C13A89575460C4',
   },
+  'robinhood-testnet': null,
+};
+
+/// Uniswap Universal Router + Permit2, per chain. Used ONLY for post-graduation
+/// swaps on ERC-20/ERC-20 pools (DN404 pair-currency tokens); our V4SwapRouter
+/// is native-ETH-only and stays the path for every ETH pool. Robinhood's router
+/// runs the newer v4-periphery struct (`minHopPriceX36`), handled in
+/// `web/src/lib/v4Erc20Swap.ts`. Addresses from the RH v4 address book
+/// (project_robinhood_addresses memory), code verified on-chain 2026-09-23.
+export const UNIVERSAL_ROUTERS: Record<ChainKey, Address | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: '0x8876789976dEcBfCbBbe364623C63652db8C0904',
+  'robinhood-testnet': null,
+};
+
+export const PERMIT2: Record<ChainKey, Address | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
   'robinhood-testnet': null,
 };
 
@@ -502,8 +538,14 @@ export const DN404_PAIR_CURRENCIES: Record<ChainKey, PairCurrencyOption[]> = {
   'base-sepolia': [{ address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' }],
   robinhood: [
     { address: '0x0000000000000000000000000000000000000000', label: 'ETH', description: 'native' },
-    // USDG — RH-issued stablecoin. Address per docs.robinhood.com/chain/contracts.
-    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'USD stablecoin' },
+    // URU — ecosystem token, 18 decimals. On the on-chain pair allowlist
+    // since 2026-09-23 (tx 0xf681f74c…). First URU-paired graduation is
+    // the $REH404 rehearsal, pool 0xe866d28f…80c7 on the DN404 host.
+    { address: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24', label: 'URU', description: 'ecosystem token' },
+    // USDG was removed from the on-chain pair allowlist 2026-09-23
+    // (tx 0x2ba97b52…). It is 6-decimal and Dn404CurveFactory's defaults
+    // are raw 1e18, so a USDG curve could never graduate. Re-add only
+    // after setDefaults is scaled for it (or per-pair defaults ship).
     // Stock tokens — populate with canonical addresses from the RH
     // registry as governance onboards each. Leaving as address(0)
     // means "not yet allowlisted" — dropdown skips address(0) entries
@@ -578,10 +620,11 @@ export const DN404_TAX_DESTINATIONS: Record<ChainKey, TaxDestinationOption[]> = 
   base: [],
   'base-sepolia': [],
   robinhood: [
-    // URU is technically also BuybackURU-reachable via the implicit
-    // route, but it's listed here so launchers can pick it via
-    // BuyAllowedToken as well (identical outcome; convenience).
-    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', label: 'USDG', description: 'RH stablecoin' },
+    // URU is the only token on the live Dn404TaxAllowlist (seeded
+    // 2026-09-16, tx 0xf140fdf2…; USDG was never added there). It is
+    // also BuybackURU-reachable via the implicit route, but listing it
+    // here lets launchers pick it via BuyAllowedToken too (same outcome).
+    { address: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24', label: 'URU', description: 'ecosystem token' },
     // Stock tokens land here as governance onboards them + calls
     // taxAllowlist.setAllowed on-chain. Placeholders below match the
     // pair-currency list; replace 0x0 with canonical addresses.

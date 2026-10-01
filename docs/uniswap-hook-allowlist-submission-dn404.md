@@ -24,6 +24,37 @@ The **only** differences between the two deployments:
 
 Source code, constructor immutables (`platform`, `creator`, `platformBps`, `creatorBps`) — **identical** to the currently-allowlisted host. No new attack surface.
 
+## Live pool for routing tests (the form requires one)
+
+The Hooks Routing Allowlist form is required because this host uses
+`afterSwapReturnsDelta`, and it asks for a live pool created with the hook.
+One exists on Robinhood mainnet as of 2026-09-23:
+
+| Field | Value |
+|---|---|
+| Pool id | `0xe866d28f412e92d9310fce42f927fa5fc85d16777511ac8f52068ce62bb080c7` |
+| currency0 | `0x46377623F4Dd0470f5eA6F6120146F0801a26514` (REH404, a DN404 base token) |
+| currency1 | `0x9fbe210007dDd8389f98d0253018e65CC48b9D24` (URU, 18 decimals) |
+| fee / tickSpacing | 3000 / 60 |
+| hooks | `0x6d8701058E4eecA3bF80D14bD6C13A89575460C4` |
+| PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+| Initialized in tx | `0x9a4163fcb5d439b54984df433575e546652060137c6a3b17350e2a8b7cee5fdb` (block 70645991) |
+| Opening sqrtPriceX96 | `278713285600353317531635121` |
+| Liquidity | `14142135623771150976036` (full range, held by the Graduator) |
+
+The pool was seeded by `contracts/script/RehearseDn404UruPair.s.sol`
+(fork-tested first by `contracts/test/dn404/RehearseDn404UruPairFork.t.sol`,
+which also asserts the pool opened at the curve's marginal price, 0 bps off).
+Both tokens are ERC-20; the hook takes its fee as a returned delta in
+`afterSwap`, exactly as the already-allowlisted ERC-20 lane host does.
+
+### Form answers
+
+- Does the hook use `beforeSwapReturnsDelta`: **no**
+- Does the hook use `afterSwapReturnsDelta`: **yes** (platform + creator fee, 100 bps each, plus optional buyback burn)
+- Does the hook use `dynamicFees`: **no**
+- Pool to test against: the table above
+
 ## Permission Mask
 
 Encoded in the low 14 bits of the hook address (`0x3FFF` mask):

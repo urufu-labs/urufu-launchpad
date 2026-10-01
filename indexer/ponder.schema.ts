@@ -471,6 +471,78 @@ export const nftMints = onchainTable('nft_mints', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+// =========================================================
+// Pair-currency curves (DN404 launches priced in an ERC-20, URU today).
+//
+// Deliberately SEPARATE from curves / trades / graduations: every amount here
+// is in pair-token units, not wei-ETH. Home stats, volume, leaderboards and the
+// launch cards sum `trades.ethAmount` / read `curves.ethReserve` as ETH; mixing
+// URU rows into those tables would show a 5M URU buy as 5M ETH. Keeping them
+// apart means every existing ETH aggregate stays correct with zero changes,
+// and the trade page reads these tables only when the token's pairCurrency is
+// non-zero. Ponder adds new tables without touching existing ones.
+// =========================================================
+
+/// One row per Dn404BondingCurve (ERC-20-paired). Live state updated per trade.
+export const pairCurves = onchainTable('pair_curves', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${curveAddress}`
+  chainId: t.integer().notNull(),
+  curveAddress: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  pairCurrency: t.hex().notNull(),
+  launcher: t.hex(),                               // from Dn404CurveCreated when seen
+  feeReceiver: t.hex().notNull(),
+  curveSupply: t.bigint().notNull(),
+  virtualTokenReserve: t.bigint().notNull(),
+  virtualPairReserve: t.bigint().notNull(),        // pair-token units
+  graduationTargetPair: t.bigint().notNull(),      // pair-token units
+  tradeFeeBps: t.integer().notNull(),
+  pairReserve: t.bigint().notNull(),               // pair-token units
+  tokenReserve: t.bigint().notNull(),
+  tradeCount: t.integer().notNull(),
+  graduated: t.boolean().notNull(),
+  graduatedAt: t.bigint(),
+  createdAt: t.bigint().notNull(),
+  updatedAt: t.bigint().notNull(),
+}));
+
+/// Per-trade row on a pair-currency curve. Same role as `trades`, pair units.
+export const pairTrades = onchainTable('pair_trades', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}`
+  chainId: t.integer().notNull(),
+  curveAddress: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  pairCurrency: t.hex().notNull(),
+  trader: t.hex().notNull(),
+  isBuy: t.boolean().notNull(),
+  pairAmount: t.bigint().notNull(),                // pair-token units
+  tokenAmount: t.bigint().notNull(),
+  pairReserveAfter: t.bigint().notNull(),
+  tokenReserveAfter: t.bigint().notNull(),
+  pricePairPerToken: t.bigint().notNull(),         // realized, 1e18-scaled pair per whole token
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// One row per pair-currency curve that graduated. `poolId` is the v4 PoolKey
+/// hash with currencies sorted numerically (token vs pair, NOT ETH-first) and
+/// the DN404 lane host as hook, so it matches what Dn404Graduator initialized.
+export const pairGraduations = onchainTable('pair_graduations', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${curveAddress}`
+  chainId: t.integer().notNull(),
+  curveAddress: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  pairCurrency: t.hex().notNull(),
+  poolId: t.hex(),
+  hookAddress: t.hex(),
+  pairReserveFinal: t.bigint().notNull(),
+  tokenReserveFinal: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),
