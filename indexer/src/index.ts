@@ -14,7 +14,7 @@ import {
   pairCurves, pairTrades, pairGraduations, pairV4Swaps,
 } from '../ponder.schema.ts';
 import { hookHostForChainId, dn404HookHostForChainId, poolManagerForChainId } from '../chains';
-import { computePairPoolId, decodePairSwap, PAIR_POOL_SWAPS_INTERVAL, V4_SWAP_TOPIC0, type RawLog } from '../poolId';
+import { computePairPoolId, decodePairSwap, V4_SWAP_TOPIC0 } from '../poolId';
 
 /// Ponder's multi-network context.network union is `{ name, chainId }` for each
 /// enabled chain, but TS widens `chainId` to `unknown` and marks the union member
@@ -1234,61 +1234,38 @@ ponder.on('Dn404BondingCurve:Dn404Graduated', async ({ event, context }) => {
   }
 });
 
-// Post-graduation swaps on pair-currency pools. Runs every
-// PAIR_POOL_SWAPS_INTERVAL blocks; asks the PoolManager for Swap logs on exactly
-// the pool ids in pair_graduations over (block - interval, block]. Goes through
-// context.client.request so Ponder caches the RPC response (re-index replays it).
-ponder.on('PairPoolSwaps:block', async ({ event, context }) => {
-  const chainId = chainIdOf(context);
-  const pools = await context.db.sql
-    .select({
-      poolId: pairGraduations.poolId,
-      tokenAddress: pairGraduations.tokenAddress,
-      pairCurrency: pairGraduations.pairCurrency,
-    })
-    .from(pairGraduations)
-    .where(eq(pairGraduations.chainId, chainId));
+// Post-graduation swaps on pair-currency (URU) pools. The DN404 lane host emits
+// FeeAccrued from afterSwap on every swap through its pools, and only URU pools
+// live on it. The tx receipt holds the PoolManager Swap log for the same swap,
+// so decode it from there. A tx with several FeeAccrued (or several swaps) is
+// handled idempotently: row ids are `${chainId}-${txHash}-${logIndex}` of the
+// Swap log, same format as v4_swaps, so re-processing a receipt is a no-op.
+ponder.on('Dn404HookHost:FeeAccrued', async ({ event, context }) => {
   type Hex = `0x${string}`;
-  const byPool = new Map<string, { tokenAddress: Hex; pairCurrency: Hex }>();
-  for (const p of pools) if (p.poolId) byPool.set(p.poolId.toLowerCase(), p);
-  if (byPool.size === 0) return;
+  const chainId = chainIdOf(context);
+  const pm = poolManagerForChainId(chainId)?.toLowerCase();
+  const receipt = event.transactionReceipt;
+  if (!pm || !receipt) return;
 
-  const pm = poolManagerForChainId(chainId);
-  if (!pm) return;
-  const to = event.block.number;
-  const span = BigInt(PAIR_POOL_SWAPS_INTERVAL);
-  const from = to >= span ? to - span + 1n : 0n;
+  const swapLogs = receipt.logs.filter(
+    (l) => l.address.toLowerCase() === pm && l.topics[0] === V4_SWAP_TOPIC0,
+  );
+  if (swapLogs.length === 0) return;
 
-  const logs = (await context.client.request({
-    method: 'eth_getLogs',
-    params: [{
-      address: pm,
-      fromBlock: `0x${from.toString(16)}`,
-      toBlock: `0x${to.toString(16)}`,
-      topics: [V4_SWAP_TOPIC0, [...byPool.keys()] as Hex[]],
-    }],
-  })) as Array<RawLog & { blockNumber: Hex; transactionHash: Hex; logIndex: Hex }>;
-  if (logs.length === 0) return;
+  for (const log of swapLogs) {
+    const poolId = log.topics[1];
+    if (!poolId) continue;
+    const grad = await context.db.sql
+      .select({ tokenAddress: pairGraduations.tokenAddress, pairCurrency: pairGraduations.pairCurrency })
+      .from(pairGraduations)
+      .where(eq(pairGraduations.poolId, poolId.toLowerCase() as Hex))
+      .limit(1);
+    const meta = grad[0];
+    if (!meta) continue; // not one of our pair pools (e.g. a multi-hop through another pool)
 
-  const tsCache = new Map<bigint, bigint>();
-  for (const log of logs) {
-    const meta = byPool.get((log.topics[1] ?? '').toLowerCase());
-    if (!meta) continue;
-    const blockNumber = BigInt(log.blockNumber);
-    let ts = tsCache.get(blockNumber);
-    if (ts === undefined) {
-      // Ponder 0.7's read-only client has no getBlock; raw request is cached too.
-      const b = (await context.client.request({
-        method: 'eth_getBlockByNumber',
-        params: [log.blockNumber, false],
-      })) as { timestamp: Hex } | null;
-      ts = b ? BigInt(b.timestamp) : event.block.timestamp;
-      tsCache.set(blockNumber, ts);
-    }
-    const d = decodePairSwap(log, meta.tokenAddress, meta.pairCurrency);
+    const d = decodePairSwap({ topics: log.topics as Hex[], data: log.data }, meta.tokenAddress, meta.pairCurrency);
     await context.db.insert(pairV4Swaps).values({
-      // Same id format as v4_swaps so a log can never be written twice.
-      id: `${chainId}-${log.transactionHash}-${Number(BigInt(log.logIndex))}`,
+      id: `${chainId}-${log.transactionHash}-${Number(log.logIndex)}`,
       chainId,
       poolId: d.poolId,
       tokenAddress: meta.tokenAddress,
@@ -1304,9 +1281,9 @@ ponder.on('PairPoolSwaps:block', async ({ event, context }) => {
       tick: d.tick,
       fee: d.fee,
       pricePairPerToken: d.pricePairPerToken,
-      blockNumber,
-      blockTimestamp: ts,
-      txHash: log.transactionHash,
+      blockNumber: event.block.number,
+      blockTimestamp: event.block.timestamp,
+      txHash: event.transaction.hash,
     }).onConflictDoNothing();
   }
 });

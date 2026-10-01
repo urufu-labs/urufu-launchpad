@@ -21,10 +21,6 @@ export function computePairPoolId(
   );
 }
 
-/// Block interval of the PairPoolSwaps job (~60s on Robinhood, ~0.1s blocks).
-/// Must stay <= 5000: the RPC caps unbounded-response eth_getLogs at 5000 blocks.
-export const PAIR_POOL_SWAPS_INTERVAL = 600;
-
 /// keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)")
 export const V4_SWAP_TOPIC0 =
   '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f' as const;
