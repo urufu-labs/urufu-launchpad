@@ -3,7 +3,15 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "indexer/Dockerfile",
-    "buildContext": "."
+    "buildContext": ".",
+    "watchPatterns": [
+      "indexer/**",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "package.json",
+      "tsconfig.base.json"
+    ],
+    "//watchPatterns": "Only redeploy the indexer when its own code or the files its Dockerfile copies change. Without this, every web-only push to main restarted Ponder, and a restart costs real feed downtime (2026-10-01: ~3h). See project_indexer_disk_and_restart_cost memory."
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
