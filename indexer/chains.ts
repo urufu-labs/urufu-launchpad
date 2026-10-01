@@ -235,6 +235,14 @@ export function hookHostForChainId(chainId: number): `0x${string}` | undefined {
   return undefined;
 }
 
+/// PoolManager for a chain (used by the pair-pool swap poller).
+export function poolManagerForChainId(chainId: number): `0x${string}` | undefined {
+  for (const slug of ALL_SLUGS) {
+    if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'POOL_MANAGER');
+  }
+  return undefined;
+}
+
 /// DN404 lane host for a chain — where pair-currency (URU) graduations open
 /// their v4 pool. Distinct from `hookHostForChainId` (ERC-20 lane host).
 export function dn404HookHostForChainId(chainId: number): `0x${string}` | undefined {

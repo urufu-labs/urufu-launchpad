@@ -501,7 +501,43 @@ export async function fetchV4SwapsForPoolId(
     }`,
     { poolId: poolId.toLowerCase(), limit },
   );
-  return data?.v4Swapss.items ?? null;
+  const items = data?.v4Swapss.items ?? null;
+  if (items && items.length > 0) return items;
+  // Pair-currency (URU) pools are filled into `pair_v4_swaps` by the indexer's
+  // PairPoolSwaps job, never `v4_swaps`. Pool ids are unique, so falling back
+  // here can't mix pools. Raw amount0/amount1/sqrtPriceX96 are kept as the
+  // PoolManager emitted them, so the trade page's ordering-aware decode applies.
+  const pair = await fetchPairV4SwapsForPoolId(poolId, limit);
+  if (pair && pair.length > 0) return pair;
+  return items;
+}
+
+/// Post-graduation swaps on a pair-currency pool from `pair_v4_swaps`, newest
+/// first, in the IndexerV4Swap shape (`priceWeiPerToken` carries pair-per-token).
+/// Returns null when the indexer predates the table.
+export async function fetchPairV4SwapsForPoolId(
+  poolId: `0x${string}`,
+  limit = 500,
+): Promise<IndexerV4Swap[] | null> {
+  type Row = Omit<IndexerV4Swap, 'priceWeiPerToken'> & { pricePairPerToken: string };
+  const data = await gqlFanout<{ pairV4Swapss: { items: Row[] } }>(
+    `query PairV4SwapsForPoolId($poolId: String!, $limit: Int!) {
+      pairV4Swapss(
+        where: { poolId: $poolId },
+        orderBy: "blockTimestamp",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items {
+          id chainId poolId tokenAddress sender amount0 amount1 sqrtPriceX96 liquidity
+          tick fee pricePairPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { poolId: poolId.toLowerCase(), limit },
+  );
+  if (!data) return null;
+  return data.pairV4Swapss.items.map(({ pricePairPerToken, ...r }) => ({ ...r, priceWeiPerToken: pricePairPerToken }));
 }
 
 /// Latest v4 swap for a specific token, plus a bounded count of total v4 swaps. Used to

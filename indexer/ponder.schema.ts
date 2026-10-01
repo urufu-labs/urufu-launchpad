@@ -543,6 +543,34 @@ export const pairGraduations = onchainTable('pair_graduations', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+/// Post-graduation swaps on pair-currency (URU) pools. Filled by the
+/// PairPoolSwaps block job, which asks the PoolManager for Swap logs on ONLY the
+/// pool ids in pair_graduations (Universal Router does ~20 swaps/s chain-wide, so
+/// subscribing to it is not an option). Separate from v4_swaps because amounts
+/// are in pair-token units, never ETH. Amounts are from the SWAPPER side, as
+/// v4 emits them: negative = swapper paid that currency into the pool.
+export const pairV4Swaps = onchainTable('pair_v4_swaps', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${txHash}-${logIndex}` (same as v4_swaps)
+  chainId: t.integer().notNull(),
+  poolId: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  pairCurrency: t.hex().notNull(),
+  sender: t.hex().notNull(),                       // router that called the PoolManager
+  isBuy: t.boolean().notNull(),                    // swapper received the launch token
+  pairAmount: t.bigint().notNull(),                // absolute, pair-token units
+  tokenAmount: t.bigint().notNull(),               // absolute
+  amount0: t.bigint().notNull(),
+  amount1: t.bigint().notNull(),
+  sqrtPriceX96: t.bigint().notNull(),
+  liquidity: t.bigint().notNull(),
+  tick: t.integer().notNull(),
+  fee: t.integer().notNull(),
+  pricePairPerToken: t.bigint().notNull(),         // spot after swap, 1e18-scaled pair per whole token
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),
