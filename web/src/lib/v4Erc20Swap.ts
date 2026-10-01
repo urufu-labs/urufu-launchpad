@@ -115,8 +115,39 @@ export function encodeV4ExactInSingle(args: V4ExactInSingleArgs): { commands: He
     hooks: key.hooks,
   };
 
-  // ExactInputSingleParams — struct layout chosen per chain (see header).
-  const swapParams: Hex = CHAINS_WITH_MIN_HOP_PRICE.has(chainId)
+  const swapParams = encodeExactInSingleParams(chainId, keyTuple, zeroForOne, amountIn, amountOutMinimum, hookData);
+
+  const inputCurrency = zeroForOne ? key.currency0 : key.currency1;
+  const outputCurrency = zeroForOne ? key.currency1 : key.currency0;
+  // SETTLE_ALL(currency, maxAmount) / TAKE_ALL(currency, minAmount)
+  const settleParams = encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [inputCurrency, amountIn]);
+  const takeParams = encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [outputCurrency, amountOutMinimum]);
+
+  const actions: Hex = concatHex([
+    toByte(V4_ACTION_SWAP_EXACT_IN_SINGLE),
+    toByte(V4_ACTION_SETTLE_ALL),
+    toByte(V4_ACTION_TAKE_ALL),
+  ]);
+  const v4Input = encodeAbiParameters(
+    [{ type: 'bytes' }, { type: 'bytes[]' }],
+    [actions, [swapParams, settleParams, takeParams]],
+  );
+
+  return { commands: toByte(UR_COMMAND_V4_SWAP), inputs: [v4Input] };
+}
+
+type PoolKeyTuple = { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address };
+
+/// ExactInputSingleParams, struct layout chosen per chain (see header).
+function encodeExactInSingleParams(
+  chainId: number,
+  keyTuple: PoolKeyTuple,
+  zeroForOne: boolean,
+  amountIn: bigint,
+  amountOutMinimum: bigint,
+  hookData: Hex,
+): Hex {
+  return CHAINS_WITH_MIN_HOP_PRICE.has(chainId)
     ? encodeAbiParameters(
         [
           {
@@ -147,24 +178,59 @@ export function encodeV4ExactInSingle(args: V4ExactInSingleArgs): { commands: He
           },
         ],
         [{ poolKey: keyTuple, zeroForOne, amountIn, amountOutMinimum, hookData }],
-      );
+      );;
+}
 
+/// v4-periphery Actions.SETTLE: (Currency currency, uint256 amount, bool payerIsUser).
+export const V4_ACTION_SETTLE = 0x0b;
+/// v4-periphery ActionConstants.OPEN_DELTA: an exact-in amount of 0 means
+/// "swap the full open credit" (what SETTLE just credited).
+export const V4_OPEN_DELTA = 0n;
+
+/// Fee-on-transfer-safe exact-input single-hop swap for TAXED tokens (DN404
+/// tax template V2). Order: SETTLE(currencyIn, amountIn, payerIsUser=true) so
+/// the PoolManager credits only what actually arrived after the token's tax,
+/// then SWAP_EXACT_IN_SINGLE with amountIn = OPEN_DELTA (swap that credit),
+/// then TAKE_ALL(currencyOut, amountOutMinimum). The normal order (swap the
+/// full amountIn, then SETTLE_ALL) reverts for a taxed input because the pool
+/// receives less than it was promised. Byte layout matches
+/// contracts/test/dn404/Dn404TaxTemplateV2Fork.t.sol::_fotSell, which is
+/// fork-proven on Robinhood (actions 0x0b 0x06 0x0f).
+/// Only for INPUT tokens that tax transfers; native-ETH or untaxed input
+/// keeps using encodeV4ExactInSingle.
+export function encodeV4ExactInSingleSettleFirst(args: V4ExactInSingleArgs): { commands: Hex; inputs: Hex[] } {
+  const { chainId, key, zeroForOne, amountIn, amountOutMinimum } = args;
+  const hookData: Hex = args.hookData ?? '0x';
+  if (amountIn <= 0n) throw new Error('amountIn must be > 0');
+  if (amountIn >= 2n ** 128n) throw new Error('amountIn exceeds uint128');
+  if (amountOutMinimum >= 2n ** 128n) throw new Error('amountOutMinimum exceeds uint128');
+  const keyTuple: PoolKeyTuple = {
+    currency0: key.currency0,
+    currency1: key.currency1,
+    fee: key.fee,
+    tickSpacing: key.tickSpacing,
+    hooks: key.hooks,
+  };
   const inputCurrency = zeroForOne ? key.currency0 : key.currency1;
   const outputCurrency = zeroForOne ? key.currency1 : key.currency0;
-  // SETTLE_ALL(currency, maxAmount) / TAKE_ALL(currency, minAmount)
-  const settleParams = encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [inputCurrency, amountIn]);
+  if (inputCurrency.toLowerCase() === '0x0000000000000000000000000000000000000000') {
+    throw new Error('settle-first is for taxed ERC-20 input; native ETH input uses encodeV4ExactInSingle');
+  }
+  const settleParams = encodeAbiParameters(
+    [{ type: 'address' }, { type: 'uint256' }, { type: 'bool' }],
+    [inputCurrency, amountIn, true],
+  );
+  const swapParams = encodeExactInSingleParams(chainId, keyTuple, zeroForOne, V4_OPEN_DELTA, amountOutMinimum, hookData);
   const takeParams = encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [outputCurrency, amountOutMinimum]);
-
   const actions: Hex = concatHex([
+    toByte(V4_ACTION_SETTLE),
     toByte(V4_ACTION_SWAP_EXACT_IN_SINGLE),
-    toByte(V4_ACTION_SETTLE_ALL),
     toByte(V4_ACTION_TAKE_ALL),
   ]);
   const v4Input = encodeAbiParameters(
     [{ type: 'bytes' }, { type: 'bytes[]' }],
-    [actions, [swapParams, settleParams, takeParams]],
+    [actions, [settleParams, swapParams, takeParams]],
   );
-
   return { commands: toByte(UR_COMMAND_V4_SWAP), inputs: [v4Input] };
 }
 

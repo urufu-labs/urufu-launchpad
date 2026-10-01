@@ -1,160 +1,112 @@
 /**
- * Per-launch sweep pipeline.
+ * Per-launch pipeline: snapshot on-chain state -> decide -> sweep -> act.
  *
- * Given one launch's on-chain state, decide whether to sweep and if so,
- * execute (a) the on-chain sweep + (b) the mode-specific off-chain
- * action. The two are separated so failures in (b) don't leave (a) un-
- * accounted for.
+ * Pure decision logic (decideSweep) is unit-tested; everything else is
+ * exercised by the anvil-fork harness against real contracts.
  */
-
-import type { Address, Hex } from 'viem';
-import { dn404TaxTemplateAbi } from './abis.ts';
-import type { KeeperConfig, LaunchWatch } from './config.ts';
+import type { Address } from 'viem';
+import { curveAbi, dn404TaxTemplateAbi } from './abis.ts';
+import type { KeeperConfig } from './config.ts';
 import { TaxMode, taxModeName } from './config.ts';
-import type { PublicClient, WalletClient } from './clients.ts';
-import { dispatchHandler } from './handlers/index.ts';
+import type { DiscoveredLaunch } from './discovery.ts';
+import { send, type Ctx } from './tx.ts';
 
 export interface LaunchSnapshot {
-  readonly base: Address;
+  readonly launch: DiscoveredLaunch;
   readonly taxMode: number;
   readonly taxTarget: Address;
-  readonly uruToken: Address;
   readonly keeper: Address;
+  readonly keeperTreasury: Address;
+  readonly owner: Address;
   readonly accumulatedTax: bigint;
+  readonly totalSupply: bigint;
+  readonly unitWei: bigint;
+  readonly graduated: boolean;
+  readonly keeperSkipsNft: boolean;
+  /// Launch tokens already sitting on the keeper (prior partial actions).
+  readonly keeperBalance: bigint;
 }
 
-/// Read every state slot the sweeper needs from a single launch. Runs
-/// the calls in parallel; the whole snapshot is one round-trip's worth
-/// of latency.
-export async function snapshotLaunch(
-  publicClient: PublicClient,
-  base: Address,
-): Promise<LaunchSnapshot> {
-  const [taxMode, taxTarget, uruToken, keeper, accumulatedTax] = await Promise.all([
-    publicClient.readContract({
-      address: base,
-      abi: dn404TaxTemplateAbi,
-      functionName: 'taxMode',
-    }),
-    publicClient.readContract({
-      address: base,
-      abi: dn404TaxTemplateAbi,
-      functionName: 'taxTarget',
-    }),
-    publicClient.readContract({
-      address: base,
-      abi: dn404TaxTemplateAbi,
-      functionName: 'uruToken',
-    }),
-    publicClient.readContract({
-      address: base,
-      abi: dn404TaxTemplateAbi,
-      functionName: 'keeper',
-    }),
-    publicClient.readContract({
-      address: base,
-      abi: dn404TaxTemplateAbi,
-      functionName: 'accumulatedTax',
-    }),
-  ]);
-
-  return { base, taxMode, taxTarget, uruToken, keeper, accumulatedTax };
+export async function snapshotLaunch(ctx: Ctx, launch: DiscoveredLaunch): Promise<LaunchSnapshot> {
+  const r = <T>(functionName: string, args: readonly unknown[] = []) =>
+    ctx.pc.readContract({ address: launch.base, abi: dn404TaxTemplateAbi, functionName: functionName as never, args: args as never }) as Promise<T>;
+  const [taxMode, taxTarget, keeper, keeperTreasury, owner, accumulatedTax, totalSupply, unitWei, keeperSkipsNft, keeperBalance, graduated] =
+    await Promise.all([
+      r<number>('taxMode'),
+      r<Address>('taxTarget'),
+      r<Address>('keeper'),
+      r<Address>('keeperTreasury'),
+      r<Address>('owner'),
+      r<bigint>('accumulatedTax'),
+      r<bigint>('totalSupply'),
+      r<bigint>('unit'),
+      r<boolean>('getSkipNFT', [ctx.keeper]),
+      r<bigint>('balanceOf', [ctx.keeper]),
+      ctx.pc.readContract({ address: launch.curve, abi: curveAbi, functionName: 'graduated' }),
+    ]);
+  return { launch, taxMode, taxTarget, keeper, keeperTreasury, owner, accumulatedTax, totalSupply, unitWei, graduated, keeperSkipsNft, keeperBalance };
 }
 
 export interface SweepDecision {
   readonly shouldSweep: boolean;
+  /// Run the mode action even without a sweep (leftover keeper balance from
+  /// an earlier partial action, e.g. impact-limited swaps or queued payouts).
+  readonly shouldAct: boolean;
   readonly reason: string;
 }
 
-/// Evaluate whether a snapshot warrants a sweep this poll. Returns a
-/// decision + human-readable reason so the log line is descriptive
-/// regardless of the outcome.
-export function decideSweep(
-  watch: LaunchWatch,
-  snapshot: LaunchSnapshot,
-  keeperWallet: Address,
-  cfg: KeeperConfig,
-): SweepDecision {
-  if (snapshot.keeper.toLowerCase() !== keeperWallet.toLowerCase()) {
-    // Wrong keeper — we won't own this launch's sweep. Log and skip so
-    // ops sees the misconfiguration without the keeper crashing.
-    return {
-      shouldSweep: false,
-      reason: `keeper mismatch (on-chain=${snapshot.keeper}, wallet=${keeperWallet})`,
-    };
+/// Modes that need the graduated v4 pool before they can act.
+export const NEEDS_POOL: ReadonlySet<number> = new Set([
+  TaxMode.BuybackURU,
+  TaxMode.BuyAllowedToken,
+  TaxMode.AddToLP,
+  TaxMode.MirrorFloorSupport,
+]);
+
+export function decideSweep(s: LaunchSnapshot, keeperWallet: Address, cfg: Pick<KeeperConfig, 'minSweepBpsOfSupply' | 'maxSweepBpsOfSupply'>): SweepDecision {
+  const no = (reason: string, shouldAct = false): SweepDecision => ({ shouldSweep: false, shouldAct, reason });
+  if (s.keeper.toLowerCase() !== keeperWallet.toLowerCase()) {
+    return no(`keeper mismatch (on-chain=${s.keeper}, wallet=${keeperWallet})`);
   }
-  if (snapshot.taxMode === TaxMode.Off) {
-    return { shouldSweep: false, reason: 'taxMode=Off — no accumulation ever happens' };
+  if (s.taxMode === TaxMode.Off) return no('taxMode=Off');
+  if (s.taxMode === TaxMode.BurnDead) return no('taxMode=BurnDead: burned in-token, nothing to sweep');
+  if (s.taxMode > TaxMode.MirrorFloorSupport) return no(`unknown taxMode ${s.taxMode}`);
+  if (NEEDS_POOL.has(s.taxMode) && !s.graduated) {
+    return no(`${taxModeName(s.taxMode)} waits for graduation (no pool yet)`);
   }
-  if (snapshot.taxMode === TaxMode.BurnDead) {
-    // BurnDead burns in-place inside _transfer — no accumulator, so a
-    // sweep would revert with InsufficientAccumulated(0). Skip.
-    return { shouldSweep: false, reason: 'taxMode=BurnDead — burned in-place, no sweep' };
+  const hasLeftover = s.keeperBalance > 0n;
+  const min = (s.totalSupply * cfg.minSweepBpsOfSupply) / 10_000n;
+  const max = (s.totalSupply * cfg.maxSweepBpsOfSupply) / 10_000n;
+  if (s.accumulatedTax === 0n) return no('accumulatedTax=0', hasLeftover);
+  if (s.accumulatedTax < min) return no(`accumulatedTax=${s.accumulatedTax} < min=${min}`, hasLeftover);
+  if (s.accumulatedTax > max) {
+    return no(`accumulatedTax=${s.accumulatedTax} > max=${max}: refuse, alert ops`, false);
   }
-  if (snapshot.accumulatedTax === 0n) {
-    return { shouldSweep: false, reason: 'accumulatedTax=0' };
-  }
-  if (snapshot.accumulatedTax < watch.threshold) {
-    return {
-      shouldSweep: false,
-      reason: `accumulatedTax=${snapshot.accumulatedTax} < threshold=${watch.threshold}`,
-    };
-  }
-  if (snapshot.accumulatedTax > cfg.maxSweepPerPoll) {
-    // Refuse to sweep anomalously large accumulations. Better to alert
-    // ops than to submit a sweep that becomes a MEV target.
-    return {
-      shouldSweep: false,
-      reason: `accumulatedTax=${snapshot.accumulatedTax} > maxSweepPerPoll=${cfg.maxSweepPerPoll} — refuse (alert ops)`,
-    };
-  }
-  return { shouldSweep: true, reason: `over threshold (${snapshot.accumulatedTax} >= ${watch.threshold})` };
+  return { shouldSweep: true, shouldAct: true, reason: `sweep ${s.accumulatedTax} (${taxModeName(s.taxMode)})` };
 }
 
-/// Execute a sweep. Submits sweepAccumulated with the FULL accumulated
-/// balance, then dispatches the mode-specific handler with the swept
-/// funds sitting on the keeper wallet.
-///
-/// The keeper is always the sweep recipient — handlers move the funds
-/// on from there. Keeps every sweep tx uniform: same signer, same
-/// recipient, easy to reconcile.
-export async function executeSweep(
-  publicClient: PublicClient,
-  walletClient: WalletClient,
-  keeperAddress: Address,
-  cfg: KeeperConfig,
-  watch: LaunchWatch,
-  snapshot: LaunchSnapshot,
-): Promise<{ sweepTxHash: Hex; net: bigint; fee: bigint }> {
-  // Simulate first — surfaces the revert reason cleanly instead of
-  // eating gas on a doomed tx.
-  const { request, result } = await publicClient.simulateContract({
-    address: snapshot.base,
+/// Make sure sweeps don't mint mirror NFTs to the keeper (gas: ~11.5k per
+/// NFT against RH's 32M per-tx cap). Bought floor NFTs still land on the
+/// keeper (DN404 transfers NFTs to skipNFT owners) and burn when the keeper
+/// sends its tokens to 0x…dEaD.
+export async function ensureKeeperSkipsNft(ctx: Ctx, s: LaunchSnapshot): Promise<void> {
+  if (s.keeperSkipsNft) return;
+  await send(ctx, `setSkipNFT(true) on ${s.launch.base}`, {
+    address: s.launch.base,
+    abi: dn404TaxTemplateAbi,
+    functionName: 'setSkipNFT',
+    args: [true],
+  });
+}
+
+/// sweepAccumulated(keeper, all). The token sends 5% to keeperTreasury and
+/// the rest to the keeper in the same tx. Returns the keeper's new balance.
+export async function sweep(ctx: Ctx, s: LaunchSnapshot): Promise<bigint> {
+  await send(ctx, `sweepAccumulated ${s.launch.base} (${taxModeName(s.taxMode)})`, {
+    address: s.launch.base,
     abi: dn404TaxTemplateAbi,
     functionName: 'sweepAccumulated',
-    args: [keeperAddress, snapshot.accumulatedTax],
-    account: keeperAddress,
+    args: [ctx.keeper, s.accumulatedTax],
   });
-  const [net, fee] = result as readonly [bigint, bigint];
-
-  const sweepTxHash = await walletClient.writeContract(request);
-  await publicClient.waitForTransactionReceipt({ hash: sweepTxHash });
-
-  console.log(
-    `[keeper] swept ${snapshot.accumulatedTax} from ${snapshot.base} mode=${taxModeName(snapshot.taxMode)} net=${net} fee=${fee} tx=${sweepTxHash}`,
-  );
-
-  // Dispatch handler AFTER sweep tx is mined so it can rely on the
-  // keeper wallet's balance actually reflecting the sweep.
-  await dispatchHandler({
-    publicClient,
-    walletClient,
-    keeperAddress,
-    cfg,
-    watch,
-    snapshot,
-    sweptNet: net,
-  });
-
-  return { sweepTxHash, net, fee };
+  return ctx.pc.readContract({ address: s.launch.base, abi: dn404TaxTemplateAbi, functionName: 'balanceOf', args: [ctx.keeper] });
 }

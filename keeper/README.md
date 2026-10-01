@@ -1,73 +1,55 @@
 # @vm/keeper
 
-DN404 tax-hook keeper.
+DN404 tax keeper for Robinhood. Finds every taxed DN404 launch on its own,
+sweeps accumulated tax (the token sends 5% to the keeper treasury in the
+same tx), and carries out each launch's chosen destination on chain.
 
-Watches every tax-enabled DN404 launch on Robinhood mainnet, sweeps the
-accumulated tax when it crosses a per-launch threshold, and executes the
-destination-specific off-chain action (swap → URU, swap → allowed token,
-or hold-in-treasury for the three advanced destinations that ship in a
-later slice).
+Requires `Dn404TaxTemplateV2` launches: V2 exempts the graduators, both hook
+hosts and the current keeper from tax, which is what lets taxed launches
+graduate and lets the keeper swap / add liquidity through normal v4 routers.
 
-## What it does per tick
+## Per tick
 
-For each entry in `KEEPER_LAUNCHES`:
+1. **Discover**: scan `Dn404LaunchFactory.Dn404Launched` logs (5000-block
+   chunks, incremental) and watch every launch with a tax mode at launch.
+2. **Snapshot** each launch (taxMode, keeper, accumulatedTax, supply, unit,
+   owner, graduated). Only launches whose on-chain `keeper()` is our wallet
+   are acted on.
+3. **Decide** (`decideSweep`): sweep when accumulatedTax >= 1 bps of supply,
+   refuse above 5% (alert). Pool-dependent modes wait for graduation.
+4. **Sweep**: `setSkipNFT(true)` once per launch (so sweeps never mint NFTs
+   under RH's 32M per-tx gas cap), then `sweepAccumulated(keeper, all)`.
+5. **Act** on the keeper's full balance of that token:
 
-1. Read on-chain state: `taxMode`, `taxTarget`, `uruToken`, `keeper`,
-   `accumulatedTax` (one round-trip, all parallel calls).
-2. Decide whether to sweep — see `src/sweeper.ts::decideSweep` for the
-   full ruleset. Short version: skip Off + BurnDead (no accumulator),
-   skip if under threshold, skip if the on-chain keeper doesn't match
-   our wallet (misconfiguration).
-3. If sweeping: submit `sweepAccumulated(keeper, accumulatedTax)` (v1
-   sweeps the full balance, not partial), wait for receipt.
-4. Dispatch handler based on `taxMode`:
+| Mode | Action |
+| --- | --- |
+| Off | nothing (no tax surface) |
+| BurnDead | nothing: the token burns tax to 0x…dEaD inside the transfer |
+| BuybackURU | token -> URU (direct for URU pairs; token -> ETH -> WETH -> URU for ETH pairs), URU sent to the sink (default 0x…dEaD) |
+| BuyAllowedToken | token -> `taxTarget` (URU today), delivered to the launcher |
+| AddToLP | swap half to the pair, mint full-range liquidity in the launch pool owned by 0x…dEaD (locked forever) |
+| HolderReflections | pro-rata token payouts to holders (from Transfer logs, infra excluded), bounded per tick |
+| MirrorFloorSupport | buy OpenSea listings priced >= 10% under the NFT's pool value via Seaport, then send all remaining tokens to 0x…dEaD, which burns the bought NFTs too |
 
-| Mode                | Handler                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| Off                 | never sweeps                                                                         |
-| BurnDead            | never sweeps (burned in-place inside `_transfer`)                                    |
-| BuybackURU          | swap swept balance → URU via v4, forward to `KEEPER_URU_BUYBACK_SINK`                |
-| BuyAllowedToken     | swap swept balance → `taxTarget` via v4, forward to per-launch `finalDestination`    |
-| AddToLP             | **v1 stub** — forward to `KEEPER_ADVANCED_DEST_TREASURY`, ops handles manually       |
-| HolderReflections   | **v1 stub** — forward to `KEEPER_ADVANCED_DEST_TREASURY`, ops handles manually       |
-| MirrorFloorSupport  | **v1 stub** — forward to `KEEPER_ADVANCED_DEST_TREASURY`, ops handles manually       |
-
-The three v1 stubs are called out loudly in the log every time they
-fire. Real automation lives in slice E — planned once patterns from
-real launches stabilize.
+All swaps go through the Universal Router (+ Permit2), priced by the v4
+Quoter: minOut = quote * (1 - 3%), never 0; a swap is halved until its quote
+is within 10% of spot, so thin pools are worked down across ticks.
 
 ## Running
 
-```bash
-cp keeper/.env.example keeper/.env
-# fill in KEEPER_PRIVATE_KEY, KEEPER_LAUNCHES, chain-scoped addresses
-pnpm --filter @vm/keeper dev
+```
+cp .env.example .env   # set KEEPER_RPC_URL, KEEPER_PRIVATE_KEY, OPENSEA_API_KEY
+npm run dev
 ```
 
-Or in prod:
+## Tests
 
-```bash
-pnpm --filter @vm/keeper start
-```
+- `npm test`: unit tests (decisions, TickMath, pool ids vs live, encoders, pro-rata, floor selection, OpenSea encoding).
+- `npm run test:fork`: end-to-end on an anvil fork of Robinhood. Installs V2 on the live launch factory as the deployer, launches every mode, generates real tax, runs `Keeper.tick()` with the real keeper key, asserts outcomes. Needs `ROBINHOOD_RPC_URL` and `DN404_KEEPER_*` in the repo-root `.env`.
+- `npm run test:live-opensea`: read-only call to the real OpenSea API (slug + best listings for $SMOKE).
 
-Deploy target: any node runtime with outbound HTTPS to the RPC + the
-ability to sign txs from a private key. Railway / Fly / Render / bare
-EC2 all work. No stateful storage — everything the keeper needs lives
-on-chain or in env.
+## Deploy (Railway)
 
-## Ops guide
-
-- **Watch the log for "refuse (alert ops)"** — that's the anti-MEV
-  ceiling firing. Investigate before manually raising
-  `KEEPER_MAX_SWEEP_PER_POLL`.
-- **Watch the log for "keeper mismatch"** — the on-chain `keeper` role
-  isn't this wallet. Either the launch was initialized with a stale
-  keeper, or an admin rotated us out. Fix on-chain (via governance
-  `setKeeper` on the launch) or update `KEEPER_PRIVATE_KEY` to match.
-- **Watch the log for advanced-stub sweeps** — those are the three
-  destinations without automation. Ops picks up the token from
-  `KEEPER_ADVANCED_DEST_TREASURY` and executes the destination action
-  manually (add to LP, generate merkle, floor buy).
-- **The keeper never batches** — one sweep per launch per tick. If a
-  launch is accumulating faster than the tick, cumulative sweep across
-  N ticks catches up. If it's outpacing the ceiling, alert fires.
+`Dockerfile` + `railway.json` (watch paths: keeper/ and workspace manifests).
+Env: `KEEPER_RPC_URL`, `KEEPER_PRIVATE_KEY`, `OPENSEA_API_KEY`, optionally the
+tuning vars in `.env.example`. Fund the keeper wallet with a little ETH for gas.
