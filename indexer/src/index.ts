@@ -11,8 +11,10 @@ import {
   flywheelReceipts, flywheelDistributions,
   uruBuybacks, uruSinkDeposits, uruSinkConversions,
   nftCollections, nftMints,
+  pairCurves, pairTrades, pairGraduations,
 } from '../ponder.schema.ts';
-import { hookHostForChainId } from '../chains';
+import { hookHostForChainId, dn404HookHostForChainId } from '../chains';
+import { computePairPoolId } from '../poolId';
 
 /// Ponder's multi-network context.network union is `{ name, chainId }` for each
 /// enabled chain, but TS widens `chainId` to `unknown` and marks the union member
@@ -1118,6 +1120,118 @@ ponder.on('Dn404LaunchFactory:Dn404Launched', async ({ event, context }) => {
     blockTimestamp: event.block.timestamp,
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
+});
+
+// =========================================================
+// Pair-currency curves (Dn404BondingCurve, URU-paired today). Dynamically
+// subscribed via Dn404CurveFactory.Dn404CurveCreated. Writes ONLY to the
+// pair_* tables; see the schema note for why these never touch `trades`.
+// =========================================================
+
+ponder.on('Dn404BondingCurve:Dn404CurveInitialized', async ({ event, context }) => {
+  const {
+    token, pairCurrency, feeReceiver, curveSupply,
+    virtualTokenReserve, virtualPairReserve, graduationTargetPair, tradeFeeBps,
+  } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  await context.db.insert(pairCurves).values({
+    id: `${chainId}-${curveAddress.toLowerCase()}`,
+    chainId,
+    curveAddress,
+    tokenAddress: token,
+    pairCurrency,
+    launcher: null,
+    feeReceiver,
+    curveSupply,
+    virtualTokenReserve,
+    virtualPairReserve,
+    graduationTargetPair,
+    tradeFeeBps: Number(tradeFeeBps),
+    pairReserve: 0n,
+    tokenReserve: curveSupply,
+    tradeCount: 0,
+    graduated: false,
+    graduatedAt: null,
+    createdAt: event.block.timestamp,
+    updatedAt: event.block.timestamp,
+  }).onConflictDoNothing();
+});
+
+ponder.on('Dn404BondingCurve:Dn404Trade', async ({ event, context }) => {
+  const { trader, pairCurrency, isBuy, pairAmount, tokenAmount, pairReserve, tokenReserve } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
+  const curve = await context.db.find(pairCurves, { id: curveId });
+  const tokenAddress = curve?.tokenAddress ?? ('0x0000000000000000000000000000000000000000' as `0x${string}`);
+
+  await context.db.insert(pairTrades).values({
+    id: `${chainId}-${event.transaction.hash}-${event.log.logIndex}`,
+    chainId,
+    curveAddress,
+    tokenAddress,
+    pairCurrency,
+    trader,
+    isBuy,
+    pairAmount,
+    tokenAmount,
+    pairReserveAfter: pairReserve,
+    tokenReserveAfter: tokenReserve,
+    pricePairPerToken: tokenAmount > 0n ? (pairAmount * 10n ** 18n) / tokenAmount : 0n,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  if (curve) {
+    await context.db.update(pairCurves, { id: curveId }).set({
+      pairReserve,
+      tokenReserve,
+      tradeCount: curve.tradeCount + 1,
+      updatedAt: event.block.timestamp,
+    });
+  }
+});
+
+ponder.on('Dn404BondingCurve:Dn404Graduated', async ({ event, context }) => {
+  const { pairCurrency, pairReserve, tokenReserve } = event.args;
+  const chainId = chainIdOf(context);
+  const curveAddress = event.log.address;
+  const curveId = `${chainId}-${curveAddress.toLowerCase()}`;
+  const curve = await context.db.find(pairCurves, { id: curveId });
+  const tokenAddress = curve?.tokenAddress ?? ('0x0000000000000000000000000000000000000000' as `0x${string}`);
+
+  const hook = dn404HookHostForChainId(chainId);
+  const poolId =
+    hook && tokenAddress !== '0x0000000000000000000000000000000000000000'
+      ? computePairPoolId(tokenAddress, pairCurrency, hook)
+      : null;
+
+  await context.db.insert(pairGraduations).values({
+    id: curveId,
+    chainId,
+    curveAddress,
+    tokenAddress,
+    pairCurrency,
+    poolId,
+    hookAddress: hook ?? null,
+    pairReserveFinal: pairReserve,
+    tokenReserveFinal: tokenReserve,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+
+  if (curve) {
+    await context.db.update(pairCurves, { id: curveId }).set({
+      graduated: true,
+      graduatedAt: event.block.timestamp,
+      pairReserve,
+      tokenReserve,
+      updatedAt: event.block.timestamp,
+    });
+  }
 });
 
 /// Server-side NFT metadata resolver — races a small ordered list of

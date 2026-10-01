@@ -149,6 +149,16 @@ export const ADDRESS_KEYS = [
   /// `lane='dn404'` and `pairedToken=<base>`). Chains without a factory
   /// are silently skipped so pre-deploy env stays valid.
   'DN404_LAUNCH_FACTORY',
+  /// Dn404CurveFactory — creates the ERC-20-PAIRED curves (pairCurrency != 0,
+  /// URU today). ETH-paired DN404 curves come from the V10 CurveFactory and
+  /// are already covered by CURVE_FACTORY. Each `Dn404CurveCreated` registers
+  /// a Dn404BondingCurve source (dynamic factory), whose trades land in the
+  /// pair_* tables, never in the ETH `trades` table.
+  'DN404_CURVE_FACTORY',
+  /// The DN404 lane's own MultiHookHost. Pair-currency graduations open their
+  /// v4 pool on this host, so the pool id for `pair_graduations` is computed
+  /// with it (the ERC-20 lane host is MULTI_HOOK_HOST).
+  'DN404_MULTI_HOOK_HOST',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 
@@ -221,6 +231,15 @@ export function enabledChains(): ChainSlug[] {
 export function hookHostForChainId(chainId: number): `0x${string}` | undefined {
   for (const slug of ALL_SLUGS) {
     if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'MULTI_HOOK_HOST');
+  }
+  return undefined;
+}
+
+/// DN404 lane host for a chain — where pair-currency (URU) graduations open
+/// their v4 pool. Distinct from `hookHostForChainId` (ERC-20 lane host).
+export function dn404HookHostForChainId(chainId: number): `0x${string}` | undefined {
+  for (const slug of ALL_SLUGS) {
+    if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'DN404_MULTI_HOOK_HOST');
   }
   return undefined;
 }
