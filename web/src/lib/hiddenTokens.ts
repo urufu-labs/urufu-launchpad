@@ -29,6 +29,11 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // pool on the DN404 MultiHookHost for the Uniswap routing allowlist form.
   // Pool id 0xe866d28f…80c7. Base half; mirror hidden in hiddenNftCollections.
   '4663:0x46377623f4dd0470f5ea6f6120146f0801a26514',
+  // URU Pair Test ($UPT) — 2026-10-01. First URU-paired DN404 on the production
+  // URU defaults (8.5M virtual / 5M target). Launch tx 0xa80c513d…, buy 1,000
+  // URU -> 18 NFTs, sell half -> 9 NFTs + 490 URU back. Curve 0x0cdc9aa7…; not
+  // graduated. Deployer-owned test, not a real launch.
+  '4663:0x1e3100abfdceba1de7b51b1ad9713177b177b7c1',
   '8453:0xde1323b369b362bc1ad3d036bef964279e8eb1c7',
   '84532:0x92462af2c2c8d2a18dcbbddd66c8aa401ec2de6d',
   // V6 Smoke Bare (V6SmokeLaunch.s.sol, block 21058832)
