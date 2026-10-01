@@ -43,6 +43,11 @@ export function uruWethPoolKey(cfg: Pick<KeeperConfig, 'weth' | 'uru' | 'uruWeth
   return { currency0: c0, currency1: c1, fee: GRAD_FEE, tickSpacing: GRAD_TICK_SPACING, hooks: cfg.uruWethHook };
 }
 
+/// Native ETH / USDG pool (hookless). ETH is always currency0 (address 0).
+export function ethUsdgPoolKey(cfg: Pick<KeeperConfig, 'usdg' | 'ethUsdgFee' | 'ethUsdgTickSpacing'>): PoolKey {
+  return { currency0: ZERO, currency1: cfg.usdg, fee: cfg.ethUsdgFee, tickSpacing: cfg.ethUsdgTickSpacing, hooks: ZERO };
+}
+
 // ---------------------------------------------------------------- TickMath
 
 export const MIN_TICK = -887272;

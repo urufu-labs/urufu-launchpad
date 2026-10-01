@@ -13,13 +13,13 @@
  * burns an owner's NFTs when its balance drops below unit * owned, and does
  * so even for skipNFT owners (fork-verified), so every bought NFT burns.
  */
-import type { Address } from 'viem';
-import { dn404TaxTemplateAbi, mirrorAbi } from '../abis.ts';
+import { parseAbi, type Address, type Hex } from 'viem';
+import { dn404TaxTemplateAbi, erc20Abi, mirrorAbi } from '../abis.ts';
 import type { KeeperConfig } from '../config.ts';
-import { DEAD } from '../constants.ts';
+import { DEAD, ZERO } from '../constants.ts';
 import { encodeFulfillment, type Listing, type ListingsProvider } from '../opensea.ts';
-import { launchPoolKey, priceOtherPerToken, readSlot0, uruWethPoolKey } from '../pools.ts';
-import { ethToUru, isEthPaired, pairToToken, tokenToEth, type LaunchRef } from '../routes.ts';
+import { ethUsdgPoolKey, launchPoolKey, priceOtherPerToken, readSlot0, uruWethPoolKey } from '../pools.ts';
+import { ethToUru, ethToUsdg, isEthPaired, pairToToken, tokenToEth, usdgToEth, type LaunchRef } from '../routes.ts';
 import { applyBps } from '../swap.ts';
 import type { LaunchSnapshot } from '../sweeper.ts';
 import { send, sendRaw, type Ctx } from '../tx.ts';
@@ -36,6 +36,32 @@ export async function ethPerToken(ctx: Ctx, cfg: KeeperConfig, l: LaunchRef): Pr
   const uruIs0 = uk.currency0.toLowerCase() === cfg.uru.toLowerCase();
   const ethPerUru = priceOtherPerToken(u.sqrtPriceX96, uruIs0);
   return (pairPerToken * ethPerUru) / 10n ** 18n;
+}
+
+const conduitControllerAbi = parseAbi(['function getConduit(bytes32 conduitKey) view returns (address conduit, bool exists)']);
+
+/// ETH wei per 1 raw USDG unit, 1e18-scaled, from the native ETH/USDG pool.
+export async function ethPerUsdgRaw(ctx: Ctx, cfg: KeeperConfig): Promise<bigint> {
+  const { sqrtPriceX96 } = await readSlot0(ctx.pc, cfg, ethUsdgPoolKey(cfg));
+  // USDG is currency1; priceOtherPerToken(.., false) = currency0 (ETH) per USDG.
+  return priceOtherPerToken(sqrtPriceX96, false);
+}
+
+/// Fill priceWei (ETH equivalent) for ERC-20 (USDG) listings. Pure.
+export function pricedInEth(listings: Listing[], usdg: Address, ethPerUsdgRawX18: bigint): Listing[] {
+  return listings.map((l) => {
+    if (BigInt(l.currency) === 0n) return l;
+    if (l.currency.toLowerCase() !== usdg.toLowerCase()) return { ...l, priceWei: 0n };
+    return { ...l, priceWei: (l.amount * ethPerUsdgRawX18) / 10n ** 18n };
+  });
+}
+
+/// Address Seaport pulls ERC-20 payment through for a given conduit key.
+async function paymentSpender(ctx: Ctx, cfg: KeeperConfig, key: Hex | undefined): Promise<Address> {
+  if (!key || BigInt(key) === 0n) return cfg.seaport;
+  const [conduit, exists] = await ctx.pc.readContract({ address: cfg.conduitController, abi: conduitControllerAbi, functionName: 'getConduit', args: [key] });
+  if (!exists) throw new Error(`conduit for key ${key} does not exist`);
+  return conduit;
 }
 
 /// Pure selection: cheapest-first listings under the margin, within budget.
@@ -74,6 +100,17 @@ export async function handleFloor(ctx: Ctx, cfg: KeeperConfig, s: LaunchSnapshot
     console.warn(`[keeper:floor] ${l.base}: no OpenSea provider configured; burning only`);
   }
 
+  // USDG listings (OpenSea's required currency on Robinhood) are compared
+  // in ETH terms through the ETH/USDG pool, so one ceiling/budget applies.
+  if (listings.some((x) => BigInt(x.currency) !== 0n)) {
+    try {
+      listings = pricedInEth(listings, cfg.usdg, await ethPerUsdgRaw(ctx, cfg));
+    } catch (err) {
+      console.warn(`[keeper:floor] ${l.base}: ETH/USDG price read failed (${(err as Error).message}); skipping USDG listings`);
+      listings = listings.filter((x) => BigInt(x.currency) === 0n);
+    }
+  }
+
   const price = await ethPerToken(ctx, cfg, l);
   const implied = (s.unitWei * price) / 10n ** 18n;
   // Budget: what the whole balance is worth at spot, minus a 15% haircut
@@ -94,7 +131,22 @@ export async function handleFloor(ctx: Ctx, cfg: KeeperConfig, s: LaunchSnapshot
       try {
         const f = await provider!.fulfillment(listing, ctx.keeper);
         const data = encodeFulfillment(f);
-        await sendRaw(ctx, `floor buy #${listing.tokenId} for ${listing.priceWei} wei`, f.to, data, f.value);
+        if (BigInt(listing.currency) !== 0n) {
+          // USDG listing: swap just enough ETH (+3% for fee/slippage) to USDG,
+          // approve it to the conduit the order names, then fulfill (value 0).
+          const have = await ctx.pc.readContract({ address: listing.currency, abi: erc20Abi, functionName: 'balanceOf', args: [ctx.keeper] });
+          if (have < listing.amount) {
+            const ethIn = (listing.priceWei * 10_300n) / 10_000n + 1n;
+            if (ethIn > ethLeft) throw new Error(`need ${ethIn} wei for USDG, have ${ethLeft}`);
+            const sw = await ethToUsdg(ctx, cfg, ethIn);
+            ethLeft -= sw.amountIn;
+          }
+          const usdgNow = await ctx.pc.readContract({ address: listing.currency, abi: erc20Abi, functionName: 'balanceOf', args: [ctx.keeper] });
+          if (usdgNow < listing.amount) throw new Error(`USDG ${usdgNow} < listing ${listing.amount}`);
+          const spender = await paymentSpender(ctx, cfg, f.fulfillerConduitKey);
+          await send(ctx, `approve USDG -> ${spender}`, { address: listing.currency, abi: erc20Abi, functionName: 'approve', args: [spender, listing.amount] });
+        }
+        await sendRaw(ctx, `floor buy #${listing.tokenId} for ${listing.amount} ${BigInt(listing.currency) === 0n ? 'wei' : 'USDG units'}`, f.to, data, f.value);
         const owner = await ctx.pc.readContract({ address: mirror, abi: mirrorAbi, functionName: 'ownerOf', args: [listing.tokenId] });
         if (owner.toLowerCase() !== ctx.keeper.toLowerCase()) throw new Error(`NFT ${listing.tokenId} owner is ${owner}, not keeper`);
         bought.push(listing.tokenId);
@@ -103,7 +155,13 @@ export async function handleFloor(ctx: Ctx, cfg: KeeperConfig, s: LaunchSnapshot
         console.warn(`[keeper:floor] ${l.base}: buy of #${listing.tokenId} failed: ${(err as Error).message}`);
       }
     }
-    // Unspent sale ETH goes back into the launch token, which is then burned.
+    // Unspent USDG returns to ETH; unspent ETH goes back into the launch
+    // token, which is then burned.
+    const usdgLeft = await ctx.pc.readContract({ address: cfg.usdg, abi: erc20Abi, functionName: 'balanceOf', args: [ctx.keeper] });
+    if (usdgLeft > 0n) {
+      const back = await usdgToEth(ctx, cfg, usdgLeft);
+      ethLeft += back.amountOut;
+    }
     if (ethLeft > 0n) {
       if (isEthPaired(l)) await pairToToken(ctx, cfg, l, ethLeft);
       else {

@@ -37,6 +37,17 @@ export const RH = {
   graduatorPair: '0xE23E49EeD1a8BEc5c08E6C94e7808Dc96aa02944' as Address,
   uruWethHook: '0x8933d28E68d02FaA02436aeF42E6ba9674698044' as Address,
   uruWethPoolId: '0xd307e8754c65c451ca726c4549917b3f5765cce16a76f35a6d19aaf7bc230284' as `0x${string}`,
+  /// USDG (6 decimals). OpenSea on Robinhood REQUIRES USDG as the listing
+  /// currency (API rejects native-ETH listings, verified 2026-10-01), so the
+  /// floor mode must pay in USDG.
+  usdg: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168' as Address,
+  /// Native ETH / USDG v4 pool (hookless). fee 100 / tickSpacing 1 had the
+  /// deepest liquidity of the standard tiers on 2026-10-01.
+  ethUsdgFee: 100,
+  ethUsdgTickSpacing: 1,
+  /// Seaport ConduitController (canonical). OpenSea's Robinhood conduit key
+  /// 0x61159fef…1d5e resolves to 0x963F00d3…C300 through it.
+  conduitController: '0x00000000F9490004C11Cef243f5400493c00Ad63' as Address,
 } as const;
 
 /// Launchpad graduation pool shape (both lanes).

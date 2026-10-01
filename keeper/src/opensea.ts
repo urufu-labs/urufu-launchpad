@@ -19,7 +19,13 @@ export interface Listing {
   orderHash: Hex;
   protocolAddress: Address;
   tokenId: bigint;
-  /// Total price in wei. Only native-ETH listings are returned.
+  /// Payment currency: ZERO for native ETH, else the ERC-20 (USDG on
+  /// Robinhood, where OpenSea rejects native-ETH listings).
+  currency: Address;
+  /// Total price in the listing currency's raw units.
+  amount: bigint;
+  /// Price expressed in ETH wei. Equal to `amount` for native listings; for
+  /// ERC-20 listings the floor handler fills it from the ETH/USDG pool.
   priceWei: bigint;
 }
 
@@ -31,6 +37,9 @@ export interface FulfillmentTx {
   /// Nested args; objects are positional in declaration order (OpenSea's
   /// serializer emits struct fields in order).
   input_data: Record<string, unknown>;
+  /// Seaport fulfillerConduitKey from the order params (zero = pay Seaport
+  /// directly). ERC-20 payments must be approved to that conduit.
+  fulfillerConduitKey?: Hex;
 }
 
 export interface ListingsProvider {
@@ -69,9 +78,11 @@ export class OpenSeaProvider implements ListingsProvider {
   private readonly apiKey: string;
   private readonly chain: string;
   private readonly base: string;
-  constructor(apiKey: string, chain: string, base = 'https://api.opensea.io') {
+  private readonly usdg: string;
+  constructor(apiKey: string, chain: string, usdg: Address, base = 'https://api.opensea.io') {
     this.apiKey = apiKey;
     this.chain = chain;
+    this.usdg = usdg.toLowerCase();
     this.base = base;
   }
 
@@ -97,15 +108,23 @@ export class OpenSeaProvider implements ListingsProvider {
     const out: Listing[] = [];
     for (const l of j.listings ?? []) {
       const price = l.price?.current;
-      // Native ETH only (OpenSea reports currency "ETH" with 18 decimals).
-      if (!price || price.currency !== 'ETH' || Number(price.decimals) !== 18) continue;
+      if (!price) continue;
       const offer = l.protocol_data?.parameters?.offer?.[0];
       if (!offer || String(offer.token).toLowerCase() !== mirror.toLowerCase()) continue;
+      const payToken = String(l.protocol_data?.parameters?.consideration?.[0]?.token ?? '').toLowerCase();
+      // Native ETH (OpenSea reports "ETH", 18 decimals) or USDG (the currency
+      // OpenSea requires on Robinhood). Anything else is skipped.
+      const isNative = price.currency === 'ETH' && Number(price.decimals) === 18 && BigInt(payToken || '0x0') === 0n;
+      const isUsdg = payToken === this.usdg && Number(price.decimals) === 6;
+      if (!isNative && !isUsdg) continue;
+      const amount = BigInt(price.value);
       out.push({
         orderHash: l.order_hash as Hex,
         protocolAddress: l.protocol_address as Address,
         tokenId: BigInt(offer.identifierOrCriteria),
-        priceWei: BigInt(price.value),
+        currency: (isNative ? '0x0000000000000000000000000000000000000000' : payToken) as Address,
+        amount,
+        priceWei: isNative ? amount : 0n,
       });
     }
     return out;
@@ -124,6 +143,8 @@ export class OpenSeaProvider implements ListingsProvider {
     const j = (await res.json()) as { fulfillment_data?: { transaction?: Record<string, any> } };
     const t = j.fulfillment_data?.transaction;
     if (!t) throw new Error('OpenSea fulfillment_data missing transaction');
-    return { to: t.to as Address, value: BigInt(t.value ?? 0), function: t.function, input_data: t.input_data };
+    const params = (t.input_data as Record<string, any>)?.parameters ?? (t.input_data as Record<string, any>)?.advancedOrder?.parameters;
+    const fulfillerConduitKey = (params?.fulfillerConduitKey ?? (t.input_data as Record<string, any>)?.fulfillerConduitKey) as Hex | undefined;
+    return { to: t.to as Address, value: BigInt(t.value ?? 0), function: t.function, input_data: t.input_data, fulfillerConduitKey };
   }
 }

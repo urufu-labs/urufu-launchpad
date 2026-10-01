@@ -14,7 +14,7 @@ import { repoEnv } from '../fork/harness.ts';
 const SMOKE_MIRROR = '0x375f4d9ce84607dbe0fce6b55b1c5b9335b87ba3' as const;
 
 test('OpenSea provider resolves the $SMOKE collection and fetches best listings on robinhood', async () => {
-  const p = new OpenSeaProvider(repoEnv('OPENSEA_API_KEY'), 'robinhood');
+  const p = new OpenSeaProvider(repoEnv('OPENSEA_API_KEY'), 'robinhood', '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168');
   const slug = await p.slugFor(SMOKE_MIRROR);
   assert.equal(slug, 'dn404-smoke');
   const listings = await p.bestListings(SMOKE_MIRROR, 20);

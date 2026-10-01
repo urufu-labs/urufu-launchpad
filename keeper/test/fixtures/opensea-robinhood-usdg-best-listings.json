@@ -1,0 +1,60 @@
+{
+  "listings" : [ {
+    "order_hash" : "0x91638d44329cf7c879aa0c55ae8952fb4620e2415feada10dce22b74a5bc08d1",
+    "chain" : "robinhood",
+    "protocol_data" : {
+      "parameters" : {
+        "offerer" : "0x450f36155e4d5e2db22f995755cb7650b884794e",
+        "offer" : [ {
+          "itemType" : 2,
+          "token" : "0xd991b601a09eb0687d0f53f39ee45a5031e39310",
+          "identifierOrCriteria" : "1",
+          "startAmount" : "1",
+          "endAmount" : "1"
+        } ],
+        "consideration" : [ {
+          "itemType" : 1,
+          "token" : "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+          "identifierOrCriteria" : "0",
+          "startAmount" : "9900",
+          "endAmount" : "9900",
+          "recipient" : "0x450f36155e4d5e2db22f995755cb7650b884794e"
+        }, {
+          "itemType" : 1,
+          "token" : "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+          "identifierOrCriteria" : "0",
+          "startAmount" : "100",
+          "endAmount" : "100",
+          "recipient" : "0x0000a26b00c1f0df003000390027140000faa719"
+        } ],
+        "startTime" : "1790896495",
+        "endTime" : "1791501355",
+        "orderType" : 0,
+        "zone" : "0x0000000000000000000000000000000000000000",
+        "zoneHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "salt" : "0x6caf0eb7ac94ae0a12381fee878a93fc",
+        "conduitKey" : "0x61159fefdfada89302ed55f8b9e89e2d67d8258712b3a3f89aa88525877f1d5e",
+        "totalOriginalConsiderationItems" : 2,
+        "counter" : "0"
+      },
+      "signature" : null
+    },
+    "protocol_address" : "0x0000000000000068f116a894984e2db1123eb395",
+    "asset" : {
+      "identifier" : "1",
+      "contract" : "0xd991b601a09eb0687d0f53f39ee45a5031e39310"
+    },
+    "remaining_quantity" : 1,
+    "order_created_at" : 1790896555,
+    "price" : {
+      "current" : {
+        "currency" : "USDG",
+        "decimals" : 6,
+        "value" : "10000"
+      }
+    },
+    "type" : "basic",
+    "status" : "ACTIVE"
+  } ],
+  "next" : null
+}
