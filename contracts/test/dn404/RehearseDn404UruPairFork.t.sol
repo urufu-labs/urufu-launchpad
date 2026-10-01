@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {RehearseDn404UruPair} from "script/RehearseDn404UruPair.s.sol";
 import {Dn404BondingCurve} from "src/dn404/Dn404BondingCurve.sol";
+import {Dn404CurveFactory} from "src/dn404/Dn404CurveFactory.sol";
 import {Dn404PairCurrencyAllowlist} from "src/dn404/Dn404PairCurrencyAllowlist.sol";
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
@@ -69,6 +70,18 @@ contract RehearseDn404UruPairForkTest is Test {
         erc20LaneMhh = vm.parseJsonAddress(vm.readFile("deployment-live-rh.4663.json"), ".multiHookHost");
         assertGt(erc20LaneMhh.code.length, 0, "live book multiHookHost has no code");
         assertTrue(dn404Mhh != erc20LaneMhh, "book points DN404 host at the ERC-20 lane host");
+
+        // Reproduce the factory state the rehearsal was broadcast against
+        // (2026-09-23: virtual 5,000 / target 4,000 URU). Production defaults
+        // moved to 8.5M / 5M on 2026-10-01 (tx 0x74eae150…), which the
+        // deployer's URU balance can't graduate; Dn404UruDefaultsFork.t.sol
+        // covers the production values with a mock 18-dec pair instead.
+        Dn404CurveFactory cf = Dn404CurveFactory(vm.parseJsonAddress(j, ".Dn404CurveFactory"));
+        uint256 supply = cf.defaultCurveSupply();
+        uint256 virtTok = cf.defaultVirtualTokenReserve();
+        uint16 feeBps = cf.defaultTradeFeeBps();
+        vm.prank(DEPLOYER);
+        cf.setDefaults(supply, virtTok, 5_000e18, 4_000e18, feeBps);
 
         script = new RehearseDn404UruPair();
     }
