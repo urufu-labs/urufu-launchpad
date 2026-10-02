@@ -471,7 +471,15 @@ function ecosystemTokenNet(
   }
   const rhAddr = process.env[rhKey] as `0x${string}` | undefined;
   if (rhAddr && ENABLED.includes('robinhood')) {
-    map.robinhood = { address: rhAddr, startBlock: readStartBlock('robinhood') };
+    // Per-source override: PONDER_START_BLOCK_ROBINHOOD_URU / _GEMU_NFT. The
+    // ecosystem contracts were deployed at ~18,349,728 (2026-07-25 migration),
+    // long before the chain-wide start block (28,956,000), so starting at the
+    // chain-wide block silently dropped early mints/transfers: the gemu NFT
+    // holder set had 179 holders vs 416 on-chain (found 2026-10-02), which
+    // undercounted flywheel NFT revenue allocations.
+    const specific = Number(process.env[`PONDER_START_BLOCK_ROBINHOOD_${rhKey === 'ROBINHOOD_URU_ADDRESS' ? 'URU' : 'GEMU_NFT'}`] ?? '');
+    const startBlock = Number.isFinite(specific) && specific > 0 ? specific : readStartBlock('robinhood');
+    map.robinhood = { address: rhAddr, startBlock };
   }
   return map;
 }
