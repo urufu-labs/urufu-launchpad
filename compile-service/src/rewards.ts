@@ -35,6 +35,7 @@ import {
 import { privateKeyToAccount, type LocalAccount } from 'viem/accounts';
 
 import { sql } from './db.ts';
+import { MULTICALL3, gemuMintedCount, verifyHolderSnapshot, type HolderVerification } from './holders-verify.ts';
 
 // ---------------------------------------------------------------- config
 
@@ -473,44 +474,12 @@ const gemuCounterAbi = parseAbi([
   'function balanceOf(address) view returns (uint256)',
 ]);
 
-/// Canonical Multicall3, deployed on Robinhood (verified 2026-10-02).
-const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
-
-export function gemuMintedCount(maxAirdropId: bigint, airdropMinted: bigint, nextContinuationId: bigint): bigint {
-  const continuation = nextContinuationId > maxAirdropId + 1n ? nextContinuationId - (maxAirdropId + 1n) : 0n;
-  return airdropMinted + continuation;
-}
-
-export interface HolderVerification {
-  ok: boolean;
-  reason: string;
-}
-
-/// Pure check: the indexer snapshot is accepted only if (a) every listed
-/// holder's balance equals its on-chain balanceOf, and (b) the balances sum to
-/// exactly the minted count. (a) rules out wrong attributions, (b) rules out
-/// missing holders (a missing holder would make the sum fall short). If tokens
-/// are ever burned the sum falls below minted and this fails closed, which
-/// just routes the snapshot to the on-chain scan.
-export function verifyHolderSnapshot(
-  holders: Holder[],
-  onChainBalances: bigint[],
-  minted: bigint,
-): HolderVerification {
-  if (holders.length === 0) return { ok: false, reason: 'indexer returned no holders' };
-  if (onChainBalances.length !== holders.length) return { ok: false, reason: 'balance read count mismatch' };
-  let sum = 0n;
-  for (let i = 0; i < holders.length; i++) {
-    const h = holders[i]!;
-    const chain = onChainBalances[i]!;
-    if (chain !== h.balance) {
-      return { ok: false, reason: `balance mismatch for ${h.address}: indexer ${h.balance} vs chain ${chain}` };
-    }
-    sum += h.balance;
-  }
-  if (sum !== minted) return { ok: false, reason: `indexer total ${sum} != minted ${minted}` };
-  return { ok: true, reason: `all ${holders.length} balances match chain; total ${sum} == minted` };
-}
+// Verification is shared with the WL snapshot + NFT holders routes; it lives in
+// holders-verify.ts and is re-exported here so existing imports keep working.
+// Pure check: (a) every listed holder's balance equals its on-chain balanceOf,
+// (b) the balances sum to exactly the minted count. A burn makes the sum fall
+// below minted, which fails closed to the on-chain scan.
+export { gemuMintedCount, verifyHolderSnapshot, type HolderVerification } from './holders-verify.ts';
 
 /// Read the minted counters + every holder's balanceOf in Multicall3 batches.
 async function verifyIndexerHoldersOnChain(

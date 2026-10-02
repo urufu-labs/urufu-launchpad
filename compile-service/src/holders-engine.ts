@@ -152,13 +152,49 @@ export interface RpcOptions {
   fetchImpl?: typeof fetch;
   /// Injectable for tests (default: real timers).
   sleep?: (ms: number) => Promise<void>;
+  /// Injectable clock for tests (default: Date.now).
+  now?: () => number;
+  /// Total time budget for retrying rate-limited / transient failures on ONE
+  /// call. Default RPC_RETRY_BUDGET_MS (10 min): the official public RPC
+  /// throttles hard under load (2026-10-02: a WL snapshot of URU failed with
+  /// "rpc http 429" after ~24 s because the old policy gave up after 6 short
+  /// retries), and a background scan should outlast a throttle window rather
+  /// than throw away its progress.
+  retryBudgetMs?: number;
 }
 
-const MAX_RETRIES = 6;
-/// Process-wide cap on concurrent RPC requests from this module, so several
-/// simultaneous scans can't push the public endpoint into 429 throttling.
-const MAX_CONCURRENT = 3;
+const envNum = (k: string, d: number): number => {
+  const v = Number(process.env[k]);
+  return Number.isFinite(v) && v > 0 ? v : d;
+};
+/// Backoff for 429 / 5xx / -32005 / network errors: full-jitter exponential
+/// from RPC_BACKOFF_BASE_MS, capped at RPC_BACKOFF_MAX_MS per sleep, honoring
+/// Retry-After when the server sends one.
+const RPC_BACKOFF_BASE_MS = 500;
+const RPC_BACKOFF_MAX_MS = 60_000;
+const RPC_RETRY_BUDGET_MS = envNum('HOLDERS_RPC_RETRY_BUDGET_MS', 10 * 60 * 1000);
+/// Process-wide cap on concurrent RPC requests from this module. Kept at 2 for
+/// the official public RPC, which 429s quickly when pushed.
+const MAX_CONCURRENT = envNum('HOLDERS_RPC_CONCURRENCY', 2);
 let active = 0;
+/// Process-wide cool-down: after a 429, every request from this module waits
+/// until this time, so parallel scans back off together instead of hammering.
+let throttledUntil = 0;
+
+/// Parse a Retry-After header (delta-seconds or HTTP date) into milliseconds.
+export function parseRetryAfter(value: string | null | undefined, now: number = Date.now()): number | null {
+  if (!value) return null;
+  const s = value.trim();
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(Number(s) * 1000);
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : Math.max(0, t - now);
+}
+
+/// Full-jitter exponential backoff delay for `attempt` (0-based).
+export function backoffDelay(attempt: number, random: () => number = Math.random): number {
+  const ceiling = Math.min(RPC_BACKOFF_MAX_MS, RPC_BACKOFF_BASE_MS * 2 ** Math.min(attempt, 20));
+  return Math.max(RPC_BACKOFF_BASE_MS, Math.floor(random() * ceiling));
+}
 const waiters: Array<() => void> = [];
 async function acquire(): Promise<void> {
   if (active < MAX_CONCURRENT) { active++; return; }
@@ -177,14 +213,22 @@ export class RpcRangeError extends Error {}
 // (10k blocks OK, 100k busy; measured 2026-10-02), so treat it as a range error.
 const RANGE_HINT = /range|spans|too many|response size|limit exceeded|exceed|query returned more than|block range|network is busy/i;
 
-/// One JSON-RPC call with 429 / transient backoff. Range-style errors are
-/// surfaced as RpcRangeError so the caller can split the range.
+/// One JSON-RPC call. Rate limits (HTTP 429, JSON-RPC -32005 without a range
+/// hint), 5xx and network errors are retried with full-jitter exponential
+/// backoff (Retry-After honored) until the time budget runs out, so a throttle
+/// window never kills a scan. Range-style errors are surfaced immediately as
+/// RpcRangeError so the caller can split the range.
 export async function rpcCall<T>(url: string, method: string, params: unknown[], opts: RpcOptions = {}): Promise<T> {
   const f = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  const deadline = now() + (opts.retryBudgetMs ?? RPC_RETRY_BUDGET_MS);
   let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     if (opts.signal?.aborted) throw opts.signal.reason ?? new Error('aborted');
+    // Honor the process-wide cool-down set by a recent 429.
+    const wait = throttledUntil - now();
+    if (wait > 0) await sleep(wait);
     await acquire();
     let res: Response;
     try {
@@ -198,13 +242,18 @@ export async function rpcCall<T>(url: string, method: string, params: unknown[],
       release();
       if (opts.signal?.aborted) throw opts.signal.reason ?? err;
       lastErr = err;
-      await sleep(250 * 2 ** attempt);
+      if (now() >= deadline) break;
+      await sleep(backoffDelay(attempt));
       continue;
     }
     release();
     if (res.status === 429 || res.status >= 500) {
       lastErr = new Error(`rpc http ${res.status}`);
-      await sleep(250 * 2 ** attempt);
+      if (now() >= deadline) break;
+      const ra = res.status === 429 ? parseRetryAfter(res.headers?.get?.('retry-after'), now()) : null;
+      const delay = Math.min(RPC_BACKOFF_MAX_MS, ra ?? backoffDelay(attempt));
+      if (res.status === 429) throttledUntil = Math.max(throttledUntil, now() + delay);
+      await sleep(delay);
       continue;
     }
     const body = (await res.json()) as { result?: T; error?: { code?: number; message?: string } };
@@ -212,7 +261,10 @@ export async function rpcCall<T>(url: string, method: string, params: unknown[],
       const msg = body.error.message ?? '';
       if (body.error.code === -32005 && !RANGE_HINT.test(msg)) {
         lastErr = new Error(`rpc rate limited: ${msg}`);
-        await sleep(250 * 2 ** attempt);
+        if (now() >= deadline) break;
+        const delay = backoffDelay(attempt);
+        throttledUntil = Math.max(throttledUntil, now() + delay);
+        await sleep(delay);
         continue;
       }
       if (RANGE_HINT.test(msg)) throw new RpcRangeError(msg);
@@ -232,7 +284,7 @@ const MIN_RANGE = 1_000n;
 /// process rather than hard-coded.
 const learnedMaxRange = new Map<string, bigint>();
 /// Ranges fetched concurrently per scan (still bounded by MAX_CONCURRENT).
-const PARALLEL_RANGES = 3;
+const PARALLEL_RANGES = envNum('HOLDERS_RPC_PARALLEL_RANGES', 2);
 
 /// Parse "only N are allowed" style limits out of an RPC range error.
 export function parseAllowedRange(message: string): bigint | null {
@@ -255,7 +307,13 @@ export async function getTransferLogs(
   address: string,
   from: bigint,
   to: bigint,
-  opts: RpcOptions & { maxRange?: bigint } = {},
+  opts: RpcOptions & {
+    maxRange?: bigint;
+    /// Called once per completed range, IN BLOCK ORDER, with that range's logs
+    /// and its last block. Lets the caller commit progress incrementally so a
+    /// later failure doesn't discard ranges already fetched.
+    onChunk?: (logs: RawLog[], endBlock: bigint) => void;
+  } = {},
 ): Promise<RawLog[]> {
   const out: RawLog[] = [];
   const cap = opts.maxRange ?? DEFAULT_MAX_RANGE;
@@ -283,6 +341,7 @@ export async function getTransferLogs(
       if (r.status === 'fulfilled') {
         out.push(...r.value);
         cursor = batch[k]![1] + 1n;
+        opts.onChunk?.(r.value, batch[k]![1]);
         continue;
       }
       if (r.reason instanceof RpcRangeError) {
@@ -331,6 +390,8 @@ export async function scanHolders(args: {
   address: string;
   toBlock?: bigint;
   startBlock?: bigint;
+  /// Upper bound on the log range per eth_getLogs (tests; default DEFAULT_MAX_RANGE).
+  maxRange?: bigint;
 } & RpcOptions): Promise<HolderState> {
   const address = args.address.toLowerCase();
   const key = `${args.rpcUrl}|${address}`;
@@ -339,23 +400,25 @@ export async function scanHolders(args: {
   const run = (async () => {
     const tip = args.toBlock ?? (await latestBlock(args.rpcUrl, args));
     const entry = cache.get(key) ?? { state: newState(), touchedAt: Date.now() };
+    // Cache the entry up front so committed progress survives a failure.
+    cache.set(key, entry);
     const from = entry.state.lastBlock >= 0n ? entry.state.lastBlock + 1n : (args.startBlock ?? 0n);
     if (from <= tip) {
-      // Work on a copy so an aborted / failed scan never leaves half-applied state.
-      const next: HolderState = {
-        standard: entry.state.standard,
-        owners: new Map(entry.state.owners),
-        balances: new Map(entry.state.balances),
-        balances1155: new Map([...entry.state.balances1155].map(([k, v]) => [k, new Map(v)])),
-        lastBlock: entry.state.lastBlock,
-      };
-      const logs = await getTransferLogs(args.rpcUrl, address, from, tip, args);
-      applyLogs(next, logs);
-      next.lastBlock = tip;
-      entry.state = next;
+      // Commit range by range, in block order: after each completed range the
+      // state holds exactly every transfer up to `lastBlock`, so a failure or
+      // a long 429 throttle mid-scan keeps the progress and a retry resumes
+      // from there instead of re-scanning from block 0 (2026-10-02 fix).
+      await getTransferLogs(args.rpcUrl, address, from, tip, {
+        ...args,
+        onChunk: (logs, endBlock) => {
+          applyLogs(entry.state, logs);
+          entry.state.lastBlock = endBlock;
+          entry.touchedAt = Date.now();
+        },
+      });
+      entry.state.lastBlock = tip;
     }
     entry.touchedAt = Date.now();
-    cache.set(key, entry);
     evict();
     return entry.state;
   })();
@@ -372,6 +435,12 @@ export function _resetHolderCache(): void {
   cache.clear();
   inflight.clear();
   learnedMaxRange.clear();
+  throttledUntil = 0;
+}
+
+/// Cached state for a contract without scanning (null if never scanned).
+export function cachedHolderState(rpcUrl: string, address: string): HolderState | null {
+  return cache.get(`${rpcUrl}|${address.toLowerCase()}`)?.state ?? null;
 }
 
 /// Wait for `p`, but reject as soon as `signal` aborts. `p` itself keeps

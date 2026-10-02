@@ -14,6 +14,7 @@
 import type { FastifyInstance } from 'fastify';
 import { isAddress } from 'viem';
 import { holdersFromState, scanHolders } from '../holders-engine.ts';
+import { verifiedIndexerHolders } from '../holders-verify.ts';
 
 const CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_PAGE_SIZE = 100;
@@ -95,12 +96,33 @@ export async function registerNftHoldersRoutes(app: FastifyInstance): Promise<vo
       if (cached && cached.expiresAt > Date.now()) return reply.send(cached.value);
 
       try {
-        const state = await scanHolders({ rpcUrl: chain.rpcUrl(), address: contract });
+        // Verified indexer first (collections the indexer tracks, e.g. urufu
+        // gemu nft): accepted only when every balance matches chain and the
+        // total equals the minted count. Token ids aren't in the indexer's
+        // holders table, so this path returns empty tokenIds; the web never
+        // renders them (web/src/lib/nftHoldersApi.ts keeps the field for shape).
+        let rows: Array<{ address: string; balance: bigint; tokenIds: string[] }> | null = null;
+        if (process.env.INDEXER_URL) {
+          try {
+            const v = await verifiedIndexerHolders({ chainId: chain.chainId, token: contract, rpcUrl: chain.rpcUrl() });
+            if (v.verification.ok) {
+              rows = v.holders
+                .map((h) => ({ address: h.address, balance: h.balance, tokenIds: [] as string[] }))
+                .sort((a, b) => (a.balance === b.balance ? (a.address < b.address ? -1 : 1) : a.balance > b.balance ? -1 : 1));
+            }
+          } catch (err) {
+            app.log.warn({ err: err instanceof Error ? err.message : String(err), contract }, 'nft-holders: indexer path failed, scanning');
+          }
+        }
+        if (!rows) {
+          const state = await scanHolders({ rpcUrl: chain.rpcUrl(), address: contract });
+          rows = holdersFromState(state);
+        }
         const value: HoldersResult = {
           chainId: chain.chainId,
           chain: chain.id,
           contractAddress: contract,
-          ...pageHolders(holdersFromState(state), limit, cursor),
+          ...pageHolders(rows, limit, cursor),
         };
         cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
         appraiseCache();

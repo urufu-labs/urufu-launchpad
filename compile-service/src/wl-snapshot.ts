@@ -28,8 +28,13 @@
 /// In-memory cache keyed on the FULL policy tuple (see `_computeCacheKey`) so
 /// a stricter same-block caller never gets a permissive cached result.
 
-import { createPublicClient, http, type Address, type Hex, keccak256, encodePacked } from 'viem';
-import { holdersFromState, raceAbort, scanHolders } from './holders-engine.ts';
+import { type Address, type Hex, keccak256, encodePacked } from 'viem';
+import { holdersFromState, latestBlock, raceAbort, scanHolders } from './holders-engine.ts';
+import { verifiedIndexerHolders } from './holders-verify.ts';
+
+/// Chains whose tokens our Ponder indexer tracks (holders table). The verified
+/// indexer path is tried first only here, and only when INDEXER_URL is set.
+const INDEXER_CHAINS = new Set([4663]);
 
 /// Chains this snapshot service can read from. Robinhood always (public RPC
 /// unless ROBINHOOD_RPC_URL overrides). Ethereum / Base only when an RPC URL
@@ -188,6 +193,9 @@ export interface SnapshotResult {
   /// holder engine (Blockscout unavailable / errored). Full history, not
   /// truncated.
   fromRpcFallback: boolean;
+  /// Which source produced the holder set: 'indexer' (verified against chain,
+  /// see holders-verify.ts), 'blockscout', or 'rpc' (on-chain replay).
+  source?: 'indexer' | 'blockscout' | 'rpc';
 }
 
 /// Return shape from `fetchHoldersViaBlockscout`. Exposes the truncation
@@ -241,8 +249,8 @@ export class WlSnapshotTruncated extends Error {
 export class WlHolderCountExceedsCap extends Error {
   readonly holderCount: number;
   readonly maxHolderCount: number;
-  readonly source: 'blockscout' | 'rpc';
-  constructor(holderCount: number, maxHolderCount: number, source: 'blockscout' | 'rpc') {
+  readonly source: 'blockscout' | 'rpc' | 'indexer';
+  constructor(holderCount: number, maxHolderCount: number, source: 'blockscout' | 'rpc' | 'indexer') {
     super(
       `wl snapshot holder count ${holderCount} exceeds cap ${maxHolderCount} ` +
         `(source=${source}). Refusing to build Merkle tree — raise WL_MAX_HOLDER_COUNT ` +
@@ -388,22 +396,18 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // fail fast instead of firing off an RPC + Blockscout burst.
   if (signal?.aborted) throw signal.reason ?? new Error('wl snapshot aborted');
 
-  // FINDING 3 (HIGH): thread the caller's AbortSignal into every fetch viem
-  // makes so a client disconnect / route timeout kills in-flight RPC work.
-  // A fresh client per request keeps the signal scoped correctly (viem's
-  // http transport applies fetchOptions to every request the client makes).
-  const client = createPublicClient({
-    transport: http(rpc, signal ? { fetchOptions: { signal } } : undefined),
-  });
+  // FINDING 3 (HIGH): thread the caller's AbortSignal into every RPC call so a
+  // client disconnect / route timeout kills in-flight request work.
   // Bookend the snapshot with two block-tip reads. The reported `snapshotBlock`
   // is the START read (that's the tip our holder set is "as of"), and the END
   // read is compared against it to detect chain-tip drift while we paginated
   // Blockscout / scanned RPC — see WlSnapshotBlockDrift.
   //
-  // `cacheTime: 0` disables viem's default 4s block-number cache — a stale
-  // cached tip would make the drift check silently pass and defeat the whole
-  // purpose of the bookend.
-  const startBlock = await client.getBlockNumber({ cacheTime: 0 });
+  // Raw eth_blockNumber through the holder engine's rpcCall: no client-side
+  // block cache (a stale cached tip would defeat the drift check), and the same
+  // 429 backoff the scan uses, so a throttled public RPC doesn't fail the
+  // snapshot outright (2026-10-02: "rpc http 429").
+  const startBlock = await latestBlock(rpc, { signal });
   // Resolve minBalance BEFORE building the cache key — it's a policy input
   // that changes the eligible holder set and therefore the returned root.
   const minBal = req.minBalance ?? 1n;
@@ -433,6 +437,32 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   let partial = false;
   let pagesFetched: number | undefined;
   let fromRpcFallback = false;
+  let source: SnapshotResult['source'];
+
+  // 0. Indexer holders, used ONLY when proven against the chain: every
+  //    holder's balanceOf matches and the total equals totalSupply (or the
+  //    gemu minted count). Fast (one GraphQL walk + a few Multicall3 reads)
+  //    and avoids the public RPC's 429 throttling on full-history scans.
+  //    Anything unverifiable falls through to Blockscout / on-chain replay.
+  if (!eligible && process.env.INDEXER_URL && INDEXER_CHAINS.has(req.chainId)) {
+    try {
+      const v = await verifiedIndexerHolders(
+        { chainId: req.chainId, token: req.tokenAddress, rpcUrl: rpc },
+        { signal },
+      );
+      if (v.verification.ok) {
+        eligible = v.holders.filter((h) => h.balance >= minBal).map((h) => h.address as Address);
+        source = 'indexer';
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn(`wl-snapshot: indexer holders not used for ${req.tokenAddress}: ${v.verification.reason}`);
+      }
+    } catch (err) {
+      if (signal?.aborted) throw signal.reason ?? err;
+      // eslint-disable-next-line no-console
+      console.warn(`wl-snapshot: indexer path failed for ${req.tokenAddress}, falling back`, err);
+    }
+  }
 
   const explorerApi = EXPLORER_APIS[req.chainId];
   if (!eligible && explorerApi) {
@@ -480,6 +510,7 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
         partial = true;
       }
       eligible = bs.holders;
+      source = 'blockscout';
     }
   }
 
@@ -500,14 +531,21 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
       signal,
     );
     eligible = holdersFromState(state, minBal).map((h) => h.address as Address);
+    source = 'rpc';
   }
 
   // Re-read the tip and reject if it drifted too far — Blockscout's per-page
   // reads may have already been reflecting a newer tip than we're reporting
-  // in `snapshotBlock`, and we don't want silent freshness bugs. Same
-  // `cacheTime: 0` reason as the start read.
-  const endBlock = await client.getBlockNumber({ cacheTime: 0 });
-  if (endBlock > startBlock + maxDrift) {
+  // in `snapshotBlock`, and we don't want silent freshness bugs. Uncached raw
+  // read, same reason as the start read.
+  const endBlock = await latestBlock(rpc, { signal });
+  // The on-chain replay is computed EXACTLY as of `startBlock` (scanHolders
+  // toBlock: startBlock), so a long scan can't make it stale and the drift
+  // check would only reject a correct result. Measured 2026-10-02: a cold URU
+  // scan took ~86 s (868 blocks) and was rejected at the 600-block limit. The
+  // check still guards Blockscout pagination and the indexer path, whose reads
+  // reflect the tip at read time.
+  if (source !== 'rpc' && endBlock > startBlock + maxDrift) {
     throw new WlSnapshotBlockDrift(startBlock, endBlock, maxDrift);
   }
 
@@ -521,7 +559,7 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
     throw new WlHolderCountExceedsCap(
       eligible.length,
       maxHolderCount,
-      fromRpcFallback ? 'rpc' : 'blockscout',
+      fromRpcFallback ? 'rpc' : source === 'indexer' ? 'indexer' : 'blockscout',
     );
   }
 
@@ -542,6 +580,7 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
     partial,
     pagesFetched,
     fromRpcFallback,
+    source,
   };
 
   // Best-effort IPFS pin of the sorted holder list. Skipped silently if PINATA_JWT
