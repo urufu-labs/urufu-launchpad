@@ -53,6 +53,16 @@ contract RehearseDn404UruPairForkTest is Test {
     address internal erc20LaneMhh;
 
     function setUp() public {
+        // The deployment-*.json address books are gitignored, so CI (and any fresh
+        // clone) has none. Skip there instead of failing setUp; run these locally.
+        if (
+            !vm.exists("deployment-dn404.4663.json") || !vm.exists("deployment-live-rh.4663.json")
+                || !vm.exists("deployment-flywheel.4663.json") || !vm.exists("deployment.4663.json")
+                || !vm.exists("deployment-nft.4663.json")
+        ) {
+            vm.skip(true);
+            return;
+        }
         string memory rpc;
         try vm.envString("ROBINHOOD_RPC_URL") returns (string memory r) {
             rpc = r;
