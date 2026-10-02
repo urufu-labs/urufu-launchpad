@@ -45,7 +45,8 @@ export const OWNERSHIP_RENOUNCE = 0;
 /// BaseType enum — ERC20 is 0, first slot in the Solidity enum.
 export const BASE_ERC20 = 0;
 
-const RPC_URL = process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL ?? robinhoodChain.rpcUrls.default.http[0]!;
+// Public RPC only; never a NEXT_PUBLIC_ env URL (would ship in the bundle).
+const RPC_URL = robinhoodChain.rpcUrls.default.http[0]!;
 
 /// Cached client — createPublicClient is cheap but hot-path routes benefit from
 /// not re-wiring the transport each request.
