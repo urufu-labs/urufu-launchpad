@@ -397,7 +397,7 @@ export const NFT_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: false,
+  robinhood: true, // live 2026-10-02
   'robinhood-testnet': false,
 };
 
@@ -495,7 +495,7 @@ export const DN404_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: false,
+  robinhood: true, // live 2026-10-02
   'robinhood-testnet': false,
 };
 
