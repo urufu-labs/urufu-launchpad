@@ -1,5 +1,5 @@
 import { createConfig } from '@ponder/core';
-import { http, parseAbi, parseAbiItem } from 'viem';
+import { fallback, http, parseAbi, parseAbiItem } from 'viem';
 
 import {
   CHAIN_CATALOG,
@@ -372,12 +372,16 @@ function batchedTransport(rpcUrl: string) {
   // endpoint counts every call inside a batch toward its limit and answers a
   // 25-call batch with 429). Default stays batched for paid providers.
   const batch = process.env.RPC_BATCH === 'false' ? false : { batchSize: 100, wait: 20 };
-  return http(rpcUrl, {
-    batch,
-    fetchOptions: { keepalive: true },
-    retryCount: 5,
-    timeout: 15_000,
-  });
+  // Comma-separated list = viem fallback across free public endpoints, in
+  // order. On Robinhood (2026-10-02) no single free RPC does everything:
+  // ordofi serves realtime + 10k-block history, dRPC realtime only, the
+  // official RPC huge history ranges but is throttled. Any error/429 on one
+  // endpoint moves the request to the next.
+  const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean);
+  const one = (u: string, retryCount: number) =>
+    http(u, { batch, fetchOptions: { keepalive: true }, retryCount, timeout: 15_000 });
+  if (urls.length <= 1) return one(urls[0] ?? rpcUrl, 5);
+  return fallback(urls.map((u) => one(u, 1)), { retryCount: 3 });
 }
 
 /// Build the Ponder `networks` map. Every chain in ENABLED gets a network entry
