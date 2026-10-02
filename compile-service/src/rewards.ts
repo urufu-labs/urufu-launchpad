@@ -460,45 +460,124 @@ export async function fetchGemuHoldersFromChain(cfg: ChainConfig, pub: PublicCli
   return holders;
 }
 
-/// Fetch every current gemu-NFT holder. Priority is on-chain (Alchemy RPC via
-/// `pub.getLogs`) FIRST because Blockscout has been observed to silently return
-/// partial data on load (non-error, non-zero, just incomplete) which produced
-/// a bad epoch 1 Merkle tree that permanently locked ~0.11 ETH away from the
-/// holders it dropped. The on-chain walk uses the same Alchemy endpoint the
-/// rest of the pipeline trusts and is authoritative by construction.
+// ---------------------------------------------------------------- indexer verification
+
+/// ChibiCoreV2 (urufu gemu nft) has no totalSupply(). Its mint counters give
+/// the exact minted count: airdrop ids 1..airdropMintedCount, continuation ids
+/// MAX_AIRDROP_ID+1 .. nextContinuationId-1. Selectors read from the deployed
+/// bytecode 2026-10-02 (3,888 minted = the indexer's balance sum that day).
+const gemuCounterAbi = parseAbi([
+  'function MAX_AIRDROP_ID() view returns (uint256)',
+  'function airdropMintedCount() view returns (uint256)',
+  'function nextContinuationId() view returns (uint256)',
+  'function balanceOf(address) view returns (uint256)',
+]);
+
+/// Canonical Multicall3, deployed on Robinhood (verified 2026-10-02).
+const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11' as const;
+
+export function gemuMintedCount(maxAirdropId: bigint, airdropMinted: bigint, nextContinuationId: bigint): bigint {
+  const continuation = nextContinuationId > maxAirdropId + 1n ? nextContinuationId - (maxAirdropId + 1n) : 0n;
+  return airdropMinted + continuation;
+}
+
+export interface HolderVerification {
+  ok: boolean;
+  reason: string;
+}
+
+/// Pure check: the indexer snapshot is accepted only if (a) every listed
+/// holder's balance equals its on-chain balanceOf, and (b) the balances sum to
+/// exactly the minted count. (a) rules out wrong attributions, (b) rules out
+/// missing holders (a missing holder would make the sum fall short). If tokens
+/// are ever burned the sum falls below minted and this fails closed, which
+/// just routes the snapshot to the on-chain scan.
+export function verifyHolderSnapshot(
+  holders: Holder[],
+  onChainBalances: bigint[],
+  minted: bigint,
+): HolderVerification {
+  if (holders.length === 0) return { ok: false, reason: 'indexer returned no holders' };
+  if (onChainBalances.length !== holders.length) return { ok: false, reason: 'balance read count mismatch' };
+  let sum = 0n;
+  for (let i = 0; i < holders.length; i++) {
+    const h = holders[i]!;
+    const chain = onChainBalances[i]!;
+    if (chain !== h.balance) {
+      return { ok: false, reason: `balance mismatch for ${h.address}: indexer ${h.balance} vs chain ${chain}` };
+    }
+    sum += h.balance;
+  }
+  if (sum !== minted) return { ok: false, reason: `indexer total ${sum} != minted ${minted}` };
+  return { ok: true, reason: `all ${holders.length} balances match chain; total ${sum} == minted` };
+}
+
+/// Read the minted counters + every holder's balanceOf in Multicall3 batches.
+async function verifyIndexerHoldersOnChain(
+  cfg: ChainConfig,
+  pub: PublicClient,
+  holders: Holder[],
+): Promise<HolderVerification> {
+  const read = (functionName: 'MAX_AIRDROP_ID' | 'airdropMintedCount' | 'nextContinuationId') =>
+    pub.readContract({ address: cfg.gemuNftAddress, abi: gemuCounterAbi, functionName });
+  const [maxAirdropId, airdropMinted, nextContinuationId] = await Promise.all([
+    read('MAX_AIRDROP_ID'),
+    read('airdropMintedCount'),
+    read('nextContinuationId'),
+  ]);
+  const minted = gemuMintedCount(maxAirdropId, airdropMinted, nextContinuationId);
+  const balances = (await pub.multicall({
+    multicallAddress: MULTICALL3,
+    allowFailure: false,
+    batchSize: 16_384,
+    contracts: holders.map((h) => ({
+      address: cfg.gemuNftAddress,
+      abi: gemuCounterAbi,
+      functionName: 'balanceOf' as const,
+      args: [h.address] as const,
+    })),
+  })) as bigint[];
+  return verifyHolderSnapshot(holders, balances, minted);
+}
+
+/// Fetch every current gemu-NFT holder.
+///
+/// History: the on-chain Transfer walk used to go FIRST because Blockscout once
+/// returned silently partial data and produced a bad epoch 1 tree that locked
+/// ~0.11 ETH away from dropped holders. Since 2026-10-02 the RPC is a free,
+/// rate-limited public endpoint and the full walk is flaky (it failed that
+/// morning), while the indexer's gemu data was fixed (start block now the
+/// deploy block; 416 holders / 3,888 tokens, exact match with chain).
 ///
 /// Priority order:
-///   1. On-chain Transfer walk (Alchemy RPC) — canonical, no external
-///      indexer dependency, ~30-60s for ~18M-block range at 9500/chunk.
-///   2. Ponder indexer — kept only for fast local dev when the RPC is slow
-///      or rate-limited. Won't be reached in prod given how fast Alchemy is.
-///   3. Blockscout — DEMOTED to last-resort. If both above fail, better to
-///      publish a partial epoch than none at all, but log loudly.
+///   1. Ponder indexer, ACCEPTED ONLY IF VERIFIED against the contract:
+///      every holder's balanceOf matches and the total equals the minted
+///      count (a few Multicall3 reads). Fails closed on any mismatch.
+///   2. On-chain Transfer walk — canonical, slow on the public RPC.
+///   3. Blockscout — last resort, logged loudly.
 async function fetchGemuHolders(cfg: ChainConfig, pub: PublicClient): Promise<Holder[]> {
+  try {
+    const fromIndexer = await fetchGemuHoldersFromIndexer(cfg);
+    const v = await verifyIndexerHoldersOnChain(cfg, pub, fromIndexer);
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: fromIndexer.length, verified: v.ok, detail: v.reason }));
+    if (v.ok) return fromIndexer;
+  } catch (err) {
+    // Round-2 audit FINDING 4: never swallow the holder-cap signal.
+    if (err instanceof IndexerHolderCountExceedsCap) throw err;
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'chain' }));
+  }
   try {
     const fromChain = await fetchGemuHoldersFromChain(cfg, pub);
     if (fromChain.length > 0) {
       console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: fromChain.length }));
       return fromChain;
     }
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: 0, fallback: 'indexer' }));
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', count: 0, fallback: 'blockscout' }));
   } catch (err) {
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', error: (err as Error).message, fallback: 'indexer' }));
+    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'chain', error: (err as Error).message, fallback: 'blockscout' }));
   }
-  try {
-    const fromIndexer = await fetchGemuHoldersFromIndexer(cfg);
-    if (fromIndexer.length > 0) {
-      console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: fromIndexer.length }));
-      return fromIndexer;
-    }
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', count: 0, fallback: 'blockscout' }));
-  } catch (err) {
-    // Round-2 audit FINDING 4: cap-exceeded errors are load-bearing signals —
-    // never silently swallow them into a fallback. Rethrow so the operator
-    // sees the loud message and decides whether to raise the cap.
-    if (err instanceof IndexerHolderCountExceedsCap) throw err;
-    console.log(JSON.stringify({ rewards: 'fetchHolders', source: 'indexer', error: (err as Error).message, fallback: 'blockscout' }));
-  }
+  // No unverified-indexer fallback here on purpose: an unverified snapshot is
+  // exactly the silently-partial failure that lost ~0.11 ETH in epoch 1.
   if (cfg.blockscoutUrl) {
     try {
       const fromBs = await fetchGemuHoldersFromBlockscout(cfg);

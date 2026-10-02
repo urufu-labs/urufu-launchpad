@@ -1570,3 +1570,40 @@ test('H3 AC #2 reconcile with mismatched total flags conflict AND preserves leav
   assert.equal(state.leaves.length, 2, 'leaves must be preserved for post-mortem');
   assert.equal(state.epochs.length, 0, 'no rewards_epochs mirror for a conflicted row');
 });
+
+// ---- indexer-first gemu holder snapshot, verified against the contract ----
+// Added 2026-10-02: the indexer is used only when every holder's balance
+// matches chain and the total equals the minted count. Fails closed otherwise.
+import { gemuMintedCount, verifyHolderSnapshot } from './rewards.ts';
+
+test('gemuMintedCount: live ChibiCoreV2 counters (2026-10-02) = 3,888', () => {
+  assert.equal(gemuMintedCount(1909n, 1909n, 3889n), 3888n);
+});
+
+test('gemuMintedCount: no continuation mints yet', () => {
+  assert.equal(gemuMintedCount(1909n, 1200n, 1910n), 1200n);
+});
+
+const A = '0x00000000000000000000000000000000000000a1' as const;
+const B = '0x00000000000000000000000000000000000000b2' as const;
+
+test('verifyHolderSnapshot: exact match is accepted', () => {
+  const v = verifyHolderSnapshot([{ address: A, balance: 3n }, { address: B, balance: 2n }], [3n, 2n], 5n);
+  assert.equal(v.ok, true);
+});
+
+test('verifyHolderSnapshot: a missing holder (sum short of minted) is rejected', () => {
+  const v = verifyHolderSnapshot([{ address: A, balance: 3n }], [3n], 5n);
+  assert.equal(v.ok, false);
+  assert.match(v.reason, /!= minted/);
+});
+
+test('verifyHolderSnapshot: a wrong attribution (balance mismatch) is rejected', () => {
+  const v = verifyHolderSnapshot([{ address: A, balance: 4n }, { address: B, balance: 1n }], [3n, 2n], 5n);
+  assert.equal(v.ok, false);
+  assert.match(v.reason, /balance mismatch/);
+});
+
+test('verifyHolderSnapshot: empty indexer result is rejected', () => {
+  assert.equal(verifyHolderSnapshot([], [], 5n).ok, false);
+});
