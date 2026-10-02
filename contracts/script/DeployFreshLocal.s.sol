@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 
 // Core
 import {NameRegistry} from "src/registry/NameRegistry.sol";
@@ -801,6 +802,11 @@ contract DeployFreshLocal is Script {
         vm.serializeAddress(o, "ERC721AFactory", s.erc721AFactory);
         vm.serializeAddress(o, "ERC1155Factory", s.erc1155Factory);
         string memory json = vm.serializeAddress(o, "CurveFactory", s.curveFactory);
+        // Never write the address book from `forge test`. Fork tests (e.g.
+        // test/audit/DeployPathRhFork.t.sol) run this script on a chainid-4663
+        // fork, and the write used to overwrite the real local
+        // deployment.4663.json with throwaway test addresses (2026-10-01).
+        if (vm.isContext(VmSafe.ForgeContext.Test)) return;
         vm.writeJson(json, string.concat("./deployment.", vm.toString(block.chainid), ".json"));
     }
 

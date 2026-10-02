@@ -14,6 +14,9 @@ contract ERC721ATemplateTest is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
     address internal stranger = makeAddr("stranger");
+    /// Mint module role. Since 9ba7e03 (NFT V5 two-role model) initialize
+    /// takes `minter_` as its second field and reverts on address(0).
+    address internal minter = makeAddr("minter");
 
     bytes4 internal constant UNAUTHORIZED_SELECTOR = 0x82b42900;
 
@@ -28,8 +31,9 @@ contract ERC721ATemplateTest is Test {
         string memory symbol_,
         string memory baseURI_,
         uint256 maxSupply_
-    ) internal pure returns (bytes memory) {
-        return abi.encode(owner_, name_, symbol_, baseURI_, maxSupply_, new bytes[](0));
+    ) internal view returns (bytes memory) {
+        // Current layout (9ba7e03): (initialOwner, minter_, name, symbol, baseURI, maxSupply, moduleData).
+        return abi.encode(owner_, minter, name_, symbol_, baseURI_, maxSupply_, new bytes[](0));
     }
 
     // =========================================================
@@ -84,11 +88,27 @@ contract ERC721ATemplateTest is Test {
         assertEq(token.totalMinted(), 5);
     }
 
+    /// Since 9ba7e03 mintBatch is open to the bound `minter` OR `owner()`;
+    /// anyone else reverts with ERC721ATemplate__NotMinter (no longer Ownable's
+    /// Unauthorized).
     function test_Mint_OnlyOwner() public {
         token.initialize(_initData(owner, "N", "N", "", 100));
-        vm.expectRevert(UNAUTHORIZED_SELECTOR);
+        vm.expectRevert(ERC721ATemplate.ERC721ATemplate__NotMinter.selector);
         vm.prank(stranger);
         token.mintBatch(alice, 1);
+    }
+
+    function test_Mint_MinterCanMint() public {
+        token.initialize(_initData(owner, "N", "N", "", 100));
+        assertEq(token.minter(), minter);
+        vm.prank(minter);
+        token.mintBatch(alice, 2);
+        assertEq(token.balanceOf(alice), 2);
+    }
+
+    function test_Initialize_RevertsOnZeroMinter() public {
+        vm.expectRevert(ERC721ATemplate.ERC721ATemplate__NotMinter.selector);
+        token.initialize(abi.encode(owner, address(0), "N", "N", "", uint256(100), new bytes[](0)));
     }
 
     function test_Mint_RevertsOnZeroQuantity() public {
@@ -125,7 +145,7 @@ contract ERC721ATemplateTest is Test {
         token.initialize(_initData(owner, "N", "N", "", 100));
         vm.prank(owner);
         token.mintBatch(alice, 3);
-        // ERC-721A defaults to _startTokenId() = 0 → token IDs are 0, 1, 2.
+        // _startTokenId() = 1 since 03c7b47 → token IDs are 1, 2, 3.
         vm.prank(alice);
         token.transferFrom(alice, bob, 1);
         assertEq(token.ownerOf(1), bob);
@@ -157,7 +177,8 @@ contract ERC721ATemplateTest is Test {
         token.initialize(_initData(owner, "N", "N", "ipfs://base/", 100));
         vm.prank(owner);
         token.mintBatch(alice, 3);
-        assertEq(token.tokenURI(1), "ipfs://base/1");
+        // tokenURI appends ".json" since 6eb2fc2 (NFT V4).
+        assertEq(token.tokenURI(1), "ipfs://base/1.json");
     }
 
     // =========================================================
