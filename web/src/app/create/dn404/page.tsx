@@ -434,7 +434,8 @@ function CreateDn404Form() {
 
   const previewTitle = name.trim() || 'your collection';
   const previewTicker = ticker || '???';
-  const tickLabel = ticker || 'TICK';
+  // Before a ticker is typed, read naturally ("spend ETH to get tokens").
+  const tickLabel = ticker || 'tokens';
   const pauseTicket = PAUSE_OPTIONS.find((p) => p.blocks === antiSniperBlocks)?.ticket ?? 'none';
 
   return (
