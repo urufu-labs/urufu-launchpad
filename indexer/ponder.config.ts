@@ -368,8 +368,12 @@ function batchedTransport(rpcUrl: string) {
   // retryCount 5 (was 3) — public RPCs 429 during bursts; a couple more
   // retries with the transport's built-in exponential backoff smooths that
   // out without blocking forward progress.
+  // RPC_BATCH=false for rate-limited public RPCs (e.g. Robinhood's public
+  // endpoint counts every call inside a batch toward its limit and answers a
+  // 25-call batch with 429). Default stays batched for paid providers.
+  const batch = process.env.RPC_BATCH === 'false' ? false : { batchSize: 100, wait: 20 };
   return http(rpcUrl, {
-    batch: { batchSize: 100, wait: 20 },
+    batch,
     fetchOptions: { keepalive: true },
     retryCount: 5,
     timeout: 15_000,
@@ -416,6 +420,9 @@ const networks = {
       // take 2+ min to show (seen 2026-10-01). Ponder fetches every block in
       // realtime either way, so this changes latency, not RPC volume much.
       pollingInterval: 5_000,
+      // Cap request rate for the public RPC (measured 2026-10-02: ~20-35 req/s
+      // before 429s, heavy throttling past that). Ponder default is 50.
+      maxRequestsPerSecond: Number(process.env.PONDER_MAX_RPS_ROBINHOOD ?? 50),
     },
   }),
   ...(has('robinhood-testnet') && {
