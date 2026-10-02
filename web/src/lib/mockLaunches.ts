@@ -1,6 +1,7 @@
 import type { Address } from 'viem';
 import { parseEther } from 'viem';
 import { isHiddenToken } from './hiddenTokens';
+import { isPairLaunch, pairMarketCapEth, pairSpotWeiPerToken } from './dn404Feed';
 
 /// Static preview data for the pump.fun-style discover feed + trade page. Any address that
 /// matches one of these fixtures gets served mock reserves / trades / metadata instead of the
@@ -71,6 +72,21 @@ export interface MockLaunch {
   /// Browser-created record rather than a seeded fixture. Lets compact surfaces such as
   /// Home prioritise the launch a reviewer just made without changing the fixtures.
   isDemo?: boolean;
+  /// DN404 launches only. Set by useLaunchFeed when it merges DN404 tokens into the
+  /// feed (see dn404Feed.ts). Router launches leave all of these unset.
+  lane?: 'dn404';
+  /// The DN404 mirror ERC-721 (the NFT half). Collection page: /collection/<mirror>.
+  mirror?: Address;
+  /// Curve pair currency. Zero address or unset = ETH. Anything else (URU today)
+  /// means ethReserve / virtualEthReserve / graduationTargetEth hold PAIR units.
+  pairCurrency?: Address;
+  /// Label for pair units, e.g. "URU". Unset for ETH curves.
+  pairSymbol?: string;
+  /// ETH wei per 1 whole pair token (1e18-scaled), from the live URU/WETH pool.
+  /// Price + market-cap helpers use it so pair launches compare in ETH.
+  ethPerPairX18?: bigint;
+  /// Graduated pair pools: newest swap price, pair units per whole token (1e18).
+  poolSpotPairPerTokenX18?: bigint;
 }
 
 export interface MockLaunchSeed {
@@ -570,6 +586,9 @@ export function mockProgressPct(l: MockLaunch): number {
 /// Previously discover computed its own version straight from curve reserves, which
 /// silently returned wrong numbers post-graduation (reserves are drained to 0).
 export function mockSpotPriceWei(l: MockLaunch): bigint {
+  // URU-paired DN404: reserves are in URU; convert to ETH so every surface
+  // (formatPrice, USD toggle, sorts) stays in ETH.
+  if (isPairLaunch(l)) return pairSpotWeiPerToken(l);
   if (l.graduated && l.poolLatestSqrtPriceX96 && l.poolLatestSqrtPriceX96 > 0n) {
     const sqSq = l.poolLatestSqrtPriceX96 * l.poolLatestSqrtPriceX96;
     if (sqSq === 0n) return 0n;
@@ -581,6 +600,7 @@ export function mockSpotPriceWei(l: MockLaunch): bigint {
 }
 
 export function mockMarketCapEth(l: MockLaunch): bigint {
+  if (isPairLaunch(l)) return pairMarketCapEth(l);
   // Graduated tokens: derive spot from the newest v4 pool sqrtPriceX96. The curve
   // reserves were drained to 0 during graduation, so the pre-grad math below would
   // silently return 0 for every graduated token. Same inversion the trade page uses:

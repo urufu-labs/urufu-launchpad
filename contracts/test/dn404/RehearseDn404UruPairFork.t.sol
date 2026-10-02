@@ -16,7 +16,9 @@ import {PoolId} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IErc20View {
-    function balanceOf(address who) external view returns (uint256);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
 }
 
 /// @title  RehearseDn404UruPairForkTest
@@ -81,7 +83,7 @@ contract RehearseDn404UruPairForkTest is Test {
         uint256 virtTok = cf.defaultVirtualTokenReserve();
         uint16 feeBps = cf.defaultTradeFeeBps();
         vm.prank(DEPLOYER);
-        cf.setDefaults(supply, virtTok, 5_000e18, 4_000e18, feeBps);
+        cf.setDefaults(supply, virtTok, 5000e18, 4000e18, feeBps);
 
         script = new RehearseDn404UruPair();
     }
@@ -133,8 +135,7 @@ contract RehearseDn404UruPairForkTest is Test {
         assertEq(emittedHook, dn404Mhh, "graduator seeded a different hook than the DN404 host");
 
         // ---- no cliff: pool opening price == curve marginal price
-        uint256 curvePriceX18 =
-            ((c.virtualEthReserve() + pairAmount) * 1e18) / (c.virtualTokenReserve() + tokenAmount);
+        uint256 curvePriceX18 = ((c.virtualEthReserve() + pairAmount) * 1e18) / (c.virtualTokenReserve() + tokenAmount);
         bool pairIsC0 = r.currency0 == RH_URU;
         assertEq(r.currency1, pairIsC0 ? r.base : RH_URU, "currency ordering inconsistent");
         uint256 sq = uint256(slotSqrt);

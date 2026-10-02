@@ -46,30 +46,65 @@ contract MockErc20 {
     mapping(address => mapping(address => uint256)) public allowance;
     event Transfer(address indexed from, address indexed to, uint256 amount);
     event Approval(address indexed owner, address indexed spender, uint256 amount);
-    constructor(string memory n, string memory s) { name = n; symbol = s; }
-    function mint(address to, uint256 amount) external {
-        totalSupply += amount; balanceOf[to] += amount;
+
+    constructor(
+        string memory n,
+        string memory s
+    ) {
+        name = n;
+        symbol = s;
+    }
+
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
+        totalSupply += amount;
+        balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
     }
-    function approve(address spender, uint256 amount) external returns (bool) {
+
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool) {
         allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount); return true;
+        emit Approval(msg.sender, spender, amount);
+        return true;
     }
-    function transfer(address to, uint256 amount) external returns (bool) {
-        balanceOf[msg.sender] -= amount; balanceOf[to] += amount;
-        emit Transfer(msg.sender, to, amount); return true;
+
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(msg.sender, to, amount);
+        return true;
     }
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
-        balanceOf[from] -= amount; balanceOf[to] += amount;
-        emit Transfer(from, to, amount); return true;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
+        return true;
     }
 }
 
 contract MockNftFactoryFee {
     uint256 public minUruFee;
-    function set(uint256 v) external { minUruFee = v; }
+
+    function set(
+        uint256 v
+    ) external {
+        minUruFee = v;
+    }
 }
 
 /// Stand-in graduator. Just needs to have code (URU-A05 requires code
@@ -78,20 +113,33 @@ contract MockNftFactoryFee {
 /// to graduation, we only exercise pre-graduation buys.
 contract MockDn404Graduator {
     function execute(
-        address, address, uint256, uint256, uint32, uint16, address
+        address,
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
     ) external {
         // no-op
     }
 }
 
 interface IErc20Min {
-    function balanceOf(address who) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
     function totalSupply() external view returns (uint256);
 }
 
 interface IDn404MirrorView {
-    function balanceOf(address who) external view returns (uint256);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
     function baseERC20() external view returns (address);
 }
 
@@ -143,10 +191,7 @@ contract Dn404PairCurrencyTest is Test {
         allowlist = new Dn404PairCurrencyAllowlist(owner, seedTokens, seedLabels);
 
         dn404CurveFactory = new Dn404CurveFactory(
-            owner,
-            feeSplitter,
-            address(curveImpl),
-            IDn404PairCurrencyAllowlist(address(allowlist))
+            owner, feeSplitter, address(curveImpl), IDn404PairCurrencyAllowlist(address(allowlist))
         );
         graduator = new MockDn404Graduator();
         vm.prank(owner);
@@ -161,12 +206,7 @@ contract Dn404PairCurrencyTest is Test {
         vm.startPrank(owner);
         factory.setExpectedCodeHashes(baseHash, mirrorHash);
         factory.setImpls(address(baseImpl), address(mirrorImpl));
-        factory.setUruConfig(
-            FactoryIERC20(address(uru)),
-            uruSink,
-            DN404_URU_FEE,
-            FactoryILoyalty(address(0))
-        );
+        factory.setUruConfig(FactoryIERC20(address(uru)), uruSink, DN404_URU_FEE, FactoryILoyalty(address(0)));
         factory.setFeeSplitter(feeSplitter);
         // Only wire Dn404CurveFactory here — leaving V10 curveFactory
         // unset means ETH-path launches would revert CurveFactoryNotSet,
@@ -178,7 +218,7 @@ contract Dn404PairCurrencyTest is Test {
         vm.stopPrank();
 
         // Fund the launcher (URU for launch fee) and buyer (USDG for buys).
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         usdg.mint(buyer, 10_000_000e18);
         vm.prank(launcher);
         uru.approve(address(factory), type(uint256).max);
@@ -259,8 +299,7 @@ contract Dn404PairCurrencyTest is Test {
         vm.prank(launcher);
         vm.expectRevert(
             abi.encodeWithSelector(
-                Dn404CurveFactory.Dn404CurveFactory__PairCurrencyDisallowed.selector,
-                address(unallowlisted)
+                Dn404CurveFactory.Dn404CurveFactory__PairCurrencyDisallowed.selector, address(unallowlisted)
             )
         );
         factory.launch(p);
@@ -279,12 +318,7 @@ contract Dn404PairCurrencyTest is Test {
         vm.startPrank(owner);
         freshFactory.setExpectedCodeHashes(baseHash, mirrorHash);
         freshFactory.setImpls(address(baseImpl), address(mirrorImpl));
-        freshFactory.setUruConfig(
-            FactoryIERC20(address(uru)),
-            uruSink,
-            DN404_URU_FEE,
-            FactoryILoyalty(address(0))
-        );
+        freshFactory.setUruConfig(FactoryIERC20(address(uru)), uruSink, DN404_URU_FEE, FactoryILoyalty(address(0)));
         // Do NOT call setDn404CurveFactory
         vm.stopPrank();
 
@@ -318,7 +352,7 @@ contract Dn404PairCurrencyTest is Test {
 
         // Same launcher, same params, retry — now succeeds.
         vm.prank(launcher);
-        (, , address curve) = factory.launch(p);
+        (,, address curve) = factory.launch(p);
         assertEq(Dn404BondingCurve(curve).pairCurrency(), address(unallowlisted));
     }
 

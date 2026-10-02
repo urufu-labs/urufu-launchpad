@@ -216,12 +216,8 @@ contract DeployDn404Lane is Script {
         // -- 1..2: registries. Constructed empty; governance populates via
         //         setAllowedBatch post-deploy. Keeps this script authority-
         //         scoped to code, not policy.
-        out.pairCurrencyAllowlist = address(
-            new Dn404PairCurrencyAllowlist(i.admin, new address[](0), new string[](0))
-        );
-        out.taxAllowlist = address(
-            new Dn404TaxAllowlist(i.admin, new address[](0), new string[](0))
-        );
+        out.pairCurrencyAllowlist = address(new Dn404PairCurrencyAllowlist(i.admin, new address[](0), new string[](0)));
+        out.taxAllowlist = address(new Dn404TaxAllowlist(i.admin, new address[](0), new string[](0)));
 
         // -- 3..6: cloneable impls + curve impl. Their runtime code hashes
         //         pin the launch factory in step (c), so read via .code.
@@ -235,10 +231,7 @@ contract DeployDn404Lane is Script {
         //       piggybacks on the V10 FeeReceiver so per-trade fees stream
         //       into the same sink the ERC-20 lane already uses.
         Dn404CurveFactory dn404Cf = new Dn404CurveFactory(
-            i.admin,
-            i.feeSplitter,
-            out.bondingCurveImpl,
-            IDn404PairCurrencyAllowlist(out.pairCurrencyAllowlist)
+            i.admin, i.feeSplitter, out.bondingCurveImpl, IDn404PairCurrencyAllowlist(out.pairCurrencyAllowlist)
         );
         out.curveFactory = address(dn404Cf);
 
@@ -301,12 +294,7 @@ contract DeployDn404Lane is Script {
         // -- g..h: URU fee + fee splitter wiring. minUruFee from the
         //         constructor's 2× read is preserved — passing minUruFee()
         //         back in keeps it unchanged.
-        lf.setUruConfig(
-            FactoryIERC20(i.uru),
-            i.uruSink,
-            lf.minUruFee(),
-            ILoyaltyOracleLike(i.loyaltyOracle)
-        );
+        lf.setUruConfig(FactoryIERC20(i.uru), i.uruSink, lf.minUruFee(), ILoyaltyOracleLike(i.loyaltyOracle));
         lf.setFeeSplitter(i.feeSplitter);
 
         // -- i..j: both curve factory routes. i wires the ETH path (V10),
@@ -354,11 +342,11 @@ contract DeployDn404Lane is Script {
         bytes memory creation = type(MultiHookHost).creationCode;
         bytes memory args = abi.encode(
             IPoolManager(i.poolManager),
-            i.feeSplitter,     // platform (fee recipient)
-            i.admin,           // fallback creator (only fires for pools that skip setCreator)
+            i.feeSplitter, // platform (fee recipient)
+            i.admin, // fallback creator (only fires for pools that skip setCreator)
             i.mhhPlatformBps,
             i.mhhCreatorBps,
-            i.admin            // deployer — pins the one-shot setInitializer caller to admin
+            i.admin // deployer — pins the one-shot setInitializer caller to admin
         );
 
         // Both `forge script` (via broadcast) and `forge test` (via runForTest)
@@ -402,13 +390,9 @@ contract DeployDn404Lane is Script {
         );
 
         // DN404 CurveFactory wiring
+        require(Dn404CurveFactory(d.curveFactory).graduator() == d.graduator, "Dn404 CF.graduator != Dn404 Graduator");
         require(
-            Dn404CurveFactory(d.curveFactory).graduator() == d.graduator,
-            "Dn404 CF.graduator != Dn404 Graduator"
-        );
-        require(
-            Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory),
-            "Dn404 CF must trust Dn404 LaunchFactory"
+            Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory), "Dn404 CF must trust Dn404 LaunchFactory"
         );
         require(
             Dn404CurveFactory(d.curveFactory).implementation() == d.bondingCurveImpl,
@@ -427,12 +411,8 @@ contract DeployDn404Lane is Script {
             address(Dn404LaunchFactory(d.launchFactory).dn404CurveFactory()) == d.curveFactory,
             "LF.dn404CurveFactory != Dn404 CF"
         );
-        require(
-            Dn404LaunchFactory(d.launchFactory).taxKeeper() == i.taxKeeper, "LF.taxKeeper mismatch"
-        );
-        require(
-            Dn404LaunchFactory(d.launchFactory).taxAllowlist() == d.taxAllowlist, "LF.taxAllowlist mismatch"
-        );
+        require(Dn404LaunchFactory(d.launchFactory).taxKeeper() == i.taxKeeper, "LF.taxKeeper mismatch");
+        require(Dn404LaunchFactory(d.launchFactory).taxAllowlist() == d.taxAllowlist, "LF.taxAllowlist mismatch");
     }
 
     // ============================================================

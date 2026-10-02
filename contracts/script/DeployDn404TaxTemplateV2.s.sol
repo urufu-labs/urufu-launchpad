@@ -7,7 +7,10 @@ import {Dn404TaxTemplateV2} from "src/dn404/Dn404TaxTemplateV2.sol";
 interface IDn404LaunchFactoryAdmin {
     function owner() external view returns (address);
     function baseTaxImpl() external view returns (address);
-    function setBaseTaxImpl(address impl, bytes32 expectedCodeHash) external;
+    function setBaseTaxImpl(
+        address impl,
+        bytes32 expectedCodeHash
+    ) external;
 }
 
 interface IGraduatorView {

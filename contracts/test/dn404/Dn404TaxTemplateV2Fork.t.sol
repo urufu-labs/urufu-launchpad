@@ -19,17 +19,29 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IErc20 {
-    function balanceOf(address) external view returns (uint256);
-    function approve(address, uint256) external returns (bool);
-    function transfer(address, uint256) external returns (bool);
+    function balanceOf(
+        address
+    ) external view returns (uint256);
+    function approve(
+        address,
+        uint256
+    ) external returns (bool);
+    function transfer(
+        address,
+        uint256
+    ) external returns (bool);
 }
 
 interface IDn404Skip {
-    function setSkipNFT(bool) external returns (bool);
+    function setSkipNFT(
+        bool
+    ) external returns (bool);
 }
 
 interface IV10Curve {
-    function buy(uint256 minTokensOut) external payable returns (uint256);
+    function buy(
+        uint256 minTokensOut
+    ) external payable returns (uint256);
     function graduated() external view returns (bool);
     function graduationTargetEth() external view returns (uint256);
     function virtualEthReserve() external view returns (uint256);
@@ -37,18 +49,32 @@ interface IV10Curve {
 }
 
 interface IPermit2 {
-    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+    function approve(
+        address token,
+        address spender,
+        uint160 amount,
+        uint48 expiration
+    ) external;
 }
 
 interface IUniversalRouter {
-    function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
+    function execute(
+        bytes calldata commands,
+        bytes[] calldata inputs,
+        uint256 deadline
+    ) external payable;
 }
 
 interface IHookLedger {
-    function owed(Currency currency, address account) external view returns (uint256);
+    function owed(
+        Currency currency,
+        address account
+    ) external view returns (uint256);
     function platform() external view returns (address);
     function creator() external view returns (address);
-    function creators(PoolId id) external view returns (address);
+    function creators(
+        PoolId id
+    ) external view returns (address);
 }
 
 /// Robinhood's Universal Router decodes the NEWER v4-periphery struct, with
@@ -142,17 +168,18 @@ contract Dn404TaxTemplateV2ForkTest is Test {
 
     // ================================================================ helpers
 
-    function _launch(string memory name, address pair, Dn404TaxTemplate.TaxMode mode)
-        internal
-        returns (address base, address curve)
-    {
+    function _launch(
+        string memory name,
+        address pair,
+        Dn404TaxTemplate.TaxMode mode
+    ) internal returns (address base, address curve) {
         uint256 fee = lf.minUruFeeFor(launcher);
         Dn404LaunchFactory.LaunchParams memory p;
         p.name = name;
         p.ticker = "TAXV2";
         p.baseURI = "ipfs://v2/";
         p.contractURI = "ipfs://v2/collection.json";
-        p.collectionSize = 8_000;
+        p.collectionSize = 8000;
         p.unit = 100_000;
         p.pairCurrency = pair;
         p.taxMode = uint8(mode);
@@ -165,19 +192,32 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         assertEq(Dn404TaxTemplateV2(payable(base)).GRADUATOR_ETH(), gradEth, "clone not on V2 impl");
     }
 
-    function _key(address a, address b, address hook) internal pure returns (PoolKey memory k) {
+    function _key(
+        address a,
+        address b,
+        address hook
+    ) internal pure returns (PoolKey memory k) {
         (address c0, address c1) = a < b ? (a, b) : (b, a);
-        k = PoolKey({currency0: Currency.wrap(c0), currency1: Currency.wrap(c1), fee: 3000, tickSpacing: 60, hooks: IHooks(hook)});
+        k = PoolKey({
+            currency0: Currency.wrap(c0), currency1: Currency.wrap(c1), fee: 3000, tickSpacing: 60, hooks: IHooks(hook)
+        });
     }
 
-    function _approveUr(address who, address token) internal {
+    function _approveUr(
+        address who,
+        address token
+    ) internal {
         vm.startPrank(who);
         IErc20(token).approve(PERMIT2, type(uint256).max);
         IPermit2(PERMIT2).approve(token, UR, type(uint160).max, uint48(block.timestamp + 30 days));
         vm.stopPrank();
     }
 
-    function _swapParams(PoolKey memory key, bool zeroForOne, uint128 amountIn) internal pure returns (bytes memory) {
+    function _swapParams(
+        PoolKey memory key,
+        bool zeroForOne,
+        uint128 amountIn
+    ) internal pure returns (bytes memory) {
         return abi.encode(
             RhExactInputSingleParams({
                 poolKey: key,
@@ -191,10 +231,13 @@ contract Dn404TaxTemplateV2ForkTest is Test {
     }
 
     /// Normal exact-in order: SWAP(amountIn), SETTLE_ALL(in), TAKE_ALL(out).
-    function _normalSwap(address who, PoolKey memory key, bool zeroForOne, uint256 amountIn, uint256 value)
-        internal
-        returns (uint256 gasUsed)
-    {
+    function _normalSwap(
+        address who,
+        PoolKey memory key,
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 value
+    ) internal returns (uint256 gasUsed) {
         Currency cin = zeroForOne ? key.currency0 : key.currency1;
         Currency cout = zeroForOne ? key.currency1 : key.currency0;
         bytes[] memory params = new bytes[](3);
@@ -212,10 +255,12 @@ contract Dn404TaxTemplateV2ForkTest is Test {
     /// Fee-on-transfer-safe exact-in order: SETTLE(in, amount, payerIsUser)
     /// first so the PoolManager credits what ACTUALLY arrived, then swap the
     /// open credit (amountIn = OPEN_DELTA = 0), then TAKE_ALL(out).
-    function _fotSell(address who, PoolKey memory key, bool zeroForOne, uint256 amountIn)
-        internal
-        returns (uint256 gasUsed)
-    {
+    function _fotSell(
+        address who,
+        PoolKey memory key,
+        bool zeroForOne,
+        uint256 amountIn
+    ) internal returns (uint256 gasUsed) {
         Currency cin = zeroForOne ? key.currency0 : key.currency1;
         Currency cout = zeroForOne ? key.currency1 : key.currency0;
         bytes[] memory params = new bytes[](3);
@@ -230,7 +275,11 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         gasUsed = g - gasleft();
     }
 
-    function _assertHookSolvent(address hook, address token, PoolKey memory key) internal view {
+    function _assertHookSolvent(
+        address hook,
+        address token,
+        PoolKey memory key
+    ) internal view {
         IHookLedger h = IHookLedger(hook);
         address creatorAddr = h.creators(key.toId());
         if (creatorAddr == address(0)) creatorAddr = h.creator();
@@ -239,12 +288,18 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         assertGe(IErc20(token).balanceOf(hook), owedTotal, "hook INSOLVENT in launch token: take() was taxed");
     }
 
-    function _noCliff(uint256 virtPair, uint256 virtTok, uint256 pairAmt, uint256 tokAmt, bool pairIsC0, uint160 sq)
-        internal
-    {
+    function _noCliff(
+        uint256 virtPair,
+        uint256 virtTok,
+        uint256 pairAmt,
+        uint256 tokAmt,
+        bool pairIsC0,
+        uint160 sq
+    ) internal {
         uint256 curvePriceX18 = ((virtPair + pairAmt) * 1e18) / (virtTok + tokAmt);
-        uint256 poolPriceX18 =
-            FixedPointMathLib.fullMulDiv(FixedPointMathLib.fullMulDiv(uint256(sq), uint256(sq), 1 << 96), 1e18, 1 << 96);
+        uint256 poolPriceX18 = FixedPointMathLib.fullMulDiv(
+            FixedPointMathLib.fullMulDiv(uint256(sq), uint256(sq), 1 << 96), 1e18, 1 << 96
+        );
         uint256 expected = pairIsC0 ? (1e36 / curvePriceX18) : curvePriceX18;
         uint256 diff = poolPriceX18 > expected ? poolPriceX18 - expected : expected - poolPriceX18;
         assertLe(diff * 100, expected, "CLIFF at taxed graduation");
@@ -297,7 +352,7 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         assertGt(got, 0, "post-grad buy delivered nothing");
         uint256 burnedOnBuy = IErc20(base).balanceOf(DEAD) - deadBefore;
         assertGt(burnedOnBuy, 0, "buy was not taxed");
-        assertApproxEqAbs(burnedOnBuy * 9_900, got * 100, got / 1e6 + 1e6, "buy tax != 1% of gross");
+        assertApproxEqAbs(burnedOnBuy * 9900, got * 100, got / 1e6 + 1e6, "buy tax != 1% of gross");
         assertLt(buyGas, MAX_TX_GAS);
         emit log_named_uint("gas: post-grad buy (ETH pool)", buyGas);
 
@@ -321,7 +376,12 @@ contract Dn404TaxTemplateV2ForkTest is Test {
     }
 
     /// External wrapper so vm.expectRevert can target exactly one call.
-    function externalNormalSwap(address who, PoolKey memory key, bool zeroForOne, uint256 amountIn) external {
+    function externalNormalSwap(
+        address who,
+        PoolKey memory key,
+        bool zeroForOne,
+        uint256 amountIn
+    ) external {
         _normalSwap(who, key, zeroForOne, amountIn, 0);
     }
 
@@ -332,7 +392,7 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         uint256 virtTok = dn404Cf.defaultVirtualTokenReserve();
         uint16 feeBps = dn404Cf.defaultTradeFeeBps();
         vm.prank(DEPLOYER);
-        dn404Cf.setDefaults(supply, virtTok, 5_000e18, 4_000e18, feeBps);
+        dn404Cf.setDefaults(supply, virtTok, 5000e18, 4000e18, feeBps);
 
         (base, curve) = _launch("V2 URU Buyback", URU, Dn404TaxTemplate.TaxMode.BuybackURU);
         Dn404BondingCurve c = Dn404BondingCurve(curve);
@@ -377,7 +437,7 @@ contract Dn404TaxTemplateV2ForkTest is Test {
 
         // ---- post-grad BUY (URU -> token): taxed, accumulates.
         vm.prank(DEPLOYER);
-        IErc20(URU).transfer(trader, 1_000e18);
+        IErc20(URU).transfer(trader, 1000e18);
         _approveUr(trader, URU);
         uint256 accBefore = t.accumulatedTax();
         uint256 buyGas = _normalSwap(trader, key, !tokenIsC0, 100e18, 0);
@@ -447,7 +507,9 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         assertEq(t.accumulatedTax(), tax, "tax did not accumulate");
 
         vm.expectEmit(true, false, false, true, base);
-        emit Dn404TaxTemplate.KeeperSwept(keeper, tax - (tax * 500) / 10_000, (tax * 500) / 10_000, Dn404TaxTemplate.TaxMode.BuybackURU);
+        emit Dn404TaxTemplate.KeeperSwept(
+            keeper, tax - (tax * 500) / 10_000, (tax * 500) / 10_000, Dn404TaxTemplate.TaxMode.BuybackURU
+        );
         vm.prank(keeper);
         t.sweepAccumulated(keeper, tax);
         assertEq(t.accumulatedTax(), 0);
@@ -466,10 +528,12 @@ contract Dn404TaxTemplateV2ForkTest is Test {
     /// Selector of IPoolManager.CurrencyNotSettled().
     bytes4 internal constant CURRENCY_NOT_SETTLED = bytes4(keccak256("CurrencyNotSettled()"));
 
-    function _revertData(address who, PoolKey memory key, bool zeroForOne, uint256 amountIn)
-        internal
-        returns (bytes memory err)
-    {
+    function _revertData(
+        address who,
+        PoolKey memory key,
+        bool zeroForOne,
+        uint256 amountIn
+    ) internal returns (bytes memory err) {
         try this.externalNormalSwap(who, key, zeroForOne, amountIn) {
             revert("naive taxed sell unexpectedly succeeded");
         } catch (bytes memory e) {
@@ -483,7 +547,7 @@ contract Dn404TaxTemplateV2ForkTest is Test {
         (address base,, PoolKey memory key) = _graduateUru();
         bool tokenIsC0 = Currency.unwrap(key.currency0) == base;
         vm.prank(DEPLOYER);
-        IErc20(URU).transfer(trader, 1_000e18);
+        IErc20(URU).transfer(trader, 1000e18);
         _approveUr(trader, URU);
         _normalSwap(trader, key, !tokenIsC0, 100e18, 0);
         _approveUr(trader, base);

@@ -16,8 +16,13 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IErc20Min {
-    function balanceOf(address who) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
 }
 
 /// @title  RehearseDn404UruPair
@@ -98,7 +103,9 @@ contract RehearseDn404UruPair is Script {
         _writeBook(out);
     }
 
-    function runForTest(address actor) external returns (Result memory out) {
+    function runForTest(
+        address actor
+    ) external returns (Result memory out) {
         _isTestContext = true;
         _actor = actor;
         out = _runInner();
@@ -230,7 +237,9 @@ contract RehearseDn404UruPair is Script {
         b.gradTickSpacing = int24(int256(vm.parseJsonUint(j, ".GradTickSpacing")));
     }
 
-    function _writeBook(Result memory r) internal {
+    function _writeBook(
+        Result memory r
+    ) internal {
         string memory obj = "rehearsal";
         vm.serializeAddress(obj, "base", r.base);
         vm.serializeAddress(obj, "mirror", r.mirror);

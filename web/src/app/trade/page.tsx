@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { isAddress, formatEther } from 'viem';
 
 import { mockProgressPct, launchKind, type MockLaunch } from '@/lib/mockLaunches';
+import { formatCurveAmount, isPairLaunch } from '@/lib/dn404Feed';
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { useMockDataMode } from '@/lib/mockDataMode';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
@@ -215,7 +216,9 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
             color: 'var(--anchor-soft)',
           }}
         >
-          {Number(formatEther(launch.ethReserve)).toFixed(3)} / {Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ
+          {isPairLaunch(launch)
+            ? `${formatCurveAmount(launch, launch.ethReserve)} / ${formatCurveAmount(launch, launch.graduationTargetEth)}`
+            : `${Number(formatEther(launch.ethReserve)).toFixed(3)} / ${Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ`}
         </div>
       </div>
     </Link>

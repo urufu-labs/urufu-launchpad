@@ -37,31 +37,47 @@ contract MockErc20 {
     event Transfer(address indexed from, address indexed to, uint256 amount);
     event Approval(address indexed owner, address indexed spender, uint256 amount);
 
-    constructor(string memory n, string memory s) {
+    constructor(
+        string memory n,
+        string memory s
+    ) {
         name = n;
         symbol = s;
     }
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
     }
 
-    function approve(address spender, uint256 amount) external returns (bool) {
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
-    function transfer(address to, uint256 amount) external returns (bool) {
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
         balanceOf[from] -= amount;
@@ -75,11 +91,16 @@ contract MockErc20 {
 contract MockLoyaltyOracle {
     mapping(address => uint16) public bps;
 
-    function set(address who, uint16 v) external {
+    function set(
+        address who,
+        uint16 v
+    ) external {
         bps[who] = v;
     }
 
-    function discountBpsFor(address holder) external view returns (uint16) {
+    function discountBpsFor(
+        address holder
+    ) external view returns (uint16) {
         return bps[holder];
     }
 }
@@ -89,7 +110,9 @@ contract MockLoyaltyOracle {
 contract MockNftFactoryFee {
     uint256 public minUruFee;
 
-    function set(uint256 v) external {
+    function set(
+        uint256 v
+    ) external {
         minUruFee = v;
     }
 }
@@ -102,7 +125,11 @@ contract MockCurveImpl {
     uint256 public initialSupply;
     bool public initialized;
 
-    function initialize(address token_, address launcher_, uint256 supply_) external {
+    function initialize(
+        address token_,
+        address launcher_,
+        uint256 supply_
+    ) external {
         require(!initialized, "already");
         initialized = true;
         token = token_;
@@ -126,7 +153,9 @@ contract MockCurveFactory {
         implementation = address(new MockCurveImpl());
     }
 
-    function predictCurveAddress(address token) external view returns (address) {
+    function predictCurveAddress(
+        address token
+    ) external view returns (address) {
         bytes32 salt = keccak256(abi.encode(token, block.chainid));
         return LibClone.predictDeterministicAddress(implementation, salt, address(this));
     }
@@ -150,17 +179,28 @@ contract MockCurveFactory {
 }
 
 interface IERC20Min {
-    function balanceOf(address who) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool);
     function totalSupply() external view returns (uint256);
 }
 
 interface IDn404Mirror {
     function owner() external view returns (address);
-    function balanceOf(address who) external view returns (uint256);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
     function totalSupply() external view returns (uint256);
-    function tokenURI(uint256 id) external view returns (string memory);
-    function ownerOf(uint256 id) external view returns (address);
+    function tokenURI(
+        uint256 id
+    ) external view returns (string memory);
+    function ownerOf(
+        uint256 id
+    ) external view returns (address);
     function contractURI() external view returns (string memory);
     function baseERC20() external view returns (address);
 }
@@ -208,18 +248,13 @@ contract Dn404UnitTest is Test {
         vm.startPrank(owner);
         factory.setExpectedCodeHashes(baseHash, mirrorHash);
         factory.setImpls(address(baseImpl), address(mirrorImpl));
-        factory.setUruConfig(
-            FactoryIERC20(address(uru)),
-            uruSink,
-            DN404_URU_FEE,
-            FactoryILoyalty(address(loyalty))
-        );
+        factory.setUruConfig(FactoryIERC20(address(uru)), uruSink, DN404_URU_FEE, FactoryILoyalty(address(loyalty)));
         factory.setFeeSplitter(feeSplitter);
         factory.setCurveFactory(FactoryICurveFactory(address(curveFactory)));
         vm.stopPrank();
 
         // Launcher gets URU to pay the fee.
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         vm.prank(launcher);
         uru.approve(address(factory), type(uint256).max);
     }
@@ -399,9 +434,7 @@ contract Dn404UnitTest is Test {
         p.founderPremintBps = 2001; // just over 20%
         vm.prank(launcher);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                Dn404LaunchFactory.Dn404LaunchFactory__FounderPremintBpsTooHigh.selector, 2001, 2000
-            )
+            abi.encodeWithSelector(Dn404LaunchFactory.Dn404LaunchFactory__FounderPremintBpsTooHigh.selector, 2001, 2000)
         );
         factory.launch(p);
     }
@@ -509,7 +542,7 @@ contract Dn404UnitTest is Test {
 
         // Different launcher, same name — new salt, should succeed.
         address launcher2 = address(0xB2);
-        uru.mint(launcher2, 1_000e18);
+        uru.mint(launcher2, 1000e18);
         vm.prank(launcher2);
         uru.approve(address(factory), type(uint256).max);
         vm.prank(launcher2);
@@ -523,8 +556,7 @@ contract Dn404UnitTest is Test {
     function test_Template_ReinitReverts() public {
         (address base,,) = _launch();
         bytes memory data = abi.encode(
-            launcher, address(0xdead), address(0xdead), address(0),
-            "x", "x", "", "", uint256(1e18), uint256(1e18)
+            launcher, address(0xdead), address(0xdead), address(0), "x", "x", "", "", uint256(1e18), uint256(1e18)
         );
         vm.expectRevert(Dn404Template.Dn404Template__AlreadyInitialized.selector);
         Dn404Template(payable(base)).initialize(data);

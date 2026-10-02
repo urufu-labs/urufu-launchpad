@@ -9,16 +9,26 @@ import {Dn404BondingCurve} from "src/dn404/Dn404BondingCurve.sol";
 import {Dn404TaxTemplate} from "src/dn404/Dn404TaxTemplate.sol";
 
 interface IErc20 {
-    function approve(address, uint256) external returns (bool);
-    function transfer(address, uint256) external returns (bool);
+    function approve(
+        address,
+        uint256
+    ) external returns (bool);
+    function transfer(
+        address,
+        uint256
+    ) external returns (bool);
 }
 
 interface IDn404Skip {
-    function setSkipNFT(bool) external returns (bool);
+    function setSkipNFT(
+        bool
+    ) external returns (bool);
 }
 
 interface IV10Curve {
-    function buy(uint256 minTokensOut) external payable returns (uint256);
+    function buy(
+        uint256 minTokensOut
+    ) external payable returns (uint256);
     function graduationTargetEth() external view returns (uint256);
 }
 
@@ -67,14 +77,18 @@ contract Dn404TaxedGraduationForkTest is Test {
         lf.setBaseTaxImpl(V1_TAX_IMPL, keccak256(V1_TAX_IMPL.code));
     }
 
-    function _launch(string memory name, address pair, uint8 mode) internal returns (address base, address curve) {
+    function _launch(
+        string memory name,
+        address pair,
+        uint8 mode
+    ) internal returns (address base, address curve) {
         uint256 fee = lf.minUruFeeFor(DEPLOYER);
         Dn404LaunchFactory.LaunchParams memory p;
         p.name = name;
         p.ticker = "TAX";
         p.baseURI = "ipfs://tax/";
         p.contractURI = "ipfs://tax/collection.json";
-        p.collectionSize = 8_000;
+        p.collectionSize = 8000;
         p.unit = 100_000;
         p.pairCurrency = pair;
         p.taxMode = mode;
@@ -103,7 +117,7 @@ contract Dn404TaxedGraduationForkTest is Test {
         uint256 virtTok = dn404Cf.defaultVirtualTokenReserve();
         uint16 feeBps = dn404Cf.defaultTradeFeeBps();
         vm.prank(DEPLOYER);
-        dn404Cf.setDefaults(supply, virtTok, 5_000e18, 4_000e18, feeBps);
+        dn404Cf.setDefaults(supply, virtTok, 5000e18, 4000e18, feeBps);
 
         (address base, address curve) = _launch("V1 Taxed URU", URU, uint8(Dn404TaxTemplate.TaxMode.BuybackURU));
         Dn404BondingCurve c = Dn404BondingCurve(curve);

@@ -11,7 +11,9 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 /// Minimal V10 CurveFactory surface for the trust-check step.
 interface IV10CurveFactoryView {
-    function trustedRouters(address) external view returns (bool);
+    function trustedRouters(
+        address
+    ) external view returns (bool);
     function owner() external view returns (address);
 }
 

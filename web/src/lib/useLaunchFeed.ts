@@ -4,9 +4,22 @@ import { useEffect, useState } from 'react';
 import { parseEther } from 'viem';
 
 import type { Address } from 'viem';
-import { fetchRecentLaunches, fetchCurveByToken, fetchV4SummaryForToken, type IndexerLaunch } from './indexer';
+import {
+  fetchRecentLaunches,
+  fetchCurveByToken,
+  fetchV4SummaryForToken,
+  fetchDn404Collections,
+  fetchPairCurveByToken,
+  fetchPairV4SummaryForToken,
+  type IndexerLaunch,
+  type IndexerNftCollection,
+} from './indexer';
 import { allMockLaunches, MOCK_LAUNCHES, mocksForChain, onMockLaunchesChange, type MockLaunch } from './mockLaunches';
-import { CONTRACTS, type ChainKey } from './config';
+import { CONTRACTS, DN404_LAUNCHES_ENABLED, DN404_PAIR_CURRENCIES, URU_PAY, V4_STATE_VIEWS, type ChainKey } from './config';
+import { readContract } from 'wagmi/actions';
+import { wagmiConfig } from './wagmi';
+import { v4StateViewAbi } from './abis';
+import { dn404RowToLaunch, ethPerPairFromSqrt, mergeDn404Launches, ZERO_ADDRESS, type Dn404CurveState } from './dn404Feed';
 import { CHAIN_ID_TO_KEY } from './wagmi';
 import { fetchTokenMetadataBatch, type RemoteTokenMetadata } from './socialApi';
 import { useMockDataMode } from './mockDataMode';
@@ -115,9 +128,20 @@ export function useLaunchFeed(chainId: number): FeedState {
       if (cancelled) return;
       const mapped = await Promise.all(forChain.map((r) => indexerRowToLaunch(r, meta)));
       if (cancelled) return;
+      const routerLaunches = mapped.filter((l): l is MockLaunch => l !== null);
+      // DN404 tokens join the same feed (home, discover tabs, ticker) only when
+      // the DN404 lane is switched on for this chain. Failures here never take
+      // the Router feed down with them.
+      const chainKey = CHAIN_ID_TO_KEY[chainId] as ChainKey | undefined;
+      const dn404Enabled = !!chainKey && DN404_LAUNCHES_ENABLED[chainKey] === true;
+      let dn404Launches: MockLaunch[] = [];
+      if (dn404Enabled && chainKey) {
+        dn404Launches = await loadDn404Launches(chainId, chainKey).catch(() => []);
+        if (cancelled) return;
+      }
       setState({
         source: 'indexer',
-        launches: mapped.filter((l): l is MockLaunch => l !== null),
+        launches: mergeDn404Launches(routerLaunches, dn404Launches, { dn404Enabled, isHidden: isHiddenToken }),
         ready: true,
       });
     };
@@ -189,4 +213,100 @@ async function indexerRowToLaunch(
     hasWhitelist: row.hasWhitelist,
     payToken: row.payToken,
   };
+}
+
+/// Load DN404 launches for one chain as feed launches. ETH-paired curves come
+/// from the indexer `curves` table (same as Router launches); URU-paired ones
+/// from `pairCurves`, with their URU amounts converted to ETH for price and
+/// market cap via the live URU/WETH pool. Hidden test tokens are dropped later
+/// by mergeDn404Launches; hidden collections are already dropped by the fetcher.
+async function loadDn404Launches(chainId: number, chainKey: ChainKey): Promise<MockLaunch[]> {
+  const rows = ((await fetchDn404Collections(60)) ?? []).filter(
+    (r) => r.chainId === chainId && !!r.pairedToken && r.pairedToken !== ZERO_ADDRESS,
+  );
+  if (rows.length === 0) return [];
+
+  const uruPay = URU_PAY[chainKey];
+  const isUru = (r: IndexerNftCollection) =>
+    !!uruPay && (r.pairCurrency ?? ZERO_ADDRESS).toLowerCase() === uruPay.token.toLowerCase();
+  const pairLabel = (addr: string) =>
+    (DN404_PAIR_CURRENCIES[chainKey] ?? []).find((o) => o.address.toLowerCase() === addr.toLowerCase())?.label;
+
+  // One URU/WETH read per load, only when a URU-paired launch is in the list.
+  let ethPerUruX18: bigint | undefined;
+  const stateView = V4_STATE_VIEWS[chainKey];
+  if (uruPay && stateView && rows.some(isUru)) {
+    try {
+      const slot0 = await readContract(wagmiConfig, {
+        abi: v4StateViewAbi,
+        address: stateView,
+        functionName: 'getSlot0',
+        args: [uruPay.poolId],
+        chainId: chainId as 4663,
+      });
+      ethPerUruX18 = ethPerPairFromSqrt(slot0[0], uruPay.uruIsCurrency1);
+    } catch {
+      ethPerUruX18 = undefined; // price and mcap show as unknown; progress still works
+    }
+  }
+
+  const meta = await fetchTokenMetadataBatch(chainId, rows.map((r) => r.pairedToken as Address));
+  const b = (x: string) => BigInt(x);
+  const out = await Promise.all(
+    rows.map(async (row): Promise<MockLaunch | null> => {
+      const token = row.pairedToken as Address;
+      const pair = row.pairCurrency ?? ZERO_ADDRESS;
+      const m = meta[token.toLowerCase()];
+      const social = {
+        imageUrl: m?.imageUrl ?? undefined,
+        description: m?.description ?? undefined,
+        website: m?.website ?? undefined,
+        twitter: m?.twitter ?? undefined,
+        telegram: m?.telegram ?? undefined,
+      };
+      if (pair.toLowerCase() === ZERO_ADDRESS) {
+        const curve = await fetchCurveByToken(token);
+        if (!curve) return null;
+        const state: Dn404CurveState = {
+          ethReserve: b(curve.ethReserve),
+          tokenReserve: b(curve.tokenReserve),
+          virtualEthReserve: b(curve.virtualEthReserve),
+          virtualTokenReserve: b(curve.virtualTokenReserve),
+          graduationTargetEth: b(curve.graduationTargetEth),
+          curveSupply: b(curve.curveSupply),
+          tradeFeeBps: curve.tradeFeeBps,
+          tradeCount: curve.tradeCount,
+          graduated: curve.graduated,
+        };
+        const v4 = curve.graduated ? await fetchV4SummaryForToken(token) : null;
+        return dn404RowToLaunch(row, state, {
+          ...social,
+          poolLatestSqrtPriceX96: v4?.latestSqrtPriceX96 ?? 0n,
+          v4SwapCount: v4?.count ?? 0,
+        });
+      }
+      const pc = await fetchPairCurveByToken(token);
+      if (!pc) return null;
+      const state: Dn404CurveState = {
+        ethReserve: b(pc.pairReserve),
+        tokenReserve: b(pc.tokenReserve),
+        virtualEthReserve: b(pc.virtualPairReserve),
+        virtualTokenReserve: b(pc.virtualTokenReserve),
+        graduationTargetEth: b(pc.graduationTargetPair),
+        curveSupply: b(pc.curveSupply),
+        tradeFeeBps: pc.tradeFeeBps,
+        tradeCount: pc.tradeCount,
+        graduated: pc.graduated,
+      };
+      const v4 = pc.graduated ? await fetchPairV4SummaryForToken(token) : null;
+      return dn404RowToLaunch(row, state, {
+        ...social,
+        pairSymbol: pairLabel(pair) ?? 'URU',
+        ethPerPairX18: isUru(row) ? ethPerUruX18 : undefined,
+        poolSpotPairPerTokenX18: v4?.latestPricePairPerToken ?? 0n,
+        v4SwapCount: v4?.count ?? 0,
+      });
+    }),
+  );
+  return out.filter((l): l is MockLaunch => l !== null);
 }
