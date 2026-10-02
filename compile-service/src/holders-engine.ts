@@ -173,7 +173,9 @@ function release(): void {
 
 export class RpcRangeError extends Error {}
 
-const RANGE_HINT = /range|spans|too many|response size|limit exceeded|exceed|query returned more than|block range/i;
+// "network is busy": rpc.ordofi.network answers oversized log ranges this way
+// (10k blocks OK, 100k busy; measured 2026-10-02), so treat it as a range error.
+const RANGE_HINT = /range|spans|too many|response size|limit exceeded|exceed|query returned more than|block range|network is busy/i;
 
 /// One JSON-RPC call with 429 / transient backoff. Range-style errors are
 /// surfaced as RpcRangeError so the caller can split the range.
