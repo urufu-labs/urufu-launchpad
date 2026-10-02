@@ -593,13 +593,15 @@ export interface TaxModeOption {
 }
 
 export const DN404_TAX_MODES: TaxModeOption[] = [
-  { value: 0, label: 'Off',               description: 'no per-transfer tax (default, cheapest)',                     needsAllowlistedTarget: false },
-  { value: 1, label: 'BurnDead',          description: 'burn taxBps of every transfer to 0x…dEaD',                    needsAllowlistedTarget: false },
-  { value: 2, label: 'BuybackURU',        description: 'accumulate taxBps, keeper swaps to $URU (aligns w/ flywheel)', needsAllowlistedTarget: false },
-  { value: 3, label: 'BuyAllowedToken',   description: 'accumulate taxBps, keeper swaps to the token you pick below',   needsAllowlistedTarget: true  },
-  { value: 4, label: 'AddToLP',           description: 'accumulate taxBps, keeper adds to graduated v4 pool LP',        needsAllowlistedTarget: false },
-  { value: 5, label: 'HolderReflections', description: 'accumulate taxBps, keeper distributes to holders via merkle drop', needsAllowlistedTarget: false },
-  { value: 6, label: 'MirrorFloorSupport',description: 'accumulate taxBps, keeper buys + burns mirror NFTs (novel)',     needsAllowlistedTarget: false },
+  // Plain-language copy (user-facing). Descriptions match what the keeper
+  // actually does (keeper/src/handlers, rebuilt 2026-10-01). No em dashes.
+  { value: 0, label: 'No tax',           description: 'transfers are not taxed (cheapest)', needsAllowlistedTarget: false },
+  { value: 1, label: 'Burn',             description: 'the tax is burned, so supply shrinks', needsAllowlistedTarget: false },
+  { value: 2, label: 'Buy back URU',     description: 'after graduation the tax is sold for URU, and that URU is burned', needsAllowlistedTarget: false },
+  { value: 3, label: 'Buy a token',      description: 'after graduation the tax is sold for the token you pick below, sent to your wallet', needsAllowlistedTarget: true },
+  { value: 4, label: 'Add liquidity',    description: 'after graduation the tax is added to the trading pool and locked forever', needsAllowlistedTarget: false },
+  { value: 5, label: 'Reward holders',   description: 'the tax is paid out to holders, based on how many tokens each one holds', needsAllowlistedTarget: false },
+  { value: 6, label: 'Support NFT floor',description: 'after graduation the tax buys NFTs listed for less than their tokens are worth and burns them; if none are cheap, the tokens are burned', needsAllowlistedTarget: false },
 ];
 
 /// Tax destination allowlist mirror for the BuyAllowedToken mode.

@@ -468,11 +468,12 @@ contract NftStackRhForkTest is Test {
         p.discountFloorBps = 5000; // ceiling = 50%
         p.tiers = tiers;
         vm.prank(launcher);
-        (, address mintModule,) = factory.launch(p);
+        (address token_, address mintModule,) = factory.launch(p);
         // Attestation says buyer holds 100 of `target` on RH. Cap at 4
         // → 20% off → pay 0.008.
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, target, RH_CHAIN_ID, 0, 100, expiry);
+        bytes memory sig = _signAttestation(attSignerPk, buyer, token_, target, RH_CHAIN_ID, 0, 100, expiry); // ourCollection
+        // = ERC-721 clone since 01c2318
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 100, expiry: expiry, sig: sig});
@@ -688,7 +689,11 @@ contract NftStackRhForkTest is Test {
         vm.deal(buyer, 1 ether);
         vm.prank(buyer);
         NftMintModule(mintModule).mint{value: 0.01 ether}(1, new bytes32[](0), 0, 0, "", _emptyProofs());
-        assertEq(ERC721ATemplate(token).tokenURI(1), "ipfs://bafybeigap/1", "first token uri = baseURI + 1");
+        assertEq(
+            ERC721ATemplate(token).tokenURI(1),
+            "ipfs://bafybeigap/1.json",
+            "first token uri = baseURI + 1 + .json (V4, 6eb2fc2)"
+        );
         vm.expectRevert();
         ERC721ATemplate(token).tokenURI(0);
     }
@@ -871,9 +876,10 @@ contract NftStackRhForkTest is Test {
         p.ticker = "CHIBIZC";
         p.tiers = tiers;
         vm.prank(launcher);
-        (, address mintModule,) = factory.launch(p);
+        (address token_, address mintModule,) = factory.launch(p);
         uint256 expiry = block.timestamp + 1 hours;
-        bytes memory sig = _signAttestation(attSignerPk, buyer, mintModule, address(0xBEEF), 1, 0, 0, expiry);
+        bytes memory sig = _signAttestation(attSignerPk, buyer, token_, address(0xBEEF), 1, 0, 0, expiry); // ourCollection
+        // = ERC-721 clone since 01c2318
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 0, expiry: expiry, sig: sig});

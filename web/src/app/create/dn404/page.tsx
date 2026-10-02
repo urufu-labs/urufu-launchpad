@@ -346,7 +346,7 @@ function CreateDn404Form() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="dn-unit">unit — whole tokens per NFT</label>
+              <label className={styles.fieldLabel} htmlFor="dn-unit">unit (whole tokens per NFT)</label>
               <input
                 id="dn-unit"
                 type="text"
@@ -457,21 +457,21 @@ function CreateDn404Form() {
               >
                 {DN404_TAX_MODES.map((m) => (
                   <option key={m.value} value={m.value}>
-                    {m.label} — {m.description}
+                    {m.label}: {m.description}
                   </option>
                 ))}
               </select>
               <span className={styles.fieldHint}>
                 {taxMode === 0
-                  ? 'no tax hook (default; cheapest transfers).'
-                  : `every transfer routes ${(taxBpsNum / 100).toFixed(2)}% to the destination. immutable after launch.`}
+                  ? 'no tax on transfers. this is the default and the cheapest.'
+                  : `${(taxBpsNum / 100).toFixed(2)}% of every transfer goes to this. our keeper runs it automatically and keeps 5% of each payout for gas and upkeep. the rate cannot change after launch.`}
               </span>
             </div>
 
             {taxMode !== 0 && (
               <div className={styles.rowInputsShort}>
                 <div className={styles.field}>
-                  <label className={styles.fieldLabel} htmlFor="dn-taxbps">tax bps (0 – 500)</label>
+                  <label className={styles.fieldLabel} htmlFor="dn-taxbps">tax rate in bps (0 to 500, which is 0% to 5%)</label>
                   <input
                     id="dn-taxbps"
                     type="text"
@@ -496,11 +496,11 @@ function CreateDn404Form() {
                       onChange={(e) => setTaxTarget(e.target.value as Address)}
                     >
                       <option value="0x0000000000000000000000000000000000000000">
-                        — pick a target —
+                        pick a token
                       </option>
                       {taxDestOptions.map((opt) => (
                         <option key={opt.address} value={opt.address}>
-                          {opt.label} — {opt.description}
+                          {opt.label}: {opt.description}
                         </option>
                       ))}
                     </select>
@@ -530,7 +530,7 @@ function CreateDn404Form() {
               >
                 {pairOptions.map((opt) => (
                   <option key={opt.address} value={opt.address}>
-                    {opt.label} — {opt.description}
+                    {opt.label}: {opt.description}
                   </option>
                 ))}
               </select>
