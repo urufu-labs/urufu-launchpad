@@ -710,6 +710,8 @@ function CreatePageContent() {
   } | null>(null);
   const [wlApplying, setWlApplying] = useState(false);
   const [wlError, setWlError] = useState<string | null>(null);
+  // Shown while a big holder list is still being counted (auto-retry below).
+  const [wlNote, setWlNote] = useState<string | null>(null);
   const wlEnabled = wlSnapshot !== null;
 
   const applyWhitelist = async () => {
@@ -731,18 +733,30 @@ function CreatePageContent() {
     setWlApplying(true);
     try {
       const chainId = CHAIN_KEY_TO_ID[targetChain];
-      const res = await fetch(`${COMPILE_SERVICE_URL}/wl/snapshot`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chainId, tokenAddress: wlSourceAddress }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText }));
+      // Auto-retry: a token with a long history (URU) can take ~2 min to scan
+      // the first time. The service answers 504 WL_OPERATION_TIMEOUT (or 503
+      // WL_BUSY) but keeps scanning in the background and caches the result,
+      // so asking again shortly after succeeds. Up to 3 attempts total.
+      const MAX_ATTEMPTS = 3;
+      let res: Response | null = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        res = await fetch(`${COMPILE_SERVICE_URL}/wl/snapshot`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chainId, tokenAddress: wlSourceAddress }),
+        });
+        const retryable = res.status === 504 || res.status === 503;
+        if (!retryable || attempt === MAX_ATTEMPTS) break;
+        setWlNote('this one has a lot of holders, still counting. hang tight, it can take a couple of minutes.');
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
+      if (!res || !res.ok) {
+        const err = res ? await res.json().catch(() => ({ message: res!.statusText })) : { message: 'snapshot failed' };
         throw new Error(err.message || 'snapshot failed');
       }
       const data = await res.json();
       if (data.holderCount < 2) {
-        throw new Error(`only ${data.holderCount} holders found — need at least 2 for a meaningful whitelist`);
+        throw new Error(`only ${data.holderCount} holders found. a whitelist needs at least 2.`);
       }
       setWlSnapshot({
         root: data.root,
@@ -759,6 +773,7 @@ function CreatePageContent() {
       setWlSnapshot(null);
     } finally {
       setWlApplying(false);
+      setWlNote(null);
     }
   };
   const clearWhitelist = () => {
@@ -1614,10 +1629,13 @@ function CreatePageContent() {
                         </button>
                       </div>
                     )}
+                    {wlApplying && wlNote && (
+                      <span style={{ fontSize: 11, opacity: 0.75 }}>{wlNote}</span>
+                    )}
                     {wlEnabled && wlSnapshot && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
-                          ✓ WL ready — {wlSnapshot.holderCount} holders of {wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)} at block {wlSnapshot.snapshotBlock}
+                          ✓ whitelist ready: {wlSnapshot.holderCount} holders of {wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)} at block {wlSnapshot.snapshotBlock}
                         </span>
                         <button
                           type="button"
