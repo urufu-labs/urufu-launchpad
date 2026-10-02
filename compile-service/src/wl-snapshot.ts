@@ -6,19 +6,21 @@
 /// launch tx (which lands on Robinhood); buyers fetch their proof from
 /// `/wl/proof?listId=…&addr=…` at buy time.
 ///
-/// Multi-chain by design: the WL source doesn't have to live on Robinhood.
-/// A launcher can gate their new curve on holders of any Ethereum / Base /
-/// Arbitrum / Optimism / Polygon / BNB / Avalanche / Gnosis / Linea NFT
-/// (via Alchemy's NFT API — see ALCHEMY_NETWORKS below). Blockscout + RPC
-/// event-replay fallbacks remain for chains Alchemy doesn't cover or for
-/// ERC-20 sources where Alchemy's NFT endpoint doesn't apply.
+/// Supported source chains: any chain in RPC_URLS below. Robinhood always
+/// (public RPC by default); Ethereum / Base only when ETH_RPC_URL /
+/// BASE_RPC_URL are set. The web only requests Robinhood snapshots today
+/// (create page sends the launch's own chain).
 ///
 /// Source priority (first success wins):
-///   1. Alchemy NFT API `getOwnersForContract` — one credential, uniform
-///      shape across every supported chain, returns full owner set + balances
-///      in one paginated call.
-///   2. Blockscout `/tokens/:addr/holders` — per-chain URL, NFT + ERC-20.
-///   3. RPC Transfer-event replay — bounded window, last-resort fallback.
+///   1. Blockscout `/tokens/:addr/holders` — per-chain URL, NFT + ERC-20.
+///      (Robinhood's Blockscout API is behind a Cloudflare challenge as of
+///      2026-10-02, so this currently fails fast and falls through.)
+///   2. Full-history on-chain replay via the shared holder engine
+///      (src/holders-engine.ts): ERC-721 / ERC-20 / ERC-1155 transfer events
+///      from block 0 in 10M-block log queries, cached + incremental. Not
+///      truncated, so no partial results.
+///
+/// The Alchemy NFT API source was removed 2026-10-02 (account suspended).
 ///
 /// The Merkle tree uses sorted-pair hashing (Solady + OpenZeppelin convention)
 /// with leaves `keccak256(abi.encodePacked(address))` — matches
@@ -26,38 +28,18 @@
 /// In-memory cache keyed on the FULL policy tuple (see `_computeCacheKey`) so
 /// a stricter same-block caller never gets a permissive cached result.
 
-import { createPublicClient, http, parseAbiItem, parseAbi, type Address, type Hex, keccak256, encodePacked } from 'viem';
+import { createPublicClient, http, type Address, type Hex, keccak256, encodePacked } from 'viem';
+import { holdersFromState, raceAbort, scanHolders } from './holders-engine.ts';
 
-/// Alchemy network slugs, keyed by chainId. When the ALCHEMY_API_KEY env is
-/// set AND the source token's chain is here, `snapshotHolders` uses Alchemy's
-/// NFT API `getOwnersForContract` as its PRIMARY source. Rationale:
-///   - Works uniformly across every major EVM chain (WL sources on the
-///     launchpad don't have to live on Robinhood).
-///   - Blockscout-per-chain plumbing broke down as we added chains; Alchemy
-///     is one credential + one base URL pattern.
-///   - Returns the FULL holder set with balances in a paginated call, no
-///     event-replay math, no drift-window fudge.
-/// Non-Alchemy chains still fall through to Blockscout + RPC-event-replay.
-const ALCHEMY_NETWORKS: Record<number, string> = {
-  1: 'eth-mainnet',
-  10: 'opt-mainnet',
-  56: 'bnb-mainnet',
-  100: 'gnosis-mainnet',
-  137: 'polygon-mainnet',
-  4663: 'robinhood-mainnet',
-  8453: 'base-mainnet',
-  42161: 'arb-mainnet',
-  43114: 'avax-mainnet',
-  59144: 'linea-mainnet',
-};
-
-/// Chains this snapshot service can read from (secondary RPC + Alchemy paths).
-/// Robinhood explicit because we control its RPC URL directly; every other
-/// chain is only reachable via Alchemy (needs ALCHEMY_API_KEY on the compile
-/// service).
+/// Chains this snapshot service can read from. Robinhood always (public RPC
+/// unless ROBINHOOD_RPC_URL overrides). Ethereum / Base only when an RPC URL
+/// is configured; their public endpoints limit eth_getLogs ranges far more
+/// than Robinhood's, so a full-history scan there needs a capable endpoint.
 const RPC_URLS: Record<number, string> = {
-  4663: process.env.ROBINHOOD_RPC_URL ?? 'https://rpc.mainnet.chain.robinhood.com',
+  4663: process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
 };
+if (process.env.ETH_RPC_URL) RPC_URLS[1] = process.env.ETH_RPC_URL;
+if (process.env.BASE_RPC_URL) RPC_URLS[8453] = process.env.BASE_RPC_URL;
 
 /// Blockscout v2 API base URLs, keyed by chainId. Fallback source. Kept for
 /// chains where Alchemy is unavailable or fails. On chains served by both,
@@ -67,20 +49,6 @@ const EXPLORER_APIS: Record<number, string> = {
   4663: process.env.ROBINHOOD_BLOCKSCOUT_URL ?? 'https://robinhoodchain.blockscout.com/api/v2',
 };
 
-function alchemyBase(chainId: number): string | null {
-  const slug = ALCHEMY_NETWORKS[chainId];
-  const key = process.env.ALCHEMY_API_KEY;
-  if (!slug || !key) return null;
-  return `https://${slug}.g.alchemy.com/nft/v3/${key}`;
-}
-
-/// Hard-cap the RPC event-replay range (fallback path only). Bumped from 1.5M to
-/// something that covers most token lifetimes on chains where blockscout isn't
-/// available. On RH we hit blockscout first so this cap is effectively unused.
-const MAX_SCAN_BLOCKS = 25_000_000n;
-/// getLogs chunk size — RH's public RPC caps individual eth_getLogs calls in the
-/// low-tens-of-thousands. 10k is safe and still fast enough for the whole scan.
-const LOG_CHUNK_BLOCKS = 10_000n;
 /// Blockscout `holders` endpoint page size (default 50, max 100 as of 2026).
 const BLOCKSCOUT_PAGE_SIZE = 100;
 /// Safety-cap the number of holder-page fetches so a broken pagination loop
@@ -146,12 +114,6 @@ export function defaultMaxIpfsBytes(): number {
     : DEFAULT_MAX_IPFS_BYTES;
 }
 
-/// Common ABI item — Transfer's signature is identical between ERC-20 and ERC-721;
-/// only ERC-721's third arg is indexed. viem's decoder handles both when we pass
-/// `strict: false` on the getLogs call.
-const TRANSFER_EVENT = parseAbiItem(
-  'event Transfer(address indexed from, address indexed to, uint256 value)',
-);
 
 export interface SnapshotRequest {
   chainId: number;
@@ -222,9 +184,9 @@ export interface SnapshotResult {
   /// Number of holder pages fetched from Blockscout, when Blockscout was used.
   /// Undefined when the RPC fallback path served the snapshot.
   pagesFetched?: number;
-  /// `true` if the holder set was derived from RPC event replay (Blockscout
-  /// was unavailable / errored). Consumers should treat this path as best-
-  /// effort — see `MAX_SCAN_BLOCKS`.
+  /// `true` if the holder set was derived from on-chain transfer replay via the
+  /// holder engine (Blockscout unavailable / errored). Full history, not
+  /// truncated.
   fromRpcFallback: boolean;
 }
 
@@ -464,36 +426,13 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   if (cached) return cached;
 
   // Source priority (first success wins):
-  //   1. Alchemy NFT API `getOwnersForContract` — works on every chain we
-  //      list in ALCHEMY_NETWORKS with one credential; returns the full
-  //      current holder set with per-address balances; no event-replay math;
-  //      no drift-window fudge; NFT-only.
-  //   2. Blockscout /tokens/:addr/holders — per-chain URL; NFT + ERC-20; drift
+  //   1. Blockscout /tokens/:addr/holders — per-chain URL; NFT + ERC-20; drift
   //      window applies here.
-  //   3. RPC event replay — bounded by MAX_SCAN_BLOCKS; may miss holders
-  //      whose only Transfers landed pre-cutoff; last-resort fallback.
+  //   2. Full-history on-chain replay via the shared holder engine.
   let eligible: Address[] | null = null;
   let partial = false;
   let pagesFetched: number | undefined;
   let fromRpcFallback = false;
-
-  const alchemy = alchemyBase(req.chainId);
-  if (alchemy) {
-    try {
-      const holders = await fetchHoldersViaAlchemyNft(
-        alchemy, req.tokenAddress, minBal, { signal, maxHolderCount },
-      );
-      if (holders !== null) {
-        eligible = holders;
-      }
-    } catch (err) {
-      if (err instanceof WlHolderCountExceedsCap) throw err;
-      if (signal?.aborted) throw signal.reason ?? err;
-      if ((err as { name?: string }).name === 'AbortError') throw err;
-      // eslint-disable-next-line no-console
-      console.warn(`wl-snapshot: alchemy NFT fetch failed for ${req.tokenAddress} on chain ${req.chainId}, falling back to blockscout/rpc`, err);
-    }
-  }
 
   const explorerApi = EXPLORER_APIS[req.chainId];
   if (!eligible && explorerApi) {
@@ -544,27 +483,23 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
     }
   }
 
-  // RPC event-replay fallback path — used when blockscout is not configured or
-  // returns an error. Bounded by MAX_SCAN_BLOCKS; may miss holders on very
-  // long-lived tokens (see cap note above).
+  // On-chain fallback — full history from block 0 through the shared holder
+  // engine (10M-block log queries, range-splitting, 429 backoff, cached and
+  // incremental per contract). Covers ERC-721 / ERC-20 / ERC-1155. Never
+  // truncated, so it never sets `partial`. Balance semantics match Blockscout:
+  // ERC-20 raw amount, ERC-721 token count, ERC-1155 summed amounts.
   if (!eligible) {
-    const fromBlock = startBlock > MAX_SCAN_BLOCKS ? startBlock - MAX_SCAN_BLOCKS : 0n;
-    // If we couldn't scan back to genesis, we may have missed pre-cutoff holders
-    // whose only Transfers happened outside our window. Reject unless the caller
-    // explicitly opted into partial data.
-    if (fromBlock > 0n) {
-      if (!allowPartial) {
-        throw new WlSnapshotTruncated(0, 0, 'rpc', { fromBlock, toBlock: startBlock });
-      }
-      partial = true;
-    }
     fromRpcFallback = true;
-    const isErc721 = await _detectIsErc721(client, req.tokenAddress);
-    const balances = await _replayBalances(client, req.tokenAddress, fromBlock, startBlock, isErc721);
-    eligible = [];
-    for (const [addr, bal] of balances) {
-      if (bal >= minBal) eligible.push(addr as Address);
-    }
+    // The scan is NOT tied to this request's signal: a cold full-history scan
+    // can take ~2 min on the public RPC, and aborting it would discard the
+    // progress so a big collection could time out forever. Instead the request
+    // stops WAITING on abort while the scan finishes and caches; a retry then
+    // only scans new blocks.
+    const state = await raceAbort(
+      scanHolders({ rpcUrl: rpc, address: req.tokenAddress, toBlock: startBlock }),
+      signal,
+    );
+    eligible = holdersFromState(state, minBal).map((h) => h.address as Address);
   }
 
   // Re-read the tip and reject if it drifted too far — Blockscout's per-page
@@ -750,117 +685,6 @@ export function proofFor(listId: string, holder: Address): Hex[] | null {
 // Internals — event replay + Merkle math
 // -----------------------------------------------------------
 
-/// Chunk through getLogs, replay net balances by walking Transfer events. For
-/// ERC-20 the event's third arg is `value` (delta). For ERC-721 it's a `tokenId`
-/// (each transfer moves exactly one token, so the delta per address is +/- 1).
-/// `isErc721` is detected upstream via `_detectIsErc721`.
-async function _replayBalances(
-  client: ReturnType<typeof createPublicClient>,
-  token: Address,
-  fromBlock: bigint,
-  toBlock: bigint,
-  isErc721: boolean,
-): Promise<Map<string, bigint>> {
-  const balances = new Map<string, bigint>();
-  for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_BLOCKS) {
-    const end = start + LOG_CHUNK_BLOCKS - 1n > toBlock ? toBlock : start + LOG_CHUNK_BLOCKS - 1n;
-    const logs = await client.getLogs({
-      address: token,
-      event: TRANSFER_EVENT,
-      fromBlock: start,
-      toBlock: end,
-    });
-    for (const log of logs) {
-      const from = (log.args.from ?? '0x0000000000000000000000000000000000000000').toLowerCase();
-      const to = (log.args.to ?? '0x0000000000000000000000000000000000000000').toLowerCase();
-      // For ERC-721 each transfer is one token; the `value` field decodes as the
-      // tokenId which isn't the delta we want. Force +/- 1 instead.
-      const delta = isErc721 ? 1n : (log.args.value ?? 0n);
-      if (from !== '0x0000000000000000000000000000000000000000') {
-        balances.set(from, (balances.get(from) ?? 0n) - delta);
-      }
-      if (to !== '0x0000000000000000000000000000000000000000') {
-        balances.set(to, (balances.get(to) ?? 0n) + delta);
-      }
-    }
-  }
-  return balances;
-}
-
-/// Fetch the current NFT owner set from Alchemy NFT API v3. Returns lowercased
-/// addresses whose ownership count meets `minBalance`. Uses `getOwnersForContract`
-/// with `withTokenBalances=true` and paginates through `pageKey`.
-///
-/// Returns `null` (not throws) when the contract isn't an NFT — signaling to
-/// the caller that this source can't handle it and it should fall through to
-/// the next path. Any real error (network, cap-exceeded, timeout) throws.
-///
-/// Alchemy's `getOwnersForContract` returns the CURRENT owner set with balances
-/// in one paginated call — no Transfer-event replay, no block-drift window, no
-/// blockscout coverage variance. Works uniformly on every chain in
-/// `ALCHEMY_NETWORKS`.
-async function fetchHoldersViaAlchemyNft(
-  alchemyBase: string,
-  token: Address,
-  minBalance: bigint,
-  opts?: { signal?: AbortSignal; maxHolderCount?: number },
-): Promise<Address[] | null> {
-  const cap = opts?.maxHolderCount ?? defaultMaxHolderCount();
-  const holders = new Map<string, bigint>();
-  let pageKey: string | undefined;
-  // Alchemy caps pageSize at 50k for this endpoint; 100 keeps memory tight
-  // and matches the pagination step we use everywhere else.
-  const pageSize = 100;
-  for (let page = 0; page < 2000; page++) {
-    const url = new URL(`${alchemyBase}/getOwnersForContract`);
-    url.searchParams.set('contractAddress', token);
-    url.searchParams.set('withTokenBalances', 'true');
-    url.searchParams.set('pageSize', String(pageSize));
-    if (pageKey) url.searchParams.set('pageKey', pageKey);
-    const res = await fetch(url.toString(), {
-      headers: { accept: 'application/json' },
-      signal: opts?.signal,
-    });
-    if (!res.ok) {
-      // 400 on a non-NFT contract — Alchemy returns something like
-      // `{ error: 'Contract is not an NFT contract' }`. Signal "not our job"
-      // by returning null so caller falls through to Blockscout/RPC.
-      if (res.status === 400) {
-        try {
-          const body = await res.json() as { error?: string };
-          const msg = (body?.error ?? '').toLowerCase();
-          if (msg.includes('not an nft') || msg.includes('erc-721') || msg.includes('erc-1155')) {
-            return null;
-          }
-        } catch { /* fall through to error */ }
-      }
-      throw new Error(`alchemy nft api ${res.status} for ${token}`);
-    }
-    const body = await res.json() as {
-      owners?: Array<{ ownerAddress?: string; tokenBalances?: Array<{ balance?: string | number }> }>;
-      pageKey?: string | null;
-    };
-    for (const o of body.owners ?? []) {
-      const addr = o.ownerAddress?.toLowerCase();
-      if (!addr) continue;
-      // Sum balances across tokenBalances (an owner can hold multiple tokenIds).
-      let bal = 0n;
-      for (const b of o.tokenBalances ?? []) {
-        try { bal += BigInt(b.balance ?? '0'); } catch { /* skip garbage */ }
-      }
-      if (bal >= minBalance) holders.set(addr, bal);
-    }
-    if (holders.size > cap) {
-      throw new WlHolderCountExceedsCap(holders.size, cap, 'blockscout');
-    }
-    if (!body.pageKey) break;
-    pageKey = body.pageKey;
-  }
-  // Sorted for determinism — matches blockscout path so the same holder set
-  // produces the same Merkle root across sources.
-  return [...holders.keys()].sort() as Address[];
-}
-
 /// Fetch the current holder set from Blockscout, paginated. Returns lowercased
 /// addresses whose reported balance (`value`) meets `minBalance`. Works for both
 /// ERC-20 (value = raw balance) and ERC-721 (value = NFT count) since blockscout's
@@ -963,26 +787,6 @@ function _composeSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
     s.addEventListener('abort', () => controller.abort(s.reason), { once: true });
   }
   return controller.signal;
-}
-
-/// ERC-20 tokens implement `decimals()`; ERC-721 collections don't. Best-effort
-/// detection — if the call reverts or the token has neither shape, defaults to
-/// ERC-20 semantics (value = delta) which is the safer fallback for our use case
-/// (using tokenIds as ERC-20 values would sum oddly and inflate balances).
-async function _detectIsErc721(
-  client: ReturnType<typeof createPublicClient>,
-  token: Address,
-): Promise<boolean> {
-  try {
-    await client.readContract({
-      address: token,
-      abi: parseAbi(['function decimals() view returns (uint8)']),
-      functionName: 'decimals',
-    });
-    return false; // has decimals → ERC-20
-  } catch {
-    return true; // no decimals → assume ERC-721
-  }
 }
 
 /// Build a sorted-pair Merkle root from a list of addresses. Empty list → 0x0.

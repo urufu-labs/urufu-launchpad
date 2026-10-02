@@ -1,71 +1,54 @@
 import type { FastifyInstance } from 'fastify';
 import { isAddress } from 'viem';
 
-/// Wallet-NFT inventory is an indexed-data problem, not something an RPC node can
-/// answer by itself. Alchemy's NFT API v3 supplies the cross-chain index. It's
-/// the right pick over the previous provider because Alchemy is the only major
-/// NFT API that indexes Robinhood Chain (chainId 4663) — the home of urufu gemu,
-/// the primary identity NFT for this ecosystem. This route keeps the API key
-/// server-side and returns one stable response shape to the profile UI.
+/// Wallet NFT inventory for profile-avatar selection and the profile holdings
+/// widget, via OpenSea's account-NFTs API (OPENSEA_API_KEY, server-side only).
+///
+/// Was Alchemy's NFT API until 2026-10-02, when the Alchemy account was
+/// suspended over an unpaid bill. OpenSea indexes Robinhood Chain (chain id
+/// `robinhood`, verified) plus the other chains below, and the key is the
+/// same one the DN404 keeper uses. Response shape is unchanged
+/// (web/src/lib/nftAvatarApi.ts: { chains: [{ id, label, chainId, items,
+/// nextCursor, error? }] }), so the web needs no change.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_PAGE_SIZE = 24;
+/// OpenSea caps `limit` at 200 for this endpoint; keep the old 100 ceiling.
 const MAX_PAGE_SIZE = 100;
 
-/// Mainnet EVM networks with meaningful NFT activity and native Alchemy NFT
-/// indexing. Robinhood FIRST because urufu gemu (0x60cB7082...) is the primary
-/// identity NFT for the whole ecosystem — scan order matters because we return
-/// partial results as chains resolve, and keeping RH at index 0 gets that match
-/// on screen first.
-///
-/// `providerNetwork` is Alchemy's subdomain slug (see
-/// https://docs.alchemy.com/reference/nft-api-endpoints for the current list).
-/// Chains Alchemy doesn't index for NFTs (Cronos, Ronin, Moonbeam) are omitted;
-/// no point offering a scan we know will 4xx.
-const NFT_CHAINS = [
-  { id: 'robinhood', label: 'Robinhood', chainId: 4663, providerNetwork: 'robinhood-mainnet' },
-  { id: 'ethereum', label: 'Ethereum', chainId: 1, providerNetwork: 'eth-mainnet' },
-  { id: 'arbitrum', label: 'Arbitrum', chainId: 42161, providerNetwork: 'arb-mainnet' },
-  { id: 'optimism', label: 'Optimism', chainId: 10, providerNetwork: 'opt-mainnet' },
-  { id: 'polygon', label: 'Polygon', chainId: 137, providerNetwork: 'polygon-mainnet' },
-  { id: 'bnb', label: 'BNB Chain', chainId: 56, providerNetwork: 'bnb-mainnet' },
-  { id: 'avalanche', label: 'Avalanche', chainId: 43114, providerNetwork: 'avax-mainnet' },
-  { id: 'gnosis', label: 'Gnosis', chainId: 100, providerNetwork: 'gnosis-mainnet' },
-  { id: 'linea', label: 'Linea', chainId: 59144, providerNetwork: 'linea-mainnet' },
+/// Chains OpenSea recognizes (from its own "Recognized chains" list,
+/// 2026-10-02). Robinhood FIRST: urufu gemu nft is the primary identity NFT.
+/// Gnosis and Linea were dropped (OpenSea doesn't index them); Base added.
+export const NFT_CHAINS = [
+  { id: 'robinhood', label: 'Robinhood', chainId: 4663, openseaChain: 'robinhood' },
+  { id: 'ethereum', label: 'Ethereum', chainId: 1, openseaChain: 'ethereum' },
+  { id: 'base', label: 'Base', chainId: 8453, openseaChain: 'base' },
+  { id: 'arbitrum', label: 'Arbitrum', chainId: 42161, openseaChain: 'arbitrum' },
+  { id: 'optimism', label: 'Optimism', chainId: 10, openseaChain: 'optimism' },
+  { id: 'polygon', label: 'Polygon', chainId: 137, openseaChain: 'polygon' },
+  { id: 'bnb', label: 'BNB Chain', chainId: 56, openseaChain: 'bsc' },
+  { id: 'avalanche', label: 'Avalanche', chainId: 43114, openseaChain: 'avalanche' },
 ] as const;
 
 type NftChain = (typeof NFT_CHAINS)[number];
 
-/// Alchemy NFT API v3 response shape for `getNFTsForOwner`. Trimmed to only
-/// the fields we actually read — full schema is at
-/// https://docs.alchemy.com/reference/getnftsforowner-v3.
-interface AlchemyNft {
-  contract?: {
-    address?: string | null;
-    name?: string | null;
-    symbol?: string | null;
-    isSpam?: boolean | null;
-    openSeaMetadata?: { safelistRequestStatus?: string | null } | null;
-  } | null;
-  tokenId?: string | null;
+/// OpenSea v2 `GET /chain/{chain}/account/{address}/nfts` item (fields we read).
+export interface OpenSeaNft {
+  identifier?: string | null;
+  collection?: string | null;
+  contract?: string | null;
   name?: string | null;
-  image?: {
-    cachedUrl?: string | null;
-    thumbnailUrl?: string | null;
-    pngUrl?: string | null;
-    originalUrl?: string | null;
-  } | null;
-  raw?: {
-    metadata?: { name?: string | null; image?: string | null } | null;
-  } | null;
+  image_url?: string | null;
+  display_image_url?: string | null;
+  is_disabled?: boolean | null;
+  is_nsfw?: boolean | null;
 }
 
-interface AlchemyResponse {
-  ownedNfts?: AlchemyNft[];
-  pageKey?: string | null;
-  totalCount?: number;
+interface OpenSeaResponse {
+  nfts?: OpenSeaNft[];
+  next?: string | null;
 }
 
-interface NftAvatar {
+export interface NftAvatar {
   chainId: number;
   chain: string;
   contractAddress: string;
@@ -75,7 +58,7 @@ interface NftAvatar {
   imageUrl: string;
 }
 
-interface ChainResult {
+export interface ChainResult {
   id: string;
   label: string;
   chainId: number;
@@ -87,23 +70,15 @@ interface ChainResult {
 const cache = new Map<string, { expiresAt: number; value: ChainResult }>();
 
 export async function registerNftAvatarRoutes(app: FastifyInstance): Promise<void> {
-  /// An inventory scan fans out to several paid provider requests. The route is
-  /// public because wallet addresses and NFT ownership are public, but the tight
-  /// per-IP limit prevents it from becoming an unbounded API-key proxy.
+  /// Public read route (wallet NFT ownership is public); the per-IP limit keeps
+  /// it from becoming an unbounded OpenSea-key proxy.
   app.get<{ Params: { address: string }; Querystring: { chain?: string; cursor?: string; limit?: string } }>(
     '/wallet/:address/nfts',
-    {
-      config: {
-        rateLimit: {
-          max: 6,
-          timeWindow: '1 minute',
-        },
-      },
-    },
+    { config: { rateLimit: { max: 6, timeWindow: '1 minute' } } },
     async (req, reply) => {
       const address = req.params.address.toLowerCase();
       if (!isAddress(address)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
-      if (!process.env.ALCHEMY_API_KEY) {
+      if (!process.env.OPENSEA_API_KEY) {
         return reply.code(503).send({ code: 'NFT_SCANNER_NOT_CONFIGURED' });
       }
 
@@ -114,9 +89,10 @@ export async function registerNftAvatarRoutes(app: FastifyInstance): Promise<voi
         return reply.code(400).send({ code: 'CURSOR_REQUIRES_CHAIN' });
       }
 
+      // Concurrency 2: OpenSea's per-key rate limit is modest; RH resolves first.
       const chains = requestedChain
-        ? [await scanChain(address, requestedChain, limit, req.query.cursor)]
-        : await mapWithConcurrency(NFT_CHAINS, 4, (chain) => scanChain(address, chain, limit));
+        ? [await scanChain(app, address, requestedChain, limit, req.query.cursor)]
+        : await mapWithConcurrency(NFT_CHAINS, 2, (chain) => scanChain(app, address, chain, limit));
 
       return reply.send({ chains });
     },
@@ -129,87 +105,69 @@ function parseLimit(raw: string | undefined): number {
   return Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(parsed)));
 }
 
-async function scanChain(address: string, chain: NftChain, limit: number, cursor?: string): Promise<ChainResult> {
+async function scanChain(
+  app: FastifyInstance,
+  address: string,
+  chain: NftChain,
+  limit: number,
+  cursor?: string,
+): Promise<ChainResult> {
   appraiseCache();
   const key = `${address}:${chain.id}:${limit}:${cursor ?? ''}`;
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   try {
-    // Alchemy's NFT API v3 endpoint. `withMetadata=true` returns the parsed
-    // metadata + resolved image URLs so we don't need a second fetch per NFT.
-    // `excludeFilters[]=SPAM` filters spam collections server-side (their spam
-    // classifier is stricter and cheaper than any post-hoc check we'd do).
-    const url = new URL(
-      `https://${chain.providerNetwork}.g.alchemy.com/nft/v3/${process.env.ALCHEMY_API_KEY}/getNFTsForOwner`,
-    );
-    url.searchParams.set('owner', address);
-    url.searchParams.set('withMetadata', 'true');
-    url.searchParams.set('pageSize', String(limit));
-    url.searchParams.append('excludeFilters[]', 'SPAM');
-    if (cursor) url.searchParams.set('pageKey', cursor);
-
+    const url = new URL(`https://api.opensea.io/api/v2/chain/${chain.openseaChain}/account/${address}/nfts`);
+    url.searchParams.set('limit', String(limit));
+    if (cursor) url.searchParams.set('next', cursor);
     const res = await fetch(url, {
-      headers: { accept: 'application/json' },
+      headers: { accept: 'application/json', 'x-api-key': process.env.OPENSEA_API_KEY ?? '' },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`provider returned ${res.status}`);
-    const data = (await res.json()) as AlchemyResponse;
+    if (!res.ok) throw new Error(`opensea returned ${res.status}`);
+    const data = (await res.json()) as OpenSeaResponse;
     const value: ChainResult = {
       id: chain.id,
       label: chain.label,
       chainId: chain.chainId,
-      items: (data.ownedNfts ?? []).flatMap((nft) => toNftAvatar(chain, nft)),
-      nextCursor: data.pageKey ?? null,
+      items: (data.nfts ?? []).flatMap((nft) => toNftAvatar(chain, nft)),
+      nextCursor: data.next ?? null,
     };
     cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
     return value;
   } catch (err) {
-    return {
-      id: chain.id,
-      label: chain.label,
-      chainId: chain.chainId,
-      items: [],
-      nextCursor: null,
-      error: err instanceof Error ? err.message : 'scan failed',
-    };
+    // Never include the key or URL in logs / responses; message only.
+    const message = err instanceof Error ? err.message : 'scan failed';
+    app.log.warn({ chain: chain.id, err: message }, 'nft-avatar opensea scan failed');
+    return { id: chain.id, label: chain.label, chainId: chain.chainId, items: [], nextCursor: null, error: message };
   }
 }
 
-function toNftAvatar(chain: NftChain, nft: AlchemyNft): NftAvatar[] {
-  const contractAddress = nft.contract?.address;
-  const tokenId = nft.tokenId;
-  if (!contractAddress || !isAddress(contractAddress) || !tokenId) return [];
-  // Belt-and-suspenders: `excludeFilters=SPAM` already filters at the API layer,
-  // but the flag can still appear on borderline collections that slipped through.
-  if (nft.contract?.isSpam === true) return [];
-
-  // Prefer Alchemy's cached CDN URL (fast, resized, HTTPS) over raw metadata
-  // URIs, and fall back through their thumbnail / png / original URL variants
-  // before touching the raw metadata (which can be an unresolved ipfs:// URI).
-  const imageUrl = firstRenderableUrl(
-    nft.image?.cachedUrl,
-    nft.image?.thumbnailUrl,
-    nft.image?.pngUrl,
-    nft.image?.originalUrl,
-    nft.raw?.metadata?.image,
-  );
+/// Map one OpenSea NFT to the avatar shape. Exported for tests.
+export function toNftAvatar(chain: { chainId: number; label: string }, nft: OpenSeaNft): NftAvatar[] {
+  const contractAddress = nft.contract;
+  const tokenId = nft.identifier;
+  // strict:false: accept any-case hex; a bad checksum must not hide an NFT.
+  if (!contractAddress || !isAddress(contractAddress, { strict: false }) || !tokenId) return [];
+  if (nft.is_disabled === true || nft.is_nsfw === true) return [];
+  const imageUrl = firstRenderableUrl(nft.display_image_url, nft.image_url);
   if (!imageUrl) return [];
-
   return [{
     chainId: chain.chainId,
     chain: chain.label,
     contractAddress: contractAddress.toLowerCase(),
     tokenId,
-    collectionName: nft.contract?.name ?? nft.contract?.symbol ?? null,
-    tokenName: nft.name ?? nft.raw?.metadata?.name ?? null,
+    // OpenSea returns the collection slug here, not a display name.
+    collectionName: nft.collection ?? null,
+    tokenName: nft.name ?? null,
     imageUrl,
   }];
 }
 
-/// Never proxy or copy asset bytes. We only turn decentralized URI schemes into
-/// browser-fetchable gateways and retain normal HTTP(S) media URLs as-is.
-function firstRenderableUrl(...candidates: Array<string | null | undefined>): string | null {
+/// Never proxy or copy asset bytes. Only turn decentralized URI schemes into
+/// browser-fetchable gateways and keep normal HTTP(S) media URLs as-is.
+export function firstRenderableUrl(...candidates: Array<string | null | undefined>): string | null {
   for (const candidate of candidates) {
     if (!candidate || candidate.length > 2_048) continue;
     const trimmed = candidate.trim();
