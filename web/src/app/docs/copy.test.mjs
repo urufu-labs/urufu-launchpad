@@ -1,4 +1,5 @@
-// Copy guard for the user-facing guide pages (docs + modules) and the DN404
+// Copy guard for the user-facing guide pages (docs + modules), the DN404
+// create page, and the DN404
 // tax-mode text they render. The user asked for plain, non-technical,
 // non-AI-sounding copy: no em/en dashes and none of the stock "AI" words.
 import { test } from 'node:test';
@@ -12,6 +13,7 @@ const APP = join(HERE, '..');
 const FILES = {
   docs: join(APP, 'docs', 'page.tsx'),
   modules: join(APP, 'catalog', 'page.tsx'),
+  'dn404 create': join(APP, 'create', 'dn404', 'page.tsx'),
 };
 const CONFIG = join(APP, '..', 'lib', 'config.ts');
 
