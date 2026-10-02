@@ -56,6 +56,10 @@ export interface KeeperConfig {
   readonly ethUsdgFee: number;
   readonly ethUsdgTickSpacing: number;
   readonly conduitController: Address;
+  /// Below these amounts a swap is skipped (the value is held, not routed):
+  /// tiny swaps can revert on rounding / minOut and are never worth the gas.
+  readonly dustEthWei: bigint;
+  readonly dustUsdg: bigint;
 
   /// Where BuybackURU sends the bought URU. Default 0x…dEaD (buy + burn).
   readonly uruBuybackSink: Address;
@@ -133,6 +137,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KeeperConfig {
     ethUsdgFee: Number(env.KEEPER_ETH_USDG_FEE ?? RH.ethUsdgFee),
     ethUsdgTickSpacing: Number(env.KEEPER_ETH_USDG_TICK_SPACING ?? RH.ethUsdgTickSpacing),
     conduitController: addr('KEEPER_CONDUIT_CONTROLLER', RH.conduitController),
+    dustEthWei: BigInt(env.KEEPER_DUST_ETH_WEI ?? 10n ** 12n),
+    dustUsdg: BigInt(env.KEEPER_DUST_USDG ?? 10_000n),
     uruBuybackSink: addr('KEEPER_URU_BUYBACK_SINK', DEAD),
     buyAllowedRecipients: parseRecipients(env.KEEPER_BUY_ALLOWED_RECIPIENTS),
     minSweepBpsOfSupply: BigInt(env.KEEPER_MIN_SWEEP_BPS_OF_SUPPLY ?? 1),

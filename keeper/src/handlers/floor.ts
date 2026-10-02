@@ -19,7 +19,8 @@ import type { KeeperConfig } from '../config.ts';
 import { DEAD, ZERO } from '../constants.ts';
 import { encodeFulfillment, type Listing, type ListingsProvider } from '../opensea.ts';
 import { ethUsdgPoolKey, launchPoolKey, priceOtherPerToken, readSlot0, uruWethPoolKey } from '../pools.ts';
-import { ethToUru, ethToUsdg, isEthPaired, pairToToken, tokenToEth, usdgToEth, type LaunchRef } from '../routes.ts';
+import { ethToUru, ethToUsdg, isDust, isEthPaired, pairToToken, tokenToEth, usdgToEth, type LaunchRef } from '../routes.ts';
+import type { FulfillmentTx } from '../opensea.ts';
 import { applyBps } from '../swap.ts';
 import type { LaunchSnapshot } from '../sweeper.ts';
 import { send, sendRaw, type Ctx } from '../tx.ts';
@@ -79,6 +80,12 @@ export function selectListings(listings: Listing[], impliedWei: bigint, marginBp
   return picked;
 }
 
+/// Pure: which post-buy cleanup swaps are worth doing. Dust is left on the
+/// keeper (it is gas money / retried next sweep) instead of risking a revert.
+export function planCleanup(cfg: Pick<KeeperConfig, 'usdg' | 'weth' | 'dustEthWei' | 'dustUsdg'>, usdgLeft: bigint, ethLeft: bigint): { usdgToEth: boolean; ethToToken: boolean } {
+  return { usdgToEth: !isDust(cfg, cfg.usdg, usdgLeft), ethToToken: !isDust(cfg, '0x0000000000000000000000000000000000000000', ethLeft) };
+}
+
 export interface FloorResult {
   bought: bigint[];
   burnedTokens: bigint;
@@ -119,17 +126,28 @@ export async function handleFloor(ctx: Ctx, cfg: KeeperConfig, s: LaunchSnapshot
   const picked = selectListings(listings, implied, cfg.floorSafetyMarginBps, cfg.floorMaxBuysPerTick, budget);
   console.log(`[keeper:floor] ${l.base}: implied NFT value ${implied} wei, ${listings.length} listings, ${picked.length} under ceiling`);
 
-  if (picked.length > 0) {
-    const need = picked.reduce((a, b) => a + b.priceWei, 0n);
+  // Fetch fulfillment data BEFORE selling anything: a listing that was
+  // filled or cancelled since the listings call must not trigger a token
+  // sale (2026-10-01 mainnet: tick 2 sold, then got 400 for a filled order).
+  const ready: Array<{ listing: Listing; f: FulfillmentTx }> = [];
+  for (const listing of picked) {
+    try {
+      ready.push({ listing, f: await provider!.fulfillment(listing, ctx.keeper) });
+    } catch (err) {
+      console.warn(`[keeper:floor] ${l.base}: listing #${listing.tokenId} not fillable: ${(err as Error).message}`);
+    }
+  }
+
+  if (ready.length > 0) {
+    const need = ready.reduce((a, b) => a + b.listing.priceWei, 0n);
     // Tokens to sell ~= need / price, +15% buffer, capped at balance.
     let toSell = price === 0n ? balance : (need * 10n ** 18n * 11_500n) / (price * 10_000n);
     if (toSell > balance) toSell = balance;
     const sale = await tokenToEth(ctx, cfg, l, toSell);
     let ethLeft = sale.amountOut;
-    for (const listing of picked) {
+    for (const { listing, f } of ready) {
       if (listing.priceWei > ethLeft) break;
       try {
-        const f = await provider!.fulfillment(listing, ctx.keeper);
         const data = encodeFulfillment(f);
         if (BigInt(listing.currency) !== 0n) {
           // USDG listing: swap just enough ETH (+3% for fee/slippage) to USDG,
@@ -157,16 +175,25 @@ export async function handleFloor(ctx: Ctx, cfg: KeeperConfig, s: LaunchSnapshot
     }
     // Unspent USDG returns to ETH; unspent ETH goes back into the launch
     // token, which is then burned.
+    // Best effort: a cleanup failure must never skip the burn below.
     const usdgLeft = await ctx.pc.readContract({ address: cfg.usdg, abi: erc20Abi, functionName: 'balanceOf', args: [ctx.keeper] });
-    if (usdgLeft > 0n) {
-      const back = await usdgToEth(ctx, cfg, usdgLeft);
-      ethLeft += back.amountOut;
+    const plan = planCleanup(cfg, usdgLeft, ethLeft);
+    if (plan.usdgToEth) {
+      try {
+        ethLeft += (await usdgToEth(ctx, cfg, usdgLeft)).amountOut;
+      } catch (err) {
+        console.warn(`[keeper:floor] ${l.base}: USDG swap-back failed (${(err as Error).message}); holding ${usdgLeft}`);
+      }
     }
-    if (ethLeft > 0n) {
-      if (isEthPaired(l)) await pairToToken(ctx, cfg, l, ethLeft);
-      else {
-        const uru = await ethToUru(ctx, cfg, ethLeft);
-        if (uru.amountOut > 0n) await pairToToken(ctx, cfg, l, uru.amountOut);
+    if (planCleanup(cfg, 0n, ethLeft).ethToToken) {
+      try {
+        if (isEthPaired(l)) await pairToToken(ctx, cfg, l, ethLeft);
+        else {
+          const uru = await ethToUru(ctx, cfg, ethLeft);
+          if (uru.amountOut > 0n) await pairToToken(ctx, cfg, l, uru.amountOut);
+        }
+      } catch (err) {
+        console.warn(`[keeper:floor] ${l.base}: ETH re-buy failed (${(err as Error).message}); holding ${ethLeft} wei`);
       }
     }
   }

@@ -29,14 +29,24 @@ export async function tokenToPair(ctx: Ctx, cfg: KeeperConfig, l: LaunchRef, amo
 
 /// Buy launch tokens from the launch pool with pair currency.
 export async function pairToToken(ctx: Ctx, cfg: KeeperConfig, l: LaunchRef, amount: bigint): Promise<SwapResult> {
+  if (isDust(cfg, l.pair, amount)) return { amountIn: 0n, amountOut: 0n };
   const key = launchPoolKey(l.base, l.pair, cfg);
   const zeroForOne = key.currency0.toLowerCase() !== l.base.toLowerCase();
   return swapExactIn(ctx, cfg, key, zeroForOne, amount, `buy ${l.base}`);
 }
 
 /// ETH -> URU through the URU/WETH pool (wraps first).
+/// Pure: is `amount` of `currency` too small to be worth swapping?
+export function isDust(cfg: Pick<KeeperConfig, 'usdg' | 'weth' | 'dustEthWei' | 'dustUsdg'>, currency: Address, amount: bigint): boolean {
+  if (amount === 0n) return true;
+  const c = currency.toLowerCase();
+  if (BigInt(currency) === 0n || c === cfg.weth.toLowerCase()) return amount < cfg.dustEthWei;
+  if (c === cfg.usdg.toLowerCase()) return amount < cfg.dustUsdg;
+  return false;
+}
+
 export async function ethToUru(ctx: Ctx, cfg: KeeperConfig, amountEth: bigint): Promise<SwapResult> {
-  if (amountEth === 0n) return { amountIn: 0n, amountOut: 0n };
+  if (isDust(cfg, ZERO, amountEth)) return { amountIn: 0n, amountOut: 0n };
   const key = uruWethPoolKey(cfg);
   await wrapEth(ctx, cfg, amountEth);
   const zeroForOne = key.currency0.toLowerCase() === cfg.weth.toLowerCase();
@@ -58,13 +68,13 @@ export async function uruToEth(ctx: Ctx, cfg: KeeperConfig, amountUru: bigint): 
 
 /// Native ETH -> USDG (OpenSea's required listing currency on Robinhood).
 export async function ethToUsdg(ctx: Ctx, cfg: KeeperConfig, amountEth: bigint): Promise<SwapResult> {
-  if (amountEth === 0n) return { amountIn: 0n, amountOut: 0n };
+  if (isDust(cfg, ZERO, amountEth)) return { amountIn: 0n, amountOut: 0n };
   return swapExactIn(ctx, cfg, ethUsdgPoolKey(cfg), true, amountEth, 'swap ETH -> USDG');
 }
 
 /// USDG -> native ETH (returns unspent floor-buy USDG to ETH).
 export async function usdgToEth(ctx: Ctx, cfg: KeeperConfig, amountUsdg: bigint): Promise<SwapResult> {
-  if (amountUsdg === 0n) return { amountIn: 0n, amountOut: 0n };
+  if (isDust(cfg, cfg.usdg, amountUsdg)) return { amountIn: 0n, amountOut: 0n };
   return swapExactIn(ctx, cfg, ethUsdgPoolKey(cfg), false, amountUsdg, 'swap USDG -> ETH');
 }
 

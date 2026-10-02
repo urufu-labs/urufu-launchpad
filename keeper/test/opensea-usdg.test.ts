@@ -77,3 +77,39 @@ test('pricedInEth converts USDG raw units with the pool price and leaves native 
   assert.equal(out[0]!.priceWei, 5n);
   assert.equal(out[1]!.priceWei, 10_000n * 370_000_000n);
 });
+
+// ---- Dust handling, reproducing the 2026-10-01 mainnet floor run ----
+// After buying NFT #1 for 10,000 USDG units, the keeper held ~300 USDG units
+// (the +3% buffer on its ETH -> USDG swap). Swapping that back reverted the
+// UR `execute`, which aborted the handler before its burn. Dust is now held.
+import { isDust } from '../src/routes.ts';
+import { planCleanup } from '../src/handlers/floor.ts';
+
+const DUST_CFG = {
+  usdg: USDG,
+  weth: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73' as Address,
+  dustEthWei: 10n ** 12n,
+  dustUsdg: 10_000n,
+};
+
+test('mainnet leftover of ~300 USDG units is dust: no swap-back', () => {
+  assert.equal(isDust(DUST_CFG, USDG, 300n), true);
+  assert.deepEqual(planCleanup(DUST_CFG, 300n, 0n), { usdgToEth: false, ethToToken: false });
+});
+
+test('zero amounts are always dust for every currency', () => {
+  for (const c of [USDG, DUST_CFG.weth, '0x0000000000000000000000000000000000000000' as Address, MIRROR]) {
+    assert.equal(isDust(DUST_CFG, c, 0n), true, c);
+  }
+});
+
+test('real leftovers above the thresholds are still routed', () => {
+  assert.equal(isDust(DUST_CFG, USDG, 10_000n), false);
+  assert.equal(isDust(DUST_CFG, '0x0000000000000000000000000000000000000000', 10n ** 12n), false);
+  assert.equal(isDust(DUST_CFG, DUST_CFG.weth, 10n ** 11n), true);
+  assert.deepEqual(planCleanup(DUST_CFG, 50_000n, 5n * 10n ** 12n), { usdgToEth: true, ethToToken: true });
+});
+
+test('non-ETH, non-USDG tokens are never treated as dust unless zero', () => {
+  assert.equal(isDust(DUST_CFG, MIRROR, 1n), false);
+});
