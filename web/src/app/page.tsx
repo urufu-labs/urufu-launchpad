@@ -31,7 +31,8 @@ import {
   type IndexerV4Swap,
 } from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
-import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
+import { formatCurveAmount, isPairLaunch } from '@/lib/dn404Feed';
 import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
@@ -146,6 +147,7 @@ function HomePageContent() {
   // preserves the user's pick.
   const [nftTab, setNftTab] = useState<'featured' | 'just-launched'>('featured');
   const nftChainEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
+  const dn404ChainEnabled = DN404_LAUNCHES_ENABLED[activeChain] === true;
   const previewEnabled = mockData.enabled;
   const [previewRun, setPreviewRun] = useState(0);
   const [mockLaunchesHydrated, setMockLaunchesHydrated] = useState(false);
@@ -671,7 +673,7 @@ function HomePageContent() {
         </aside>
       </div>
 
-      {nftChainEnabled && (
+      {(nftChainEnabled || dn404ChainEnabled) && (
         <section
           className="uru-home-nft-section"
           aria-label="NFT collections"
@@ -712,7 +714,7 @@ function HomePageContent() {
               on an empty indexer response. Featured vs just-launched is
               a client-side sort tweak once we introduce a "featured"
               curation flag — for now both tabs show recent launches. */}
-          <NftCollectionGrid chain={activeChain} chainEnabled={nftChainEnabled} variant="home" limit={12} />
+          <NftCollectionGrid chain={activeChain} chainEnabled={nftChainEnabled} dn404Enabled={dn404ChainEnabled} variant="home" limit={12} />
         </section>
       )}
 
@@ -800,7 +802,7 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
   const logoDataUrl = launch.imageUrl ?? localImage;
   const name = launch.name;
   const ticker = launch.ticker;
-  const raised = preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`;
+  const raised = preview?.raised ?? (isPairLaunch(launch) ? formatCurveAmount(launch, launch.ethReserve) : `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`);
   const creator = preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`;
   const tradeCount = preview?.trades ?? tradeCountOf(launch);
   const tone = preview?.tone ?? (launch.graduated ? 'mint' : 'pink');
@@ -821,6 +823,9 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
           {!logoDataUrl && launch.logoEmoji}
         </div>
         <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
+        {!preview && launch.lane === 'dn404' && (
+          <span className="uru-launch-ticket-tag" title="this token comes with NFTs">dn404</span>
+        )}
         {/* Match the discover-page badge treatment so users see legacy /
             cliff-risk stickers wherever a token appears (home rail + discover +
             trade page). Read from the shared legacyGraduations helpers so the
@@ -894,7 +899,7 @@ function CultureBulletin({
 }) {
   const progress = launch ? (preview?.progress ?? mockProgressPct(launch)) : 0;
   const raised = launch
-    ? (preview?.raised ?? `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`)
+    ? (preview?.raised ?? (isPairLaunch(launch) ? formatCurveAmount(launch, launch.ethReserve) : `${Number(formatEther(launch.ethReserve)).toFixed(2)} Ξ`))
     : '—';
   const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
   const creator = launch

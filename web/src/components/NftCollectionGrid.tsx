@@ -24,33 +24,42 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentNftCollections, type IndexerNftCollection } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { safeBackgroundImage } from '@/lib/metadata';
+import { collectionVisible } from '@/lib/dn404Feed';
 import { NftLaunchTeaser } from './NftLaunchTeaser';
 import styles from './NftCollectionGrid.module.css';
 
 interface Props {
   chain: ChainKey;
+  /// NFT lane flag (NFT_LAUNCHES_ENABLED). Gates plain NFT collections.
   chainEnabled: boolean;
+  /// DN404 lane flag (DN404_LAUNCHES_ENABLED). Gates DN404 collections, which
+  /// are listed in the same grid but must stay hidden while DN404 is off.
+  dn404Enabled?: boolean;
   variant: 'home' | 'discover';
   limit?: number;
 }
 
-export function NftCollectionGrid({ chain, chainEnabled, variant, limit = 12 }: Props) {
+export function NftCollectionGrid({ chain, chainEnabled, dn404Enabled = false, variant, limit = 12 }: Props) {
   const targetChainId = CHAIN_KEY_TO_ID[chain];
   const [items, setItems] = useState<IndexerNftCollection[] | null>(null);
 
   useEffect(() => {
-    if (!chainEnabled) { setItems([]); return; }
+    if (!chainEnabled && !dn404Enabled) { setItems([]); return; }
     let cancelled = false;
     (async () => {
       const rows = await fetchRecentNftCollections(limit);
       if (cancelled) return;
-      setItems((rows ?? []).filter((r) => r.chainId === targetChainId));
+      setItems(
+        (rows ?? [])
+          .filter((r) => r.chainId === targetChainId)
+          .filter((r) => collectionVisible(r, { nftEnabled: chainEnabled, dn404Enabled })),
+      );
     })();
     return () => { cancelled = true; };
-  }, [chainEnabled, targetChainId, limit]);
+  }, [chainEnabled, dn404Enabled, targetChainId, limit]);
 
   if ((items?.length ?? 0) === 0) {
-    return <NftLaunchTeaser chainEnabled={chainEnabled} variant={variant} />;
+    return <NftLaunchTeaser chainEnabled={chainEnabled || dn404Enabled} variant={variant} />;
   }
 
   // Home matches the launchpad-native tile treatment used by LaunchTile so
@@ -60,18 +69,36 @@ export function NftCollectionGrid({ chain, chainEnabled, variant, limit = 12 }: 
   if (variant === 'home') {
     return (
       <div className="uru-home-launch-grid">
-        {(items ?? []).map((c) => (
-          <NftHomeTile key={c.id} row={c} chainId={targetChainId} />
-        ))}
+        {(items ?? []).map((c) =>
+          c.lane === 'dn404' && c.pairedToken ? (
+            <div key={c.id} style={{ display: 'grid', gap: 4, alignContent: 'start' }}>
+              <NftHomeTile row={c} chainId={targetChainId} />
+              <Link href={`/trade/${c.pairedToken}`} className="uru-chip" style={{ justifySelf: 'start', textDecoration: 'none' }}>
+                trade the token →
+              </Link>
+            </div>
+          ) : (
+            <NftHomeTile key={c.id} row={c} chainId={targetChainId} />
+          ),
+        )}
       </div>
     );
   }
 
   return (
     <div className={styles.mosaic}>
-      {(items ?? []).map((c) => (
-        <NftCollectionCard key={c.id} row={c} chainId={targetChainId} />
-      ))}
+      {(items ?? []).map((c) =>
+        c.lane === 'dn404' && c.pairedToken ? (
+          <div key={c.id} className={styles.dn404Wrap}>
+            <NftCollectionCard row={c} chainId={targetChainId} />
+            <Link href={`/trade/${c.pairedToken}`} className={styles.dn404Trade}>
+              trade the token <span className="uru-arrow">→</span>
+            </Link>
+          </div>
+        ) : (
+          <NftCollectionCard key={c.id} row={c} chainId={targetChainId} />
+        ),
+      )}
     </div>
   );
 }
@@ -171,7 +198,7 @@ function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: num
         >
           {!cover && '❁'}
         </div>
-        <span className="uru-launch-ticket-tag">nft</span>
+        <span className="uru-launch-ticket-tag">{row.lane === 'dn404' ? 'dn404' : 'nft'}</span>
       </div>
       <span className="uru-launch-ticket-name">{row.name}</span>
       <span className="uru-launch-ticket-symbol">${row.ticker}</span>
@@ -215,7 +242,10 @@ function NftCollectionCard({
     query: { staleTime: 30_000 },
   });
   const totalSupply = c721.data?.[0]?.result as bigint | undefined;
-  const maxSupply   = c721.data?.[1]?.result as bigint | undefined;
+  // DN404 mirrors have no maxSupply(); fall back to the collection size the
+  // indexer stored at launch.
+  const maxSupply   = (c721.data?.[1]?.result as bigint | undefined)
+    ?? (row.lane === 'dn404' && row.maxSupply ? BigInt(row.maxSupply) : undefined);
   const tokenUri    = c721.data?.[2]?.result as string  | undefined;
 
   // Mint module reads (uses zeroAddress placeholder + enabled: false when
@@ -269,8 +299,13 @@ function NftCollectionCard({
     return Math.min(100, Math.max(0, p));
   }, [totalSupply, maxSupply]);
 
-  const isSoldOut = maxSupply !== undefined && maxSupply !== 0n && totalSupply === maxSupply;
+  const isDn404 = row.lane === 'dn404';
+  const isSoldOut = !isDn404 && maxSupply !== undefined && maxSupply !== 0n && totalSupply === maxSupply;
   const paidLabel = isUru ? 'uru paid' : 'eth paid';
+  const dn404Pair = isDn404 && row.pairCurrency && row.pairCurrency !== zeroAddress ? 'URU' : 'ETH';
+  const dn404Unit = isDn404 && row.unitWei
+    ? Number(formatUnits(BigInt(row.unitWei), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : '';
 
   return (
     <Link href={`/collection/${row.collectionAddress}`} className={styles.releaseCard}>
@@ -288,9 +323,18 @@ function NftCollectionCard({
           </div>
         )}
         <div className={styles.badges}>
-          <span>nft</span>
-          {isSoldOut && <span>sold out</span>}
-          <span>{paidLabel}</span>
+          {isDn404 ? (
+            <>
+              <span>dn404</span>
+              <span>{dn404Pair.toLowerCase()} pair</span>
+            </>
+          ) : (
+            <>
+              <span>nft</span>
+              {isSoldOut && <span>sold out</span>}
+              <span>{paidLabel}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -299,36 +343,59 @@ function NftCollectionCard({
           <h2>{row.name}</h2>
           <span>${row.ticker}</span>
         </div>
-        <p>{`launched ${new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()} by ${shortAddr(row.launchedBy)}`}</p>
+        <p>
+          {isDn404
+            ? `also a token: every ${dn404Unit} ${row.ticker} you hold is 1 NFT. buy the token to get NFTs, sell it and they go away.`
+            : `launched ${new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()} by ${shortAddr(row.launchedBy)}`}
+        </p>
       </div>
 
       <div className={styles.metrics}>
-        <div className={styles.metric}>
-          <small>price</small>
-          <b>{price}</b>
-        </div>
-        <div className={styles.metric}>
-          <small>minted</small>
-          <b>{supplyLabel}</b>
-        </div>
-        <div className={styles.metric}>
-          <small>pay</small>
-          <b>{isUru ? 'URU' : 'ETH'}</b>
-        </div>
+        {isDn404 ? (
+          <>
+            <div className={styles.metric}>
+              <small>1 nft</small>
+              <b>{dn404Unit} tokens</b>
+            </div>
+            <div className={styles.metric}>
+              <small>nfts out</small>
+              <b>{supplyLabel}</b>
+            </div>
+            <div className={styles.metric}>
+              <small>pay</small>
+              <b>{dn404Pair}</b>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.metric}>
+              <small>price</small>
+              <b>{price}</b>
+            </div>
+            <div className={styles.metric}>
+              <small>minted</small>
+              <b>{supplyLabel}</b>
+            </div>
+            <div className={styles.metric}>
+              <small>pay</small>
+              <b>{isUru ? 'URU' : 'ETH'}</b>
+            </div>
+          </>
+        )}
       </div>
 
       <div className={styles.progress}>
         <div>
           <i style={{ width: `${progressPct}%` }} />
         </div>
-        <span>{isSoldOut ? 'sold out' : `${progressPct.toFixed(1)}% minted`}</span>
+        <span>{isDn404 ? `${progressPct.toFixed(1)}% of nfts out` : isSoldOut ? 'sold out' : `${progressPct.toFixed(1)}% minted`}</span>
       </div>
 
       <div className={styles.releaseFoot}>
         <span>
           {shortAddr(row.launchedBy)} · {new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()}
         </span>
-        <b>mint <span className="uru-arrow">→</span></b>
+        <b>{isDn404 ? 'view nfts' : 'mint'} <span className="uru-arrow">→</span></b>
       </div>
     </Link>
   );

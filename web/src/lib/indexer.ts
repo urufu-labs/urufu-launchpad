@@ -724,6 +724,7 @@ export async function fetchNftCollectionsByLauncher(
       ) {
         items {
           id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
+          lane pairedToken unitWei pairCurrency
           blockNumber blockTimestamp
         }
       }
@@ -745,6 +746,7 @@ export async function fetchRecentNftCollections(
       nftCollectionss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
           id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
+          lane pairedToken unitWei pairCurrency
           blockNumber blockTimestamp
         }
       }
@@ -752,6 +754,78 @@ export async function fetchRecentNftCollections(
     { limit },
   );
   return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
+}
+
+/// DN404 mirror collections only (lane='dn404'), newest first. Each row's
+/// `pairedToken` is the tradeable ERC-20; the discover feed turns these into
+/// token cards (see dn404Feed.ts). Hidden test collections are filtered here.
+export async function fetchDn404Collections(limit = 60): Promise<IndexerNftCollection[] | null> {
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query Dn404Collections($limit: Int!) {
+      nftCollectionss(where: { lane: "dn404" }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId collectionAddress launchedBy name ticker coverImageUrl description maxSupply
+          lane pairedToken unitWei pairCurrency
+          blockNumber blockTimestamp
+        }
+      }
+    }`,
+    { limit },
+  );
+  if (!data) return null;
+  return data.nftCollectionss.items.filter(notHiddenNft);
+}
+
+/// URU-paired (ERC-20 pair) DN404 curve, from `pair_curves`. Amounts are in
+/// pair-token units, never ETH. Null when the token has no pair curve.
+export interface IndexerPairCurve {
+  chainId: number;
+  curveAddress: Address;
+  tokenAddress: Address;
+  pairCurrency: Address;
+  curveSupply: string;
+  virtualTokenReserve: string;
+  virtualPairReserve: string;
+  graduationTargetPair: string;
+  tradeFeeBps: number;
+  pairReserve: string;
+  tokenReserve: string;
+  tradeCount: number;
+  graduated: boolean;
+}
+
+export async function fetchPairCurveByToken(token: Address): Promise<IndexerPairCurve | null> {
+  const data = await gqlFanout<{ pairCurvess: { items: IndexerPairCurve[] } }>(
+    `query PairCurveByToken($token: String!) {
+      pairCurvess(where: { tokenAddress: $token }, limit: 1) {
+        items {
+          chainId curveAddress tokenAddress pairCurrency curveSupply virtualTokenReserve
+          virtualPairReserve graduationTargetPair tradeFeeBps pairReserve tokenReserve tradeCount graduated
+        }
+      }
+    }`,
+    { token: token.toLowerCase() },
+  );
+  return data?.pairCurvess.items[0] ?? null;
+}
+
+/// Post-graduation swaps on a URU pool (`pair_v4_swaps`): count + newest spot
+/// price in pair units per whole token (1e18-scaled).
+export async function fetchPairV4SummaryForToken(
+  token: Address,
+): Promise<{ latestPricePairPerToken: bigint; count: number } | null> {
+  const data = await gqlFanout<{ pairV4Swapss: { items: Array<{ pricePairPerToken: string }> } }>(
+    `query PairV4SummaryForToken($token: String!) {
+      pairV4Swapss(where: { tokenAddress: $token }, orderBy: "blockTimestamp", orderDirection: "desc", limit: 1000) {
+        items { pricePairPerToken }
+      }
+    }`,
+    { token: token.toLowerCase() },
+  );
+  if (!data) return null;
+  const items = data.pairV4Swapss.items;
+  if (items.length === 0) return { latestPricePairPerToken: 0n, count: 0 };
+  return { latestPricePairPerToken: BigInt(items[0]!.pricePairPerToken), count: items.length };
 }
 
 export interface IndexerNftMint {

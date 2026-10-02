@@ -229,3 +229,31 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* DN404 collections: the card links to the NFTs, the strip below links to the
+   tradeable token. Two separate links (a link can't sit inside a link). */
+.dn404Wrap {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+}
+
+.dn404Trade {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1.5px solid var(--anchor);
+  border-top: 0;
+  background: var(--pink-soft, #ffe3ee);
+  color: var(--anchor);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.dn404Trade:hover,
+.dn404Trade:focus-visible {
+  background: var(--pink-hot);
+  color: var(--cream);
+}

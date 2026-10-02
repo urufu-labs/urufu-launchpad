@@ -11,7 +11,6 @@ import {
   mockMarketCapEth,
   mockProgressPct,
   mockSpotPriceWei,
-  launchKind,
   tradeCountOf,
   type MockLaunch,
 } from '@/lib/mockLaunches';
@@ -25,11 +24,12 @@ import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { formatMcap, formatPrice, useEthUsd, usePriceUnit } from '@/lib/priceUnit';
 import { sizeForName, isLongName } from '@/lib/nameSize';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
-import { NFT_LAUNCHES_ENABLED } from '@/lib/config';
+import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
+import { filterAndSortLaunches, formatCurveAmount, isPairLaunch } from '@/lib/dn404Feed';
 import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 
-type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'all' | 'nft';
+type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'dn404' | 'all' | 'nft';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'trending', label: 'trending', jp: '人気' },
@@ -38,6 +38,7 @@ const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
   { id: 'near-graduation', label: 'near grad', jp: '卒業' },
   { id: 'graduated', label: 'graduated', jp: '完了' },
   { id: 'whitelist', label: 'whitelist', jp: '会員' },
+  { id: 'dn404', label: 'dn404', jp: '対' },
   { id: 'nft', label: 'nft', jp: '絵' },
   { id: 'all', label: 'all', jp: '全部' },
 ];
@@ -59,73 +60,35 @@ export default function DiscoverPage() {
   // Powers the recent-activity bump on the 'trending' tab.
   const lastTradeMap = useLastTradeMap();
 
-  const filtered = useMemo(() => {
-    let list = source.filter((l) => launchKind(l) === 'curve');
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      list = list.filter(
-        (l) =>
-          l.name.toLowerCase().includes(q) ||
-          l.ticker.toLowerCase().includes(q) ||
-          l.address.toLowerCase().includes(q),
-      );
-    }
-    // Filter modes that narrow the list (badge-scoped tabs). Apply BEFORE
-    // sorting so the tab-specific criteria still work as expected.
-    if (filter === 'near-graduation') list = list.filter((l) => !l.graduated);
-    else if (filter === 'graduated') list = list.filter((l) => l.graduated);
-    else if (filter === 'whitelist') list = list.filter((l) => l.hasWhitelist === true);
+  const dn404Enabled = DN404_LAUNCHES_ENABLED[activeChain] === true;
+  const nftEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
+  // The dn404 tab only exists when the DN404 lane is on for this chain.
+  const visibleFilters = useMemo(
+    () => FILTERS.filter((f) => f.id !== 'dn404' || dn404Enabled),
+    [dn404Enabled],
+  );
+  useEffect(() => {
+    if (filter === 'dn404' && !dn404Enabled) setFilter('trending');
+  }, [filter, dn404Enabled]);
 
-    // Per-tab primary sort. When the tab name implies a specific
-    // ordering (mcap → top market cap, new → most recent launch,
-    // near-graduation → highest progress toward grad), that ordering
-    // MUST win — the recent-trade bump is intentionally scoped to
-    // `trending` and `all` where "activity" is the actual criterion.
-    // Before this fix, every tab preferred recently-traded tokens
-    // regardless of the tab name, which meant `mcap` didn't show the
-    // top-mcap token first if some smaller token had a fresh trade.
-    const primary = (a: MockLaunch, b: MockLaunch): number => {
-      switch (filter) {
-        case 'trending':
-          return tradeCountOf(b) - tradeCountOf(a);
-        case 'mcap':
-          return Number(mockMarketCapEth(b) - mockMarketCapEth(a));
-        case 'near-graduation':
-          return mockProgressPct(b) - mockProgressPct(a);
-        case 'new':
-        case 'graduated':
-        case 'whitelist':
-        case 'all':
-        default:
-          return b.launchedAt - a.launchedAt;
-      }
-    };
-
-    // Only `trending` and `all` bubble recently-traded tokens above
-    // their tab-order slot. Every other tab uses the primary sort as
-    // the actual sort. Ties in primary fall back to recency of trade
-    // as a stable secondary (still useful on 'graduated' etc.).
-    const useTradeBump = filter === 'trending' || filter === 'all';
-
-    list.sort((a, b) => {
-      if (useTradeBump) {
-        const aTs = lastTradeMap.get(a.address.toLowerCase()) ?? 0;
-        const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
-        if (aTs !== bTs) return bTs - aTs;
-      }
-      const p = primary(a, b);
-      if (p !== 0) return p;
-      // Tie-breaker: newer launch first — deterministic across renders.
-      return b.launchedAt - a.launchedAt;
-    });
-
-    return list;
-  }, [filter, query, source, lastTradeMap]);
+  // Narrow + sort per tab (dn404Feed.ts, unit-tested). Market cap compares in
+  // ETH for every launch, including URU-paired DN404 tokens.
+  const filtered = useMemo(
+    () =>
+      filterAndSortLaunches(source, filter, query, {
+        marketCapEth: mockMarketCapEth,
+        progress: mockProgressPct,
+        tradeCount: tradeCountOf,
+        lastTrade: (addr) => lastTradeMap.get(addr) ?? 0,
+      }),
+    [filter, query, source, lastTradeMap],
+  );
 
   const graduatedCount = source.filter((l) => l.graduated).length;
   const whitelistCount = source.filter((l) => l.hasWhitelist).length;
   const totalTrades = source.reduce((sum, launch) => sum + tradeCountOf(launch), 0);
   const activeFilter = FILTERS.find((item) => item.id === filter)!;
+  const dn404Count = source.filter((l) => l.lane === 'dn404').length;
 
   return (
     <main className={styles.page}>
@@ -181,7 +144,7 @@ export default function DiscoverPage() {
             aria-label="Token filters"
             aria-controls="release-results"
           >
-            {FILTERS.map((f) => (
+            {visibleFilters.map((f) => (
               <button
                 key={f.id}
                 id={`filter-${f.id}`}
@@ -207,6 +170,7 @@ export default function DiscoverPage() {
             <span>{totalTrades} trades</span>
             <span>{graduatedCount} graduated</span>
             {whitelistCount > 0 && <span>{whitelistCount} whitelist</span>}
+            {dn404Enabled && dn404Count > 0 && <span>{dn404Count} dn404</span>}
           </div>
         </div>
 
@@ -226,7 +190,8 @@ export default function DiscoverPage() {
           {filter === 'nft' ? (
             <NftCollectionGrid
               chain={activeChain}
-              chainEnabled={NFT_LAUNCHES_ENABLED[activeChain] === true}
+              chainEnabled={nftEnabled}
+              dn404Enabled={dn404Enabled}
               variant="discover"
               limit={48}
             />
@@ -292,8 +257,13 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
   }, [launch.imageUrl, launch.chainId, launch.address]);
 
   const image = launch.imageUrl ?? localImage;
-  const raised = `${Number(formatEther(launch.ethReserve)).toFixed(2)}Ξ`;
-  const target = `${Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ`;
+  // URU-paired DN404 curves hold URU, so show their curve amounts in URU.
+  const raised = isPairLaunch(launch)
+    ? formatCurveAmount(launch, launch.ethReserve)
+    : `${Number(formatEther(launch.ethReserve)).toFixed(2)}Ξ`;
+  const target = isPairLaunch(launch)
+    ? formatCurveAmount(launch, launch.graduationTargetEth)
+    : `${Number(formatEther(launch.graduationTargetEth)).toFixed(1)}Ξ`;
   return (
     <Link
       href={`/trade/${launch.address}`}
@@ -316,6 +286,10 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
           <span>{launch.graduated ? 'graduated' : 'curve'}</span>
           {launch.hasWhitelist && <span>whitelist</span>}
           {launch.payToken === 'URU' && <span>uru paid</span>}
+          {launch.lane === 'dn404' && (
+            <span title="this token comes with NFTs: hold enough tokens and you get NFTs, sell and they go away">dn404</span>
+          )}
+          {isPairLaunch(launch) && <span>{(launch.pairSymbol ?? 'uru').toLowerCase()} pair</span>}
           {/* Legacy pill — already graduated on the pre-V3 (V10) stack. Same
               cliff LUV had; tag lets buyers know before they click through. */}
           {isLegacyGraduated(launch.address, launch.graduated) && (

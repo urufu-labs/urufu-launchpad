@@ -28,7 +28,7 @@ import { type Address, erc721Abi } from 'viem';
 import { useReadContracts } from 'wagmi';
 
 import type { ChainKey } from '@/lib/config';
-import { ECOSYSTEM_TOKENS } from '@/lib/config';
+import { ECOSYSTEM_TOKENS, DN404_LAUNCHES_ENABLED } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { isHiddenNftCollection } from '@/lib/hiddenNftCollections';
 import { fetchWalletNfts, type WalletNftAvatar } from '@/lib/nftAvatarApi';
@@ -102,8 +102,13 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
       const distinctAddrs = Array.from(new Set([...alchemyAddrs, ...indexerAddrs]));
       const launchpadRows = await fetchNftCollectionsByAddresses(distinctAddrs);
       if (cancelled) return;
+      // DN404 NFTs only count as launchpad collections while the DN404 lane
+      // is on; otherwise they are treated like any unknown contract (skipped).
+      const dn404On = DN404_LAUNCHES_ENABLED[chain] === true;
       const launchpadByAddr = new Map(
-        (launchpadRows ?? []).map((c) => [c.collectionAddress.toLowerCase(), c]),
+        (launchpadRows ?? [])
+          .filter((c) => c.lane !== 'dn404' || dn404On)
+          .map((c) => [c.collectionAddress.toLowerCase(), c]),
       );
 
       const out: Tile[] = [];

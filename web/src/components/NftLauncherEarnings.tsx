@@ -64,7 +64,9 @@ export function NftLauncherEarnings({ visibleFor, chain }: Props) {
     (async () => {
       const raw = await fetchNftCollectionsByLauncher(visibleFor, 100);
       if (cancelled) return;
-      const forChain = (raw ?? []).filter((r) => r.chainId === targetChainId);
+      // DN404 collections have no mint module and no mint earnings, so they
+      // never belong here (and must not show while the DN404 lane is off).
+      const forChain = (raw ?? []).filter((r) => r.chainId === targetChainId && r.lane !== 'dn404');
       setCollections(
         forChain.map((r) => ({ collectionAddress: r.collectionAddress, name: r.name })),
       );
