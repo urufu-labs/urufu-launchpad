@@ -230,7 +230,8 @@ describe('web smoke: pre-launch splash gate', () => {
     const hasSplash =
       body.includes('not live yet') || body.includes('urufu is taking a nap');
     const hasHomeFeed =
-      body.includes('recent trades') || body.includes('mock launches');
+      body.includes('recent trades') || body.includes('mock launches') ||
+      body.includes('live trades') || body.includes('just launched');
     assert.ok(
       hasSplash || hasHomeFeed,
       'home page shows neither the pre-launch splash nor the real feed',
@@ -242,7 +243,8 @@ describe('web smoke: pre-launch splash gate', () => {
     const hasSplash =
       body.includes('not live yet') || body.includes('urufu is taking a nap');
     const hasLaunchFlow =
-      body.includes('module picker') || body.includes('shippedModulesForBase');
+      body.includes('module picker') || body.includes('shippedModulesForBase') ||
+      body.includes('quick launch');
     assert.ok(
       hasSplash || hasLaunchFlow,
       '/create renders neither the pre-launch splash nor the launch flow',
@@ -260,7 +262,9 @@ describe('web smoke: /catalog module catalog', () => {
     for (const mod of expected) {
       // Strip the ✿ / ❀ prefix; that's decorative and can drift.
       const bareLabel = mod.label.replace(/^[^\w]+/, '').trim();
-      if (!body.includes(bareLabel)) missing.push(`${mod.id} (label: "${mod.label}")`);
+      // The page now uses its own plain wording, so the module id (listed in
+      // the "for developers" section) also counts.
+      if (!body.includes(bareLabel) && !body.includes(mod.id)) missing.push(`${mod.id} (label: "${mod.label}")`);
     }
     assert.equal(
       missing.length,
@@ -269,24 +273,15 @@ describe('web smoke: /catalog module catalog', () => {
     );
   });
 
-  test('rendered shipped/planned counts match matrix.json', async () => {
+  test('every planned module from matrix.json is listed', async () => {
+    // The plain-language rewrite dropped the "N shipped · M planned" counter;
+    // check the "coming later" list covers the matrix instead.
     const { body } = await getPage('/catalog');
-    const shippedCount = Object.values(MATRIX.modules).filter(
-      (s) => s?.ui?.status === 'shipped',
-    ).length;
-    const plannedCount = Object.values(MATRIX.modules).filter(
-      (s) => s?.ui?.status === 'planned',
-    ).length;
-    // Catalog hero row prints "· N shipped · M planned · K combos". React
-    // SSR splits adjacent text nodes with `<!-- -->` markers, so we match
-    // across those instead of asserting a literal contiguous substring.
-    const re = new RegExp(
-      `${shippedCount}(?:<!--\\s*-->)?\\s*shipped\\s*·\\s*(?:<!--\\s*-->)?${plannedCount}(?:<!--\\s*-->)?\\s*planned`,
-    );
-    assert.ok(
-      re.test(body),
-      `expected catalog hero to show "${shippedCount} shipped · ${plannedCount} planned" (React-splitter tolerant); didn't find it in body`,
-    );
+    const planned = Object.entries(MATRIX.modules)
+      .filter(([, s]) => s?.ui?.status === 'planned')
+      .map(([id]) => id);
+    const missing = planned.filter((id) => !body.includes(id));
+    assert.equal(missing.length, 0, `catalog missing planned modules: ${missing.join(', ')}`);
   });
 });
 
