@@ -38,13 +38,19 @@ export const robinhoodChainTestnet = defineChain({
 export const wagmiConfig = createConfig({
   chains: [sepolia, mainnet, base, baseSepolia, robinhoodChain, robinhoodChainTestnet],
   connectors: [injected()],
+  // Browser transports use each chain's PUBLIC default RPC only (http() with no
+  // URL = chain.rpcUrls.default). NEVER read NEXT_PUBLIC_*_RPC_URL here: every
+  // NEXT_PUBLIC_ value is baked into the shipped JS, and keyed provider URLs
+  // (Alchemy etc.) set in Vercel were scraped from the bundle and ran up a
+  // ~$800 bill / account suspension (2026-10-02). Guarded by
+  // src/lib/noKeyedRpcInBundle.test.mjs.
   transports: {
-    [mainnet.id]: http(process.env.NEXT_PUBLIC_MAINNET_RPC_URL),
-    [sepolia.id]: http(process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL),
-    [base.id]: http(process.env.NEXT_PUBLIC_BASE_RPC_URL),
-    [baseSepolia.id]: http(process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL),
-    [robinhoodChain.id]: http(process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL),
-    [robinhoodChainTestnet.id]: http(process.env.NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL),
+    [mainnet.id]: http(),
+    [sepolia.id]: http(),
+    [base.id]: http(),
+    [baseSepolia.id]: http(),
+    [robinhoodChain.id]: http(),
+    [robinhoodChainTestnet.id]: http(),
   },
 });
 
