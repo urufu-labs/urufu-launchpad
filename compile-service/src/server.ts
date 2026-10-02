@@ -177,8 +177,8 @@ await registerPinRoutes(app);
 // provider key, while the final profile choice remains signature-gated below.
 await registerNftAvatarRoutes(app);
 
-// Per-collection holders scan for the /collection/[address] page. Same
-// public-read-data posture as nft-avatar; reuses ALCHEMY_API_KEY.
+// Per-collection holders for the /collection/[address] page, computed on-chain
+// from transfer events over the public RPC (no API key).
 await registerNftHoldersRoutes(app);
 
 // Whitelisted-curve snapshot endpoints — POST /wl/snapshot + GET /wl/proof. No

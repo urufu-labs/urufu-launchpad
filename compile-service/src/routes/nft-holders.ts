@@ -1,75 +1,92 @@
-/// Per-collection holders scan for the /collection/[address] page. Alchemy's
-/// NFT API v3 `getOwnersForContract` returns every current owner of a given
-/// ERC-721 contract along with token counts. We proxy it here so the API key
-/// stays server-side and the response gets cached — a viewer refreshing the
-/// mint page shouldn't retrigger a full holders scan every time.
+/// Per-collection holders for the /collection/[address] page.
+///
+/// Computed on-chain from the collection's transfer events via the shared
+/// holder engine (src/holders-engine.ts) over Robinhood's PUBLIC RPC. No paid
+/// API: the Alchemy NFT API this used to proxy was suspended (2026-10-02).
+/// The engine caches each collection and only scans new blocks on repeat
+/// calls, and this route keeps a short response cache on top so page refreshes
+/// don't even hit the engine.
+///
+/// Response shape is unchanged (web/src/lib/nftHoldersApi.ts):
+///   { chainId, chain, contractAddress, holders: [{address, balance, tokenIds}], nextCursor }
+/// `nextCursor` is now an offset into the sorted holder list (opaque string).
 
 import type { FastifyInstance } from 'fastify';
 import { isAddress } from 'viem';
+import { holdersFromState, scanHolders } from '../holders-engine.ts';
 
 const CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 500;
 
-/// Same chain catalog shape as nft-avatar.ts. Robinhood is the only
-/// launchpad chain today; kept as an array so adding chains later is a
-/// one-line append.
+/// Robinhood is the only launchpad chain. RPC is public unless overridden.
 const NFT_CHAINS = [
-  { id: 'robinhood', label: 'Robinhood', chainId: 4663, providerNetwork: 'robinhood-mainnet' },
+  {
+    id: 'robinhood',
+    label: 'Robinhood',
+    chainId: 4663,
+    rpcUrl: () => process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
+  },
 ] as const;
-type NftChain = (typeof NFT_CHAINS)[number];
 
-interface AlchemyOwnerEntry {
-  ownerAddress?: string;
-  tokenBalances?: Array<{ tokenId?: string; balance?: string | number }>;
-}
-
-interface AlchemyResponse {
-  owners?: AlchemyOwnerEntry[];
-  pageKey?: string | null;
-}
-
-interface HolderRow {
+interface HolderRowOut {
   address: string;
   balance: number;
   tokenIds: string[];
 }
 
-interface HoldersResult {
+export interface HoldersResult {
   chainId: number;
   chain: string;
   contractAddress: string;
-  holders: HolderRow[];
+  holders: HolderRowOut[];
   nextCursor: string | null;
   error?: string;
 }
 
 const cache = new Map<string, { expiresAt: number; value: HoldersResult }>();
 
+/// urufu gemu nft (ChibiCoreV2) on Robinhood.
+const PREWARM_COLLECTIONS = ['0x60cb7082c8c14b4237c6a24c65e7c2e7abe2bd17'] as const;
+
+/// Page an already-sorted holder list. Exported for tests.
+export function pageHolders(
+  rows: Array<{ address: string; balance: bigint; tokenIds: string[] }>,
+  limit: number,
+  cursor: string | undefined,
+): { holders: HolderRowOut[]; nextCursor: string | null } {
+  const offset = cursor && /^\d+$/.test(cursor) ? Number(cursor) : 0;
+  const slice = rows.slice(offset, offset + limit);
+  const next = offset + limit < rows.length ? String(offset + limit) : null;
+  return {
+    holders: slice.map((r) => ({ address: r.address, balance: Number(r.balance), tokenIds: r.tokenIds })),
+    nextCursor: next,
+  };
+}
+
 export async function registerNftHoldersRoutes(app: FastifyInstance): Promise<void> {
+  // Pre-warm urufu gemu nft (the ecosystem's identity collection): a cold
+  // full-history scan takes ~2 min on the public RPC at its current 100k-block
+  // log limit, longer than the web's 30s fetch timeout. Fire-and-forget; later
+  // requests only scan new blocks.
+  // Skipped under node:test (NODE_TEST_CONTEXT) so CI never starts a real scan.
+  if (process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT && !process.env.NFT_HOLDERS_NO_PREWARM) {
+    void scanHolders({ rpcUrl: NFT_CHAINS[0].rpcUrl(), address: PREWARM_COLLECTIONS[0] })
+      .then(() => app.log.info('nft-holders: urufu gemu nft pre-warmed'))
+      .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'nft-holders: pre-warm failed'));
+  }
   /// GET /nft/:chain/:contract/holders?cursor=…&limit=…
-  ///   chain     — id from NFT_CHAINS (currently only 'robinhood')
-  ///   contract  — ERC-721 contract address
-  ///   limit     — optional page size (default 100, max 500)
-  ///   cursor    — optional Alchemy pageKey for the next page
   app.get<{
     Params: { chain: string; contract: string };
     Querystring: { limit?: string; cursor?: string };
   }>(
     '/nft/:chain/:contract/holders',
-    {
-      config: {
-        rateLimit: { max: 10, timeWindow: '1 minute' },
-      },
-    },
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
       const chain = NFT_CHAINS.find((c) => c.id === req.params.chain);
       if (!chain) return reply.code(400).send({ code: 'BAD_CHAIN' });
       const contract = req.params.contract.toLowerCase();
       if (!isAddress(contract)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
-      if (!process.env.ALCHEMY_API_KEY) {
-        return reply.code(503).send({ code: 'NFT_SCANNER_NOT_CONFIGURED' });
-      }
       const limit = parseLimit(req.query.limit);
       const cursor = req.query.cursor;
 
@@ -78,51 +95,22 @@ export async function registerNftHoldersRoutes(app: FastifyInstance): Promise<vo
       if (cached && cached.expiresAt > Date.now()) return reply.send(cached.value);
 
       try {
-        const url = new URL(
-          `https://${chain.providerNetwork}.g.alchemy.com/nft/v3/${process.env.ALCHEMY_API_KEY}/getOwnersForContract`,
-        );
-        url.searchParams.set('contractAddress', contract);
-        url.searchParams.set('withTokenBalances', 'true');
-        url.searchParams.set('pageSize', String(limit));
-        if (cursor) url.searchParams.set('pageKey', cursor);
-
-        const res = await fetch(url, {
-          headers: { accept: 'application/json' },
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!res.ok) throw new Error(`provider returned ${res.status}`);
-        const data = (await res.json()) as AlchemyResponse;
-
-        const holders: HolderRow[] = (data.owners ?? []).map((row) => {
-          const tokenBalances = row.tokenBalances ?? [];
-          const balance = tokenBalances.reduce((total, tb) => total + Number(tb.balance ?? 0), 0);
-          const tokenIds = tokenBalances.map((tb) => tb.tokenId ?? '').filter(Boolean);
-          return {
-            address: (row.ownerAddress ?? '').toLowerCase(),
-            balance,
-            tokenIds,
-          };
-        }).filter((h) => h.address && h.balance > 0);
-
+        const state = await scanHolders({ rpcUrl: chain.rpcUrl(), address: contract });
         const value: HoldersResult = {
           chainId: chain.chainId,
           chain: chain.id,
           contractAddress: contract,
-          holders,
-          nextCursor: data.pageKey ?? null,
+          ...pageHolders(holdersFromState(state), limit, cursor),
         };
         cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
         appraiseCache();
         return reply.send(value);
       } catch (err) {
-        app.log.warn({ err, chain: chain.id, contract }, 'nft-holders scan failed');
+        app.log.warn({ err: err instanceof Error ? err.message : String(err), chain: chain.id, contract }, 'nft-holders scan failed');
         return reply.code(502).send({ code: 'SCAN_FAILED', chain: chain.id, contract });
       }
     },
   );
-  // Silence unused NftChain type warning — kept exported-shape for future
-  // chain-agnostic scans; today only robinhood is wired.
-  void ({} as NftChain);
 }
 
 function parseLimit(raw: string | undefined): number {
