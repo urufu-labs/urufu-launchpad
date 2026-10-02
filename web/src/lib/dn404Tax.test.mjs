@@ -70,3 +70,26 @@ describe('describeTax copy', () => {
     assert.equal(formatTaxPct(225), '2.25%');
   });
 });
+
+// ---- Dn404TaxTemplateV3: transfers INTO the PoolManager are untaxed ----
+import { taxScopeNote, TAX_SCOPE_NOTE, TAX_SCOPE_NOTE_V3 } from './dn404Tax.ts';
+
+it('V3 sell: full amountIn reaches the pool (sellsTaxed=false)', () => {
+  assert.equal(taxedSellPoolInput(10_000n, 100, false), 10_000n);
+});
+
+it('V1/V2 sell: default still subtracts tax (sellsTaxed defaults to true)', () => {
+  assert.equal(taxedSellPoolInput(10_000n, 100), 9_900n);
+  assert.equal(taxedSellPoolInput(10_000n, 100, true), 9_900n);
+});
+
+it('V3 buy is still taxed', () => {
+  assert.equal(taxedBuyNetOut(10_000n, 100), 9_900n);
+});
+
+it('scope note: V3 says sells into the pool are untaxed, plain and no em dashes', () => {
+  assert.equal(taxScopeNote(true), TAX_SCOPE_NOTE);
+  assert.equal(taxScopeNote(false), TAX_SCOPE_NOTE_V3);
+  assert.match(TAX_SCOPE_NOTE_V3, /sells into the trading pool are not/);
+  assert.ok(!TAX_SCOPE_NOTE_V3.includes('—'));
+});

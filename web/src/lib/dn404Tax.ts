@@ -3,10 +3,13 @@
 /// A taxed DN404 base token (Dn404TaxTemplate / V2 clone) takes `taxBps` of
 /// every non-exempt transfer. Exempt: the bonding curve, launch factory,
 /// launcher, fee splitter, and (V2) graduators, hook hosts and the keeper.
-/// NOT exempt: Uniswap's PoolManager. So:
+/// V1/V2: Uniswap's PoolManager is NOT exempt. V3 (Dn404TaxTemplateV3,
+/// detectable by its POOL_MANAGER() view) leaves transfers INTO the PoolManager
+/// untaxed, so V3 pool sells are untaxed. So:
 ///   - curve buys/sells are untaxed (curve is exempt);
-///   - a pool SELL taxes the transfer into the PoolManager: only
+///   - V1/V2 pool SELL taxes the transfer into the PoolManager: only
 ///     `amountIn - tax` reaches the pool, so quote on that net amount;
+///     V3 pool SELL is untaxed: the full `amountIn` reaches the pool;
 ///   - a pool BUY taxes the PoolManager -> buyer transfer: the pool pays the
 ///     full output, the buyer nets `out - tax`;
 ///   - wallet-to-wallet transfers are taxed.
@@ -25,8 +28,10 @@ export function netAfterTax(amount: bigint, taxBps: number): bigint {
 }
 
 /// Pool SELL: tokens that reach the pool (and get swapped) for `amountIn`.
-export function taxedSellPoolInput(amountIn: bigint, taxBps: number): bigint {
-  return netAfterTax(amountIn, taxBps);
+/// `sellsTaxed` is false for V3 tokens (transfers into the PoolManager are
+/// untaxed), true for V1/V2.
+export function taxedSellPoolInput(amountIn: bigint, taxBps: number, sellsTaxed = true): bigint {
+  return sellsTaxed ? netAfterTax(amountIn, taxBps) : amountIn;
 }
 
 /// Pool BUY: tokens the buyer actually receives when the pool pays `grossOut`.
@@ -75,6 +80,14 @@ export function describeTax(taxMode: number, taxBps: number, targetLabel?: strin
   }
 }
 
-/// Second line of the notice: where the tax applies.
+/// Second line of the notice: where the tax applies (V1/V2 tokens).
 export const TAX_SCOPE_NOTE =
   'Buys and sells on the bonding curve are not taxed. After graduation, pool trades and wallet transfers are.';
+
+/// V3 tokens: sells into the trading pool are untaxed.
+export const TAX_SCOPE_NOTE_V3 =
+  'Buys and sells on the bonding curve are not taxed. After graduation, buys and wallet transfers are taxed; sells into the trading pool are not.';
+
+export function taxScopeNote(sellsTaxed: boolean): string {
+  return sellsTaxed ? TAX_SCOPE_NOTE : TAX_SCOPE_NOTE_V3;
+}

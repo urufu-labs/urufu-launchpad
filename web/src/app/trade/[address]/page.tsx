@@ -30,7 +30,7 @@ import {
 import { bondingCurveAbi, curveFactoryAbi, dn404BaseAbi, dn404BondingCurveAbi, dn404CurveFactoryAbi, dn404TaxAbi, erc20TokenAbi, permit2Abi, universalRouterAbi, v4SwapRouterAbi, v4StateViewAbi } from '@/lib/abis';
 import { CHAIN_LABELS, CONTRACTS, COMPILE_SERVICE_URL, HOOKS, V4_ROUTERS, V4_STATE_VIEWS, DN404_PAIR_CURRENCIES, DN404_LAUNCHES, DN404_TAX_DESTINATIONS, UNIVERSAL_ROUTERS, PERMIT2, type ChainKey } from '@/lib/config';
 import { buildErc20PoolKey, encodeV4ExactInSingle, encodeV4ExactInSingleSettleFirst, pairPerTokenFromSqrt, poolIdOf } from '@/lib/v4Erc20Swap';
-import { TAX_SCOPE_NOTE, describeTax, taxedBuyNetOut, taxedSellPoolInput } from '@/lib/dn404Tax';
+import { describeTax, taxScopeNote, taxedBuyNetOut, taxedSellPoolInput } from '@/lib/dn404Tax';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
@@ -914,6 +914,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxMode' } as const,
           { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxBps' } as const,
           { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxTarget' } as const,
+          // V3 only; V1/V2 revert -> allowFailure -> undefined -> sells taxed.
+          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'POOL_MANAGER' } as const,
         ]
       : [],
     ...(readChainId ? { chainId: readChainId } : {}),
@@ -924,6 +926,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const taxTargetOnChain = taxQ.data?.[2]?.result as Address | undefined;
   const isTaxed = isDn404Token && taxModeOnChain !== 0 && taxBpsOnChain > 0;
   const taxBps = isTaxed ? taxBpsOnChain : 0;
+  // Dn404TaxTemplateV3 exposes POOL_MANAGER(); its pool sells are untaxed.
+  const isTaxV3 = typeof taxQ.data?.[3]?.result === 'string';
+  const sellsTaxed = isTaxed && !isTaxV3;
   const taxTargetLabel = taxTargetOnChain && activeChain
     ? (DN404_TAX_DESTINATIONS[activeChain] ?? []).find((o) => o.address.toLowerCase() === taxTargetOnChain.toLowerCase())?.label
     : undefined;
@@ -1702,7 +1707,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                   lineHeight: 1.5,
                 }}
               >
-                <b>token tax:</b> {taxSentence} {TAX_SCOPE_NOTE}
+                <b>token tax:</b> {taxSentence} {taxScopeNote(sellsTaxed)}
               </div>
             )}
 
@@ -1728,6 +1733,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 dn404UnitWei={isDn404Token ? dn404UnitWei : undefined}
                 walletSkipNft={walletSkipNft}
                 taxBps={taxBps}
+                sellsTaxed={sellsTaxed}
                 onSwapComplete={() => {
                   slot0Q.refetch();
                   walletBalQ.refetch();
@@ -1756,6 +1762,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                 dn404UnitWei={isDn404Token ? dn404UnitWei : undefined}
                 walletSkipNft={walletSkipNft}
                 taxBps={taxBps}
+                sellsTaxed={sellsTaxed}
                 onSwapComplete={() => {
                   slot0Q.refetch();
                   walletBalQ.refetch();
@@ -2868,6 +2875,7 @@ function Erc20GraduatedPanel({
   dn404UnitWei,
   walletSkipNft,
   taxBps = 0,
+  sellsTaxed = true,
 }: {
   chain: ChainKey | null;
   tokenAddress: Address;
@@ -2893,6 +2901,9 @@ function Erc20GraduatedPanel({
   /// sells use the settle-first order (only the post-tax amount reaches the
   /// pool) and quotes subtract the tax on the token side.
   taxBps?: number;
+  /// false for Dn404TaxTemplateV3 tokens: transfers into the PoolManager are
+  /// untaxed, so sells quote on the full amount. Sells still use settle-first.
+  sellsTaxed?: boolean;
 }) {
   const { address: wallet, isConnected } = useAccount();
   const [mounted, setMounted] = useState(false);
@@ -2958,8 +2969,8 @@ function Erc20GraduatedPanel({
     if (inputWei === 0n || poolSpotPairPerToken === 0n) return 0n;
     return side === 'buy'
       ? (inputWei * 10n ** 18n) / poolSpotPairPerToken
-      : (taxedSellPoolInput(inputWei, taxBps) * poolSpotPairPerToken) / 10n ** 18n;
-  }, [inputWei, poolSpotPairPerToken, side, taxBps]);
+      : (taxedSellPoolInput(inputWei, taxBps, sellsTaxed) * poolSpotPairPerToken) / 10n ** 18n;
+  }, [inputWei, poolSpotPairPerToken, side, taxBps, sellsTaxed]);
   const expectedOut = side === 'buy' ? taxedBuyNetOut(poolExpectedOut, taxBps) : poolExpectedOut;
   const feeAndSlipBps = 230 + slippageBps;
   const minOut = feeAndSlipBps >= 10_000 ? 0n : (poolExpectedOut * BigInt(10_000 - feeAndSlipBps)) / 10_000n;
@@ -3124,7 +3135,7 @@ function Erc20GraduatedPanel({
             : `≈ ${Number(formatUnits(expectedOut, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} ${outSym}`}
         </div>
         <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', marginTop: 2 }}>
-          min {Number(formatUnits(minOutNet, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} {outSym} after fees + slippage{taxBps > 0 ? ` + ${taxBps / 100}% token tax` : ''}
+          min {Number(formatUnits(minOutNet, outDecimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })} {outSym} after fees + slippage{taxBps > 0 && (side === 'buy' || sellsTaxed) ? ` + ${taxBps / 100}% token tax` : ''}
         </div>
       </div>
       {poolNftGuard && (

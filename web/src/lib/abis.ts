@@ -147,6 +147,9 @@ export const dn404TaxAbi = parseAbi([
   `function taxMode() view returns (uint8)`,
   `function taxBps() view returns (uint16)`,
   `function taxTarget() view returns (address)`,
+  // Dn404TaxTemplateV3 only (V1/V2 revert): V3 leaves transfers INTO the v4
+  // PoolManager untaxed, so pool sells are not taxed for V3 tokens.
+  `function POOL_MANAGER() view returns (address)`,
 ] as const);
 
 /// Dn404BondingCurve — the ERC-20-paired curve behind DN404 launches whose
