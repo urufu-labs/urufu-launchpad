@@ -412,7 +412,10 @@ const networks = {
     robinhood: {
       chainId: CHAIN_CATALOG.robinhood.id,
       transport: batchedTransport(readRpcUrl('robinhood')),
-      pollingInterval: 120_000,
+      // 5s: the launchpad is live (LAUNCHPAD_LIVE=true); at 120s a trade could
+      // take 2+ min to show (seen 2026-10-01). Ponder fetches every block in
+      // realtime either way, so this changes latency, not RPC volume much.
+      pollingInterval: 5_000,
     },
   }),
   ...(has('robinhood-testnet') && {
