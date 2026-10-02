@@ -1,82 +1,101 @@
 'use client';
 
-/// Public guide for the live Urufu launch flow. Covers ERC-20 coin launches
-/// and ERC-721 NFT collection launches on Robinhood chain.
+/// Public guide for launching on Urufu (Robinhood chain). Written for
+/// creators, not developers: plain words, real numbers, no em dashes.
+/// NFT and DN404 sections render only when their launch lanes are switched
+/// on (NFT_LAUNCHES_ENABLED / DN404_LAUNCHES_ENABLED), so the page always
+/// matches what the site actually offers. Copy rules are enforced by
+/// src/app/docs/copy.test.mjs.
 
 import Link from 'next/link';
 
 import { Mascot } from '@/components/Mascot';
+import {
+  CHAINS_ENABLED,
+  DN404_LAUNCHES_ENABLED,
+  DN404_TAX_MODES,
+  NFT_LAUNCHES_ENABLED,
+  type ChainKey,
+} from '@/lib/config';
 import styles from './docs-page.module.css';
 
-type Section = { id: string; label: string; jp: string };
+type Section = { id: string; label: string; jp: string; show: boolean };
 type Tone = 'pink' | 'mint' | 'mizuiro' | 'yolk' | 'paper';
 
+const CHAIN: ChainKey = CHAINS_ENABLED[0]!;
+const NFTS_ON = NFT_LAUNCHES_ENABLED[CHAIN] === true;
+const DN404_ON = DN404_LAUNCHES_ENABLED[CHAIN] === true;
+
 const SECTIONS: Section[] = [
-  { id: 'flow', label: 'launch flow', jp: '流れ' },
-  { id: 'whitelist', label: 'whitelists', jp: '関係者' },
-  { id: 'uru-pay', label: 'URU pay', jp: 'URU支払' },
-  { id: 'trading', label: 'curve trading', jp: '曲線' },
-  { id: 'graduation', label: 'V4 graduation', jp: '卒業' },
-  { id: 'nfts', label: 'NFT launches', jp: '絵札' },
-  { id: 'fees', label: 'fees', jp: '料金' },
-  { id: 'risk', label: 'risk', jp: '注意' },
-  { id: 'chains', label: 'chains', jp: '鎖' },
-  { id: 'faq', label: 'faq', jp: 'よくある' },
+  { id: 'start', label: 'what you can launch', jp: '始め', show: true },
+  { id: 'coins', label: 'coins', jp: '硬貨', show: true },
+  { id: 'whitelist', label: 'early access for a community', jp: '関係者', show: true },
+  { id: 'graduation', label: 'graduation', jp: '卒業', show: true },
+  { id: 'nfts', label: 'nft collections', jp: '絵札', show: NFTS_ON },
+  { id: 'dn404', label: 'dn404 (coin + nfts)', jp: '二重', show: DN404_ON },
+  { id: 'fees', label: 'fees and discounts', jp: '料金', show: true },
+  { id: 'risk', label: 'risks', jp: '注意', show: true },
+  { id: 'faq', label: 'faq', jp: 'よくある', show: true },
 ];
 
-const FLOW = [
+const COIN_STEPS = [
   {
     n: '01',
-    title: 'define coin',
-    body: 'name, ticker, artwork, description, and links. This is the public identity traders see on the launch and trade pages.',
+    title: 'name it',
+    body: 'pick a name, ticker, picture, description and links. this is what people see on the coin page.',
   },
   {
     n: '02',
-    title: 'customize contract',
-    body: 'quick launch uses safe defaults; customizable curve adds shipped ERC-20 modules plus optional whitelist, sniper gate, and buyback-burn settings.',
+    title: 'pick a setup',
+    body: 'quick launch uses safe defaults. custom lets you add extras like a community early-access window, a short trading pause at graduation, or a buy-and-burn on every trade.',
   },
   {
     n: '03',
-    title: 'safe launch',
-    body: 'the router quotes the live fee, checks name/ticker availability, deploys the token, installs the bonding curve, and auto-renounces curve ownership.',
+    title: 'launch',
+    body: 'you pay the launch fee and sign one transaction. the coin goes live right away and nobody, including you, keeps admin control over it.',
   },
   {
     n: '04',
-    title: 'curve trading',
-    body: 'buyers and sellers trade against the bonding curve immediately. Price moves with the curve reserves, and sellability depends on curve liquidity.',
+    title: 'trade on the curve',
+    body: 'people buy and sell straight away. the price rises as people buy and falls as they sell.',
   },
   {
     n: '05',
-    title: 'V4 graduation',
-    body: 'when the curve reaches its target, liquidity migrates to a Uniswap V4 pool with the platform hook for locked LP and creator fee routing.',
+    title: 'graduate',
+    body: 'once enough has been bought, the coin moves to a Uniswap trading pool at the same price, and that pool money is locked forever.',
   },
 ];
 
 export default function DocsPage() {
+  const sections = SECTIONS.filter((s) => s.show);
+  const launchTypes = ['coins', NFTS_ON ? 'nft collections' : null, DN404_ON ? 'dn404 coins with nfts' : null].filter(
+    (t): t is string => t !== null,
+  );
+
   return (
     <main className={styles.page}>
       <header className={styles.manualHeader} aria-labelledby="docs-title">
         <div className={styles.headerId}>
           <Mascot size={38} mood="happy" />
           <div>
-            <p className={styles.eyebrow}>urufu reference</p>
-            <h1 id="docs-title">Launchpad documentation</h1>
+            <p className={styles.eyebrow}>urufu guide</p>
+            <h1 id="docs-title">How launching works</h1>
           </div>
         </div>
         <p>
-          Current public flow for ERC-20 coin launches, curve trading, and V4
-          graduation. This page is written as product documentation, not launch copy.
+          Everything you need to launch and trade on Urufu, in plain words. If something here
+          and the site ever disagree, trust what the site shows when you sign.
         </p>
         <Link href="/create" className="uru-btn uru-btn-primary">
-          go to /create <span className="uru-arrow">→</span>
+          start a launch <span className="uru-arrow">→</span>
         </Link>
       </header>
 
       <div className={styles.manualLayout}>
-        <aside className={styles.toc} aria-label="Documentation table of contents">
+        <aside className={styles.toc} aria-label="Contents">
           <span className={styles.noteKicker}>contents</span>
           <nav>
-            {SECTIONS.map((section) => (
+            {sections.map((section) => (
               <a key={section.id} href={`#${section.id}`}>
                 {section.label}
                 <span>{section.jp}</span>
@@ -86,19 +105,32 @@ export default function DocsPage() {
         </aside>
 
         <article className={styles.primary}>
-          <section id="flow" className={styles.referenceSection} aria-labelledby="flow-title">
+          <DocSection id="start" title="What You Can Launch" jp="始め">
+            <p>
+              Right now you can launch {launchTypes.join(', ').replace(/, ([^,]*)$/, ' and $1')} on
+              Robinhood chain. You do not need to write any code.
+            </p>
+            <FactList
+              items={[
+                'coin: a token people trade. it starts on a price curve and moves to Uniswap once enough is bought.',
+                ...(NFTS_ON
+                  ? ['nft collection: art people mint at a price you set. you keep 90% of the mint money.']
+                  : []),
+                ...(DN404_ON
+                  ? ['dn404: a coin and an nft collection in one. hold enough of the coin and you own an nft.']
+                  : []),
+              ]}
+            />
+          </DocSection>
+
+          <section id="coins" className={styles.referenceSection} aria-labelledby="coins-title">
             <div className={styles.sectionTitle}>
-              <span>流れ</span>
-              <h2 id="flow-title">Launch Flow</h2>
+              <span>硬貨</span>
+              <h2 id="coins-title">Coins</h2>
             </div>
             <div className={styles.sectionBody}>
-              <p>
-                Public Urufu launches follow one ERC-20 lifecycle: define coin,
-                customize contract, safe launch, curve trading, then V4 graduation
-                if the bonding curve reaches its target.
-              </p>
               <ol className={styles.processList}>
-                {FLOW.map((step) => (
+                {COIN_STEPS.map((step) => (
                   <li key={step.n}>
                     <span>{step.n}</span>
                     <div>
@@ -108,207 +140,215 @@ export default function DocsPage() {
                   </li>
                 ))}
               </ol>
+              <FactList
+                items={[
+                  'the curve: the coin starts with all of its supply on a price curve. every buy pushes the price up a little, every sell pulls it down.',
+                  'each trade on the curve pays a 1% fee to the platform.',
+                  'a coin that never graduates can keep trading on its curve.',
+                  'nobody can change the coin after launch. that is on purpose, so buyers are not trusting a person with a kill switch.',
+                ]}
+              />
             </div>
           </section>
 
-          <DocSection id="whitelist" title="Whitelist Launches" jp="関係者">
+          <DocSection id="whitelist" title="Early Access For A Community" jp="関係者">
             <p>
-              A customizable curve can attach a community whitelist at launch. The creator
-              pastes a supported contract address, the backend snapshots current holders,
-              and the launch transaction stores a Merkle root.
+              On a custom launch you can give holders of another token or nft collection a head
+              start. You paste that collection&apos;s address and we take a snapshot of who holds it.
             </p>
             <FactList
               items={[
-                'Whitelisted wallets use the proof path during the exclusive window; non-whitelisted wallets wait for fallback.',
-                '60% of curve supply is reserved for whitelist buyers while the window is active.',
-                'The per-wallet cap is reserved supply divided by five, so a small set of holders cannot drain the full reserved slice from one wallet.',
-                'The current frontend sets a 1-hour fallback window when the whitelist is applied.',
-                'Whitelist buyers hold on-curve balances until graduation, then claim through the whitelist claim path.',
-              ]}
-            />
-            <Callout tone="yolk" label="plain limitation">
-              Holder snapshots only support compatible source contracts in the current public
-              whitelist flow. A source community can gate an ERC-20 coin release; that is not
-              a second public launch format.
-            </Callout>
-          </DocSection>
-
-          <DocSection id="uru-pay" title="Paying In URU" jp="URU支払">
-            <p>
-              Launch fees are quoted from the router. Creators can pay in ETH, or on chains
-              where URU pay is wired, pay the quoted ETH-equivalent amount in URU through
-              the router&apos;s URU launch path.
-            </p>
-            <FactList
-              items={[
-                'Holding at least one urufu gemu pass applies a 20% launch-fee discount.',
-                'Holding at least 100,000 URU applies a 40% launch-fee discount.',
-                'Holding both applies a 50% combined discount in the frontend, with an on-chain hard cap protecting the router.',
-                'The frontend checks the live URU/WETH V4 slot and the router floor before enabling URU payment.',
-                'URU approvals are separate from the launch transaction; approve first, then launch.',
+                'for the first hour, only wallets in the snapshot can buy.',
+                '60% of the coin supply on the curve is set aside for them during that hour.',
+                'one wallet can buy at most a fifth of that set-aside amount, so a single holder cannot take it all.',
+                'after the hour, anyone can buy.',
+                'early-access buyers collect their coins once the coin graduates.',
               ]}
             />
           </DocSection>
 
-          <DocSection id="trading" title="Curve Trading" jp="曲線">
+          <DocSection id="graduation" title="Graduation" jp="卒業">
             <p>
-              Every public ERC-20 launch installs a bonding curve. The token supply starts
-              inside the curve, the trade page is live after launch, and users buy or sell
-              against the curve while it has reserves.
+              Graduation is when a coin has sold enough on its curve to move to a Uniswap trading
+              pool. It happens automatically on the buy that crosses the line.
             </p>
             <FactList
               items={[
-                'The curve uses virtual reserves and a constant-product style price model.',
-                'Buys add ETH and move the price up; sells remove ETH and move the price down.',
-                'Pre-graduation curve trading charges a 1% trade fee routed by platform contracts, not a hidden creator kickback.',
-                'Quick launch uses safe defaults, including a fixed supply and a safe launch; customizable curve exposes more knobs.',
-                'A token that never graduates can keep trading on its curve as long as the curve has usable liquidity.',
+                'the pool opens at the same price the curve ended on, so there is no sudden jump or drop.',
+                'the money in the pool is locked forever. nobody, including you and us, can pull it out.',
+                "each trade in the pool pays Uniswap's normal 0.3% fee, plus 1% to the platform and 1% to the creator.",
+                'creator earnings only start after graduation.',
+                'if you turned it on, trading in the new pool can be paused for a short while right after graduation to stop bots from jumping in first.',
               ]}
             />
           </DocSection>
 
-          <DocSection id="graduation" title="V4 Graduation" jp="卒業">
-            <p>
-              Graduation moves the market from the bonding curve to Uniswap V4. The
-              graduator creates the pool, installs the platform hook, and moves the curve
-              liquidity into the V4 position.
-            </p>
-            <FactList
-              items={[
-                'The V4 LP is intended to be locked by hook behavior: remove-liquidity calls revert through the LP-lock hook.',
-                'The trade page continues against the graduated market instead of the old curve path.',
-                'Creator fee routing starts after graduation through the V4 hook configuration.',
-                'Optional security and buyback-burn settings are written into the pool at graduation when selected.',
-                'Graduation improves market depth, but it does not make price appreciation or future volume guaranteed.',
-              ]}
-            />
-          </DocSection>
+          {NFTS_ON && (
+            <DocSection id="nfts" title="NFT Collections" jp="絵札">
+              <p>
+                Launch a collection of art that people mint. Make your art in urufu studio, publish
+                it, then hit &ldquo;launch as nft&rdquo; and the form fills itself in. Or start from{' '}
+                <Link href="/create/nft">the nft launch page</Link> with your own art link.
+              </p>
+              <FactList
+                items={[
+                  'you choose the total number of nfts and how many one wallet can mint.',
+                  'price can stay the same for every mint, or go up by a set amount after each mint.',
+                  'buyers pay in ETH or URU, your choice.',
+                  'optional early access: a list of wallets that can mint first, for a set window.',
+                  'optional discounts for people who hold another collection, like urufu gemu nft.',
+                  'you keep 90% of every mint. 10% goes to the platform flywheel.',
+                  'withdraw your earnings from your profile page any time after the first mint.',
+                  'after launch, set the collection name, picture and description that OpenSea shows from your collection page.',
+                ]}
+              />
+              <Callout tone="mint" label="launch fee">
+                5,000 URU, before holder discounts. The fee is paid in URU.
+              </Callout>
+            </DocSection>
+          )}
 
-          <DocSection id="nfts" title="NFT Launches" jp="絵札">
-            <p>
-              Alongside coins, creators can launch ERC-721 collections at
-              <Link href="/create/nft" style={{ marginLeft: 4 }}>/create/nft</Link>.
-              Pick a fixed or stepped mint price, cap per-wallet mints, and choose
-              ETH or URU as the payment currency.
-            </p>
-            <FactList
-              items={[
-                'Optional whitelist: a merkle list of wallets that can mint during a set window.',
-                'Optional discounts for holders of another NFT collection (any chain the attestation service supports).',
-                'Launcher keeps 90% of every mint, 10% flows to the flywheel.',
-                'Claim launcher earnings from your profile page any time after the first mint.',
-              ]}
-            />
-          </DocSection>
+          {DN404_ON && (
+            <DocSection id="dn404" title="DN404: A Coin And NFTs In One" jp="二重">
+              <p>
+                A dn404 launch is a coin and an nft collection that move together. You decide how
+                many coins make one nft. Hold that many and you own an nft. Buy past the next
+                multiple and another one shows up in your wallet. Sell or send below it and one
+                disappears. There is no separate minting.
+              </p>
+              <h3>setting it up</h3>
+              <FactList
+                items={[
+                  'make your art in urufu studio and hit "launch as dn404", or fill in the form yourself.',
+                  'collection size: up to 10,000 nfts.',
+                  'coins per nft: you pick. total supply is collection size times coins per nft.',
+                  'pair: buyers pay with ETH or URU.',
+                  'founder share: optionally keep up to 20% of the supply in your own wallet at launch. buyers can see this.',
+                  'launch fee: 10,000 URU, before holder discounts.',
+                ]}
+              />
+              <h3>trading and graduation</h3>
+              <FactList
+                items={[
+                  'it trades on a price curve first, just like a coin. curve trades have a 1% fee.',
+                  'when enough has been bought it moves to a Uniswap pool at the same price. leftover coins are burned and the pool money is locked forever.',
+                  'optional: pause trading in the pool for a short while after graduation (up to 7,200 blocks, about 12 minutes) to stop bots.',
+                  'optional: burn part of every pool buy (up to 20%), which slowly shrinks supply.',
+                ]}
+              />
+              <Callout tone="yolk" label="big trades">
+                One buy or sell can create or remove at most 2,000 nfts. That is a Robinhood chain
+                limit, not ours. If a trade would go over, the site tells you the most you can do
+                in one go so you can split it.
+              </Callout>
+              <h3>optional tax</h3>
+              <p>
+                You can add a tax of 0% to 5%. You pick the rate at launch and it can never change.
+                The tax is taken when someone buys from the trading pool and when coins move from
+                one wallet to another. It is not taken on curve trades or on sells into the
+                trading pool. Here is what the tax can do:
+              </p>
+              <FactList
+                items={DN404_TAX_MODES.filter((m) => m.value !== 0).map(
+                  (m) => `${m.label.toLowerCase()}: ${m.description}.`,
+                )}
+              />
+              <FactList
+                items={[
+                  'our automated helper collects the tax and carries out your choice for you. it keeps 5% of each payout to cover gas and upkeep.',
+                  'some trading apps that route through their own contracts may fail to sell taxed coins. selling on this site and in the Uniswap app works.',
+                ]}
+              />
+            </DocSection>
+          )}
 
-          <DocSection id="fees" title="Fees, Discounts, And Revenue" jp="料金">
+          <DocSection id="fees" title="Fees And Discounts" jp="料金">
             <div className={styles.feeGrid}>
-              <Metric label="launch fee" value="live router quote" tone="pink" />
-              <Metric label="curve trade fee" value="1%" tone="mint" />
-              <Metric label="V4 swap fee" value="0.3%" tone="mizuiro" />
+              <Metric label="curve trades" value="1%" tone="pink" />
+              <Metric label="pool trades" value="0.3% + 2%" tone="mint" />
+              <Metric label="max holder discount" value="50%" tone="mizuiro" />
             </div>
             <FactList
               items={[
-                'Launch fees use a documented split: 40% URU buyback, 35% urufu gemu NFT revenue, and 25% treasury.',
-                'The 40% buyback slice funds the flywheel. ETH accrues in the buyback vault, a keeper swaps it for URU on-chain, and the bought URU is forwarded to the current distribution sink (redistribute to gemu holders, or burn, depending on the active sink).',
-                'There is no launch-fee creator slot. That path was removed to avoid spam-launch farming.',
-                'Creator earnings are post-graduation V4 swap fees, claimable from the configured creator address.',
-                'Discounts lower the launch fee only; they do not remove gas costs or trading risk.',
+                'launch fees go 40% to buying back URU, 35% to urufu gemu nft holders, and 25% to the treasury.',
+                "pool trades pay Uniswap's 0.3%, plus 1% to the platform and 1% to the creator.",
+                'hold at least one urufu gemu nft: 20% off launch fees.',
+                'hold at least 100,000 URU: 40% off.',
+                'hold both: 50% off.',
+                'discounts only lower the launch fee. gas and trading fees still apply.',
               ]}
             />
           </DocSection>
 
-          <DocSection id="risk" title="Material Risks" jp="注意">
+          <DocSection id="risk" title="Risks" jp="注意">
             <div className={styles.riskGrid}>
-              <Risk title="ownership" body="Curve ERC-20 launches auto-renounce ownership so traders are not relying on a launcher admin. Modules that need owner controls are blocked for curve launches." />
-              <Risk title="sellability" body="Selling depends on contract behavior, your wallet state, chain availability, and available curve or pool liquidity. A token can be hard to exit." />
-              <Risk title="liquidity" body="Locked LP removes one rug path after graduation, but it also means the position is not manually withdrawn to rescue a bad market." />
-              <Risk title="fees" body="Launch fees, trade fees, swap fees, and gas are real costs. Fee discounts do not make a launch or trade free." />
-              <Risk title="censorship" body="Owner-controlled platform contracts can pause or update platform-level routing where those powers exist. Existing token contracts do not become risk-free because the UI looks friendly." />
-              <Risk title="market" body="Anyone can launch a coin. The launchpad does not verify creator promises, future demand, art provenance, or off-chain roadmap claims." />
+              <Risk title="anyone can launch" body="We do not check what creators promise, whether their art is original, or whether anyone will want to buy." />
+              <Risk title="selling can be hard" body="You can only sell if there are buyers or enough money on the curve or in the pool. A coin can lose most of its value." />
+              <Risk title="locked forever" body="Pool money is locked forever. That stops rug pulls, but it also means nobody can rescue a market that goes badly." />
+              <Risk title="fees add up" body="Launch fees, trade fees and gas are real costs, even with a discount." />
+              <Risk title="platform controls" body="Some platform-level settings can still be changed by us, like fee routing. Coins themselves cannot be changed after launch." />
+              <Risk title="not audited yet" body="The contracts have had internal reviews and heavy testing, but no outside audit yet. Only put in what you can afford to lose." />
             </div>
-            <Callout tone="pink" label="security wording">
-              Urufu can make specific contract-level guarantees, such as the LP-lock hook
-              reverting remove-liquidity calls after graduation. It cannot guarantee that
-              every launched coin is valuable, liquid, honest, or easy to sell.
-            </Callout>
-          </DocSection>
-
-          <DocSection id="chains" title="Chains" jp="鎖">
-            <p>
-              The frontend should be treated as the source of truth for which chain is
-              currently launch-enabled. The create page reads deployed contract addresses
-              from configuration, quotes from the live router, and disables launch when the
-              selected chain is not wired.
-            </p>
-            <FactList
-              items={[
-                'Robinhood Chain is the current culture-first target for the public flow.',
-                'Historical Base and testnet code remains in the repository, but inactive chains should not be treated as public launch availability.',
-                'Wrong-network and not-live states block the launch button before a transaction is sent.',
-              ]}
-            />
           </DocSection>
 
           <DocSection id="faq" title="FAQ" jp="よくある">
             <FAQ q="Do I need to code?">
-              No. The token creation page collects the coin identity and configuration, then the
-              router deploys the token and curve from shipped contracts.
+              No. You fill in a form and sign one transaction.
             </FAQ>
-            <FAQ q="Can I launch an NFT collection here today?">
-              Not from the public creator flow. NFT contracts exist in the repo, and an NFT
-              collection can be used as a whitelist source, but public launching is ERC-20
-              coin-only right now.
+            <FAQ q="Can I launch an NFT collection here?">
+              {NFTS_ON || DN404_ON
+                ? 'Yes. Use the nft launch for art people mint, or dn404 for a coin that comes with nfts.'
+                : 'Not yet. Right now you can launch coins. You can still use an nft collection as the community for an early-access window.'}
             </FAQ>
-            <FAQ q="What happens if my coin does not graduate?">
-              It stays on its bonding curve. Trading can continue there while the curve has
-              usable reserves, but creator V4 swap-fee revenue starts only after graduation.
+            {DN404_ON && (
+              <FAQ q="Why did one of my dn404 nfts disappear?">
+                Your coin balance dropped below a multiple of the coins-per-nft number, usually
+                because you sold or sent some coins. Buy back over the line and you get an nft
+                again, though it may be a different one.
+              </FAQ>
+            )}
+            <FAQ q="What if my coin never graduates?">
+              It keeps trading on its curve. Creator earnings from the pool only start after
+              graduation.
             </FAQ>
-            <FAQ q="Where do creator fees go?">
-              Post-graduation fees accrue to the configured creator address through the V4
-              hook path. The creator claims from the configured contract flow when fees are
-              available.
+            <FAQ q="How do creators get paid?">
+              Coin creators earn 1% of every trade in the pool after graduation.
+              {NFTS_ON ? ' Nft creators keep 90% of every mint and withdraw from their profile page.' : ''}
             </FAQ>
-            <FAQ q="Where do I recover historical orphan-curve funds?">
-              Use the dedicated <Link href="/recover">recovery page</Link>. It is only for
-              historical curves that are no longer shown in the main app.
+            <FAQ q="Where do I get funds back from an old, retired curve?">
+              Use the <Link href="/recover">recovery page</Link>. It is only for old curves that
+              no longer show in the app.
             </FAQ>
           </DocSection>
         </article>
 
-        <aside className={styles.factRail} aria-label="Current scope and source-of-truth notes">
+        <aside className={styles.factRail} aria-label="Quick notes">
           <section className={styles.factCard}>
-            <span className={styles.noteKicker}>current scope</span>
-            <b>ERC-20 coins only</b>
-            <p>
-              NFT and mixed-item contracts remain in the codebase, but the public
-              creator flow does not offer them today.
-            </p>
+            <span className={styles.noteKicker}>you can launch</span>
+            <b>{launchTypes.join(', ')}</b>
+            <p>All on Robinhood chain.</p>
           </section>
           <section className={styles.factCard}>
-            <span className={styles.noteKicker}>before launch</span>
+            <span className={styles.noteKicker}>before you launch</span>
             <FactList
               compact
               items={[
-                'Pick a name and ticker you want reserved.',
-                'Use quick launch for safe defaults.',
-                'Use customizable curve only when you understand the selected modules.',
-                'Read the quote and gas prompt before signing.',
+                'pick a name and ticker you are happy with. they cannot change later.',
+                'quick launch is the safe choice if you are unsure.',
+                'read the fee and the wallet prompt before you sign.',
               ]}
             />
           </section>
           <section className={styles.factCard} data-tone="warning">
-            <span className={styles.noteKicker}>source of truth</span>
+            <span className={styles.noteKicker}>what counts</span>
             <p>
-              For exact contract addresses, fees, and chain enablement, trust the live
-              router/config reads over old screenshots or copied docs.
+              Fees and settings shown when you sign are the real ones. Old screenshots and copied
+              posts can be out of date.
             </p>
           </section>
           <section className={styles.factCard}>
-            <span className={styles.noteKicker}>support route</span>
-            <p>
-              Historical orphan curves are handled outside normal trading.
-            </p>
+            <span className={styles.noteKicker}>old curves</span>
+            <p>Funds on retired curves are handled on a separate page.</p>
             <Link href="/recover" className="uru-btn uru-btn-mint">
               open recovery
             </Link>

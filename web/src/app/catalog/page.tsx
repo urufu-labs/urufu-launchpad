@@ -1,53 +1,62 @@
 'use client';
 
+/// "What you can add" page. Plain-language list of the options a creator can
+/// pick for each launch type. Contract addresses, config hashes and module ids
+/// live in one collapsed "for developers" section at the bottom so nothing is
+/// lost for builders. NFT and DN404 sections follow their launch flags.
+/// Copy rules are enforced by src/app/docs/copy.test.mjs.
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useChainId } from 'wagmi';
 
 import styles from './catalog.module.css';
 import { MODULES, configHashFor, type ModuleSpec } from '@/lib/modules';
-import { CHAINS_ENABLED, CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES, type ChainKey } from '@/lib/config';
+import {
+  CHAINS_ENABLED,
+  CONTRACTS,
+  CHAIN_LABELS,
+  DN404_LAUNCHES,
+  DN404_LAUNCHES_ENABLED,
+  DN404_TAX_MODES,
+  NFT_LAUNCHES,
+  NFT_LAUNCHES_ENABLED,
+  type ChainKey,
+} from '@/lib/config';
 import { CHAIN_ID_TO_KEY, explorerAddressUrl } from '@/lib/wagmi';
+
+/// Plain-language text for each coin module, keyed by module id. The module
+/// registry (shared/matrix.json) is shared with the build service, so the
+/// friendly wording lives here instead of editing that file.
+const PLAIN: Record<string, { name: string; what: string }> = {
+  Permit: { name: 'gasless approvals', what: 'holders can approve a trade with a signature instead of a separate transaction, which saves gas.' },
+  Votes: { name: 'voting power', what: 'holders can hand their voting power to themselves or someone else. you need this if you want on-chain votes later.' },
+  Staking: { name: 'staking pool', what: 'holders lock the coin to earn more of it. you put the rewards in up front and they pay out evenly over a set time.' },
+  Vesting: { name: 'vesting schedule', what: 'part of the supply goes to one wallet and is released bit by bit between a start date and an end date.' },
+  AntiBot: { name: 'bot gate', what: 'only wallets you approve can buy for the first few blocks.' },
+  AntiWhale: { name: 'whale caps', what: 'limits how much one wallet can hold or move for a while after launch.' },
+  Pausable: { name: 'emergency pause', what: 'lets the owner stop all transfers.' },
+  FeeOnTransfer: { name: 'tax on trade', what: 'every transfer pays a small tax that is burned or sent to a wallet.' },
+  Blocklist: { name: 'blocklist', what: 'the owner could block specific wallets from sending or receiving the coin.' },
+  Jailable: { name: 'fund recovery', what: 'the owner could move coins out of a blocked wallet to a recovery wallet.' },
+  B20PolicyAware: { name: 'rules registry', what: 'every transfer would be checked against a shared rules list before it goes through.' },
+};
+
+/// Built into every coin launch automatically (the bonding curve graduates
+/// into a pool on the platform hook), so they are not choices.
+const BUILT_IN_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
+/// Pool options picked at launch time, applied at graduation.
+const POOL_OPTIONS = new Set(['AntiSniper', 'BuybackBurn']);
 
 const RECIPES: Array<{
   label: string;
-  jp: string;
   stance: string;
   modules: string[];
   implKey: 'ERC20TemplateImpl' | 'ERC20WithAntiBotImpl' | 'ERC20WithFoTImpl';
 }> = [
-  {
-    label: 'plain creator coin',
-    jp: '素',
-    stance: 'clean ERC-20 implementation for the simplest release path',
-    modules: [],
-    implKey: 'ERC20TemplateImpl',
-  },
-  {
-    label: 'guarded opening',
-    jp: '守',
-    stance: 'adds the shipped bot gate module for the first launch blocks',
-    modules: ['AntiBot'],
-    implKey: 'ERC20WithAntiBotImpl',
-  },
-  {
-    label: 'taxed transfer coin',
-    jp: '税',
-    stance: 'registered implementation for creator-directed transfer fees',
-    modules: ['FeeOnTransfer'],
-    implKey: 'ERC20WithFoTImpl',
-  },
-];
-
-const INDEX = [
-  { id: 'inventory', label: 'inventory', jp: '棚卸' },
-  { id: 'core', label: 'core stack', jp: '骨組' },
-  { id: 'hooks', label: 'v4 hooks', jp: '針' },
-  { id: 'guards', label: 'guards', jp: '守' },
-  { id: 'modules', label: 'modules', jp: '出来' },
-  { id: 'planned', label: 'planned', jp: '予定' },
-  { id: 'recipes', label: 'configurations', jp: '定食' },
-  { id: 'nft-stack', label: 'NFT stack', jp: '絵札' },
+  { label: 'plain coin', stance: 'the default coin contract', modules: [], implKey: 'ERC20TemplateImpl' },
+  { label: 'bot gate coin', stance: 'adds the bot gate; not usable with curve launches', modules: ['AntiBot'], implKey: 'ERC20WithAntiBotImpl' },
+  { label: 'taxed coin', stance: 'adds a transfer tax; not usable with curve launches', modules: ['FeeOnTransfer'], implKey: 'ERC20WithFoTImpl' },
 ];
 
 function short(a: string): string {
@@ -56,27 +65,13 @@ function short(a: string): string {
 
 function AddrLink({ chain, addr }: { chain: ChainKey | null; addr: string | undefined }) {
   if (!addr || addr === '0x0000000000000000000000000000000000000000') {
-    return <span className={styles.muted}>pending</span>;
+    return <span className={styles.muted}>not deployed</span>;
   }
   if (!chain) return <code className={styles.address}>{short(addr)}</code>;
   return (
     <Link href={explorerAddressUrl(chain, addr)} target="_blank" className={styles.addressLink}>
       {short(addr)}
     </Link>
-  );
-}
-
-function publicModule(mod: ModuleSpec) {
-  return mod.bases.includes('ERC20');
-}
-
-function isGuardModule(mod: ModuleSpec) {
-  return (
-    mod.id === 'AntiBot' ||
-    mod.id === 'AntiWhale' ||
-    mod.id === 'Pausable' ||
-    mod.requiresOwner === true ||
-    mod.flagged !== null
   );
 }
 
@@ -91,44 +86,42 @@ export default function CatalogPage() {
   const targetChain: ChainKey = CHAINS_ENABLED[0]!;
   const chainKey = activeChain && CHAINS_ENABLED.includes(activeChain) ? activeChain : targetChain;
   const contracts = CONTRACTS[chainKey];
+  const nftsOn = NFT_LAUNCHES_ENABLED[chainKey] === true;
+  const dn404On = DN404_LAUNCHES_ENABLED[chainKey] === true;
 
-  const publicModules = useMemo(() => MODULES.filter(publicModule), []);
-  const shipped = publicModules.filter((m) => m.status === 'shipped');
-  const planned = publicModules.filter((m) => m.status === 'planned');
-  const hooks = shipped.filter((m) => m.category === 'hook');
-  const guards = shipped.filter(isGuardModule);
-  const otherModules = shipped.filter((m) => m.category !== 'hook' && !isGuardModule(m));
+  const coinModules = useMemo(() => MODULES.filter((m) => m.bases.includes('ERC20')), []);
+  const shipped = coinModules.filter((m) => m.status === 'shipped');
+  const extras = shipped.filter(
+    (m) => !BUILT_IN_HOOKS.has(m.id) && !POOL_OPTIONS.has(m.id) && !m.requiresOwner && !m.taxesTransfers,
+  );
+  const notOnCurve = shipped.filter((m) => m.requiresOwner || m.taxesTransfers);
+  const later = coinModules.filter((m) => m.status === 'planned');
+
+  const index = [
+    { id: 'coins', label: 'coins', jp: '硬貨', show: true },
+    { id: 'nfts', label: 'nft collections', jp: '絵札', show: nftsOn },
+    { id: 'dn404', label: 'dn404', jp: '二重', show: dn404On },
+    { id: 'later', label: 'coming later', jp: '予定', show: true },
+    { id: 'developers', label: 'for developers', jp: '開発', show: true },
+  ].filter((e) => e.show);
 
   return (
     <main className={styles.page}>
       <header className={styles.specHeader}>
         <div>
-          <p>module reference · {CHAIN_LABELS[chainKey]}</p>
-          <h1>Module catalog</h1>
-        </div>
-        <div className={styles.headerMeta} aria-label="Catalog counts">
-          <Meta label="shipped" value={String(shipped.length)} />
-          <Meta label="planned" value={String(planned.length)} />
-          <Meta label="hooks" value={String(hooks.length)} />
-          <Meta label="configs" value={String(RECIPES.length)} />
+          <p>launch options · {CHAIN_LABELS[chainKey]}</p>
+          <h1>What you can add</h1>
         </div>
       </header>
 
-      {contracts === null && (
-        <div className={styles.notice}>
-          <b>◐ not deployed on {CHAIN_LABELS[chainKey]}</b>
-          <span>addresses fill in after DeployPhase1 broadcasts; registry status is still shown.</span>
-        </div>
-      )}
-
       <div className={styles.referenceLayout}>
-        <aside className={styles.indexRail} aria-label="Catalog index">
+        <aside className={styles.indexRail} aria-label="Sections">
           <div className={styles.indexTitle}>
-            <span>index</span>
+            <span>sections</span>
             <small>目次</small>
           </div>
           <nav>
-            {INDEX.map((entry) => (
+            {index.map((entry) => (
               <a key={entry.id} href={`#${entry.id}`}>
                 <span>{entry.label}</span>
                 <small>{entry.jp}</small>
@@ -139,138 +132,186 @@ export default function CatalogPage() {
             <Link href="/create" className="uru-btn uru-btn-primary">
               create <span className="uru-arrow">→</span>
             </Link>
-            <Link href="/discover" className="uru-btn uru-btn-cream">
-              discover
+            <Link href="/docs" className="uru-btn uru-btn-cream">
+              how it works
             </Link>
           </div>
         </aside>
 
-        <section className={styles.sheet} aria-label="ERC-20 module reference">
+        <section className={styles.sheet} aria-label="Launch options">
           <SectionHead
-            id="inventory"
-            title="Available modules"
-            jp="棚卸"
-            sub="Public module catalog for ERC-20 launches. Planned work is marked separately from shipped code."
+            id="coins"
+            title="Coins"
+            jp="硬貨"
+            sub="Quick launch uses safe defaults. Custom launch lets you add the extras below."
           />
-          <div className={styles.inventory}>
-            <InventoryRow label="Shipped ERC-20 modules" value={String(shipped.length)} note="available in the local registry" />
-            <InventoryRow label="V4 hook modules" value={String(hooks.length)} note="pool behavior after graduation" />
-            <InventoryRow label="Guarded launch modules" value={String(guards.length)} note="owner/risk-sensitive controls" />
-            <InventoryRow label="Planned policy modules" value={String(planned.length)} note="roadmap only, not selectable as shipped" />
-          </div>
+          <PlainList
+            title="every coin comes with"
+            items={[
+              { name: 'price curve', what: 'trading starts right away. the price goes up as people buy and down as they sell.' },
+              { name: 'locked pool', what: 'when it graduates, the coin moves to a Uniswap pool and that money is locked forever.' },
+              { name: 'creator earnings', what: 'after graduation you earn 1% of every trade in the pool.' },
+              { name: 'no admin keys', what: 'nobody, including you, can change or pause the coin after launch.' },
+            ]}
+          />
+          <PlainList
+            title="extras you can add"
+            items={[
+              { name: 'early access for a community', what: 'holders of another token or nft collection get the first hour to buy, with 60% of the curve set aside for them.' },
+              { name: 'graduation pause', what: 'pool trading waits a short while after graduation (up to 7,200 blocks, about 12 minutes) so bots cannot jump in first.' },
+              { name: 'buy and burn', what: 'part of every pool buy (up to 20%) is burned, so supply slowly shrinks.' },
+              ...extras.map((m) => PLAIN[m.id] ?? { name: m.label.replace(/^✿\s*/, ''), what: m.description }),
+            ]}
+          />
+          {notOnCurve.length > 0 && (
+            <PlainList
+              title="not available on curve launches"
+              note="These need an owner who keeps control, or they tax every transfer. Curve coins have no owner and no transfer tax, so these are switched off."
+              items={notOnCurve.map((m) => PLAIN[m.id] ?? { name: m.label.replace(/^✿\s*/, ''), what: m.description })}
+            />
+          )}
 
-          <SectionHead
-            id="core"
-            title="Core Stack"
-            jp="骨組"
-            sub="Contracts a public ERC-20 launch routes through."
-          />
-          <div className={styles.coreTable}>
-            <StackRow name="NameRegistry" role="reserves names and tickers" chain={chainKey} addr={contracts?.NameRegistry} />
-            <StackRow name="Router" role="entry point, fee handling, launch dispatch" chain={chainKey} addr={contracts?.Router} />
-            <StackRow name="FeeReceiver" role="platform fee receiver" chain={chainKey} addr={contracts?.FeeReceiver} />
-            <StackRow name="ERC20Factory" role="registered ERC-20 implementation factory" chain={chainKey} addr={contracts?.ERC20Factory} />
-          </div>
+          {nftsOn && (
+            <>
+              <SectionHead
+                id="nfts"
+                title="NFT collections"
+                jp="絵札"
+                sub="Art that people mint. Start from urufu studio with launch as nft, or fill in the form."
+              />
+              <PlainList
+                title="you choose"
+                items={[
+                  { name: 'size', what: 'the total number of nfts, and how many one wallet can mint.' },
+                  { name: 'price', what: 'the same price for every mint, or a price that goes up by a set amount after each mint.' },
+                  { name: 'payment', what: 'buyers pay in ETH or URU.' },
+                  { name: 'early access', what: 'a list of wallets that can mint first, for a set window.' },
+                  { name: 'holder discounts', what: 'a lower price for people who hold another collection, like urufu gemu nft.' },
+                  { name: 'opensea info', what: 'after launch, set the collection name, picture and description OpenSea shows.' },
+                ]}
+              />
+              <PlainList
+                title="how money moves"
+                items={[
+                  { name: 'your cut', what: 'you keep 90% of every mint and withdraw it from your profile page.' },
+                  { name: 'platform cut', what: '10% of every mint goes to the platform flywheel.' },
+                  { name: 'launch fee', what: '5,000 URU, before holder discounts.' },
+                ]}
+              />
+            </>
+          )}
 
-          <ModuleSection
-            id="hooks"
-            title="V4 hook modules"
-            jp="針"
-            sub="Shipped pool behavior modules for ERC-20 releases."
-            modules={hooks}
-          />
-          <ModuleSection
-            id="guards"
-            title="Launch Guards"
-            jp="守"
-            sub="Controls that change trust assumptions or launch access."
-            modules={guards}
-          />
-          <ModuleSection
-            id="modules"
-            title="Contract Modules"
-            jp="出来"
-            sub="Other shipped ERC-20 fragments in the registry."
-            modules={otherModules}
-          />
-          <ModuleSection
-            id="planned"
-            title="Planned Policy Work"
-            jp="予定"
-            sub="Roadmap modules only. These are not presented as shipped launch pieces."
-            modules={planned}
-            planned
-          />
+          {dn404On && (
+            <>
+              <SectionHead
+                id="dn404"
+                title="DN404"
+                jp="二重"
+                sub="A coin and an nft collection in one. Hold enough coins and you own an nft."
+              />
+              <PlainList
+                title="you choose"
+                items={[
+                  { name: 'collection size', what: 'up to 10,000 nfts.' },
+                  { name: 'coins per nft', what: 'how many coins equal one nft. holding a multiple gives you that many nfts.' },
+                  { name: 'pair', what: 'buyers pay with ETH or URU.' },
+                  { name: 'founder share', what: 'keep up to 20% of the supply in your wallet at launch.' },
+                  { name: 'graduation pause', what: 'pool trading waits up to 7,200 blocks (about 12 minutes) after graduation.' },
+                  { name: 'buy and burn', what: 'part of every pool buy (up to 20%) is burned.' },
+                  { name: 'tax', what: '0% to 5%, fixed forever at launch. taken on pool buys and wallet transfers, not on sells into the pool or curve trades.' },
+                ]}
+              />
+              <PlainList
+                title="what the tax can do"
+                note="Our automated helper carries out your choice and keeps 5% of each payout for gas and upkeep."
+                items={DN404_TAX_MODES.filter((m) => m.value !== 0).map((m) => ({
+                  name: m.label.toLowerCase(),
+                  what: `${m.description}.`,
+                }))}
+              />
+              <PlainList
+                title="good to know"
+                items={[
+                  { name: 'big trades', what: 'one buy or sell can create or remove at most 2,000 nfts, a Robinhood chain limit. split bigger trades.' },
+                  { name: 'launch fee', what: '10,000 URU, before holder discounts.' },
+                  { name: 'trading apps', what: 'some apps that route through their own contracts may fail to sell taxed coins. this site and the Uniswap app work.' },
+                ]}
+              />
+            </>
+          )}
 
-          <SectionHead
-            id="nft-stack"
-            title="NFT stack"
-            jp="絵札"
-            sub="Contracts an ERC-721 collection launch routes through."
-          />
-          <div className={styles.coreTable}>
-            <StackRow name="NftLaunchFactory" role="deploys collection + mint module in one tx" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.LaunchFactory} />
-            <StackRow name="ERC721 impl" role="cloned per collection" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.Erc721Impl} />
-            <StackRow name="Mint module impl" role="handles pricing, discounts, and mint accounting" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.MintModuleImpl} />
-            <StackRow name="Whitelist module impl" role="optional per-collection whitelist gate" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.WhitelistModuleImpl} />
-          </div>
+          <SectionHead id="later" title="Coming later" jp="予定" sub="Planned, not available yet." />
+          <PlainList items={later.map((m) => PLAIN[m.id] ?? { name: m.label, what: m.description })} />
 
-          <SectionHead
-            id="recipes"
-            title="Registered configurations"
-            jp="定食"
-            sub="ERC-20 implementation addresses and config hashes."
-          />
-          <div className={styles.recipeTable} role="table" aria-label="Registered ERC-20 configurations">
-            <div className={styles.recipeHead} role="row">
-              <span>configuration</span>
-              <span>modules</span>
-              <span>hash</span>
-              <span>impl</span>
+          <div id="developers" className={styles.sectionHead}>
+            <div>
+              <h2>For developers</h2>
+              <span>開発</span>
             </div>
-            {RECIPES.map((recipe) => {
-              const hash = configHashFor('ERC20', recipe.modules);
-              const implAddress = contracts?.[recipe.implKey] as string | undefined;
-              return (
-                <div key={recipe.label} className={styles.recipeRow} role="row">
-                  <div>
-                    <b>{recipe.label}</b>
-                    <small>{recipe.jp}</small>
-                    <p>{recipe.stance}</p>
-                  </div>
-                  <span>{recipe.modules.length ? recipe.modules.join(' + ') : 'none'}</span>
-                  <code>{hash.slice(0, 22)}…</code>
-                  <AddrLink chain={chainKey} addr={implAddress} />
-                </div>
-              );
-            })}
+            <p>Contract addresses, module ids and config hashes.</p>
           </div>
+          <details>
+            <summary>show contract details</summary>
+            <h3>coin launch contracts</h3>
+            <div className={styles.coreTable}>
+              <StackRow name="NameRegistry" role="reserves names and tickers" chain={chainKey} addr={contracts?.NameRegistry} />
+              <StackRow name="Router" role="launch entry point and fee handling" chain={chainKey} addr={contracts?.Router} />
+              <StackRow name="FeeReceiver" role="platform fee receiver" chain={chainKey} addr={contracts?.FeeReceiver} />
+              <StackRow name="ERC20Factory" role="deploys coin contracts" chain={chainKey} addr={contracts?.ERC20Factory} />
+            </div>
+            <h3>nft launch contracts</h3>
+            <div className={styles.coreTable}>
+              <StackRow name="NftLaunchFactory" role="deploys collection and mint module" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.LaunchFactory} />
+              <StackRow name="ERC721 impl" role="copied per collection" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.Erc721Impl} />
+              <StackRow name="Mint module impl" role="pricing, discounts, mint accounting" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.MintModuleImpl} />
+              <StackRow name="Whitelist module impl" role="optional early-access gate" chain={chainKey} addr={NFT_LAUNCHES[chainKey]?.WhitelistModuleImpl} />
+            </div>
+            <h3>dn404 launch contracts</h3>
+            <div className={styles.coreTable}>
+              <StackRow name="Dn404LaunchFactory" role="deploys coin, mirror nft and curve" chain={chainKey} addr={DN404_LAUNCHES[chainKey]?.LaunchFactory} />
+              <StackRow name="Dn404CurveFactory" role="curves for ERC-20 pairs (URU)" chain={chainKey} addr={DN404_LAUNCHES[chainKey]?.CurveFactory} />
+              <StackRow name="Dn404 MultiHookHost" role="pool hook for ERC-20-paired graduations" chain={chainKey} addr={DN404_LAUNCHES[chainKey]?.MultiHookHost} />
+              <StackRow name="Base impl" role="dn404 coin template" chain={chainKey} addr={DN404_LAUNCHES[chainKey]?.BaseImpl} />
+              <StackRow name="Mirror impl" role="dn404 nft template" chain={chainKey} addr={DN404_LAUNCHES[chainKey]?.MirrorImpl} />
+            </div>
+            <h3>coin modules</h3>
+            <div className={styles.specimenList}>
+              {coinModules.map((mod) => (
+                <ModSpecimen key={mod.id} mod={mod} />
+              ))}
+            </div>
+            <h3>registered coin configurations</h3>
+            <div className={styles.recipeTable} role="table" aria-label="Registered coin configurations">
+              <div className={styles.recipeHead} role="row">
+                <span>configuration</span>
+                <span>modules</span>
+                <span>hash</span>
+                <span>impl</span>
+              </div>
+              {RECIPES.map((recipe) => {
+                const hash = configHashFor('ERC20', recipe.modules);
+                const implAddress = contracts?.[recipe.implKey] as string | undefined;
+                return (
+                  <div key={recipe.label} className={styles.recipeRow} role="row">
+                    <div>
+                      <b>{recipe.label}</b>
+                      <p>{recipe.stance}</p>
+                    </div>
+                    <span>{recipe.modules.length ? recipe.modules.join(' + ') : 'none'}</span>
+                    <code>{hash.slice(0, 22)}…</code>
+                    <AddrLink chain={chainKey} addr={implAddress} />
+                  </div>
+                );
+              })}
+            </div>
+          </details>
         </section>
       </div>
     </main>
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.meta}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  );
-}
-
-function SectionHead({
-  id,
-  title,
-  jp,
-  sub,
-}: {
-  id: string;
-  title: string;
-  jp: string;
-  sub: string;
-}) {
+function SectionHead({ id, title, jp, sub }: { id: string; title: string; jp: string; sub: string }) {
   return (
     <div id={id} className={styles.sectionHead}>
       <div>
@@ -282,12 +323,29 @@ function SectionHead({
   );
 }
 
-function InventoryRow({ label, value, note }: { label: string; value: string; note: string }) {
+function PlainList({
+  title,
+  note,
+  items,
+}: {
+  title?: string;
+  note?: string;
+  items: Array<{ name: string; what: string }>;
+}) {
   return (
-    <div className={styles.inventoryRow}>
-      <span>{label}</span>
-      <b>{value}</b>
-      <p>{note}</p>
+    <div className={styles.specimenList}>
+      {title && <h3>{title}</h3>}
+      {note && <p>{note}</p>}
+      {items.map((item) => (
+        <article key={item.name} className={styles.specimen}>
+          <div className={styles.specimenBody}>
+            <div className={styles.specimenTitle}>
+              <h3>{item.name}</h3>
+            </div>
+            <p>{item.what}</p>
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -312,60 +370,19 @@ function StackRow({
   );
 }
 
-function ModuleSection({
-  id,
-  title,
-  jp,
-  sub,
-  modules,
-  planned,
-}: {
-  id: string;
-  title: string;
-  jp: string;
-  sub: string;
-  modules: ModuleSpec[];
-  planned?: boolean;
-}) {
+function ModSpecimen({ mod }: { mod: ModuleSpec }) {
   return (
-    <>
-      <SectionHead id={id} title={title} jp={jp} sub={sub} />
-      <div className={styles.specimenList}>
-        {modules.map((mod) => (
-          <ModSpecimen key={mod.id} mod={mod} planned={planned} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-function ModSpecimen({ mod, planned }: { mod: ModuleSpec; planned?: boolean }) {
-  const warnings = [
-    mod.requiresOwner ? 'owner-controlled after launch' : null,
-    mod.taxesTransfers ? 'transfer-tax behavior; compatibility depends on launch mechanic' : null,
-    mod.flagged,
-  ].filter((note): note is string => Boolean(note));
-
-  return (
-    <article className={styles.specimen} data-planned={planned ? 'true' : undefined}>
+    <article className={styles.specimen} data-planned={mod.status === 'planned' ? 'true' : undefined}>
       <div className={styles.specimenCode}>
         <span>{mod.id}</span>
-        <code>{planned ? 'planned' : mod.abiEncode}</code>
+        <code>{mod.status === 'planned' ? 'planned' : mod.abiEncode}</code>
       </div>
       <div className={styles.specimenBody}>
         <div className={styles.specimenTitle}>
-          <h3>{mod.label}</h3>
-          <span>{planned ? 'planned' : `v${mod.version} shipped`}</span>
+          <h3>{(PLAIN[mod.id]?.name ?? mod.label).replace(/^✿\s*/, '')}</h3>
+          <span>{mod.status === 'planned' ? 'planned' : `v${mod.version}`}</span>
           <span>{mod.category}</span>
         </div>
-        <p>{mod.description}</p>
-        {warnings.length > 0 && (
-          <ul className={styles.warnings}>
-            {warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        )}
       </div>
     </article>
   );
