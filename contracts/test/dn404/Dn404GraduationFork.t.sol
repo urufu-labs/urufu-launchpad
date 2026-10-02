@@ -12,10 +12,7 @@ import {Dn404PairCurrencyAllowlist} from "src/dn404/Dn404PairCurrencyAllowlist.s
 import {MultiHookHost} from "src/hooks/MultiHookHost.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {
-    IERC20 as FactoryIERC20,
-    ILoyaltyOracleLike
-} from "src/dn404/Dn404LaunchFactory.sol";
+import {IERC20 as FactoryIERC20, ILoyaltyOracleLike} from "src/dn404/Dn404LaunchFactory.sol";
 
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -50,26 +47,39 @@ contract MockPairErc20 {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         balanceOf[to] += amount;
         totalSupply += amount;
         emit Transfer(address(0), to, amount);
     }
 
-    function approve(address spender, uint256 amount) external returns (bool) {
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
 
-    function transfer(address to, uint256 amount) external returns (bool) {
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
         emit Transfer(msg.sender, to, amount);
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 a = allowance[from][msg.sender];
         if (a != type(uint256).max) allowance[from][msg.sender] = a - amount;
         balanceOf[from] -= amount;
@@ -261,8 +271,7 @@ contract Dn404GraduationForkTest is Test {
         //         have reverted upstream — this is defense in depth.
         (uint32 launchBlock,,) = MultiHookHost(payable(stack.multiHookHost)).poolConfig(poolId);
         assertGt(launchBlock, 0, "MHH did not stamp launchBlock on the graduated pool");
-        (,,,,, uint64 launchBlockPolicy, bool frozen) =
-            MultiHookHost(payable(stack.multiHookHost)).poolPolicy(poolId);
+        (,,,,, uint64 launchBlockPolicy, bool frozen) = MultiHookHost(payable(stack.multiHookHost)).poolPolicy(poolId);
         assertGt(launchBlockPolicy, 0, "MHH poolPolicy launchBlock unset");
         assertTrue(frozen, "MHH poolPolicy not immutableAfterLaunch");
     }
@@ -332,7 +341,10 @@ contract Dn404GraduationForkTest is Test {
     /// Full launch → buy-to-graduate → pool-price-vs-curve-price check for a
     /// mock pair token pinned at `pairAddr`. `expectPairIsC0` is the ordering
     /// the caller intends to exercise; asserted, not assumed.
-    function _assertNoCliffForPairAt(address pairAddr, bool expectPairIsC0) internal {
+    function _assertNoCliffForPairAt(
+        address pairAddr,
+        bool expectPairIsC0
+    ) internal {
         // Pin the mock at the chosen address. MockPairErc20 has no constructor
         // state (constants + empty mappings), so runtime-only placement is
         // a complete deployment.
@@ -369,12 +381,13 @@ contract Dn404GraduationForkTest is Test {
 
         // Pull the graduator's emitted (pairAmount, tokenAmount, sqrtPriceX96).
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        uint256 pairAmount; uint256 tokenAmount; uint160 emittedSqrt;
+        uint256 pairAmount;
+        uint256 tokenAmount;
+        uint160 emittedSqrt;
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter == stack.graduator && logs[i].topics[0] == DN404_GRADUATED_TOPIC0) {
-                (pairAmount, tokenAmount, emittedSqrt,) =
-                    abi.decode(logs[i].data, (uint256, uint256, uint160, uint128));
+                (pairAmount, tokenAmount, emittedSqrt,) = abi.decode(logs[i].data, (uint256, uint256, uint160, uint128));
                 found = true;
                 break;
             }
@@ -402,9 +415,8 @@ contract Dn404GraduationForkTest is Test {
         // v4: sqrtPriceX96 = sqrt(currency1 per currency0) * 2^96.
         // poolPriceX18 = (sqrt^2 / 2^192) * 1e18, computed as two mulDivs.
         uint256 sq = uint256(slotSqrt);
-        uint256 poolPriceX18 = FixedPointMathLib.fullMulDiv(
-            FixedPointMathLib.fullMulDiv(sq, sq, 1 << 96), 1e18, 1 << 96
-        );
+        uint256 poolPriceX18 =
+            FixedPointMathLib.fullMulDiv(FixedPointMathLib.fullMulDiv(sq, sq, 1 << 96), 1e18, 1 << 96);
 
         // If pair is currency0 the pool encodes token-per-pair = 1/curvePrice.
         // If token is currency0 the pool encodes pair-per-token = curvePrice.

@@ -36,26 +36,86 @@ import {
 // Minimal mocks (copied from Dn404PairCurrency.t.sol shape to keep this
 // file self-contained; refactoring to shared helpers is v1.5+).
 contract MockErc20 {
-    string public name; string public symbol;
+    string public name;
+    string public symbol;
     uint8 public constant decimals = 18;
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     event Transfer(address indexed from, address indexed to, uint256 amount);
     event Approval(address indexed o, address indexed s, uint256 amount);
-    constructor(string memory n, string memory s) { name = n; symbol = s; }
-    function mint(address to, uint256 a) external { totalSupply += a; balanceOf[to] += a; emit Transfer(address(0), to, a); }
-    function approve(address s, uint256 a) external returns (bool) { allowance[msg.sender][s] = a; emit Approval(msg.sender, s, a); return true; }
-    function transfer(address to, uint256 a) external returns (bool) { balanceOf[msg.sender] -= a; balanceOf[to] += a; emit Transfer(msg.sender, to, a); return true; }
-    function transferFrom(address f, address to, uint256 a) external returns (bool) {
+
+    constructor(
+        string memory n,
+        string memory s
+    ) {
+        name = n;
+        symbol = s;
+    }
+
+    function mint(
+        address to,
+        uint256 a
+    ) external {
+        totalSupply += a;
+        balanceOf[to] += a;
+        emit Transfer(address(0), to, a);
+    }
+
+    function approve(
+        address s,
+        uint256 a
+    ) external returns (bool) {
+        allowance[msg.sender][s] = a;
+        emit Approval(msg.sender, s, a);
+        return true;
+    }
+
+    function transfer(
+        address to,
+        uint256 a
+    ) external returns (bool) {
+        balanceOf[msg.sender] -= a;
+        balanceOf[to] += a;
+        emit Transfer(msg.sender, to, a);
+        return true;
+    }
+
+    function transferFrom(
+        address f,
+        address to,
+        uint256 a
+    ) external returns (bool) {
         uint256 al = allowance[f][msg.sender];
         if (al != type(uint256).max) allowance[f][msg.sender] = al - a;
-        balanceOf[f] -= a; balanceOf[to] += a; emit Transfer(f, to, a); return true;
+        balanceOf[f] -= a;
+        balanceOf[to] += a;
+        emit Transfer(f, to, a);
+        return true;
     }
 }
 
-contract MockNftFactoryFee { uint256 public minUruFee; function set(uint256 v) external { minUruFee = v; } }
-contract MockDn404Graduator { function execute(address, address, uint256, uint256, uint32, uint16, address) external {} }
+contract MockNftFactoryFee {
+    uint256 public minUruFee;
+
+    function set(
+        uint256 v
+    ) external {
+        minUruFee = v;
+    }
+}
+
+contract MockDn404Graduator {
+    function execute(
+        address,
+        address,
+        uint256,
+        uint256,
+        uint32,
+        uint16,
+        address
+    ) external {}
+}
 
 contract Dn404TaxAuthTest is Test {
     Dn404Template internal baseImpl;
@@ -72,9 +132,9 @@ contract Dn404TaxAuthTest is Test {
     MockErc20 internal usdg;
     MockNftFactoryFee internal nftFactoryFee;
 
-    address internal governance = address(0xA1);   // factory owner = platform multisig
-    address internal launcher = address(0xB1);     // token owner (Solady Ownable)
-    address internal keeperOps = address(0xC1);    // legitimate keeper wallet
+    address internal governance = address(0xA1); // factory owner = platform multisig
+    address internal launcher = address(0xB1); // token owner (Solady Ownable)
+    address internal keeperOps = address(0xC1); // legitimate keeper wallet
     address internal keeperTreasury = address(0xC2);
     address internal attacker = address(0xBAD);
     address internal uruSink = address(0xCFEE);
@@ -93,8 +153,10 @@ contract Dn404TaxAuthTest is Test {
         mirrorImpl = new Dn404MirrorTemplate();
         curveImpl = new Dn404BondingCurve();
 
-        address[] memory pcTokens = new address[](1); pcTokens[0] = address(usdg);
-        string[] memory pcLabels = new string[](1); pcLabels[0] = "USDG";
+        address[] memory pcTokens = new address[](1);
+        pcTokens[0] = address(usdg);
+        string[] memory pcLabels = new string[](1);
+        pcLabels[0] = "USDG";
         pairAllowlist = new Dn404PairCurrencyAllowlist(governance, pcTokens, pcLabels);
 
         address[] memory taxTokens = new address[](0);
@@ -102,10 +164,7 @@ contract Dn404TaxAuthTest is Test {
         taxAllowlist = new Dn404TaxAllowlist(governance, taxTokens, taxLabels);
 
         dn404CurveFactory = new Dn404CurveFactory(
-            governance,
-            feeSplitter,
-            address(curveImpl),
-            IDn404PairCurrencyAllowlist(address(pairAllowlist))
+            governance, feeSplitter, address(curveImpl), IDn404PairCurrencyAllowlist(address(pairAllowlist))
         );
         graduator = new MockDn404Graduator();
         vm.prank(governance);
@@ -119,16 +178,14 @@ contract Dn404TaxAuthTest is Test {
         factory.setExpectedCodeHashes(keccak256(address(baseImpl).code), keccak256(address(mirrorImpl).code));
         factory.setImpls(address(baseImpl), address(mirrorImpl));
         factory.setBaseTaxImpl(address(baseTaxImpl), keccak256(address(baseTaxImpl).code));
-        factory.setUruConfig(
-            FactoryIERC20(address(uru)), uruSink, DN404_URU_FEE, FactoryILoyalty(address(0))
-        );
+        factory.setUruConfig(FactoryIERC20(address(uru)), uruSink, DN404_URU_FEE, FactoryILoyalty(address(0)));
         factory.setFeeSplitter(feeSplitter);
         factory.setDn404CurveFactory(FactoryIDn404CurveFactory(address(dn404CurveFactory)));
         factory.setTaxWiring(keeperOps, keeperTreasury, address(taxAllowlist));
         dn404CurveFactory.setTrustedRouter(address(factory), true);
         vm.stopPrank();
 
-        uru.mint(launcher, 1_000e18);
+        uru.mint(launcher, 1000e18);
         vm.prank(launcher);
         uru.approve(address(factory), type(uint256).max);
     }
@@ -231,11 +288,15 @@ contract Dn404TaxAuthTest is Test {
 
     function _launchWithTax() internal returns (address base, address mirror, address curve) {
         Dn404LaunchFactory.LaunchParams memory p;
-        p.name = "AuthTestCoin"; p.ticker = "ATC";
-        p.baseURI = "ipfs://cover/"; p.contractURI = "ipfs://contract";
-        p.collectionSize = 800; p.unit = 1_000_000;
+        p.name = "AuthTestCoin";
+        p.ticker = "ATC";
+        p.baseURI = "ipfs://cover/";
+        p.contractURI = "ipfs://contract";
+        p.collectionSize = 800;
+        p.unit = 1_000_000;
         p.founderPremintBps = 0;
-        p.antiSniperBlocks = 0; p.buybackBurnBps = 0;
+        p.antiSniperBlocks = 0;
+        p.buybackBurnBps = 0;
         p.pairCurrency = address(usdg);
         // Tax mode = BurnDead is enough to route through baseTaxImpl.
         p.taxMode = uint8(Dn404TaxTemplate.TaxMode.BurnDead);

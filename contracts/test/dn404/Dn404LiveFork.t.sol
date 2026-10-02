@@ -43,20 +43,37 @@ import {
 
 interface ICurveFactoryOwned {
     function owner() external view returns (address);
-    function setTrustedRouter(address router, bool trusted) external;
-    function trustedRouters(address router) external view returns (bool);
+    function setTrustedRouter(
+        address router,
+        bool trusted
+    ) external;
+    function trustedRouters(
+        address router
+    ) external view returns (bool);
     function implementation() external view returns (address);
-    function predictCurveAddress(address token) external view returns (address);
+    function predictCurveAddress(
+        address token
+    ) external view returns (address);
 }
 
 interface IErc20Live {
-    function balanceOf(address who) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool);
 }
 
 interface IDn404MirrorView {
-    function balanceOf(address who) external view returns (uint256);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
     function baseERC20() external view returns (address);
     function owner() external view returns (address);
 }
@@ -123,8 +140,7 @@ contract Dn404LiveForkTest is Test {
         // still exercise its narrow "curve stack against live infra" flow
         // with a bare `ROBINHOOD_RPC_URL` set.
         uru = _envAddrOr(
-            "URU_TOKEN_ADDRESS",
-            _envAddrOr("ROBINHOOD_URU_ADDRESS", 0x9fbe210007dDd8389f98d0253018e65CC48b9D24)
+            "URU_TOKEN_ADDRESS", _envAddrOr("ROBINHOOD_URU_ADDRESS", 0x9fbe210007dDd8389f98d0253018e65CC48b9D24)
         );
         // Fall back to the live-RH address book (same file the deploy script
         // reads) when the env var isn't set — makes this test run with just
@@ -172,7 +188,7 @@ contract Dn404LiveForkTest is Test {
         // through; if `deal` throws, skip the test cleanly rather than
         // failing setUp. The narrower DeployDn404LaneForkTest +
         // Dn404GraduationForkTest cover the same ground with mock tokens.
-        try this._dealUru(uru, launcher, 1_000e18) {}
+        try this._dealUru(uru, launcher, 1000e18) {}
         catch {
             vm.skip(true);
             return;
@@ -184,7 +200,11 @@ contract Dn404LiveForkTest is Test {
     /// External helper so the try/catch above can bail via revert instead of
     /// a bare stdStorage assertion failure. Not strictly necessary for the
     /// happy path — needed only for the "URU deal fails, skip" fallback.
-    function _dealUru(address token, address to, uint256 amount) external {
+    function _dealUru(
+        address token,
+        address to,
+        uint256 amount
+    ) external {
         deal(token, to, amount);
     }
 
@@ -282,12 +302,17 @@ contract Dn404LiveForkTest is Test {
         p.uruAmount = 10e18;
     }
 
-    function _envAddr(string memory key) internal view returns (address a) {
+    function _envAddr(
+        string memory key
+    ) internal view returns (address a) {
         a = vm.envAddress(key);
         require(a != address(0), string.concat(key, " unset"));
     }
 
-    function _envAddrOr(string memory key, address fallback_) internal view returns (address) {
+    function _envAddrOr(
+        string memory key,
+        address fallback_
+    ) internal view returns (address) {
         try vm.envAddress(key) returns (address a) {
             return a == address(0) ? fallback_ : a;
         } catch {

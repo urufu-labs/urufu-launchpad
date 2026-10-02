@@ -20,7 +20,10 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 
 interface IErc20Approve {
-    function approve(address spender, uint256 amount) external returns (bool);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
 }
 
 /// @title  Dn404UruDefaultsForkTest
@@ -122,7 +125,7 @@ contract Dn404UruDefaultsForkTest is Test {
         pair.mint(buyer, 10_000_000e18);
         vm.startPrank(buyer);
         pair.approve(curve, type(uint256).max);
-        uint256 smallOut = c.buy(1_000e18, 0);
+        uint256 smallOut = c.buy(1000e18, 0);
         assertGt(smallOut, 0, "small buy returned nothing");
         assertFalse(c.graduated(), "1k buy graduated a 5M-target curve");
 

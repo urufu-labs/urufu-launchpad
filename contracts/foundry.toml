@@ -68,6 +68,10 @@ depth = 64
 
 # Formatting rules — match docs/archive/HANDOFF.md §Solidity style.
 [fmt]
+# src/ is excluded on purpose: those sources are deployed (or byte-pinned by
+# factories) and verified on Blockscout. Reformatting changes the metadata hash
+# embedded in the bytecode, which breaks source verification of live contracts.
+ignore = ["src/**/*.sol"]
 bracket_spacing = false
 int_types = "long"
 line_length = 120

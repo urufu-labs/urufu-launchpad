@@ -51,13 +51,23 @@ import {
 } from "src/dn404/Dn404LaunchFactory.sol";
 
 interface IErc20Live {
-    function balanceOf(address who) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool);
 }
 
 interface IDn404MirrorView {
-    function balanceOf(address who) external view returns (uint256);
+    function balanceOf(
+        address who
+    ) external view returns (uint256);
     function baseERC20() external view returns (address);
 }
 
@@ -114,8 +124,7 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         // canonical `URU_TOKEN_ADDRESS` name, fall back to the historical
         // `ROBINHOOD_URU_ADDRESS`, else the ecosystem-wide RH URU address.
         uru = _envAddrOr(
-            "URU_TOKEN_ADDRESS",
-            _envAddrOr("ROBINHOOD_URU_ADDRESS", 0x9fbe210007dDd8389f98d0253018e65CC48b9D24)
+            "URU_TOKEN_ADDRESS", _envAddrOr("ROBINHOOD_URU_ADDRESS", 0x9fbe210007dDd8389f98d0253018e65CC48b9D24)
         );
         // Same fall-back defaults as Dn404LiveFork so both tests run with a
         // bare ROBINHOOD_RPC_URL. Live-RH values from deployment-live-rh.4663.json;
@@ -143,10 +152,7 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         allowlist = new Dn404PairCurrencyAllowlist(factoryOwner, seedTokens, seedLabels);
 
         dn404CurveFactory = new Dn404CurveFactory(
-            factoryOwner,
-            feeSplitter,
-            address(curveImpl),
-            IDn404PairCurrencyAllowlist(address(allowlist))
+            factoryOwner, feeSplitter, address(curveImpl), IDn404PairCurrencyAllowlist(address(allowlist))
         );
 
         // Graduator against live v4 PoolManager + hook.
@@ -154,7 +160,7 @@ contract Dn404PairCurrencyLiveForkTest is Test {
             IPoolManager(poolManagerAddr),
             IHooks(hookAddr),
             10_000, // 1% fee
-            200,    // tickSpacing
+            200, // tickSpacing
             address(dn404CurveFactory),
             factoryOwner
         );
@@ -171,12 +177,7 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         vm.startPrank(factoryOwner);
         launchFactory.setExpectedCodeHashes(baseHash, mirrorHash);
         launchFactory.setImpls(address(baseImpl), address(mirrorImpl));
-        launchFactory.setUruConfig(
-            FactoryIERC20(uru),
-            uruSink,
-            10e18,
-            FactoryILoyalty(address(0))
-        );
+        launchFactory.setUruConfig(FactoryIERC20(uru), uruSink, 10e18, FactoryILoyalty(address(0)));
         if (feeSplitter != address(0)) launchFactory.setFeeSplitter(feeSplitter);
         launchFactory.setDn404CurveFactory(FactoryIDn404CurveFactory(address(dn404CurveFactory)));
         dn404CurveFactory.setTrustedRouter(address(launchFactory), true);
@@ -187,7 +188,7 @@ contract Dn404PairCurrencyLiveForkTest is Test {
         // stdStorage can't write through. Skip cleanly if `deal` throws;
         // the newer Dn404GraduationForkTest exercises the same flow with
         // a mock ERC-20 that has a plain layout.
-        try this._dealErc20(uru, launcher, 1_000e18) {}
+        try this._dealErc20(uru, launcher, 1000e18) {}
         catch {
             vm.skip(true);
             return;
@@ -286,16 +287,25 @@ contract Dn404PairCurrencyLiveForkTest is Test {
 
     /// External helper so the try/catch above can bail via revert instead of
     /// a bare stdStorage assertion failure. See callsite for rationale.
-    function _dealErc20(address token, address to, uint256 amount) external {
+    function _dealErc20(
+        address token,
+        address to,
+        uint256 amount
+    ) external {
         deal(token, to, amount);
     }
 
-    function _envAddr(string memory key) internal view returns (address a) {
+    function _envAddr(
+        string memory key
+    ) internal view returns (address a) {
         a = vm.envAddress(key);
         require(a != address(0), string.concat(key, " unset"));
     }
 
-    function _envAddrOr(string memory key, address fallback_) internal view returns (address) {
+    function _envAddrOr(
+        string memory key,
+        address fallback_
+    ) internal view returns (address) {
         try vm.envAddress(key) returns (address a) {
             return a == address(0) ? fallback_ : a;
         } catch {

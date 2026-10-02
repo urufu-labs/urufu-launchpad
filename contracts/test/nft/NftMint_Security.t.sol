@@ -152,8 +152,7 @@ contract NftMint_Security is NftHarness {
         // "attestation" for 1000 count
         // ourCollection = ERC-721 clone per commit 01c2318 (see Correctness
         // suite for the full rationale).
-        bytes memory sig =
-            _signAttestation(attSignerPk, buyer1, deployedToken, address(0xBEEF), 1, 0, 1000, expiry);
+        bytes memory sig = _signAttestation(attSignerPk, buyer1, deployedToken, address(0xBEEF), 1, 0, 1000, expiry);
         NftMintModule.TierProof[] memory proofs = new NftMintModule.TierProof[](1);
         proofs[0] =
             NftMintModule.TierProof({tierId: 0, merkleProof: new bytes32[](0), count: 1000, expiry: expiry, sig: sig});

@@ -119,9 +119,7 @@ contract DeployDn404LaneForkTest is Test {
         DeployDn404Lane.Deployed memory d = stack;
 
         assertEq(
-            MultiHookHost(payable(d.multiHookHost)).initializer(),
-            d.graduator,
-            "MHH.initializer != Dn404Graduator"
+            MultiHookHost(payable(d.multiHookHost)).initializer(), d.graduator, "MHH.initializer != Dn404Graduator"
         );
         assertEq(
             address(Dn404Graduator(payable(d.graduator)).defaultHook()),
@@ -159,13 +157,8 @@ contract DeployDn404LaneForkTest is Test {
     function test_ForkDeploy_Dn404CurveFactoryTrustsLaunchFactory() public {
         DeployDn404Lane.Deployed memory d = stack;
         assertTrue(
-            Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory),
-            "Dn404 CF must trust Dn404 LaunchFactory"
+            Dn404CurveFactory(d.curveFactory).trustedRouters(d.launchFactory), "Dn404 CF must trust Dn404 LaunchFactory"
         );
-        assertEq(
-            Dn404CurveFactory(d.curveFactory).graduator(),
-            d.graduator,
-            "Dn404 CF.graduator != Dn404 Graduator"
-        );
+        assertEq(Dn404CurveFactory(d.curveFactory).graduator(), d.graduator, "Dn404 CF.graduator != Dn404 Graduator");
     }
 }
