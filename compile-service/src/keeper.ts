@@ -42,6 +42,7 @@ import {
   encodeFunctionData,
   encodePacked,
   http,
+  keccak256,
   parseAbi,
   type Address,
   type Hex,
@@ -279,7 +280,7 @@ function startPublishLoop(): void {
 // Proof this encoding works on-chain: contracts/script/UruBuybackFirst.s.sol
 // broadcast 2026-08-12, 0.048 ETH → 137,457 URU delivered to NftRevenueVault.
 
-const URU_BUYBACK_ABI = parseAbi([
+export const URU_BUYBACK_ABI = parseAbi([
   'function executeBuyback(address swapTarget, uint256 ethIn, bytes calldata swapData, uint256 minUruOut) external',
   'function distributionSink() view returns (address)',
   'function minUruPerEth() view returns (uint256)',
@@ -287,7 +288,7 @@ const URU_BUYBACK_ABI = parseAbi([
   'function isSwapTarget(address) view returns (bool)',
 ]);
 
-const STATE_VIEW_ABI = parseAbi([
+export const STATE_VIEW_ABI = parseAbi([
   'function getSlot0(bytes32 id) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
 ]);
 
@@ -323,7 +324,7 @@ interface BuybackConfig {
   slippageBps: number;
 }
 
-function buybackConfig(): BuybackConfig | null {
+export function buybackConfig(): BuybackConfig | null {
   const rpcUrl = process.env.ROBINHOOD_RPC_URL;
   const vault = process.env.ROBINHOOD_URU_BUYBACK_VAULT_ADDRESS as Address | undefined;
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
@@ -352,7 +353,7 @@ function buybackConfig(): BuybackConfig | null {
 const BUYBACK_MIN_ETH_THRESHOLD_WEI = 10_000_000_000_000_000n; // 0.01 ETH
 
 /// Compute the URU/WETH v4 poolId from the fixed pool key.
-function uruPoolId(cfg: BuybackConfig): Hex {
+export function uruPoolId(cfg: BuybackConfig): Hex {
   // v4 poolId = keccak(abi.encode(PoolKey)) — encode currency0, currency1, fee, tickSpacing, hooks in that order.
   const encoded = encodeAbiParameters(
     [
@@ -364,15 +365,13 @@ function uruPoolId(cfg: BuybackConfig): Hex {
     ],
     [cfg.weth, cfg.uru, cfg.uruPoolFee, cfg.uruPoolTickSpacing, cfg.uruPoolHook],
   );
-  // keccak256 from viem
-  const { keccak256 } = require('viem') as typeof import('viem');
   return keccak256(encoded);
 }
 
 /// Compute expected URU output for a given ETH input at current pool spot,
 /// then subtract slippage buffer to get minUruOut. BigInt math avoids the
 /// uint256 overflow the on-chain Solidity script hit with sqrtPriceX96^2.
-function computeMinUruOut(sqrtPriceX96: bigint, ethIn: bigint, slippageBps: number): bigint {
+export function computeMinUruOut(sqrtPriceX96: bigint, ethIn: bigint, slippageBps: number): bigint {
   // price18 (URU per WETH, 18-dec fixed) = sqrtPriceX96^2 * 1e18 / 2^192
   const price18 = (sqrtPriceX96 * sqrtPriceX96 * 10n ** 18n) >> 192n;
   const naive = (ethIn * price18) / 10n ** 18n;
@@ -381,7 +380,7 @@ function computeMinUruOut(sqrtPriceX96: bigint, ethIn: bigint, slippageBps: numb
 
 /// Encode the UR execute() calldata for WRAP_ETH + V4_SWAP(WETH→URU).
 /// TAKE_ALL delivers URU directly to msg.sender (= UruBuybackVault).
-function encodeBuybackSwap(cfg: BuybackConfig, ethIn: bigint, minUruOut: bigint, deadline: bigint): Hex {
+export function encodeBuybackSwap(cfg: BuybackConfig, ethIn: bigint, minUruOut: bigint, deadline: bigint): Hex {
   const commands = ('0x' + CMD_WRAP_ETH.slice(2) + CMD_V4_SWAP.slice(2)) as Hex;
 
   // input 0: WRAP_ETH(recipient, amount)
