@@ -473,32 +473,6 @@ function CollectionView({
         </a>
       </header>
 
-      {/* Cover art — indexer-resolved cover first, tokenURI(1) resolve as
-          fallback, placeholder pattern when neither is available. */}
-      <div
-        style={{
-          maxWidth: 480,
-          width: '100%',
-          aspectRatio: '1 / 1',
-          margin: '0 auto 16px',
-          border: '2px solid var(--anchor)',
-          borderRadius: 12,
-          background: cover
-            ? `center/cover no-repeat url("${cover}")`
-            : `repeating-linear-gradient(45deg, var(--cream) 0 10px, var(--cream-deep) 10px 20px)`,
-          display: 'grid',
-          placeItems: 'center',
-        }}
-        role={cover ? 'img' : undefined}
-        aria-label={cover ? `${name ?? 'collection'} cover art` : undefined}
-      >
-        {!cover && (
-          <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)', textTransform: 'uppercase' }}>
-            art pending
-          </span>
-        )}
-      </div>
-
       {indexerRow?.description && (
         <p
           style={{
@@ -534,8 +508,18 @@ function CollectionView({
             <span className={`uru-stamp uru-stamp-pink ${styles.artStamp}`} aria-hidden="true">
               new ✿
             </span>
-            <div className={styles.artFrame}>
-              <span>{name ?? 'cover art pending'}</span>
+            {/* Cover art: indexer-resolved cover first, tokenURI(1) as the
+                fallback. The pastel gradient + name only shows until art loads.
+                `contain` so the whole image shows, never cropped. */}
+            <div
+              className={styles.artFrame}
+              role={cover ? 'img' : undefined}
+              aria-label={cover ? `${name ?? 'collection'} cover art` : undefined}
+              style={cover ? {
+                background: `var(--cream-deep) center/contain no-repeat url("${encodeURI(cover).replace(/"/g, '%22')}")`,
+              } : undefined}
+            >
+              {!cover && <span>{name ?? 'cover art pending'}</span>}
             </div>
           </section>
 
@@ -651,7 +635,7 @@ function CollectionView({
                     key={m.id}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'auto 1fr auto',
+                      gridTemplateColumns: 'auto auto 1fr auto',
                       gap: 10,
                       alignItems: 'center',
                       padding: '4px 8px',
@@ -659,7 +643,8 @@ function CollectionView({
                       fontSize: 11,
                     }}
                   >
-                    <span style={{ color: 'var(--pink-hot)' }}>x{m.quantity}</span>
+                    <MintThumb baseUri={baseUri} tokenId={firstMintedId(m)} />
+                    <span style={{ color: 'var(--pink-hot)' }}>{mintedIdsLabel(m)}</span>
                     <span
                       style={{
                         overflow: 'hidden',
@@ -908,5 +893,48 @@ function CollectionView({
         </aside>
       </div>
     </div>
+  );
+}
+
+// The mint module's Minted event carries totalMinted() from before the mint,
+// but collections number tokens from 1 (ERC721ATemplate._startTokenId), so the
+// first new token is that value + 1.
+function firstMintedId(m: IndexerNftMint): bigint {
+  return BigInt(m.tokenId) + 1n;
+}
+
+function mintedIdsLabel(m: IndexerNftMint): string {
+  const first = firstMintedId(m);
+  return m.quantity > 1 ? `#${first}-${first + BigInt(m.quantity - 1)}` : `#${first}`;
+}
+
+/// Small square thumbnail of a minted NFT: tokenURI JSON -> image, through
+/// our /api/ipfs route. Shows a plain tile until (or unless) the art loads.
+function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId: bigint }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!baseUri) return;
+    let cancelled = false;
+    (async () => {
+      const meta = await fetchIpfsJson<{ image?: string }>(`${baseUri}${tokenId}`);
+      if (!cancelled) setSrc(toGatewayUrl(meta?.image));
+    })();
+    return () => { cancelled = true; };
+  }, [baseUri, tokenId]);
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 36,
+        height: 36,
+        borderRadius: 6,
+        border: '1.5px solid var(--anchor)',
+        // Metadata is untrusted: encode so a quote in the URL can't break out of url("").
+        background: src
+          ? `var(--cream-deep) center/contain no-repeat url("${encodeURI(src).replace(/"/g, '%22')}")`
+          : 'var(--cream-deep)',
+        display: 'block',
+      }}
+    />
   );
 }

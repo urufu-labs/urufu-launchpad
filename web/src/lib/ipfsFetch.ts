@@ -42,17 +42,19 @@ export async function fetchIpfsJson<T = unknown>(uri: string | undefined): Promi
   const trailing = url.split('/').pop() ?? '';
   const hasExt = /\.[a-z0-9]{2,5}$/i.test(trailing);
   const suffixes = hasExt ? [''] : ['', '.json'];
-  for (const suffix of suffixes) {
-    try {
-      const res = await fetch(url + suffix, {
-        cache: 'force-cache',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!res.ok) continue;
-      return await res.json() as T;
-    } catch {
-      // timeout / network / parse — try the next suffix
-    }
+  // Ask for both names at once: a missing name makes the route wait on every
+  // gateway before answering 404, which used to delay covers ~30s.
+  const attempts = suffixes.map(async (suffix) => {
+    const res = await fetch(url + suffix, {
+      cache: 'force-cache',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    return await res.json() as T;
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return null;
   }
-  return null;
 }
