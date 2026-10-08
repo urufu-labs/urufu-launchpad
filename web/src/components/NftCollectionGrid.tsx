@@ -156,7 +156,7 @@ function useCollectionCover(
     })();
     return () => { cancelled = true; };
   }, [needFallback, tokenUri]);
-  return indexerCover || cover;
+  return toGatewayUrl(indexerCover) || cover;
 }
 
 function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: number }) {
@@ -269,7 +269,7 @@ function NftCollectionCard({
   // runs when the indexer hasn't stored one yet.
   const [cover, setCover] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    if (row.coverImageUrl) { setCover(row.coverImageUrl); return; }
+    if (row.coverImageUrl) { setCover(toGatewayUrl(row.coverImageUrl)); return; }
     if (!tokenUri) { setCover(null); return; }
     let cancelled = false;
     (async () => {

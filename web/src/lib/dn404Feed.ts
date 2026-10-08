@@ -18,6 +18,17 @@
 import type { Address } from 'viem';
 import type { MockLaunch } from './mockLaunches';
 
+
+// Same rewrite as toGatewayUrl in ./ipfsFetch (kept local so this file stays
+// importable from the node tests): ipfs:// and old gateway links go through
+// our /api/ipfs route, which reads Pinata first and caches.
+function ipfsImage(uri: string | undefined): string | undefined {
+  if (!uri) return undefined;
+  if (uri.startsWith('ipfs://')) return '/api/ipfs/' + uri.slice(7).replace(/^ipfs\//, '');
+  const m = /^https?:\/\/[^/]+\/ipfs\/(.+)$/.exec(uri);
+  return m ? '/api/ipfs/' + m[1] : uri;
+}
+
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 const E18 = 10n ** 18n;
 
@@ -155,7 +166,7 @@ export function dn404RowToLaunch(
     description: extras.description || row.description || '',
     logoBg: '#e7dcff',
     logoEmoji: '✧',
-    imageUrl: extras.imageUrl || row.coverImageUrl || undefined,
+    imageUrl: ipfsImage(extras.imageUrl || row.coverImageUrl || undefined),
     website: extras.website,
     twitter: extras.twitter,
     telegram: extras.telegram,

@@ -219,7 +219,7 @@ function CollectionView({
   // hasn't populated the field yet (fresh launch, backfill in flight).
   const [cover, setCover] = useState<string | null>(null);
   useEffect(() => {
-    if (indexerRow?.coverImageUrl) { setCover(indexerRow.coverImageUrl); return; }
+    if (indexerRow?.coverImageUrl) { setCover(toGatewayUrl(indexerRow.coverImageUrl)); return; }
     if (!baseUri) return;
     let cancelled = false;
     (async () => {
