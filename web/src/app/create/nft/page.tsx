@@ -76,10 +76,20 @@ interface DiscountTier {
   extNftCap: string;
 }
 
+/// Whitelists and wallet-list discount tiers stay hidden until they work end
+/// to end (2026-10-08). Today the pasted wallets never become a merkle root
+/// (the field only accepts a raw root, so a list launches with an empty one),
+/// the collection page sends no proofs, and holder-based whitelists have no
+/// attestation service. A collection launched with a whitelist could not be
+/// minted by anyone until its window closed, and that can't be changed after
+/// launch. Flip to true once root building, proof serving and the mint-page
+/// proofs ship.
+const NFT_WL_READY = false;
+
 function newDiscountTier(): DiscountTier {
   return {
     key: Math.random().toString(36).slice(2, 10),
-    kind: 'walletList',
+    kind: NFT_WL_READY ? 'walletList' : 'externalNft',
     label: '',
     walletList: '',
     walletPercent: '',
@@ -631,7 +641,12 @@ function CreateNftForm() {
               <span className={styles.sectionEye}>early window for certain wallets</span>
             </div>
 
-            <div className={styles.modeRow}>
+            {!NFT_WL_READY && (
+              <p className={styles.fieldHint}>
+                whitelist windows are coming soon. for now every collection opens to everyone at launch.
+              </p>
+            )}
+            {NFT_WL_READY && <div className={styles.modeRow}>
               <button
                 type="button"
                 className={styles.modeChip}
@@ -656,9 +671,9 @@ function CreateNftForm() {
               >
                 wallet list
               </button>
-            </div>
+            </div>}
 
-            {wlFlavor === 'off' && (
+            {NFT_WL_READY && wlFlavor === 'off' && (
               <p className={styles.fieldHint}>
                 public mint from block 0. anyone can mint at the base price.
               </p>
@@ -788,15 +803,17 @@ function CreateNftForm() {
                       style={{ flex: '1 1 200px', minWidth: 0 }}
                     />
                     <div className={styles.tierKindRow} role="tablist" aria-label="Tier kind">
-                      <button
-                        type="button"
-                        className={styles.modeChip}
-                        data-active={tier.kind === 'walletList'}
-                        onClick={() => update({ kind: 'walletList' })}
-                        style={{ fontSize: 11, padding: '4px 10px' }}
-                      >
-                        wallet list
-                      </button>
+                      {NFT_WL_READY && (
+                        <button
+                          type="button"
+                          className={styles.modeChip}
+                          data-active={tier.kind === 'walletList'}
+                          onClick={() => update({ kind: 'walletList' })}
+                          style={{ fontSize: 11, padding: '4px 10px' }}
+                        >
+                          wallet list
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={styles.modeChip}
