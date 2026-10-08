@@ -22,7 +22,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
-import { formatUnits, isAddress, maxUint256, zeroAddress, type Address } from 'viem';
+import { formatUnits, isAddress, maxUint256, zeroAddress, type Address, type Hex } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
@@ -31,7 +31,7 @@ import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { nftErc721Abi, nftMintModuleAbi } from '@/lib/abis';
-import { useDiscountTiers, TierKind } from '@/lib/useDiscountTiers';
+import { useDiscountTiers } from '@/lib/useDiscountTiers';
 import {
   fetchNftCollectionsByAddresses,
   fetchNftMintsByCollection,
@@ -66,6 +66,15 @@ const dn404MirrorAbi = [
   { type: 'function', name: 'baseERC20', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
 ] as const;
+
+const nftWhitelistModuleAbi = [
+  { type: 'function', name: 'flavor', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'wlWindowEnd', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'walletListRoot', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+] as const;
+
+/// compile-service: whitelist proofs + holder signatures (/api/nft-wl).
+const COMPILE_SERVICE = process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? '';
 
 const erc20MinAbi = [
   {
@@ -315,6 +324,7 @@ function CollectionView({
           { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'mintMode', chainId: targetChainId },
           { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'discountFloorBps', chainId: targetChainId },
           { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'perWalletMintCap', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'whitelistModule', chainId: targetChainId },
         ]
       : [],
     query: { enabled: hasMintModule, staleTime: 10_000 },
@@ -330,6 +340,76 @@ function CollectionView({
   const _priceStepWei = moduleReads?.[2]?.result as bigint | undefined;
   const mintMode = moduleReads?.[3]?.result as number | undefined;    // 0 = fixed, 1 = linear
   const discountFloorBps = moduleReads?.[4]?.result as bigint | undefined;
+
+  // ------------------------------------------------------------
+  // 2b. Whitelist window. During it, only listed wallets (wallet-list
+  //     flavor: merkle proof) or holders (holders flavor: signed balance)
+  //     can mint; the page fetches the proof or signature from
+  //     compile-service and sends it with the mint. After the window,
+  //     anyone mints with empty proofs.
+  // ------------------------------------------------------------
+  const wlModule = moduleReads?.[6]?.result as Address | undefined;
+  const hasWl = !!wlModule && wlModule !== zeroAddress;
+  const { data: wlReads } = useReadContracts({
+    contracts: hasWl
+      ? (['flavor', 'wlWindowEnd', 'walletListRoot'] as const).map((fn) => ({
+          address: wlModule as Address,
+          abi: nftWhitelistModuleAbi,
+          functionName: fn,
+          chainId: targetChainId,
+        }))
+      : [],
+    query: { enabled: hasWl, staleTime: 60_000 },
+  });
+  const wlFlavor = wlReads?.[0]?.result as number | undefined; // 1 holders, 2 wallet list
+  const wlWindowEnd = wlReads?.[1]?.result as bigint | undefined;
+  const wlRoot = wlReads?.[2]?.result as Hex | undefined;
+  const [nowS, setNowS] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNowS(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const wlActive = hasWl && wlFlavor !== undefined && wlFlavor !== 0 && wlWindowEnd !== undefined && BigInt(nowS) <= wlWindowEnd;
+  const [wlArgs, setWlArgs] = useState<{ proof: Hex[]; count: bigint; expiry: bigint; sig: Hex } | null>(null);
+  const [wlStatus, setWlStatus] = useState<'idle' | 'checking' | 'eligible' | 'not-eligible' | 'error'>('idle');
+  useEffect(() => {
+    setWlArgs(null);
+    if (!wlActive || !walletAddress || !wlModule) { setWlStatus('idle'); return; }
+    let cancelled = false;
+    setWlStatus('checking');
+    (async () => {
+      try {
+        if (wlFlavor === 2 && wlRoot) {
+          const res = await fetch(`${COMPILE_SERVICE}/api/nft-wl/proof/${wlRoot}/${walletAddress}`);
+          const body = res.ok ? ((await res.json()) as { inList: boolean; proof: Hex[] }) : null;
+          if (cancelled) return;
+          if (!body) { setWlStatus('error'); return; }
+          if (!body.inList) { setWlStatus('not-eligible'); return; }
+          setWlArgs({ proof: body.proof, count: 0n, expiry: 0n, sig: '0x' });
+          setWlStatus('eligible');
+        } else if (wlFlavor === 1) {
+          const res = await fetch(`${COMPILE_SERVICE}/api/nft-wl/attest`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ wallet: walletAddress, whitelistModule: wlModule }),
+          });
+          const body = res.ok
+            ? ((await res.json()) as { eligible: boolean; count?: string; expiry?: string; sig?: Hex })
+            : null;
+          if (cancelled) return;
+          if (!body) { setWlStatus('error'); return; }
+          if (!body.eligible || !body.sig) { setWlStatus(body.eligible ? 'idle' : 'not-eligible'); return; }
+          setWlArgs({ proof: [], count: BigInt(body.count ?? '0'), expiry: BigInt(body.expiry ?? '0'), sig: body.sig });
+          setWlStatus('eligible');
+        }
+      } catch {
+        if (!cancelled) setWlStatus('error');
+      }
+    })();
+    return () => { cancelled = true; };
+    // Holder signatures last 15 min; refresh every 10 so one never goes stale.
+  }, [wlActive, wlFlavor, wlRoot, wlModule, walletAddress, Math.floor(nowS / 600)]);
+  const wlBlocksMint = wlActive && wlStatus !== 'eligible';
 
   const paidInUru = paymentToken !== undefined && paymentToken !== zeroAddress;
   const priceUnitLabel = paidInUru ? 'URU' : 'ETH';
@@ -501,10 +581,10 @@ function CollectionView({
         args: [
           BigInt(mintQty),
           maxPay,
-          [] as `0x${string}`[],
-          0n,
-          0n,
-          '0x' as `0x${string}`,
+          (wlArgs?.proof ?? []) as `0x${string}`[],
+          wlArgs?.count ?? 0n,
+          wlArgs?.expiry ?? 0n,
+          (wlArgs?.sig ?? '0x') as `0x${string}`,
           discountProofs,
         ],
         chainId: targetChainId,
@@ -516,10 +596,10 @@ function CollectionView({
         functionName: 'mint',
         args: [
           BigInt(mintQty),
-          [] as `0x${string}`[],
-          0n,
-          0n,
-          '0x' as `0x${string}`,
+          (wlArgs?.proof ?? []) as `0x${string}`[],
+          wlArgs?.count ?? 0n,
+          wlArgs?.expiry ?? 0n,
+          (wlArgs?.sig ?? '0x') as `0x${string}`,
           discountProofs,
         ],
         value: price,
@@ -862,7 +942,7 @@ function CollectionView({
                 )}
               </dl>
 
-              {tiers.some((t) => t.kind === TierKind.ExternalNft) && (
+              {tiers.length > 0 && (
                 <p
                   style={{
                     fontSize: 12,
@@ -871,14 +951,34 @@ function CollectionView({
                   }}
                 >
                   {fetchingAttestations
-                    ? '~ checking your external NFT holdings ~'
+                    ? '~ checking your discounts ~'
                     : externalProofs.length > 0
                       ? `✿ discount applied for ${externalProofs.length} tier${externalProofs.length === 1 ? '' : 's'}`
                       : Object.keys(attestationErrors).length > 0
-                        ? '⚠ discount check failed — mint proceeds at full price'
+                        ? '⚠ discount check failed, so this mint is full price'
                         : walletAddress
-                          ? 'no external NFTs held → no tier discount'
-                          : 'connect wallet to check ExternalNft-tier discounts'}
+                          ? 'no discount for this wallet'
+                          : 'connect a wallet to check for discounts'}
+                </p>
+              )}
+
+              {wlActive && wlWindowEnd !== undefined && (
+                <p style={{ fontSize: 12, lineHeight: 1.45, margin: '4px 0 8px', color: 'var(--anchor-soft)' }}>
+                  <b style={{ color: 'var(--anchor)' }}>whitelist only</b> until{' '}
+                  {new Date(Number(wlWindowEnd) * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.{' '}
+                  {!walletAddress
+                    ? 'connect a wallet to check if you are on it.'
+                    : wlStatus === 'checking'
+                      ? 'checking your wallet ~'
+                      : wlStatus === 'eligible'
+                        ? "✿ you're on the whitelist."
+                        : wlStatus === 'not-eligible'
+                          ? wlFlavor === 1
+                            ? "this wallet doesn't hold enough of the required collection. everyone can mint after the whitelist ends."
+                            : "this wallet isn't on the whitelist. everyone can mint after it ends."
+                          : wlStatus === 'error'
+                            ? "couldn't check the whitelist right now. try again in a moment."
+                            : ''}
                 </p>
               )}
 
@@ -956,6 +1056,7 @@ function CollectionView({
                   isMinting ||
                   isWaitingMint ||
                   isSwitching ||
+                  wlBlocksMint ||
                   !walletAddress
                 }
                 onClick={doMint}

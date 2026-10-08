@@ -153,8 +153,13 @@ export function useDiscountTiers(
       setAttestationErrors({});
       return;
     }
-    const externalTiers = tiers.filter((t) => t.kind === TierKind.ExternalNft);
-    if (externalTiers.length === 0) {
+    // Both kinds: ExternalNft tiers get a signed balance attestation,
+    // WalletList tiers get a merkle proof for the list saved at launch
+    // (compile-service /api/nft-wl, keyed by the tier's walletListRoot).
+    const claimableTiers = tiers.filter(
+      (t) => t.kind === TierKind.ExternalNft || (t.kind === TierKind.WalletList && /^0x0*[1-9a-f]/i.test(t.walletListRoot)),
+    );
+    if (claimableTiers.length === 0) {
       setExternalProofs([]);
       setAttestationErrors({});
       return;
@@ -165,7 +170,30 @@ export function useDiscountTiers(
     setAttestationErrors({});
 
     Promise.all(
-      externalTiers.map(async (tier) => {
+      claimableTiers.map(async (tier) => {
+        if (tier.kind === TierKind.WalletList) {
+          try {
+            const res = await fetch(`${ATTEST_BASE}/api/nft-wl/proof/${tier.walletListRoot}/${wallet}`);
+            // 404 = the list was never saved (e.g. launched before 2026-10-09);
+            // nobody can prove membership, so it's just not claimable.
+            if (!res.ok) return { index: tier.index, error: null, proof: null as TierProof | null };
+            const body = (await res.json()) as { inList: boolean; proof: Hex[] };
+            if (!body.inList) return { index: tier.index, error: null, proof: null };
+            return {
+              index: tier.index,
+              error: null,
+              proof: {
+                tierId: BigInt(tier.index),
+                merkleProof: body.proof as readonly Hex[],
+                count: 0n,
+                expiry: 0n,
+                sig: '0x' as Hex,
+              } satisfies TierProof,
+            };
+          } catch (err) {
+            return { index: tier.index, error: (err as Error).message, proof: null };
+          }
+        }
         try {
           const res = await fetch(`${ATTEST_BASE}/api/nft-discount/attest`, {
             method: 'POST',
@@ -239,8 +267,12 @@ export function useDiscountTiers(
   const claimedDiscountBps = useMemo(() => {
     let bps = 0n;
     for (const proof of externalProofs) {
-      const tier = tiers[Number(proof.tierId)];
-      if (!tier || tier.kind !== TierKind.ExternalNft) continue;
+      const tier = tiers.find((t) => t.index === Number(proof.tierId));
+      if (!tier) continue;
+      if (tier.kind === TierKind.WalletList) {
+        bps += tier.fixedDiscountBps;
+        continue;
+      }
       const counted =
         proof.count > tier.maxCountedNfts ? tier.maxCountedNfts : proof.count;
       bps += counted * tier.percentPerNftBps;

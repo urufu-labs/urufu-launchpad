@@ -18,6 +18,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useAccount,
   useReadContract,
+  useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
@@ -33,6 +34,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { NFT_LAUNCHES, NFT_LAUNCHES_ENABLED, ECOSYSTEM_TOKENS, isNftDeployReady } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { readFileAsDataUrl } from '@/lib/metadata';
 import { nftLaunchFactoryAbi, NFT_MINT_MODE, NFT_TIER_KIND, NFT_WL_FLAVOR } from '@/lib/abis';
@@ -76,15 +78,34 @@ interface DiscountTier {
   extNftCap: string;
 }
 
-/// Whitelists and wallet-list discount tiers stay hidden until they work end
-/// to end (2026-10-08). Today the pasted wallets never become a merkle root
-/// (the field only accepts a raw root, so a list launches with an empty one),
-/// the collection page sends no proofs, and holder-based whitelists have no
-/// attestation service. A collection launched with a whitelist could not be
-/// minted by anyone until its window closed, and that can't be changed after
-/// launch. Flip to true once root building, proof serving and the mint-page
-/// proofs ship.
-const NFT_WL_READY = false;
+/// Whitelists and wallet-list discount tiers (re-enabled 2026-10-09). Pasted
+/// lists are saved with compile-service (/api/nft-wl/list), which returns the
+/// merkle root the contract stores; the collection page fetches each minter's
+/// proof, and holder whitelists get a signed balance from /api/nft-wl/attest.
+/// Proven on a fork in contracts/test/nft/NftWalletListFork.t.sol. Set false to
+/// hide both options again.
+const NFT_WL_READY = true;
+
+/// Save a pasted wallet list with compile-service and return its merkle root.
+/// The service recomputes the root itself, so it always matches the list.
+async function saveWalletList(text: string): Promise<`0x${string}`> {
+  const base = process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? '';
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/nft-wl/list`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ wallets: text }),
+    });
+  } catch {
+    throw new Error("couldn't save the wallet list. check your connection and try again.");
+  }
+  const body = (await res.json().catch(() => ({}))) as { root?: string; code?: string; max?: number };
+  if (res.ok && body.root && /^0x[0-9a-fA-F]{64}$/.test(body.root)) return body.root as `0x${string}`;
+  if (body.code === 'NO_VALID_WALLETS') throw new Error('a wallet list has no valid addresses.');
+  if (body.code === 'TOO_MANY_WALLETS') throw new Error(`a wallet list can have at most ${body.max ?? 10000} addresses.`);
+  throw new Error("couldn't save the wallet list right now. try again in a moment.");
+}
 
 function newDiscountTier(): DiscountTier {
   return {
@@ -212,19 +233,34 @@ function CreateNftForm() {
   // ------------------------------------------------------------
   // On-chain wiring (only active when NFT_LAUNCHES[chain] is set).
   // ------------------------------------------------------------
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, chainId: walletChainId } = useAccount();
   const nftSet = NFT_LAUNCHES[activeChain];
+  // Pin every read and write to the launch chain; writes switch the wallet
+  // first. Unpinned, a wallet on another network read a 0 fee from an empty
+  // address there and sent launch() to it (same bug as /create/dn404).
+  const targetChainId = CHAIN_KEY_TO_ID[activeChain];
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
+  async function ensureChain(): Promise<boolean> {
+    if (walletChainId === targetChainId) return true;
+    try {
+      await switchChainAsync({ chainId: targetChainId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const factoryAddress = nftSet?.LaunchFactory as Address | undefined;
   const ecosystem = ECOSYSTEM_TOKENS[activeChain];
   const uruTokenAddress = ecosystem?.uruToken as Address | undefined;
 
   // Live minUruFee quote — factory applies the launcher's LoyaltyOracle
   // discount server-side. Zero on factories with no launch fee.
-  const { data: minUruFeeQuote } = useReadContract({
+  const { data: minUruFeeQuote, isSuccess: feeLoaded } = useReadContract({
     address: factoryAddress,
     abi: nftLaunchFactoryAbi,
     functionName: 'minUruFeeFor',
     args: walletAddress ? [walletAddress] : undefined,
+    chainId: targetChainId,
     query: { enabled: !!factoryAddress && !!walletAddress, staleTime: 30_000 },
   });
   const requiredUruFee = (minUruFeeQuote as bigint | undefined) ?? 0n;
@@ -249,6 +285,7 @@ function CreateNftForm() {
     ] as const,
     functionName: 'allowance',
     args: walletAddress && factoryAddress ? [walletAddress, factoryAddress] : undefined,
+    chainId: targetChainId,
     query: { enabled: !!uruTokenAddress && !!walletAddress && !!factoryAddress, staleTime: 15_000 },
   });
   const needsUruApprove = requiredUruFee > 0n && (uruAllowance ?? 0n) < requiredUruFee;
@@ -259,7 +296,7 @@ function CreateNftForm() {
     isPending: isApproving,
   } = useWriteContract();
   const { isLoading: isWaitingApprove, isSuccess: isApproved } =
-    useWaitForTransactionReceipt({ hash: approveTxHash });
+    useWaitForTransactionReceipt({ hash: approveTxHash, chainId: targetChainId });
 
   // Refetch the allowance the moment the approve tx confirms so the launch
   // button lights up without a manual refresh. Wagmi's useReadContract has
@@ -268,9 +305,11 @@ function CreateNftForm() {
     if (isApproved) refetchAllowance();
   }, [isApproved, refetchAllowance]);
 
-  const approveUru = () => {
+  const approveUru = async () => {
     if (!uruTokenAddress || !factoryAddress) return;
+    if (!(await ensureChain())) return;
     writeApprove({
+      chainId: targetChainId,
       address: uruTokenAddress,
       abi: [
         {
@@ -300,7 +339,7 @@ function CreateNftForm() {
     reset: resetSubmit,
   } = useWriteContract();
   const { isLoading: isWaitingReceipt, isSuccess: isLaunched, data: receipt } =
-    useWaitForTransactionReceipt({ hash: launchTxHash });
+    useWaitForTransactionReceipt({ hash: launchTxHash, chainId: targetChainId });
 
   // Parse the CollectionLaunched event out of the receipt so we can (a) show
   // the launcher a clickable link to the mint page and (b) auto-redirect
@@ -341,9 +380,34 @@ function CreateNftForm() {
   /// entered. Tiers without walletList/holders addresses land as their
   /// literal zero form so the module's per-tier validation catches
   /// deployer typos.
-  const submit = () => {
+  const [savingLists, setSavingLists] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+
+  const submit = async () => {
     if (!factoryAddress || !uruTokenAddress) return;
     resetSubmit();
+    setListError(null);
+    if (!(await ensureChain())) return;
+
+    // Save each pasted wallet list with compile-service first. It returns the
+    // list's merkle root (what the contract stores) and keeps the list so the
+    // collection page can hand each listed wallet its proof. If saving fails
+    // we stop: a whitelist launched without a saved list could never be used.
+    const zeroRoot = '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
+    const tierRoots: `0x${string}`[] = [];
+    let wlWalletRoot: `0x${string}` = zeroRoot;
+    try {
+      setSavingLists(true);
+      for (const t of discountTiers) {
+        tierRoots.push(t.kind === 'walletList' ? await saveWalletList(t.walletList) : zeroRoot);
+      }
+      if (wlFlavor === 'walletList') wlWalletRoot = await saveWalletList(wlWalletList);
+    } catch (err) {
+      setListError((err as Error).message);
+      return;
+    } finally {
+      setSavingLists(false);
+    }
 
     const priceUnitDecimals = 18; // ETH + URU both 18 decimals
     const basePriceWei = basePriceEth
@@ -356,14 +420,9 @@ function CreateNftForm() {
     const wlWindowSecs = wlFlavor === 'off' ? 0n : BigInt(wlOpenWindowMin || '0') * 60n;
 
     // Convert user-facing percents → bps at submit time.
-    const encodedTiers = discountTiers.map((t) => ({
+    const encodedTiers = discountTiers.map((t, i) => ({
       kind: t.kind === 'walletList' ? NFT_TIER_KIND.WalletList : NFT_TIER_KIND.ExternalNft,
-      // walletListRoot must be provided out-of-band (compile-service
-      // merkleizes the pasted list). For now, deployer pastes a raw
-      // 0x-hex root here — future work: merkleize via compile-service.
-      walletListRoot: t.kind === 'walletList' && /^0x[0-9a-fA-F]{64}$/.test(t.walletList.trim())
-        ? (t.walletList.trim() as `0x${string}`)
-        : ('0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`),
+      walletListRoot: tierRoots[i] ?? zeroRoot,
       externalCollection: (isAddress(t.extNftAddress) ? t.extNftAddress : zeroAddress) as Address,
       externalChainId: BigInt(externalChainIdOf(t.extNftChain)),
       percentPerNftBps: t.kind === 'externalNft' && t.extNftPercentPerNft
@@ -379,12 +438,8 @@ function CreateNftForm() {
       wlFlavor === 'holders' && isAddress(wlHoldersAddress)
         ? (wlHoldersAddress as Address)
         : zeroAddress;
-    const wlWalletRoot: `0x${string}` =
-      wlFlavor === 'walletList' && /^0x[0-9a-fA-F]{64}$/.test(wlWalletList.trim())
-        ? (wlWalletList.trim() as `0x${string}`)
-        : '0x0000000000000000000000000000000000000000000000000000000000000000';
-
     writeContract({
+      chainId: targetChainId,
       address: factoryAddress,
       abi: nftLaunchFactoryAbi,
       functionName: 'launch',
@@ -661,7 +716,7 @@ function CreateNftForm() {
                 data-active={wlFlavor === 'holders'}
                 onClick={() => setWlFlavor('holders')}
               >
-                token / nft holders
+                nft holders
               </button>
               <button
                 type="button"
@@ -712,7 +767,7 @@ function CreateNftForm() {
                 </div>
                 <div className={styles.field}>
                   <label className={styles.fieldLabel} htmlFor="nft-wl-addr">
-                    token or nft contract
+                    nft collection
                   </label>
                   <input
                     id="nft-wl-addr"
@@ -723,8 +778,8 @@ function CreateNftForm() {
                     placeholder="0x…"
                   />
                   <span className={styles.fieldHint}>
-                    any wallet holding {wlHoldersMin || 'N'}+ of this contract on{' '}
-                    {chainLabel(wlHoldersChain)} can mint during the WL window.
+                    any wallet holding {wlHoldersMin || 'N'}+ NFTs from this collection on{' '}
+                    {chainLabel(wlHoldersChain)} can mint during the whitelist window.
                   </span>
                 </div>
               </>
@@ -1003,14 +1058,17 @@ function CreateNftForm() {
             <button
               type="button"
               className={`uru-btn ${canSubmit && !needsUruApprove && !isSubmitting && !isWaitingReceipt ? 'uru-btn-primary' : ''}`}
-              disabled={!canSubmit || needsUruApprove || isSubmitting || isWaitingReceipt || isLaunched}
-              onClick={submit}
+              // A failed fee read used to leave the fee at 0 and let launch through.
+              disabled={!canSubmit || !feeLoaded || needsUruApprove || isSubmitting || isWaitingReceipt || isLaunched || savingLists || isSwitching}
+              onClick={() => void submit()}
             >
               {isLaunched
                 ? '✿ launched ✓'
                 : isWaitingReceipt
                   ? 'waiting for receipt ~'
-                  : isSubmitting
+                  : savingLists
+                    ? 'saving wallet list ~'
+                    : isSubmitting
                     ? 'confirming in wallet ~'
                     : canSubmit
                       ? '✿ launch collection'
@@ -1019,6 +1077,11 @@ function CreateNftForm() {
             {requiredUruFee > 0n && (
               <p className={styles.reasonNote}>
                 launch fee: {(Number(requiredUruFee) / 1e18).toLocaleString()} URU (approve first)
+              </p>
+            )}
+            {listError && (
+              <p className={styles.reasonNote} style={{ color: 'var(--pink-hot)' }}>
+                {listError}
               </p>
             )}
             {submitError && (
