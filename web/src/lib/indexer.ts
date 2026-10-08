@@ -920,6 +920,115 @@ export async function fetchNftCollectionsByAddresses(
   return (data?.nftCollectionss.items ?? []).filter(notHiddenNft);
 }
 
+const NFT_COLLECTION_FIELDS = `id chainId collectionAddress mintModuleAddress launchedBy name ticker coverImageUrl description baseUri contractUri maxSupply mintMode basePriceWei paymentToken
+          lane pairedToken unitWei pairCurrency
+          blockNumber blockTimestamp`;
+
+/// DN404 rows are hidden when either half (the NFT side or the paired
+/// ERC-20) is on a hide list; test pairs land on both lists.
+function notHiddenCollectionRow(row: IndexerNftCollection): boolean {
+  if (!notHiddenNft(row)) return false;
+  if (row.lane === 'dn404' && row.pairedToken && !isHiddenTokenAddressZero(row.pairedToken)) {
+    return !isHiddenToken(row.chainId, row.pairedToken);
+  }
+  return true;
+}
+function isHiddenTokenAddressZero(a: string): boolean {
+  return /^0x0{40}$/i.test(a);
+}
+
+/// NFT and DN404 collections launched by any of `launchers`, newest first.
+/// One batched query for the /feed page (not one per wallet).
+export async function fetchNftCollectionsByLaunchers(
+  launchers: Address[],
+  limit = 50,
+): Promise<IndexerNftCollection[] | null> {
+  if (launchers.length === 0) return [];
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query NftCollectionsByLaunchers($l: [String!]!, $limit: Int!) {
+      nftCollectionss(where: { launchedBy_in: $l }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { ${NFT_COLLECTION_FIELDS} }
+      }
+    }`,
+    { l: launchers.map((a) => a.toLowerCase()), limit },
+  );
+  if (!data) return null;
+  return data.nftCollectionss.items.filter(notHiddenCollectionRow);
+}
+
+/// NFT mints by any of `minters`, newest first, hidden collections dropped.
+export async function fetchNftMintsByMinters(
+  minters: Address[],
+  limit = 100,
+): Promise<IndexerNftMint[] | null> {
+  if (minters.length === 0) return [];
+  const data = await gqlFanout<{ nftMintss: { items: IndexerNftMint[] } }>(
+    `query NftMintsByMinters($m: [String!]!, $limit: Int!) {
+      nftMintss(where: { minter_in: $m }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId collectionAddress minter tokenId quantity
+          pricePaidWei wlUsed blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { m: minters.map((a) => a.toLowerCase()), limit },
+  );
+  if (!data) return null;
+  return data.nftMintss.items.filter(notHiddenNft);
+}
+
+/// A trade on an ERC-20-paired DN404 curve (URU today). Amounts are in the
+/// PAIR token's units (`pairCurrency`), never ETH.
+export interface IndexerPairTrade {
+  id: string;
+  chainId: number;
+  curveAddress: Address;
+  tokenAddress: Address;
+  trader: Address;
+  isBuy: boolean;
+  pairAmount: string;
+  tokenAmount: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+/// Pair-curve trades by any of `traders`, newest first, hidden tokens dropped.
+/// ETH-paired DN404 trades are in `trades` already, so this never overlaps.
+export async function fetchPairTradesByTraders(
+  traders: Address[],
+  limit = 100,
+): Promise<IndexerPairTrade[] | null> {
+  if (traders.length === 0) return [];
+  const data = await gqlFanout<{ pairTradess: { items: IndexerPairTrade[] } }>(
+    `query PairTradesByTraders($t: [String!]!, $limit: Int!) {
+      pairTradess(where: { trader_in: $t }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { id chainId curveAddress tokenAddress trader isBuy pairAmount tokenAmount blockTimestamp txHash }
+      }
+    }`,
+    { t: traders.map((a) => a.toLowerCase()), limit },
+  );
+  if (!data) return null;
+  return data.pairTradess.items.filter(notHidden);
+}
+
+/// DN404 collections whose ERC-20 half is one of `tokens`. Gives DN404 trade
+/// rows a name, ticker and pair currency (DN404 tokens have no Router launch row).
+export async function fetchDn404ByPairedTokens(
+  tokens: Address[],
+): Promise<IndexerNftCollection[] | null> {
+  if (tokens.length === 0) return [];
+  const data = await gqlFanout<{ nftCollectionss: { items: IndexerNftCollection[] } }>(
+    `query Dn404ByPairedTokens($t: [String!]!) {
+      nftCollectionss(where: { pairedToken_in: $t }, limit: 200) {
+        items { ${NFT_COLLECTION_FIELDS} }
+      }
+    }`,
+    { t: tokens.map((a) => a.toLowerCase()) },
+  );
+  if (!data) return null;
+  return data.nftCollectionss.items.filter(notHiddenCollectionRow);
+}
+
 /// DN404 reverse lookup — given a base ERC-20 address, find the paired
 /// mirror ERC-721 collection (if any). Powers the "paired collection"
 /// strip on /trade/[address]. Returns `null` if no mirror is bound to
