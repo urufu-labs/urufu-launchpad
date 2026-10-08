@@ -59,6 +59,14 @@ const nftErc721MinterAbi = [
   },
 ] as const;
 
+/// DN404 mirror (the NFT half of a DN404 pair). It has no mint module: NFTs
+/// appear and disappear as wallets hold whole units of the paired token. It
+/// does answer these, plus name/symbol/owner/tokenURI.
+const dn404MirrorAbi = [
+  { type: 'function', name: 'baseERC20', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+  { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+] as const;
+
 const erc20MinAbi = [
   {
     type: 'function',
@@ -153,9 +161,15 @@ function CollectionView({
       // Launcher-only collection-metadata control below reads these two.
       { address, abi: nftErc721Abi, functionName: 'owner', chainId: targetChainId },
       { address, abi: nftErc721Abi, functionName: 'contractURI', chainId: targetChainId },
+      // DN404 mirrors only; these fail harmlessly on plain NFT collections.
+      { address, abi: dn404MirrorAbi, functionName: 'baseERC20', chainId: targetChainId },
+      { address, abi: dn404MirrorAbi, functionName: 'totalSupply', chainId: targetChainId },
     ],
     query: { staleTime: 10_000 },
   });
+  const dn404Base = baseReads?.[8]?.status === 'success' ? (baseReads[8].result as Address) : undefined;
+  const isDn404 = !!dn404Base && dn404Base !== zeroAddress;
+  const dn404NftCount = baseReads?.[9]?.result as bigint | undefined;
 
   const name = baseReads?.[0]?.result as string | undefined;
   const symbol = baseReads?.[1]?.result as string | undefined;
@@ -167,8 +181,9 @@ function CollectionView({
   // "Not found" only when the minter() read came back and was empty. While
   // loading, or when the RPC call failed, say so instead.
   const minterRead = baseReads?.[5];
+  // DN404 mirrors have no minter(), so its failure is expected there.
   const minterMissing = minterRead?.status === 'success' && !hasMintModule;
-  const minterReadFailed = baseReadsError || minterRead?.status === 'failure';
+  const minterReadFailed = !isDn404 && (baseReadsError || minterRead?.status === 'failure');
   const collectionOwner = baseReads?.[6]?.result as Address | undefined;
   const onChainContractUri = (baseReads?.[7]?.result as string | undefined) ?? '';
   const isLauncher =
@@ -242,16 +257,18 @@ function CollectionView({
   // tokenURI(1) → metadata JSON → image resolve when the indexer
   // hasn't populated the field yet (fresh launch, backfill in flight).
   const [cover, setCover] = useState<string | null>(null);
+  // DN404 mirrors have no baseURI() getter, so use the indexer's copy.
+  const artBaseUri = baseUri ?? indexerRow?.baseUri ?? undefined;
   useEffect(() => {
     if (indexerRow?.coverImageUrl) { setCover(toGatewayUrl(indexerRow.coverImageUrl)); return; }
-    if (!baseUri) return;
+    if (!artBaseUri) return;
     let cancelled = false;
     (async () => {
-      const meta = await fetchIpfsJson<{ image?: string }>(`${baseUri}1`);
+      const meta = await fetchIpfsJson<{ image?: string }>(`${artBaseUri}1`);
       if (!cancelled) setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
-  }, [indexerRow?.coverImageUrl, baseUri]);
+  }, [indexerRow?.coverImageUrl, artBaseUri]);
 
   // ------------------------------------------------------------
   // 1b'. Holders — current owners via compile-service /nft/.../holders.
@@ -517,9 +534,11 @@ function CollectionView({
   //    metadata-fetch worker is added; the frontend does not fetch
   //    IPFS on this render pass to keep TTFB fast.
   // ------------------------------------------------------------
-  const supplyLabel = maxSupply !== undefined && totalMinted !== undefined
-    ? `${totalMinted.toString()}/${maxSupply === 0n ? '∞' : maxSupply.toString()}`
-    : '—/—';
+  const supplyLabel = isDn404
+    ? `${dn404NftCount?.toString() ?? '—'}/${indexerRow?.maxSupply ?? '—'}`
+    : maxSupply !== undefined && totalMinted !== undefined
+      ? `${totalMinted.toString()}/${maxSupply === 0n ? '∞' : maxSupply.toString()}`
+      : '—/—';
 
   return (
     <div className={styles.page}>
@@ -697,7 +716,8 @@ function CollectionView({
             )}
           </section>
 
-          <section className="uru-shell">
+          {/* DN404 collections have no mints: NFTs come from holding the token. */}
+          {!isDn404 && <section className="uru-shell">
             <div className={styles.sectionHead}>
               <span className="uru-eyebrow">❉ recent mints</span>
               <span className={styles.sectionEye}>the live mint feed</span>
@@ -756,10 +776,41 @@ function CollectionView({
                 ))}
               </ul>
             )}
-          </section>
+          </section>}
         </div>
 
         <aside className={styles.rail}>
+          {isDn404 ? (
+            <section className="uru-shell">
+              <div className={styles.sectionHead}>
+                <span className="uru-eyebrow">✦ how to get one</span>
+                <span className={styles.sectionEye}>dn404</span>
+              </div>
+              <div className={styles.mintPanel}>
+                <dl className={styles.statRow}>
+                  <dt>NFTs now</dt>
+                  <dd>{supplyLabel}</dd>
+                  <dt>1 NFT per</dt>
+                  <dd>
+                    {indexerRow?.unitWei && indexerRow.unitWei !== '0'
+                      ? `${(BigInt(indexerRow.unitWei) / 10n ** 18n).toLocaleString()} $${indexerRow.ticker || 'TICK'}`
+                      : '—'}
+                  </dd>
+                </dl>
+                <p style={{ fontSize: 12, lineHeight: 1.45, margin: '4px 0 10px', color: 'var(--anchor-soft)' }}>
+                  there&apos;s no mint here. buy the token and every full amount you hold
+                  gives you one of these NFTs. sell below it and the NFT goes away.
+                </p>
+                <Link
+                  href={`/trade/${dn404Base}`}
+                  className="uru-btn uru-btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  ❁ trade ${indexerRow?.ticker || symbol || 'token'}
+                </Link>
+              </div>
+            </section>
+          ) : (
           <section className="uru-shell">
             <div className={styles.sectionHead}>
               <span className="uru-eyebrow">✦ mint</span>
@@ -1009,6 +1060,7 @@ function CollectionView({
               )}
             </div>
           </section>
+          )}
         </aside>
       </div>
     </div>
