@@ -25,6 +25,13 @@
 ///     production `minConfigDelay > 0` mode — without it, propose-path
 ///     epochs sit un-activated forever and claims never open.
 ///
+///  4. **uruBuybackLoop** (every 24 h) — ETH in UruBuybackVault -> URU burn.
+///
+///  5. **uruSinkBurnLoop** (every 24 h)
+///     Burns the URU platform fees collected in UruDepositSink by sending
+///     them to 0xdEaD through the sink's own `executeConversion`. Skips until
+///     the sink allowlists URU as target and this wallet as keeper.
+///
 /// All loops are:
 ///   - Opt-in via `KEEPER_ENABLED=true` — off by default so local dev + PR
 ///     previews don't accidentally publish epochs against prod state.
@@ -552,6 +559,121 @@ function startBuybackLoop(): void {
   setInterval(runSafely, 24 * 60 * 60 * 1000);
 }
 
+// ---------------------------------------------------------------------------
+// URU sink burn (24 h). URU platform fees (URU-paid NFT mints, DN404 launch
+// fees, URU-paid ERC-20 launches) collect in UruDepositSink. The user chose
+// to burn them rather than swap to ETH (2026-10-08), using the sink as built:
+// the URU token itself is the allowlisted "swap target" and the swap calldata
+// is `transfer(0xdEaD, balance)`, so the sink sends its own URU to the dead
+// address. ETH out is 0, which clears the sink's 0 rate floor. Proven in
+// contracts/test/flywheel/UruSinkBurnFork.t.sol.
+// ---------------------------------------------------------------------------
+
+const URU_SINK_ABI = parseAbi([
+  'function isKeeper(address) view returns (bool)',
+  'function isSwapTarget(address) view returns (bool)',
+  'function minEthPerUru() view returns (uint256)',
+  'function executeConversion(address swapTarget, uint256 uruIn, bytes swapData, uint256 minEthOut) external',
+]);
+const ERC20_BURN_ABI = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function transfer(address to, uint256 amount) returns (bool)',
+]);
+
+export const DEAD_ADDRESS: Address = '0x000000000000000000000000000000000000dEaD';
+
+/// Skip when the sink holds less than this. Gas is cents, but there's no
+/// point burning dust daily.
+const SINK_BURN_MIN_URU = 100n * 10n ** 18n;
+
+export interface SinkBurnConfig {
+  chainId: number;
+  rpcUrl: string;
+  sink: Address;
+  uru: Address;
+  keeperKey: Hex;
+}
+
+export function sinkBurnConfig(): SinkBurnConfig | null {
+  const rpcUrl = process.env.ROBINHOOD_RPC_URL;
+  const rawKey = process.env.KEEPER_PRIVATE_KEY;
+  if (!rpcUrl || !rawKey) return null;
+  return {
+    chainId: 4663,
+    rpcUrl,
+    sink: (process.env.ROBINHOOD_URU_DEPOSIT_SINK_ADDRESS as Address | undefined)
+      ?? '0xeCD30ea7d0945A99b2032af4A6ad9d5bF345B8C8',
+    uru: '0x9fbe210007dDd8389f98d0253018e65CC48b9D24',
+    keeperKey: (rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`) as Hex,
+  };
+}
+
+/// The only calldata this job ever sends through the sink: move `amount` of
+/// the sink's URU to the dead address. Exported so a test pins it.
+export function encodeSinkBurn(amount: bigint): Hex {
+  return encodeFunctionData({ abi: ERC20_BURN_ABI, functionName: 'transfer', args: [DEAD_ADDRESS, amount] });
+}
+
+async function uruSinkBurnOnce(cfg: SinkBurnConfig): Promise<void> {
+  const pub = createPublicClient({ transport: http(cfg.rpcUrl) });
+  const account = privateKeyToAccount(cfg.keeperKey);
+  const [bal, targetOk, keeperOk, rateFloor] = await Promise.all([
+    pub.readContract({ address: cfg.uru, abi: ERC20_BURN_ABI, functionName: 'balanceOf', args: [cfg.sink] }),
+    pub.readContract({ address: cfg.sink, abi: URU_SINK_ABI, functionName: 'isSwapTarget', args: [cfg.uru] }),
+    pub.readContract({ address: cfg.sink, abi: URU_SINK_ABI, functionName: 'isKeeper', args: [account.address] }),
+    pub.readContract({ address: cfg.sink, abi: URU_SINK_ABI, functionName: 'minEthPerUru' }),
+  ]);
+  // Until the owner activates the 2-day proposals, the sink isn't set up
+  // for burning; skip quietly instead of sending a tx that reverts.
+  if (!targetOk || !keeperOk) {
+    console.log(JSON.stringify({ keeper: 'uru-sink-burn', action: 'skip-not-enabled-on-sink', targetOk, keeperOk }));
+    return;
+  }
+  // A non-zero rate floor means someone chose ETH conversion instead; a burn
+  // returns 0 ETH and would revert, so stand down.
+  if (rateFloor !== 0n) {
+    console.log(JSON.stringify({ keeper: 'uru-sink-burn', action: 'skip-rate-floor-set', minEthPerUru: rateFloor.toString() }));
+    return;
+  }
+  if (bal < SINK_BURN_MIN_URU) {
+    console.log(JSON.stringify({ keeper: 'uru-sink-burn', action: 'skip-low-balance', balance: bal.toString() }));
+    return;
+  }
+  const wallet = createWalletClient({
+    account,
+    transport: http(cfg.rpcUrl),
+    chain: {
+      id: cfg.chainId,
+      name: 'robinhood',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: { default: { http: [cfg.rpcUrl] } },
+    },
+  });
+  const hash = await wallet.writeContract({
+    address: cfg.sink,
+    abi: URU_SINK_ABI,
+    functionName: 'executeConversion',
+    args: [cfg.uru, bal, encodeSinkBurn(bal), 0n],
+  });
+  const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 90_000 });
+  console.log(JSON.stringify({
+    keeper: 'uru-sink-burn', action: 'burned', uru: bal.toString(), tx: hash, status: receipt.status,
+  }));
+}
+
+/// 24 h cadence, first run 20 min after boot (after the buyback's first run).
+function startSinkBurnLoop(cfg: SinkBurnConfig): void {
+  const runSafely = async () => {
+    try {
+      await uruSinkBurnOnce(cfg);
+    } catch (err) {
+      console.log(JSON.stringify({ keeper: 'uru-sink-burn', action: 'error', error: (err as Error).message }));
+    }
+  };
+  setTimeout(runSafely, 20 * 60 * 1000);
+  setInterval(runSafely, 24 * 60 * 60 * 1000);
+}
+
 /// Round-2 audit FINDING 1 AC #4: activation loop — 30 min cadence.
 /// Activation is cheap (one small read + one small tx when matured) and
 /// idempotent (`activateVaultEpoch` returns null when there's nothing to
@@ -609,6 +731,17 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
     started.push('uru-buyback (24h)');
   } else {
     skipped.push('uru-buyback (missing env: ROBINHOOD_RPC_URL / _URU_BUYBACK_VAULT_ADDRESS / KEEPER_PRIVATE_KEY)');
+  }
+  // URU sink burn: self-gating (skips until the sink allowlists URU + this
+  // keeper), so it runs by default. URU_SINK_BURN_DISABLED=true turns it off.
+  const sinkBurn = sinkBurnConfig();
+  if (process.env.URU_SINK_BURN_DISABLED === 'true') {
+    skipped.push('uru-sink-burn (URU_SINK_BURN_DISABLED=true)');
+  } else if (sinkBurn) {
+    startSinkBurnLoop(sinkBurn);
+    started.push('uru-sink-burn (24h)');
+  } else {
+    skipped.push('uru-sink-burn (missing env: ROBINHOOD_RPC_URL / KEEPER_PRIVATE_KEY)');
   }
   return { started, skipped };
 }
