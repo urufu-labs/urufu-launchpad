@@ -22,7 +22,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
-import { formatUnits, isAddress, zeroAddress, type Address } from 'viem';
+import { formatUnits, isAddress, maxUint256, zeroAddress, type Address } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
@@ -395,6 +395,11 @@ function CollectionView({
   // Amount the confirmed approve tx covered, so the mint button unlocks the
   // moment it lands instead of waiting on the allowance re-read.
   const [approvedAmount, setApprovedAmount] = useState(0n);
+  // Approving the exact price meant every mint asked for a new approval.
+  // Default to one approval for all mints of this collection: the mint module
+  // only pulls URU from the minting wallet, and only the price of that mint
+  // (NftMintModule.mintWithUru). Buyers can still pick a one-mint approval.
+  const [approveOnce, setApproveOnce] = useState(true);
 
   // The allowance read is cached, so it never saw the new approval and the
   // mint button stayed locked until a page refresh. Re-read on confirm.
@@ -438,12 +443,13 @@ function CollectionView({
   const doApprove = async () => {
     if (!paidInUru || !paymentToken || !mintModule) return;
     if (!(await ensureChain())) return;
-    setApprovedAmount(price);
+    const amount = approveOnce ? maxUint256 : price;
+    setApprovedAmount(amount);
     writeApprove({
       address: paymentToken as Address,
       abi: erc20MinAbi,
       functionName: 'approve',
-      args: [mintModule as Address, price],
+      args: [mintModule as Address, amount],
       chainId: targetChainId,
     });
   };
@@ -852,8 +858,34 @@ function CollectionView({
                     ? 'waiting for approval ~'
                     : isApproving
                       ? 'approving URU ~'
-                      : `✿ approve ${priceDisplay} URU`}
+                      : approveOnce
+                        ? '✿ approve URU (one time)'
+                        : `✿ approve ${priceDisplay} URU`}
                 </button>
+              )}
+              {needsUruApprove && !isApproved && (
+                <label
+                  style={{
+                    display: 'flex',
+                    gap: 6,
+                    alignItems: 'flex-start',
+                    fontSize: 11,
+                    lineHeight: 1.4,
+                    color: 'var(--anchor-soft)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={approveOnce}
+                    onChange={(e) => setApproveOnce(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span>
+                    approve once for all mints here. you&apos;re only charged the mint price when you mint.
+                    untick to approve just this mint.
+                  </span>
+                </label>
               )}
 
               <button
