@@ -47,6 +47,40 @@ export interface HoldersResult {
 
 const cache = new Map<string, { expiresAt: number; value: HoldersResult }>();
 
+/// Block a launchpad collection was created at, from the indexer. Without it
+/// the scan starts at block 0 and walks ~50M blocks on the public RPC, which
+/// takes far longer than the web's 30s timeout, so a collection's holders
+/// never showed. A collection can't have Transfer logs before its launch
+/// block, so starting there loses nothing. Cached forever (it never changes);
+/// undefined when the indexer is unset or doesn't know the address.
+const launchBlockCache = new Map<string, bigint>();
+async function collectionLaunchBlock(contract: string): Promise<bigint | undefined> {
+  const hit = launchBlockCache.get(contract);
+  if (hit !== undefined) return hit;
+  const base = process.env.INDEXER_URL;
+  if (!base) return undefined;
+  try {
+    const res = await fetch(`${base.replace(/\/$/, '')}/graphql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'query($a: String!) { nftCollectionss(where: { collectionAddress: $a }, limit: 1) { items { blockNumber } } }',
+        variables: { a: contract },
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return undefined;
+    const json = await res.json() as { data?: { nftCollectionss?: { items?: Array<{ blockNumber?: string }> } } };
+    const raw = json.data?.nftCollectionss?.items?.[0]?.blockNumber;
+    if (!raw || !/^\d+$/.test(raw)) return undefined;
+    const block = BigInt(raw);
+    launchBlockCache.set(contract, block);
+    return block;
+  } catch {
+    return undefined;
+  }
+}
+
 /// urufu gemu nft (ChibiCoreV2) on Robinhood.
 const PREWARM_COLLECTIONS = ['0x60cb7082c8c14b4237c6a24c65e7c2e7abe2bd17'] as const;
 
@@ -115,7 +149,8 @@ export async function registerNftHoldersRoutes(app: FastifyInstance): Promise<vo
           }
         }
         if (!rows) {
-          const state = await scanHolders({ rpcUrl: chain.rpcUrl(), address: contract });
+          const startBlock = await collectionLaunchBlock(contract);
+          const state = await scanHolders({ rpcUrl: chain.rpcUrl(), address: contract, startBlock });
           rows = holdersFromState(state);
         }
         const value: HoldersResult = {
