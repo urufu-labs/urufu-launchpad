@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Address, Hex } from 'viem';
 import { useAccount, useChainId, useReadContract, useReadContracts } from 'wagmi';
+import type { WagmiChainId } from '@/lib/wagmi';
 import { nftMintModuleAbi } from './abis';
 
 // -----------------------------------------------------------------------------
@@ -79,15 +80,20 @@ const ATTEST_BASE = process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? '';
 export function useDiscountTiers(
   mintModule: Address | undefined,
   ourCollection: Address | undefined,
+  /// The collection's chain. Without it reads follow the wallet's network,
+  /// which returns nothing when the wallet is on another chain.
+  targetChainId?: WagmiChainId,
 ): DiscountTiersState {
   const { address: wallet } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = targetChainId ?? walletChainId;
 
   // ---- 1. Read tiersCount() so we know how many tierAt() reads to fire.
   const countRead = useReadContract({
     address: mintModule,
     abi: nftMintModuleAbi,
     functionName: 'tiersCount',
+    chainId,
     query: { enabled: !!mintModule },
   });
   const count = Number(countRead.data ?? 0n);
@@ -100,6 +106,7 @@ export function useDiscountTiers(
           abi: nftMintModuleAbi,
           functionName: 'tierAt' as const,
           args: [BigInt(i)] as const,
+          chainId,
         }))
       : [],
     query: { enabled: !!mintModule && count > 0 },

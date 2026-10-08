@@ -18,6 +18,7 @@ import {
   useAccount,
   useReadContract,
   useReadContracts,
+  useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
@@ -129,23 +130,29 @@ function CollectionView({
   chainEnabled: boolean;
   chainKey: ChainKey;
 }) {
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, chainId: walletChainId } = useAccount();
   const shortAddr = `${address.slice(0, 6)}…${address.slice(-4)}`;
+  // Every read and write is pinned to the collection's chain. Unpinned reads
+  // follow the wallet's network, so a wallet on another chain saw
+  // "collection not found" (2026-10-08).
+  const targetChainId = CHAIN_KEY_TO_ID[chainKey];
+  const onTargetChain = walletChainId === targetChainId;
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
 
   // ------------------------------------------------------------
   // 1. Read the ERC-721 basics + find its mint module (== minter()).
   // ------------------------------------------------------------
-  const { data: baseReads } = useReadContracts({
+  const { data: baseReads, isPending: baseReadsPending, isError: baseReadsError, refetch: refetchBase } = useReadContracts({
     contracts: [
-      { address, abi: nftErc721Abi, functionName: 'name' },
-      { address, abi: nftErc721Abi, functionName: 'symbol' },
-      { address, abi: nftErc721Abi, functionName: 'baseURI' },
-      { address, abi: nftErc721Abi, functionName: 'totalMinted' },
-      { address, abi: nftErc721Abi, functionName: 'maxSupply' },
-      { address, abi: nftErc721MinterAbi, functionName: 'minter' },
+      { address, abi: nftErc721Abi, functionName: 'name', chainId: targetChainId },
+      { address, abi: nftErc721Abi, functionName: 'symbol', chainId: targetChainId },
+      { address, abi: nftErc721Abi, functionName: 'baseURI', chainId: targetChainId },
+      { address, abi: nftErc721Abi, functionName: 'totalMinted', chainId: targetChainId },
+      { address, abi: nftErc721Abi, functionName: 'maxSupply', chainId: targetChainId },
+      { address, abi: nftErc721MinterAbi, functionName: 'minter', chainId: targetChainId },
       // Launcher-only collection-metadata control below reads these two.
-      { address, abi: nftErc721Abi, functionName: 'owner' },
-      { address, abi: nftErc721Abi, functionName: 'contractURI' },
+      { address, abi: nftErc721Abi, functionName: 'owner', chainId: targetChainId },
+      { address, abi: nftErc721Abi, functionName: 'contractURI', chainId: targetChainId },
     ],
     query: { staleTime: 10_000 },
   });
@@ -157,6 +164,11 @@ function CollectionView({
   const maxSupply = baseReads?.[4]?.result as bigint | undefined;
   const mintModule = baseReads?.[5]?.result as Address | undefined;
   const hasMintModule = mintModule && mintModule !== zeroAddress;
+  // "Not found" only when the minter() read came back and was empty. While
+  // loading, or when the RPC call failed, say so instead.
+  const minterRead = baseReads?.[5];
+  const minterMissing = minterRead?.status === 'success' && !hasMintModule;
+  const minterReadFailed = baseReadsError || minterRead?.status === 'failure';
   const collectionOwner = baseReads?.[6]?.result as Address | undefined;
   const onChainContractUri = (baseReads?.[7]?.result as string | undefined) ?? '';
   const isLauncher =
@@ -184,22 +196,34 @@ function CollectionView({
     contractUriDraft.startsWith('ipfs://') ||
     contractUriDraft.startsWith('ar://') ||
     contractUriDraft.startsWith('https://');
-  const doSetContractUri = () => {
+  const doSetContractUri = async () => {
     if (!isLauncher || !contractUriDraftOk) return;
+    if (!(await ensureChain())) return;
     writeContractUri({
       address,
       abi: nftErc721Abi,
       functionName: 'setContractURI',
       args: [contractUriDraft.trim()],
+      chainId: targetChainId,
     });
   };
+
+  /// Ask the wallet to switch to the collection's chain before a write.
+  async function ensureChain(): Promise<boolean> {
+    if (onTargetChain) return true;
+    try {
+      await switchChainAsync({ chainId: targetChainId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   // ------------------------------------------------------------
   // 1b. Indexer-side collection metadata — cover image, description,
   //     contractURI. Preferred over client-side IPFS fetches because
   //     the indexer resolves once server-side and serves warm.
   // ------------------------------------------------------------
-  const targetChainId = CHAIN_KEY_TO_ID[chainKey];
   const [indexerRow, setIndexerRow] = useState<IndexerNftCollection | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -268,12 +292,12 @@ function CollectionView({
   const { data: moduleReads } = useReadContracts({
     contracts: hasMintModule
       ? [
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'paymentToken' },
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'basePriceWei' },
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'priceStepWei' },
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'mintMode' },
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'discountFloorBps' },
-          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'perWalletMintCap' },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'paymentToken', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'basePriceWei', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'priceStepWei', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'mintMode', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'discountFloorBps', chainId: targetChainId },
+          { address: mintModule as Address, abi: nftMintModuleAbi, functionName: 'perWalletMintCap', chainId: targetChainId },
         ]
       : [],
     query: { enabled: hasMintModule, staleTime: 10_000 },
@@ -304,6 +328,7 @@ function CollectionView({
     abi: nftMintModuleAbi,
     functionName: 'grossPriceFor',
     args: [BigInt(mintQty)],
+    chainId: targetChainId,
     query: { enabled: hasMintModule && mintQty > 0, staleTime: 5_000 },
   });
   const grossPrice = (quotedWei as bigint | undefined) ?? 0n;
@@ -321,13 +346,14 @@ function CollectionView({
     fetchingAttestations,
     attestationErrors,
     claimedDiscountBps,
-  } = useDiscountTiers(mintModule as Address | undefined, address);
+  } = useDiscountTiers(mintModule as Address | undefined, address, targetChainId);
 
   const { data: netPriceQuoted } = useReadContract({
     address: mintModule as Address | undefined,
     abi: nftMintModuleAbi,
     functionName: 'netPriceFor',
     args: [BigInt(mintQty), claimedDiscountBps],
+    chainId: targetChainId,
     query: {
       enabled: hasMintModule && mintQty > 0 && claimedDiscountBps > 0n,
       staleTime: 5_000,
@@ -344,18 +370,17 @@ function CollectionView({
   // ------------------------------------------------------------
   // 4. URU allowance (only relevant when paidInUru).
   // ------------------------------------------------------------
-  const { data: uruAllowance } = useReadContract({
+  const { data: uruAllowance, refetch: refetchAllowance } = useReadContract({
     address: paidInUru ? (paymentToken as Address) : undefined,
     abi: erc20MinAbi,
     functionName: 'allowance',
     args: walletAddress && mintModule ? [walletAddress, mintModule as Address] : undefined,
+    chainId: targetChainId,
     query: {
       enabled: paidInUru && !!walletAddress && !!mintModule,
       staleTime: 10_000,
     },
   });
-  const needsUruApprove = paidInUru && (uruAllowance ?? 0n) < price;
-
   // ------------------------------------------------------------
   // 5. Write hooks — approve + mint (branches on payment token)
   // ------------------------------------------------------------
@@ -366,7 +391,19 @@ function CollectionView({
     reset: resetApprove,
   } = useWriteContract();
   const { isLoading: isWaitingApprove, isSuccess: isApproved } =
-    useWaitForTransactionReceipt({ hash: approveTxHash });
+    useWaitForTransactionReceipt({ hash: approveTxHash, chainId: targetChainId });
+  // Amount the confirmed approve tx covered, so the mint button unlocks the
+  // moment it lands instead of waiting on the allowance re-read.
+  const [approvedAmount, setApprovedAmount] = useState(0n);
+
+  // The allowance read is cached, so it never saw the new approval and the
+  // mint button stayed locked until a page refresh. Re-read on confirm.
+  useEffect(() => {
+    if (isApproved) void refetchAllowance();
+  }, [isApproved, refetchAllowance]);
+
+  const needsUruApprove =
+    paidInUru && (uruAllowance ?? 0n) < price && !(isApproved && approvedAmount >= price);
 
   const {
     writeContract: writeMint,
@@ -376,7 +413,20 @@ function CollectionView({
     reset: resetMint,
   } = useWriteContract();
   const { isLoading: isWaitingMint, isSuccess: isMinted, data: mintReceipt } =
-    useWaitForTransactionReceipt({ hash: mintTxHash });
+    useWaitForTransactionReceipt({ hash: mintTxHash, chainId: targetChainId });
+
+  // After a mint lands, refresh supply (which also refreshes holders and the
+  // mint feed) and the allowance the mint just spent.
+  useEffect(() => {
+    if (!isMinted) return;
+    void refetchBase();
+    if (paidInUru) {
+      // The mint spent the approval, so the next mint needs a fresh one.
+      resetApprove();
+      setApprovedAmount(0n);
+      void refetchAllowance();
+    }
+  }, [isMinted, paidInUru, refetchBase, refetchAllowance, resetApprove]);
 
   // Clear write state when the buyer changes qty so stale "minted" flags
   // don't confuse the CTA.
@@ -385,18 +435,22 @@ function CollectionView({
     resetApprove();
   }, [mintQty, resetMint, resetApprove]);
 
-  const doApprove = () => {
+  const doApprove = async () => {
     if (!paidInUru || !paymentToken || !mintModule) return;
+    if (!(await ensureChain())) return;
+    setApprovedAmount(price);
     writeApprove({
       address: paymentToken as Address,
       abi: erc20MinAbi,
       functionName: 'approve',
       args: [mintModule as Address, price],
+      chainId: targetChainId,
     });
   };
 
-  const doMint = () => {
+  const doMint = async () => {
     if (!hasMintModule || !mintModule) return;
+    if (!(await ensureChain())) return;
     // Discount proofs — ExternalNft tiers only for now; each proof was
     // signed by compile-service for THIS wallet + collection, so the
     // on-chain verifier accepts them one-shot. WalletList tiers pass
@@ -422,6 +476,7 @@ function CollectionView({
           '0x' as `0x${string}`,
           discountProofs,
         ],
+        chainId: targetChainId,
       });
     } else {
       writeMint({
@@ -437,6 +492,7 @@ function CollectionView({
           discountProofs,
         ],
         value: price,
+        chainId: targetChainId,
       });
     }
   };
@@ -495,10 +551,18 @@ function CollectionView({
         </div>
       )}
 
-      {chainEnabled && !hasMintModule && (
+      {chainEnabled && minterMissing && (
         <div className={styles.warnPane}>
           <b>collection not found.</b> either not launched via the launchpad, or the mint module
           hasn&apos;t been assigned yet.
+        </div>
+      )}
+      {chainEnabled && !hasMintModule && !minterMissing && minterReadFailed && !baseReadsPending && (
+        <div className={styles.warnPane}>
+          <b>couldn&apos;t load this collection.</b> the network is busy, give it a moment.{' '}
+          <button type="button" className="uru-chip" onClick={() => void refetchBase()}>
+            try again
+          </button>
         </div>
       )}
 
@@ -765,7 +829,7 @@ function CollectionView({
                 <button
                   type="button"
                   className="uru-btn uru-btn-mint"
-                  disabled={isApproving || isWaitingApprove || !walletAddress}
+                  disabled={isApproving || isWaitingApprove || isSwitching || !walletAddress}
                   onClick={doApprove}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
@@ -785,14 +849,14 @@ function CollectionView({
                   needsUruApprove ||
                   isMinting ||
                   isWaitingMint ||
-                  isMinted ||
+                  isSwitching ||
                   !walletAddress
                 }
                 onClick={doMint}
                 style={{ width: '100%', justifyContent: 'center' }}
               >
                 {isMinted
-                  ? '✿ minted ✓'
+                  ? `✿ minted ✓ · mint ${mintQty} more`
                   : isWaitingMint
                     ? 'waiting for receipt ~'
                     : isMinting
