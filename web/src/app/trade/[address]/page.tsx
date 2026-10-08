@@ -33,6 +33,7 @@ import { buildErc20PoolKey, encodeV4ExactInSingle, encodeV4ExactInSingleSettleFi
 import { describeTax, taxScopeNote, taxedBuyNetOut, taxedSellPoolInput } from '@/lib/dn404Tax';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID, explorerAddressUrl } from '@/lib/wagmi';
 import { loadMetadata, persistMetadata, safeBackgroundImage, type TokenMetadata } from '@/lib/metadata';
+import { toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchTokenMetadata, saveTokenMetadata } from '@/lib/socialApi';
 import { MetadataForm, type MetadataInputs } from '@/components/MetadataForm';
 import { MOCK_LAUNCHES, mockLaunchByAddress } from '@/lib/mockLaunches';
@@ -288,26 +289,26 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const curveState = useReadContracts({
     contracts: curveAddress
       ? [
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'ethReserve' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'tokenReserve' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'graduationTargetEth' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'curveSupply' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'priceWeiPerToken' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'graduated' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'tradeFeeBps' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'ethReserve', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'tokenReserve', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'graduationTargetEth', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'curveSupply', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'priceWeiPerToken', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'graduated', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'tradeFeeBps', chainId: readChainId },
           // Static virtual reserves (set at CurveInitialized, never change). We
           // read them alongside the mutable state so the chart can compute
           // spot-after-trade prices from the reserves saved in each Trade event
           // instead of the per-trade realized average the indexer stores.
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualEthReserve' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualTokenReserve' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualEthReserve', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'virtualTokenReserve', chainId: readChainId },
         ]
       : [],
     // Leave allowFailure as its default (true) — the results below are read as
     // `csResults[i].result`, which is only present in the wrapped shape. Setting
     // allowFailure:false collapses each entry to the raw value and every widget
     // downstream reads undefined.
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: !!curveAddress, refetchInterval: 8_000 },
   });
   const csResults = curveState.data ?? [];
@@ -324,14 +325,14 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const wlState = useReadContracts({
     contracts: curveAddress
       ? [
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'whitelistRoot' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'fallbackTs' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'reservedTokens' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'wlSold' },
-          { abi: bondingCurveAbi, address: curveAddress, functionName: 'sourceTokenAddress' },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'whitelistRoot', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'fallbackTs', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'reservedTokens', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'wlSold', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'sourceTokenAddress', chainId: readChainId },
         ]
       : [],
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: !!curveAddress, refetchInterval: 8_000 },
   });
   const wlRoot = wlState.data?.[0]?.result as `0x${string}` | undefined;
@@ -348,11 +349,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const wlSourceMeta = useReadContracts({
     contracts: wlSourceValid
       ? [
-          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'name' },
-          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'symbol' },
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'name', chainId: readChainId },
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'symbol', chainId: readChainId },
         ]
       : [],
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: wlSourceValid },
   });
   const wlSourceName = wlSourceMeta.data?.[0]?.result as string | undefined;
@@ -405,21 +406,21 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const pairMeta = useReadContracts({
     contracts: pairCurrency
       ? ([
-          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'symbol' },
-          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'decimals' },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'symbol', chainId: readChainId },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'decimals', chainId: readChainId },
         ] as const)
       : [],
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: !!pairCurrency, staleTime: Infinity },
   });
   const pairState = useReadContracts({
     contracts: pairCurrency && wallet && curveAddress
       ? ([
-          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'balanceOf', args: [wallet] },
-          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'allowance', args: [wallet, curveAddress] },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'balanceOf', args: [wallet], chainId: readChainId },
+          { abi: erc20TokenAbi, address: pairCurrency, functionName: 'allowance', args: [wallet, curveAddress], chainId: readChainId },
         ] as const)
       : [],
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: !!pairCurrency && !!wallet && !!curveAddress, refetchInterval: 15_000 },
   });
   const pairSym = isErc20Pair ? ((pairMeta.data?.[0]?.result as string | undefined) ?? 'PAIR') : 'ETH';
@@ -448,7 +449,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
       // already reads. wlListCid piped through so cross-device viewers can fetch the
       // pinned WL holder list (deployer's local snapshot alone wouldn't reach them).
       setMetadata({
-        logoDataUrl: remote.imageUrl ?? undefined,
+        // Gateway links go through /api/ipfs (public gateways died 2026-10);
+        // data: URLs and other https links pass through unchanged.
+        logoDataUrl: remote.imageUrl ? (toGatewayUrl(remote.imageUrl) ?? remote.imageUrl) : undefined,
         description: remote.description ?? undefined,
         website: remote.website ?? undefined,
         twitter: remote.twitter ?? undefined,
@@ -911,14 +914,14 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   const taxQ = useReadContracts({
     contracts: isDn404Token
       ? [
-          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxMode' } as const,
-          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxBps' } as const,
-          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxTarget' } as const,
+          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxMode', chainId: readChainId } as const,
+          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxBps', chainId: readChainId } as const,
+          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'taxTarget', chainId: readChainId } as const,
           // V3 only; V1/V2 revert -> allowFailure -> undefined -> sells taxed.
-          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'POOL_MANAGER' } as const,
+          { abi: dn404TaxAbi, address: tokenAddress, functionName: 'POOL_MANAGER', chainId: readChainId } as const,
         ]
       : [],
-    ...(readChainId ? { chainId: readChainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: isDn404Token, refetchInterval: 60_000 },
   });
   const taxModeOnChain = Number((taxQ.data?.[0]?.result as number | undefined) ?? 0);
@@ -1301,15 +1304,42 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
   // fell through to the "no curve" empty state for ~1-3 seconds on slow RPCs.
   // Now: show loading if indexer hasn't checked yet, OR we're waiting on the
   // factory fallback because indexer had nothing.
+  // Also wait for the DN404 factory lookup: URU-paired curves are never in the
+  // indexer's curves table, so every URU-paired token flashed "no curve" for
+  // a round-trip (and kept it if the public RPC read failed).
+  const factoryLookupNeeded = indexerChecked && !indexedCurveAddress && !!contracts;
+  const dn404LookupPending =
+    factoryLookupNeeded && !!dn404CurveFactory && !factoryCurveAddress &&
+    (!curveQuery.isFetched || !dn404CurveQuery.isFetched || dn404CurveQuery.isFetching);
   const stillResolvingCurve =
-    !indexerChecked || (indexerChecked && !indexedCurveAddress && !!contracts && curveQuery.isFetching);
-  if (stillResolvingCurve) {
+    !indexerChecked || (factoryLookupNeeded && (curveQuery.isFetching || !curveQuery.isFetched)) || dn404LookupPending;
+  // A failed lookup isn't proof there's no curve; say so and offer a retry.
+  const curveLookupFailed = !curveAddress && (curveQuery.isError || dn404CurveQuery.isError);
+  if (stillResolvingCurve && !curveLookupFailed) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-14 text-center">
         <Mascot size={64} mood="sleepy" />
         <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
           looking up the curve..
         </div>
+      </div>
+    );
+  }
+  if (!curveAddress && curveLookupFailed) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-14 text-center">
+        <Mascot size={64} mood="sleepy" />
+        <div style={{ marginTop: 8, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
+          couldn&apos;t look up this token&apos;s curve. the network is busy.
+        </div>
+        <button
+          type="button"
+          className="uru-btn uru-btn-primary"
+          style={{ marginTop: 16 }}
+          onClick={() => { void curveQuery.refetch(); void dn404CurveQuery.refetch(); }}
+        >
+          try again
+        </button>
       </div>
     );
   }
@@ -1531,6 +1561,8 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
         <TradeTicker
           trades={mergedRecentTrades.map((t) => ({ isBuy: t.isBuy, eth: t.eth, tokens: t.tokens, trader: t.trader }))}
           symbol={tokenSymbol as string | undefined}
+          pairSymbol={isErc20Pair ? pairSym : 'ETH'}
+          pairDecimals={isErc20Pair ? pairDecimals : 18}
         />
       </div>
 
@@ -1662,7 +1694,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
           <MetadataPanel
             metadata={metadata}
             tokenAddress={tokenAddress}
-            chainId={chainId}
+            // The token's chain, not the wallet's: a launcher on another
+            // network used to save metadata under the wrong chain id.
+            chainId={readChainId ?? chainId}
             wallet={wallet as Address | undefined}
             launcher={launchInfoLauncher}
             onSaved={(next) => setMetadata(next)}

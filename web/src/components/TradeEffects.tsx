@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatEther } from 'viem';
+import { formatEther, formatUnits } from 'viem';
 import { useSignMessage } from 'wagmi';
 
 import { fetchChat, postChat } from '@/lib/socialApi';
@@ -16,9 +16,15 @@ import { fetchChat, postChat } from '@/lib/socialApi';
 export function TradeTicker({
   trades,
   symbol,
+  pairSymbol = 'ETH',
+  pairDecimals = 18,
 }: {
   trades: Array<{ isBuy: boolean; eth: bigint; tokens: bigint; trader: `0x${string}` }>;
   symbol: string | undefined;
+  /// What the curve trades against. URU-paired DN404 curves pass 'URU' so a
+  /// 5,000 URU buy doesn't read "5000 ETH". Defaults keep ETH tokens as-is.
+  pairSymbol?: string;
+  pairDecimals?: number;
 }) {
   const entries = useMemo(() => {
     if (trades.length === 0) {
@@ -29,7 +35,7 @@ export function TradeTicker({
       ];
     }
     return trades.slice(0, 20).map((t, i) => {
-      const eth = Number(formatEther(t.eth));
+      const eth = Number(pairDecimals === 18 ? formatEther(t.eth) : formatUnits(t.eth, pairDecimals));
       const tok = Number(t.tokens) / 1e18;
       const short = `${t.trader.slice(0, 6)}…${t.trader.slice(-4)}`;
       const arrow = t.isBuy ? '→' : '←';
@@ -38,10 +44,10 @@ export function TradeTicker({
       return {
         key: `trade-${i}-${t.trader}`,
         side: t.isBuy ? ('buy' as const) : ('sell' as const),
-        text: `${short} ${label} ${eth.toFixed(4)} ETH ${arrow} ${fmtNum(tok)} ${sym}`,
+        text: `${short} ${label} ${pairSymbol === 'ETH' ? eth.toFixed(4) : fmtNum(eth)} ${pairSymbol} ${arrow} ${fmtNum(tok)} ${sym}`,
       };
     });
-  }, [trades, symbol]);
+  }, [trades, symbol, pairSymbol, pairDecimals]);
 
   // Duplicate the loop so the marquee wraps seamlessly (translateX(-50%)).
   const loop = [...entries, ...entries];
