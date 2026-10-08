@@ -6,6 +6,7 @@ import {
   ZERO_ADDRESS,
   collectionVisible,
   dn404RowToLaunch,
+  dn404TotalSupply,
   ethPerPairFromSqrt,
   filterAndSortLaunches,
   formatCurveAmount,
@@ -238,4 +239,14 @@ test('formatCurveAmount labels the curve currency', () => {
   assert.equal(formatCurveAmount(eth, 1_500_000_000_000_000_000n), '1.50 Ξ');
   assert.match(formatCurveAmount(uru, 4_000_000n * E18), /^4,000,000 URU$/);
   assert.doesNotMatch(formatCurveAmount(uru, 4n * E18), /Ξ/);
+});
+
+// Market cap uses the full DN404 supply (NFT count x tokens per NFT), which
+// includes the creator's share; curveSupply alone understated it by up to 20%.
+test('dn404TotalSupply: collection size x unit, else curveSupply', () => {
+  const curve = 640_000_000n * 10n ** 18n; // 80% of 800M on the curve
+  assert.equal(dn404TotalSupply({ maxSupply: '80000', unitWei: (10_000n * 10n ** 18n).toString() }, curve), 800_000_000n * 10n ** 18n);
+  assert.equal(dn404TotalSupply({}, curve), curve);
+  assert.equal(dn404TotalSupply({ maxSupply: '1', unitWei: '1' }, curve), curve);
+  assert.equal(dn404TotalSupply({ maxSupply: 'x', unitWei: '1' }, curve), curve);
 });

@@ -25,10 +25,14 @@ import {
   fetchTradesByTrader,
   fetchV4SwapsByTrader,
   fetchHoldingsByAddress,
+  fetchPairTradesByTraders,
+  fetchDn404ByPairedTokens,
   type IndexerLaunch,
   type IndexerTrade,
   type IndexerHolding,
+  type IndexerPairTrade,
 } from '@/lib/indexer';
+import { DN404_PAIR_CURRENCIES } from '@/lib/config';
 import {
   displayNameFor,
   loadProfile,
@@ -160,6 +164,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [launches, setLaunches] = useState<IndexerLaunch[] | null>(null);
   const [trades, setTrades] = useState<IndexerTrade[] | null>(null);
   const [v4Trades, setV4Trades] = useState<IndexerTrade[]>([]);
+  // URU-paired DN404 trades. Amounts are in the pair token, so they show in the
+  // activity list with their own unit and stay out of the ETH stats and PnL.
+  const [pairTrades, setPairTrades] = useState<IndexerPairTrade[]>([]);
+  const [pairOfToken, setPairOfToken] = useState<Record<string, string>>({});
   const [holdings, setHoldings] = useState<IndexerHolding[] | null>(null);
   const [tokenMeta, setTokenMeta] = useState<Record<string, { name: string; ticker: string }>>({});
   const [loaded, setLoaded] = useState(false);
@@ -168,13 +176,15 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     if (!isValid) return;
     let cancelled = false;
     (async () => {
-      const [l, t, v4, h] = await Promise.all([
+      const [l, t, v4, h, pt] = await Promise.all([
         fetchLaunchesByCreator(address, 40),
         fetchTradesByTrader(address, 200),
         fetchV4SwapsByTrader(address, 200),
         fetchHoldingsByAddress(address, 50),
+        fetchPairTradesByTraders([address], 200),
       ]);
       if (cancelled) return;
+      setPairTrades(pt ?? []);
       setLaunches(l);
       setTrades(t);
       setHoldings(h);
@@ -220,13 +230,27 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       const traded = new Set((t ?? []).map((tr) => tr.tokenAddress.toLowerCase()));
       const v4Touched = new Set(v4Normalized.map((tr) => tr.tokenAddress.toLowerCase()));
       const held = new Set((h ?? []).map((hh) => hh.tokenAddress.toLowerCase()));
-      const missing = [...new Set([...traded, ...v4Touched, ...held])].filter((addr) => !meta[addr]) as Address[];
+      const pairTouched = new Set((pt ?? []).map((tr) => tr.tokenAddress.toLowerCase()));
+      const missing = [...new Set([...traded, ...v4Touched, ...held, ...pairTouched])].filter((addr) => !meta[addr]) as Address[];
+      const pairs: Record<string, string> = {};
       if (missing.length > 0) {
-        const extra = await fetchLaunchesByTokens(missing);
+        // DN404 tokens have no Router launch row; their names (and pair
+        // currency) come from the DN404 collection rows.
+        const [extra, dn404] = await Promise.all([
+          fetchLaunchesByTokens(missing),
+          fetchDn404ByPairedTokens(missing),
+        ]);
         if (cancelled) return;
+        for (const d of dn404 ?? []) {
+          if (!d.pairedToken) continue;
+          const k = d.pairedToken.toLowerCase();
+          meta[k] = { name: d.name, ticker: d.ticker };
+          if (d.pairCurrency) pairs[k] = d.pairCurrency;
+        }
         seed(extra);
       }
       setTokenMeta(meta);
+      setPairOfToken(pairs);
 
       setLoaded(true);
     })();
@@ -269,17 +293,33 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       if (tr.isBuy) { ethSpent += eth; buyCount += 1; }
       else { ethReceived += eth; sellCount += 1; }
     }
+    for (const pt of pairTrades) {
+      if (pt.isBuy) buyCount += 1;
+      else sellCount += 1;
+    }
     const netFlow = ethReceived - ethSpent;
     return {
       launched: launches?.length ?? 0,
-      tradeCount: allTrades.length,
+      tradeCount: allTrades.length + pairTrades.length,
       buyCount,
       sellCount,
       ethSpent,
       ethReceived,
       netFlow,
     };
-  }, [launches, allTrades]);
+  }, [launches, allTrades, pairTrades]);
+
+  // Activity list rows: ETH trades (curve + v4) and pair-token trades, newest
+  // first, each with the unit its amount is in.
+  const activityRows = useMemo(() => {
+    const eth = allTrades.map((t) => ({ id: t.id, isBuy: t.isBuy, tokenAddress: t.tokenAddress, ts: t.blockTimestamp, amount: BigInt(t.ethAmount), unit: 'Ξ' }));
+    const pair = pairTrades.map((t) => {
+      const pc = pairOfToken[t.tokenAddress.toLowerCase()];
+      const unit = (pc && (DN404_PAIR_CURRENCIES[activeChain] ?? []).find((o) => o.address.toLowerCase() === pc.toLowerCase())?.label) || 'URU';
+      return { id: t.id, isBuy: t.isBuy, tokenAddress: t.tokenAddress, ts: t.blockTimestamp, amount: BigInt(t.pairAmount), unit };
+    });
+    return [...eth, ...pair].sort((a, b) => Number(BigInt(b.ts) - BigInt(a.ts)));
+  }, [allTrades, pairTrades, pairOfToken, activeChain]);
 
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowingThis, setIsFollowingThis] = useState(false);
@@ -648,12 +688,12 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
           {/* activity */}
           <section>
-            <SectionHead label="activity" jp="取引" count={allTrades.length} />
+            <SectionHead label="activity" jp="取引" count={activityRows.length} />
             {trades === null && !loaded && <LoadingRow />}
-            {loaded && allTrades.length === 0 && (
+            {loaded && activityRows.length === 0 && (
               <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : "no trades yet"} />
             )}
-            {allTrades.length > 0 && (
+            {activityRows.length > 0 && (
               <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
                 <div
                   style={{
@@ -671,12 +711,12 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                   }}
                 >
                   <span>side</span>
-                  <span>eth</span>
+                  <span>amount</span>
                   <span>token</span>
                   <span style={{ textAlign: 'right' }}>ago</span>
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {allTrades.slice(0, 30).map((t, i) => (
+                  {activityRows.slice(0, 30).map((t, i) => (
                     <li
                       key={t.id}
                       style={{
@@ -687,13 +727,17 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         fontFamily: 'var(--font-pixel), monospace',
                         fontSize: 11,
                         padding: '5px 10px',
-                        borderBottom: i === Math.min(29, allTrades.length - 1) ? 'none' : '1px dotted var(--anchor)',
+                        borderBottom: i === Math.min(29, activityRows.length - 1) ? 'none' : '1px dotted var(--anchor)',
                       }}
                     >
                       <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
                         {t.isBuy ? 'BUY' : 'SELL'}
                       </span>
-                      <span>{Number(formatEther(BigInt(t.ethAmount))).toFixed(4)} Ξ</span>
+                      <span>
+                        {t.unit === 'Ξ'
+                          ? `${Number(formatEther(t.amount)).toFixed(4)} Ξ`
+                          : `${Number(formatEther(t.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${t.unit}`}
+                      </span>
                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const lbl = tokenLabel(t.tokenAddress);
@@ -709,7 +753,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                         })()}
                       </span>
                       <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
-                        {formatAgo(Number(t.blockTimestamp) * 1000)}
+                        {formatAgo(Number(t.ts) * 1000)}
                       </span>
                     </li>
                   ))}

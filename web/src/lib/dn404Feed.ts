@@ -107,6 +107,8 @@ export interface Dn404CollectionRow {
   pairedToken?: Address;
   pairCurrency?: Address;
   unitWei?: string;
+  /// Collection size (NFT count). Total token supply = maxSupply * unitWei.
+  maxSupply?: string;
   launchedBy: Address;
   name: string;
   ticker: string;
@@ -147,6 +149,18 @@ export interface Dn404Extras {
   telegram?: string;
 }
 
+/// collectionSize * unit from the indexer row, or curveSupply when the row
+/// lacks either field (older rows) or the product is somehow smaller.
+export function dn404TotalSupply(row: Pick<Dn404CollectionRow, 'maxSupply' | 'unitWei'>, curveSupply: bigint): bigint {
+  try {
+    if (!row.maxSupply || !row.unitWei) return curveSupply;
+    const total = BigInt(row.maxSupply) * BigInt(row.unitWei);
+    return total > curveSupply ? total : curveSupply;
+  } catch {
+    return curveSupply;
+  }
+}
+
 /// Turn a DN404 collection row + its curve into a feed launch. Returns null when
 /// the row has no paired token or no curve yet (nothing tradeable to show).
 export function dn404RowToLaunch(
@@ -180,9 +194,10 @@ export function dn404RowToLaunch(
     graduationTargetEth: curve.graduationTargetEth,
     curveSupply: curve.curveSupply,
     // DN404 total supply = collectionSize * unit, all minted at launch; the curve
-    // holds curveSupply of it. Use curveSupply like Router launches do (founder
-    // premint is the only gap and it is capped at 20%).
-    totalSupply: curve.curveSupply,
+    // holds curveSupply of it and the creator's share is the rest. Market cap
+    // uses the full supply so it includes that share (it used curveSupply,
+    // which understated mcap by up to 20%).
+    totalSupply: dn404TotalSupply(row, curve.curveSupply),
     tradeFeeBps: curve.tradeFeeBps,
     graduated: curve.graduated,
     trades: [],

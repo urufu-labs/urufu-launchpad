@@ -26,9 +26,11 @@ import { mockDataAvailable, useMockDataMode } from '@/lib/mockDataMode';
 import { useAgo } from '@/lib/useAgo';
 import {
   fetchRecentTrades,
+  fetchRecentPairTrades,
   fetchRecentV4Swaps,
   type IndexerTrade,
   type IndexerV4Swap,
+  type IndexerPairTrade,
 } from '@/lib/indexer';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
 import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
@@ -246,14 +248,17 @@ function HomePageContent() {
   // render the empty-state placeholder in the rail).
   const [liveTradesReal, setLiveTradesReal] = useState<IndexerTrade[] | null>(null);
   const [liveV4Real, setLiveV4Real] = useState<IndexerV4Swap[] | null>(null);
+  // URU-paired DN404 curve trades (amounts in the pair token, not ETH).
+  const [livePairReal, setLivePairReal] = useState<IndexerPairTrade[] | null>(null);
   const liveIsRealChain = CONTRACTS[activeChain] !== null;
   useEffect(() => {
     if (previewEnabled || !liveIsRealChain) return;
     let cancelled = false;
     const load = async () => {
-      const [curveRows, v4Rows] = await Promise.all([
+      const [curveRows, v4Rows, pairRows] = await Promise.all([
         fetchRecentTrades(20),
         fetchRecentV4Swaps(20),
+        fetchRecentPairTrades(20),
       ]);
       if (cancelled) return;
       // Keep the last-good state when a poll returns null (network hiccup, indexer
@@ -267,6 +272,8 @@ function HomePageContent() {
       const freshV4 = v4Rows?.filter((t) => t.chainId === chainId) ?? null;
       if (freshCurve && freshCurve.length > 0) setLiveTradesReal(freshCurve);
       if (freshV4 && freshV4.length > 0) setLiveV4Real(freshV4);
+      const freshPair = pairRows?.filter((t) => t.chainId === chainId) ?? null;
+      if (freshPair && freshPair.length > 0) setLivePairReal(freshPair);
     };
     load();
     // 5s poll, Base Sepolia has 2s blocks + a fast indexer pipeline, so a fresh trade
@@ -325,13 +332,32 @@ function HomePageContent() {
           };
         })
         .filter(<T,>(x: T | null): x is T => x !== null);
-      return [...curveRows, ...v4Rows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
+      const pairRows = (livePairReal ?? [])
+        .map((t) => {
+          const l = byToken.get(t.tokenAddress.toLowerCase());
+          if (!l) return null;
+          return {
+            l,
+            t: {
+              isBuy: t.isBuy,
+              // Pair-token amount; the rail formats it with the launch's pair symbol.
+              ethAmount: BigInt(t.pairAmount),
+              tokenAmount: BigInt(t.tokenAmount),
+              trader: t.trader,
+              timestamp: Number(t.blockTimestamp),
+              ethReserve: 0n,
+              tokenReserve: 0n,
+            },
+          };
+        })
+        .filter(<T,>(x: T | null): x is T => x !== null);
+      return [...curveRows, ...v4Rows, ...pairRows].sort((a, b) => b.t.timestamp - a.t.timestamp).slice(0, 14);
     }
     // Preview chains: aggregate from mock trades so the rail isn't empty on Sepolia/base/etc.
     return sourceLaunches.flatMap((l) => l.trades.slice(-3).map((t) => ({ l, t })))
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
-  }, [liveIsRealChain, liveTradesReal, liveV4Real, chainMocks, sourceLaunches]);
+  }, [liveIsRealChain, liveTradesReal, liveV4Real, livePairReal, chainMocks, sourceLaunches]);
 
   // The static review's rail tells a small, readable story: three creator-first rows,
   // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
@@ -620,7 +646,11 @@ function HomePageContent() {
                       {row.t.isBuy ? 'BUY' : 'SELL'}
                     </span>
                     <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
-                    <span>{Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ</span>
+                    <span>
+                      {isPairLaunch(row.l)
+                        ? formatCurveAmount(row.l, row.t.ethAmount)
+                        : `${Number(formatEther(row.t.ethAmount)).toFixed(3)}Ξ`}
+                    </span>
                     <time>
                       <AgoLabel ts={row.t.timestamp} />
                     </time>

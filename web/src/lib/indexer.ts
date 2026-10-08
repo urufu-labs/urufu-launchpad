@@ -1011,6 +1011,21 @@ export async function fetchPairTradesByTraders(
   return data.pairTradess.items.filter(notHidden);
 }
 
+/// Newest pair-curve trades across all traders, hidden tokens dropped. Powers
+/// the home live rail next to fetchRecentTrades (ETH curves).
+export async function fetchRecentPairTrades(limit = 20): Promise<IndexerPairTrade[] | null> {
+  const data = await gqlFanout<{ pairTradess: { items: IndexerPairTrade[] } }>(
+    `query RecentPairTrades($limit: Int!) {
+      pairTradess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { id chainId curveAddress tokenAddress trader isBuy pairAmount tokenAmount blockTimestamp txHash }
+      }
+    }`,
+    { limit },
+  );
+  if (!data) return null;
+  return data.pairTradess.items.filter(notHidden);
+}
+
 /// DN404 collections whose ERC-20 half is one of `tokens`. Gives DN404 trade
 /// rows a name, ticker and pair currency (DN404 tokens have no Router launch row).
 export async function fetchDn404ByPairedTokens(
