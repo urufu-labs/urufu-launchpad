@@ -2976,11 +2976,11 @@ function Erc20GraduatedPanel({
   const approvals = useReadContracts({
     contracts: wallet && permit2 && router && !nativeIn
       ? [
-          { abi: erc20TokenAbi, address: inputToken, functionName: 'allowance', args: [wallet, permit2] } as const,
-          { abi: permit2Abi, address: permit2, functionName: 'allowance', args: [wallet, inputToken, router] } as const,
+          { abi: erc20TokenAbi, address: inputToken, functionName: 'allowance', args: [wallet, permit2], chainId } as const,
+          { abi: permit2Abi, address: permit2, functionName: 'allowance', args: [wallet, inputToken, router], chainId } as const,
         ]
       : [],
-    ...(chainId ? { chainId } : {}),
+    // chainId is set per contract above: wagmi ignores a top-level one here.
     query: { enabled: !!wallet && !!permit2 && !!router && !nativeIn, refetchInterval: 15_000 },
   });
   const erc20ToPermit2 = (approvals.data?.[0]?.result as bigint | undefined) ?? 0n;
