@@ -22,6 +22,7 @@ import { reconcilePendingPublications } from './rewards.ts';
 import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
 import { registerNftDiscountAttestRoutes } from './routes/nft-discount-attest.ts';
+import { registerNftWlRoutes } from './routes/nft-wl.ts';
 import {
   Semaphore,
   defaultCompileConcurrency,
@@ -186,6 +187,8 @@ await registerNftHoldersRoutes(app);
 // against RH's public RPC. Chain support is intentionally narrow (RH only) for v1.
 await registerWhitelistRoutes(app);
 await registerNftDiscountAttestRoutes(app);
+// NFT whitelists: saved wallet lists + proofs, and holder-whitelist signing.
+await registerNftWlRoutes(app);
 app.log.info('wl snapshot routes registered');
 
 // Flywheel rewards — public GETs for the claim UI, gated POST for publishing.
