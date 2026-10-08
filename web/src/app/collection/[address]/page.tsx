@@ -469,13 +469,21 @@ function CollectionView({
       sig: p.sig,
     }));
     if (paidInUru) {
+      // `uruAmount` is a ceiling: the module pulls only the live price. On
+      // linear-step collections another mint can land first and raise the
+      // price, which reverted an exact quote, so allow 5% headroom when the
+      // approval covers it (one-time approvals do; one-mint approvals don't).
+      const headroom = mintMode === 1 ? price + price / 20n : price;
+      const maxPay = uruAllowance !== undefined && uruAllowance < headroom
+        ? (uruAllowance > price ? uruAllowance : price)
+        : headroom;
       writeMint({
         address: mintModule as Address,
         abi: nftMintModuleAbi,
         functionName: 'mintWithUru',
         args: [
           BigInt(mintQty),
-          price,
+          maxPay,
           [] as `0x${string}`[],
           0n,
           0n,
