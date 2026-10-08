@@ -59,15 +59,26 @@ interface ExternalChain {
   rpcUrl: string;
 }
 
-function externalChains(): ExternalChain[] {
-  const chains: ExternalChain[] = [];
-  const eth = process.env.ETH_RPC_URL ?? process.env.MAINNET_RPC_URL;
-  if (eth) chains.push({ chainId: 1, slug: 'ethereum', rpcUrl: eth });
-  const base = process.env.BASE_RPC_URL;
-  if (base) chains.push({ chainId: 8453, slug: 'base', rpcUrl: base });
-  const rh = process.env.ROBINHOOD_RPC_URL;
-  if (rh) chains.push({ chainId: 4663, slug: 'robinhood', rpcUrl: rh });
-  return chains;
+/// Every chain the NFT create page offers for discount tiers (Ethereum, Base,
+/// Robinhood) must be here. Each falls back to a free public RPC: when the
+/// Alchemy key was pulled (2026-10-02) ETH_RPC_URL went with it, Ethereum
+/// tiers started answering CHAIN_UNSUPPORTED, and holders silently paid full
+/// price. A balanceOf per request is well inside public RPC limits.
+export function externalChains(): ExternalChain[] {
+  const env = (k: string) => process.env[k] || undefined;
+  return [
+    {
+      chainId: 1,
+      slug: 'ethereum',
+      rpcUrl: env('ETH_RPC_URL') ?? env('MAINNET_RPC_URL') ?? 'https://ethereum-rpc.publicnode.com',
+    },
+    { chainId: 8453, slug: 'base', rpcUrl: env('BASE_RPC_URL') ?? 'https://base-rpc.publicnode.com' },
+    {
+      chainId: 4663,
+      slug: 'robinhood',
+      rpcUrl: env('ROBINHOOD_RPC_URL') ?? 'https://rpc.mainnet.chain.robinhood.com',
+    },
+  ];
 }
 
 function chainById(id: number): ExternalChain | undefined {
