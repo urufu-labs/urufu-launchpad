@@ -27,6 +27,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useAccount,
   useReadContract,
+  useReadContracts,
+  useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi';
@@ -35,6 +37,7 @@ import { decodeEventLog, formatUnits, type Address } from 'viem';
 import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import {
+  CONTRACTS,
   DN404_LAUNCHES,
   DN404_LAUNCHES_ENABLED,
   DN404_TAX_MODES,
@@ -44,6 +47,7 @@ import {
   isDn404DeployReady,
 } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { MAX_DN404_COLLECTION_SIZE } from '@/lib/dn404Gas';
 import { dn404LaunchFactoryAbi } from '@/lib/abis';
@@ -95,6 +99,11 @@ function percentToBps(s: string): number {
 
 function fmtWhole(n: bigint): string {
   return n.toLocaleString('en-US');
+}
+
+/// Whole tokens from wei, rounded up (so a "needs at least" number is enough).
+function ceilTokens(wei: bigint): bigint {
+  return (wei + 10n ** 18n - 1n) / 10n ** 18n;
 }
 
 function fmtTokens(wei: bigint): string {
@@ -239,22 +248,98 @@ function CreateDn404Form() {
   // ------------------------------------------------------------
   // On-chain wiring (only active when DN404_LAUNCHES[chain] is set).
   // ------------------------------------------------------------
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, chainId: walletChainId } = useAccount();
   const dn404Set = DN404_LAUNCHES[activeChain];
   const factoryAddress = dn404Set?.LaunchFactory as Address | undefined;
   const ecosystem = ECOSYSTEM_TOKENS[activeChain];
   const uruTokenAddress = ecosystem?.uruToken as Address | undefined;
+  // Every read and write is pinned to the launch chain. Unpinned, a wallet on
+  // Ethereum or Base read a 0 fee from an empty address there and the launch
+  // tx went to that empty address: gas paid, nothing launched (2026-10-09).
+  const targetChainId = CHAIN_KEY_TO_ID[activeChain];
+  const onTargetChain = walletChainId === targetChainId;
+  const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
+  async function ensureChain(): Promise<boolean> {
+    if (onTargetChain) return true;
+    try {
+      await switchChainAsync({ chainId: targetChainId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   // Live minUruFee quote: factory applies the launcher's LoyaltyOracle
   // discount server-side. Same read pattern as the NFT lane.
-  const { data: minUruFeeQuote } = useReadContract({
+  const { data: minUruFeeQuote, isSuccess: feeLoaded } = useReadContract({
     address: factoryAddress,
     abi: dn404LaunchFactoryAbi,
     functionName: 'minUruFeeFor',
     args: walletAddress ? [walletAddress] : undefined,
+    chainId: targetChainId,
     query: { enabled: !!factoryAddress && !!walletAddress, staleTime: 30_000 },
   });
   const requiredUruFee = (minUruFeeQuote as bigint | undefined) ?? 0n;
+
+  // The launcher's URU balance, so a short wallet hears it before paying gas.
+  const { data: uruBalance } = useReadContract({
+    address: uruTokenAddress,
+    abi: [
+      {
+        type: 'function',
+        name: 'balanceOf',
+        stateMutability: 'view',
+        inputs: [{ name: 'owner', type: 'address' }],
+        outputs: [{ type: 'uint256' }],
+      },
+    ] as const,
+    functionName: 'balanceOf',
+    args: walletAddress ? [walletAddress] : undefined,
+    chainId: targetChainId,
+    query: { enabled: !!uruTokenAddress && !!walletAddress, staleTime: 15_000 },
+  });
+  const uruShort = requiredUruFee > 0n && uruBalance !== undefined && uruBalance < requiredUruFee;
+
+  // ------------------------------------------------------------
+  // Curve size check. The curve factory (V10 for ETH pairs, Dn404CurveFactory
+  // for ERC-20 pairs) rejects a curve that gets less than half its default
+  // supply, or one too small to ever reach the graduation target. Both read
+  // live so a setDefaults change can't drift from this check.
+  // ------------------------------------------------------------
+  const pairIsEth = pairCurrency === ZERO;
+  const curveFactoryAddr = (pairIsEth ? CONTRACTS[activeChain]?.CurveFactory : dn404Set?.CurveFactory) as
+    | Address
+    | undefined;
+  const u256View = (fn: string) => ({
+    type: 'function', name: fn, stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }],
+  }) as const;
+  const curveAbi = [
+    u256View('defaultCurveSupply'),
+    u256View('defaultVirtualTokenReserve'),
+    u256View(pairIsEth ? 'defaultVirtualEthReserve' : 'defaultVirtualPairReserve'),
+    u256View(pairIsEth ? 'defaultGraduationTargetEth' : 'defaultGraduationTargetPair'),
+    u256View('graduationSafetyMarginBps'),
+  ] as const;
+  const { data: curveDefaults } = useReadContracts({
+    contracts: curveFactoryAddr
+      ? curveAbi.map((f) => ({ address: curveFactoryAddr, abi: [f], functionName: f.name, chainId: targetChainId }))
+      : [],
+    query: { enabled: !!curveFactoryAddr, staleTime: 60_000 },
+  });
+  // Smallest curve supply both checks accept, in wei. Undefined until loaded.
+  const minCurveSupplyWei = useMemo(() => {
+    const curveNums = curveDefaults?.map((r) => (r.status === 'success' ? (r.result as bigint) : undefined));
+    if (!curveNums || curveNums.length !== 5 || curveNums.some((n) => n === undefined)) return undefined;
+    const [defSupply, vToken, vPair, target, margin] = curveNums as bigint[];
+    const half = defSupply / 2n;
+    if (vPair === 0n || margin >= 10_000n) return half;
+    // target < supply * vPair / vToken * (10000 - margin) / 10000, solved for supply.
+    const reach = (target * vToken * 10_000n) / (vPair * (10_000n - margin)) + 1n;
+    return reach > half ? reach : half;
+  }, [curveDefaults]);
+  const curveSupplyWei = totalSupplyWei - founderMintWei;
+  const curveTooSmall =
+    minCurveSupplyWei !== undefined && totalSupplyWei > 0n && curveSupplyWei < minCurveSupplyWei;
 
   // URU allowance check: launcher must have approved factory for
   // >= requiredUruFee before launch(). Approval is a separate tx.
@@ -274,6 +359,7 @@ function CreateDn404Form() {
     ] as const,
     functionName: 'allowance',
     args: walletAddress && factoryAddress ? [walletAddress, factoryAddress] : undefined,
+    chainId: targetChainId,
     query: { enabled: !!uruTokenAddress && !!walletAddress && !!factoryAddress, staleTime: 15_000 },
   });
   const needsUruApprove = requiredUruFee > 0n && (uruAllowance ?? 0n) < requiredUruFee;
@@ -284,7 +370,7 @@ function CreateDn404Form() {
     isPending: isApproving,
   } = useWriteContract();
   const { isLoading: isWaitingApprove, isSuccess: isApproved } =
-    useWaitForTransactionReceipt({ hash: approveTxHash });
+    useWaitForTransactionReceipt({ hash: approveTxHash, chainId: targetChainId });
 
   useEffect(() => {
     if (isApproved) refetchAllowance();
@@ -301,9 +387,11 @@ function CreateDn404Form() {
     const c = search.get('collectionSize'); if (c !== null) setCollectionSize(c);
   }, [search]);
 
-  const approveUru = () => {
+  const approveUru = async () => {
     if (!uruTokenAddress || !factoryAddress) return;
+    if (!(await ensureChain())) return;
     writeApprove({
+      chainId: targetChainId,
       address: uruTokenAddress,
       abi: [
         {
@@ -330,7 +418,7 @@ function CreateDn404Form() {
     reset: resetLaunch,
   } = useWriteContract();
   const { isLoading: isWaitingLaunch, isSuccess: isLaunched, data: receipt } =
-    useWaitForTransactionReceipt({ hash: launchTxHash });
+    useWaitForTransactionReceipt({ hash: launchTxHash, chainId: targetChainId });
 
   // Pull the new token out of Dn404Launched so we can link (and redirect)
   // to its trade page. Null-safe: a missing log just skips the redirect.
@@ -368,14 +456,20 @@ function CreateDn404Form() {
     premintNftsOk &&
     taxBpsOk &&
     taxTargetOk &&
-    burnBpsOk;
+    burnBpsOk &&
+    !curveTooSmall;
 
   const canSubmit =
     deployReady &&
     !!factoryAddress &&
     !!walletAddress &&
+    // A failed fee read used to leave the fee at 0 and let launch through.
+    feeLoaded &&
+    minCurveSupplyWei !== undefined &&
+    !uruShort &&
     !needsUruApprove &&
     formOk &&
+    !isSwitching &&
     !isLaunching &&
     !isWaitingLaunch;
 
@@ -395,19 +489,27 @@ function CreateDn404Form() {
     if (!taxBpsOk) return `tax rate must be above 0% and at most ${MAX_TAX_PERCENT}%`;
     if (!taxTargetOk) return 'pick which token the tax buys';
     if (!burnBpsOk) return `burn can be at most ${MAX_BURN_PERCENT}%`;
+    if (curveTooSmall && minCurveSupplyWei !== undefined) {
+      return `too few tokens for the curve. it needs at least ${fmtWhole(ceilTokens(minCurveSupplyWei))} ${ticker || 'tokens'} after your share. use more NFTs, more tokens per NFT, or a smaller share`;
+    }
+    if (!feeLoaded || minCurveSupplyWei === undefined) return 'loading launch settings ~';
+    if (uruShort) return `you need ${fmtWhole(ceilTokens(requiredUruFee))} URU in your wallet for the launch fee`;
     return null;
   }, [
     chainEnabled, deployReady, walletAddress, nameOk, tickerOk, collectionSizeOk,
     collectionSizeTooBig, unitOk, supplyTooBig, founderBpsOk, premintNftsOk,
-    taxBpsOk, taxTargetOk, burnBpsOk,
+    taxBpsOk, taxTargetOk, burnBpsOk, curveTooSmall, minCurveSupplyWei, feeLoaded,
+    uruShort, requiredUruFee, ticker,
   ]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!factoryAddress) return;
     if (!collectionSizeOk) return; // also gated by canSubmit; belt and braces
+    if (!(await ensureChain())) return;
 
     resetLaunch();
     writeContract({
+      chainId: targetChainId,
       address: factoryAddress,
       abi: dn404LaunchFactoryAbi,
       functionName: 'launch',
@@ -528,7 +630,7 @@ function CreateDn404Form() {
                 className="uru-input"
                 value={unit}
                 onChange={(e) => setUnit(digitsOnly(e.target.value))}
-                placeholder="10000"
+                placeholder="800000"
               />
               <span className={styles.fieldHint}>
                 hold {unit ? fmtWhole(unitBig) : 'this many'} {tickLabel}, get 1 NFT.
@@ -539,6 +641,15 @@ function CreateDn404Form() {
                   <span style={{ color: 'var(--pink-hot)' }}>
                     {' '}too large. use fewer NFTs or fewer tokens per NFT.
                   </span>
+                )}
+                {curveTooSmall && minCurveSupplyWei !== undefined && (
+                  <span style={{ color: 'var(--pink-hot)' }}>
+                    {' '}too small. the curve needs at least {fmtWhole(ceilTokens(minCurveSupplyWei))} {tickLabel}
+                    {founderBps > 0 ? ' after your share' : ''}.
+                  </span>
+                )}
+                {minCurveSupplyWei !== undefined && !unitOk && (
+                  <> the curve needs at least {fmtWhole(ceilTokens(minCurveSupplyWei))} {tickLabel} in total.</>
                 )}
               </span>
             </div>
