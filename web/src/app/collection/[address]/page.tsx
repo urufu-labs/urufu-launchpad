@@ -693,36 +693,51 @@ function CollectionView({
             ) : recentMints.length === 0 ? (
               <div className={styles.emptyRow}>no mints yet ~ be the first</div>
             ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
+              // Tiles big enough to actually see each minted piece.
+              <ul
+                style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                  gap: 10,
+                }}
+              >
                 {recentMints.map((m) => (
                   <li
                     key={m.id}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'auto auto 1fr auto',
-                      gap: 10,
-                      alignItems: 'center',
-                      padding: '4px 8px',
+                      gap: 4,
+                      minWidth: 0,
                       fontFamily: 'var(--font-pixel), monospace',
                       fontSize: 11,
                     }}
                   >
                     <MintThumb baseUri={baseUri} tokenId={firstMintedId(m)} />
-                    <span style={{ color: 'var(--pink-hot)' }}>{mintedIdsLabel(m)}</span>
-                    <span
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                      <span style={{ color: 'var(--pink-hot)' }}>{mintedIdsLabel(m)}</span>
+                      <span style={{ color: 'var(--anchor-soft)', fontSize: 9 }}>
+                        {new Date(Number(m.blockTimestamp) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <a
+                      href={explorerAddressUrl(chainKey, m.minter)}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       style={{
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         color: 'var(--anchor)',
+                        textDecoration: 'none',
+                        fontSize: 10,
                       }}
                     >
                       {m.minter.slice(0, 6)}··{m.minter.slice(-4)}
                       {m.wlUsed ? <span style={{ color: 'var(--anchor-soft)' }}> · wl</span> : null}
-                    </span>
-                    <span style={{ color: 'var(--anchor-soft)', fontSize: 9 }}>
-                      {new Date(Number(m.blockTimestamp) * 1000).toLocaleTimeString()}
-                    </span>
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -972,8 +987,8 @@ function mintedIdsLabel(m: IndexerNftMint): string {
   return m.quantity > 1 ? `#${first}-${first + BigInt(m.quantity - 1)}` : `#${first}`;
 }
 
-/// Small square thumbnail of a minted NFT: tokenURI JSON -> image, through
-/// our /api/ipfs route. Shows a plain tile until (or unless) the art loads.
+/// Square tile of a minted NFT that fills its grid cell: tokenURI JSON ->
+/// image, through our /api/ipfs route. Plain tile until (or unless) the art loads.
 function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId: bigint }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
@@ -989,9 +1004,9 @@ function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId:
     <span
       aria-hidden="true"
       style={{
-        width: 36,
-        height: 36,
-        borderRadius: 6,
+        width: '100%',
+        aspectRatio: '1 / 1',
+        borderRadius: 8,
         border: '1.5px solid var(--anchor)',
         // Metadata is untrusted: encode so a quote in the URL can't break out of url("").
         background: src
