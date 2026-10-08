@@ -17,6 +17,9 @@ import type { Address } from 'viem';
 export const ZERO: Address = '0x0000000000000000000000000000000000000000';
 export const DEAD: Address = '0x000000000000000000000000000000000000dEaD';
 
+/// Robinhood's public RPC (no key). Fallback when KEEPER_RPC_URL is unset.
+export const RH_PUBLIC_RPC = 'https://rpc.mainnet.chain.robinhood.com';
+
 export const RH = {
   chainId: 4663,
   launchFactory: '0x3026C71eB13C599BAd0e7a687689D20F8c37A64B' as Address,

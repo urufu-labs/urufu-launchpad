@@ -7,7 +7,7 @@
  * discovery.ts); there is no hand-maintained launch list anymore.
  */
 import type { Address, Hex } from 'viem';
-import { DEAD, RH } from './constants.ts';
+import { DEAD, RH, RH_PUBLIC_RPC } from './constants.ts';
 
 /// Mirrors Dn404TaxTemplate.TaxMode exactly (uint8 on chain).
 export const TaxMode = {
@@ -93,9 +93,12 @@ export interface KeeperConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): KeeperConfig {
-  const rpcUrl = required(env, 'KEEPER_RPC_URL');
   const chainId = Number(env.KEEPER_CHAIN_ID ?? RH.chainId);
   if (!Number.isFinite(chainId) || chainId <= 0) throw new Error(`KEEPER_CHAIN_ID invalid: ${chainId}`);
+  // Robinhood falls back to its public RPC so a lost or unset KEEPER_RPC_URL
+  // (the Alchemy key was pulled 2026-10-02) can't stop the keeper. Any other
+  // chain still has to set it explicitly.
+  const rpcUrl = env.KEEPER_RPC_URL || (chainId === RH.chainId ? RH_PUBLIC_RPC : required(env, 'KEEPER_RPC_URL'));
   const keeperPrivateKey = requiredHex(env, 'KEEPER_PRIVATE_KEY');
 
   const addr = (key: string, dflt: Address): Address => {
