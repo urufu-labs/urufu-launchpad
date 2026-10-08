@@ -272,13 +272,15 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
       <div className={styles.releaseArtWrap}>
         {image ? (
           <div
-            className={styles.releaseArt}
+            className={launch.lane === 'dn404' ? `${styles.releaseArt} ${styles.squareArt}` : styles.releaseArt}
             role="img"
             aria-label={`${launch.name} token artwork`}
-            style={{ background: safeBackgroundImage(image, launch.logoBg) }}
+            style={{
+              background: safeBackgroundImage(image, launch.logoBg, launch.lane === 'dn404' ? 'contain' : 'cover'),
+            }}
           />
         ) : (
-          <div className={styles.missingArt}>
+          <div className={launch.lane === 'dn404' ? `${styles.missingArt} ${styles.squareArt}` : styles.missingArt}>
             <span>art pending</span>
           </div>
         )}

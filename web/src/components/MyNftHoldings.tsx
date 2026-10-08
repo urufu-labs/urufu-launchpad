@@ -34,6 +34,7 @@ import { isHiddenNftCollection } from '@/lib/hiddenNftCollections';
 import { fetchWalletNfts, type WalletNftAvatar } from '@/lib/nftAvatarApi';
 import { fetchNftCollectionsByAddresses, fetchNftMintsByMinter } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
+import { safeBackgroundImage } from '@/lib/metadata';
 
 interface Props {
   visibleFor: Address;
@@ -254,7 +255,7 @@ function NftTile({ tile, viewer }: { tile: Tile; viewer: Address }) {
         style={{
           aspectRatio: '1 / 1',
           background: image
-            ? `center/cover no-repeat url("${image}")`
+            ? safeBackgroundImage(image, undefined, 'contain')
             : `repeating-linear-gradient(45deg, var(--cream) 0 8px, var(--cream-deep) 8px 16px)`,
         }}
       />

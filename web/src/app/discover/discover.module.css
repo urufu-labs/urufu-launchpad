@@ -301,6 +301,12 @@
   text-transform: uppercase;
 }
 
+/* DN404 tokens: square frame so the whole NFT artwork shows (image uses
+   background-size: contain). ERC-20 cards keep 4:3. */
+.squareArt {
+  aspect-ratio: 1 / 1;
+}
+
 .badges {
   position: absolute;
   top: 14px;

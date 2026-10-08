@@ -1703,6 +1703,13 @@ body {
   transform-origin: center bottom;
   animation: uru-launch-ticket-bob 3.4s ease-in-out infinite;
 }
+/* NFT collections and DN404 tokens: square frame so the whole artwork shows
+   (the image itself uses background-size: contain). ERC-20 cards keep the
+   fixed-height crop above. */
+.uru-launch-ticket-art.is-square {
+  height: auto;
+  aspect-ratio: 1 / 1;
+}
 .uru-home-launch-grid > :nth-child(2n) .uru-launch-ticket-art { animation-delay: -1.1s; }
 .uru-home-launch-grid > :nth-child(3n) .uru-launch-ticket-art { animation-delay: -2.2s; }
 @keyframes uru-launch-ticket-bob {

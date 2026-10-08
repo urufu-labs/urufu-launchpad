@@ -191,10 +191,10 @@ function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: num
     >
       <div className="uru-launch-ticket-top">
         <div
-          className="uru-launch-ticket-art"
+          className="uru-launch-ticket-art is-square"
           role="img"
           aria-label={cover ? `${row.name} cover art` : undefined}
-          style={{ background: safeBackgroundImage(cover ?? undefined, undefined) }}
+          style={{ background: safeBackgroundImage(cover ?? undefined, undefined, 'contain') }}
         >
           {!cover && '❁'}
         </div>
@@ -315,7 +315,7 @@ function NftCollectionCard({
             className={styles.releaseArt}
             role="img"
             aria-label={`${row.name} cover art`}
-            style={{ backgroundImage: `url("${cover}")` }}
+            style={{ background: safeBackgroundImage(cover, undefined, 'contain') }}
           />
         ) : (
           <div className={styles.missingArt}>

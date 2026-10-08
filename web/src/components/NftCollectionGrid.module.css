@@ -39,14 +39,16 @@
   padding: 8px 8px 0;
 }
 
+/* Square, whole image visible: NFT art is usually square and cropping it to
+   4:3 cut the edges off. */
 .releaseArt,
 .missingArt {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   width: 100%;
   border: 1.5px solid var(--anchor);
-  background-color: var(--mizuiro);
+  background-color: #fff;
   background-position: center;
-  background-size: cover;
+  background-size: contain;
   background-repeat: no-repeat;
 }
 

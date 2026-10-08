@@ -815,10 +815,12 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
     >
       <div className="uru-launch-ticket-top">
         <div
-          className="uru-launch-ticket-art"
+          className={launch.lane === 'dn404' ? 'uru-launch-ticket-art is-square' : 'uru-launch-ticket-art'}
           role="img"
           aria-label={logoDataUrl ? `${name} token artwork` : undefined}
-          style={{ background: safeBackgroundImage(logoDataUrl, launch.logoBg) }}
+          style={{
+            background: safeBackgroundImage(logoDataUrl, launch.logoBg, launch.lane === 'dn404' ? 'contain' : 'cover'),
+          }}
         >
           {!logoDataUrl && launch.logoEmoji}
         </div>

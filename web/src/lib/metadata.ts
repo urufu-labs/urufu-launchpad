@@ -49,13 +49,19 @@ export function keyFor(chainId: number | string, tokenAddress: Address): string 
 /// hidden clickjack layers). Wrapping in single quotes + percent-encoding blocks
 /// both the escape and quote-injection paths. Returns a full `background` value that
 /// keeps the paper-cream fallback when the URL is falsy.
-export function safeBackgroundImage(imageUrl: string | undefined | null, fallback = 'var(--cream-deep)'): string {
+/// `fit: 'contain'` shows the whole image (NFT / DN404 art in square frames);
+/// the default `cover` crops to fill, as ERC-20 token cards always have.
+export function safeBackgroundImage(
+  imageUrl: string | undefined | null,
+  fallback = 'var(--cream-deep)',
+  fit: 'cover' | 'contain' = 'cover',
+): string {
   if (!imageUrl) return fallback;
   // encodeURI leaves : / ? # &, all safe inside quotes. Backslash + quote get through
   // encodeURI (they're valid URL chars) but not through the quote wrapper, so also
   // strip any embedded single-quotes defensively.
   const clean = encodeURI(imageUrl).replace(/'/g, '%27');
-  return `#fff url('${clean}') center/cover no-repeat`;
+  return `#fff url('${clean}') center/${fit} no-repeat`;
 }
 
 export function saveMetadata(
