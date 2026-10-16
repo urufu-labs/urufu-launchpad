@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Launch a token · urufu labs (v2 mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<script src="shell.js"></script>
+<style>
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 48px; }
+  .page-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .page-head h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; font-weight: 700; }
+  .page-head .seg { margin-left: 8px; }
+  .page-head .agent { margin-left: auto; }
+
+  .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+
+  /* step rail */
+  .rail { position: sticky; top: 76px; display: grid; gap: 2px; }
+  .rail button {
+    display: flex; align-items: center; gap: 10px; text-align: left;
+    height: 40px; padding: 0 10px; border: 0; border-radius: 8px; background: none; cursor: pointer;
+    color: var(--fg-faint); font-weight: 600;
+  }
+  .rail button:hover { background: var(--surface-3); color: var(--fg-muted); }
+  .rail .n {
+    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none;
+    border: 1px solid var(--line-strong); font-family: var(--font-mono); font-size: 11px;
+  }
+  .rail button[aria-current="step"] { color: var(--fg); background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--line); }
+  .rail button[aria-current="step"] .n { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+  .rail button.done { color: var(--fg-muted); }
+  .rail button.done .n { background: var(--buy-soft); border-color: transparent; color: var(--buy); }
+
+  /* form */
+  .form { overflow: hidden; }
+  .form-head { padding: 20px 24px 0; }
+  .form-head h2 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+  .form-head p { margin: 4px 0 0; color: var(--fg-muted); }
+  .form-body { padding: 20px 24px 24px; display: grid; gap: 20px; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+  .prefix { position: relative; }
+  .prefix span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--fg-faint); font-weight: 600; }
+  .prefix .input { padding-left: 26px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.02em; }
+  .ok { display: inline-flex; align-items: center; gap: 5px; color: var(--buy); font-size: 12px; font-weight: 600; }
+
+  .drop {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--surface-2);
+    cursor: pointer; transition: border-color 120ms, background 120ms;
+  }
+  .drop:hover { border-color: var(--fg-muted); }
+  .drop[data-over="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .drop .thumb { width: 72px; height: 72px; border-radius: 10px; background: var(--surface-3); display: grid; place-items: center; overflow: hidden; flex: none; color: var(--fg-faint); }
+  .drop .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .drop b { display: block; font-weight: 650; }
+  .drop .hint { margin-top: 2px; }
+
+  details.more { border-top: 1px solid var(--line); padding-top: 16px; }
+  details.more summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--fg-muted); }
+  details.more summary::-webkit-details-marker { display: none; }
+  details.more summary svg { transition: transform 160ms; }
+  details.more[open] summary svg { transform: rotate(90deg); }
+  .links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+
+  .buy-row { display: flex; gap: 8px; align-items: center; }
+  .buy-row .input { font-family: var(--font-mono); }
+  .buy-row .unit { font-weight: 700; color: var(--fg-muted); margin-left: -48px; width: 40px; pointer-events: none; }
+
+  .toggle-row { display: flex; align-items: flex-start; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .toggle-row .t { font-weight: 650; }
+  .toggle-row .d { font-size: 13px; color: var(--fg-muted); }
+  .switch { margin-left: auto; flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--line-strong); position: relative; border: 0; cursor: pointer; transition: background 160ms; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 160ms var(--ease-out); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .switch[aria-checked="true"] { background: var(--fg); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  :root[data-theme="dark"] .switch[aria-checked="true"]::after { background: var(--bg); }
+
+  .form-foot { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); background: var(--surface-2); }
+  .form-foot .muted { font-size: 13px; }
+  .form-foot .btn:first-of-type { margin-left: auto; }
+
+  /* side */
+  .side { position: sticky; top: 76px; display: grid; gap: 12px; }
+  .pv-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface-1); }
+  .card-art { aspect-ratio: 16 / 11; background: var(--surface-3); display: grid; place-items: center; color: var(--fg-faint); overflow: hidden; }
+  .card-art img { width: 100%; height: 100%; object-fit: cover; }
+  .card-body { padding: 12px; display: grid; gap: 10px; }
+  .card-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .card-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-sym { font-size: 12px; color: var(--fg-faint); font-weight: 600; }
+  .card-desc { font-size: 12.5px; color: var(--fg-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.9em; }
+  .card-curve .row { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-faint); margin-top: 5px; }
+
+  .cost { padding: 16px; display: grid; gap: 12px; }
+  .cost dl { margin: 0; }
+  .cost .kv { padding: 6px 0; }
+  .cost .total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; font-weight: 700; }
+  .cost .total dd { font-size: 15px; }
+  .strike { text-decoration: line-through; color: var(--fg-faint); margin-right: 6px; }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: minmax(0, 1fr) 320px; }
+    .rail { display: none; }
+  }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .side { position: static; }
+    .row2, .links { grid-template-columns: minmax(0, 1fr); }
+    .page-head .seg { margin-left: 0; }
+    .page-head .agent { display: none; }
+  }
+  @media (max-width: 760px) {
+    .wrap { padding: 16px 12px 40px; }
+    .form-head, .form-body { padding-left: 16px; padding-right: 16px; }
+    .form-foot { padding: 12px 16px; position: sticky; bottom: 60px; }
+    .form-foot .muted { display: none; }
+  }
+</style>
+</head>
+<body data-page="create">
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>Launch</h1>
+    <div class="seg" role="group" aria-label="What to launch">
+      <button aria-pressed="true">Token</button>
+      <button aria-pressed="false">NFT collection</button>
+      <button aria-pressed="false">DN404</button>
+    </div>
+    <a class="btn btn-ghost agent" href="#">Launch with an AI agent
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+  </div>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Steps" id="rail">
+      <button aria-current="step" data-step="1"><span class="n">1</span>Basics</button>
+      <button data-step="2"><span class="n">2</span>Trading rules</button>
+      <button data-step="3"><span class="n">3</span>Review</button>
+    </nav>
+
+    <section class="panel form">
+      <div id="step1">
+        <div class="form-head">
+          <h2>Basics</h2>
+          <p>This is what people see in Explore and on your token page.</p>
+        </div>
+        <div class="form-body">
+          <div class="row2">
+            <label class="field">
+              <span class="field-label">Name <span class="faint num" id="nameCount">0 / 32</span></span>
+              <input class="input" id="name" maxlength="32" placeholder="urufu PEPE" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="field-label">Ticker <span class="ok" id="tickOk" hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12 5 5 9-10"/></svg>Available</span></span>
+              <span class="prefix"><span>$</span><input class="input" id="ticker" maxlength="10" placeholder="UPEPE" autocomplete="off" /></span>
+            </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Image</span>
+            <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload image">
+              <div class="thumb" id="thumb"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></div>
+              <div><b id="dropTitle">Drop an image or click to upload</b><div class="hint">PNG, JPG, GIF or WebP up to 10 MB. Square works best.</div></div>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">Description <span class="faint">Optional</span></span>
+            <textarea class="input" id="desc" rows="3" placeholder="What is this token about?"></textarea>
+          </label>
+
+          <div class="field">
+            <span class="field-label">First buy <span class="faint">Optional</span></span>
+            <div class="buy-row">
+              <input class="input" id="firstBuy" inputmode="decimal" placeholder="0.00" />
+              <span class="unit">ETH</span>
+            </div>
+            <span class="hint">Buy your own token in the launch transaction, so nobody gets in before you.</span>
+          </div>
+
+          <details class="more">
+            <summary><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 6 6 6-6 6"/></svg>Links <span class="faint" style="font-weight:500">X, Telegram, website</span></summary>
+            <div class="links">
+              <input class="input" placeholder="x.com/..." />
+              <input class="input" placeholder="t.me/..." />
+              <input class="input" placeholder="https://" />
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div id="step2" hidden>
+        <div class="form-head">
+          <h2>Trading rules</h2>
+          <p>Optional. Rules are set at launch and cannot be changed later.</p>
+        </div>
+        <div class="form-body" style="gap:10px">
+          <div class="toggle-row"><div><div class="t">Anti-snipe opening</div><div class="d">Caps each wallet at 0.5 ETH for the first 10 minutes.</div></div><button class="switch" role="switch" aria-checked="true" aria-label="Anti-snipe opening"></button></div>
+          <div class="toggle-row"><div><div class="t">Holder rewards</div><div class="d">Shares 0.5% of each trade with holders over a minimum balance.</div></div><button class="switch" role="switch" aria-checked="false" aria-label="Holder rewards"></button></div>
+          <div class="toggle-row"><div><div class="t">Burn on sell</div><div class="d">Burns 0.25% of every sell.</div></div><button class="switch" role="switch" aria-checked="false" aria-label="Burn on sell"></button></div>
+          <div class="toggle-row"><div><div class="t">Whitelist window</div><div class="d">Only listed wallets can buy for the first hour.</div></div><button class="switch" role="switch" aria-checked="false" aria-label="Whitelist window"></button></div>
+          <a class="hint" href="#" style="margin-top:6px">See all modules</a>
+        </div>
+      </div>
+
+      <div class="form-foot">
+        <span class="muted" id="stepTxt">Step 1 of 3</span>
+        <button class="btn" id="back" disabled>Back</button>
+        <button class="btn btn-ink" id="next">Continue</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div>
+        <div class="pv-label"><span class="label">Preview</span><span class="faint" style="font-size:12px">How it shows in Explore</span></div>
+        <div class="card" id="pvCard">
+          <div class="card-art" id="pvArt"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg></div>
+          <div class="card-body">
+            <div class="card-top"><span class="card-name" id="pvName">Your token</span><span class="card-sym" id="pvSym">TICKER</span></div>
+            <div class="card-desc" id="pvDesc">Your description shows here.</div>
+            <div class="card-curve"><div class="meter"><i id="pvMeter" style="width:0%"></i></div>
+              <div class="row"><span id="pvCurve">Curve 0%</span><span class="num">0.00 ETH vol</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <section class="panel cost">
+        <div style="display:flex; justify-content:space-between; align-items:center">
+          <span class="panel-title">Cost</span>
+          <div class="seg" role="group" aria-label="Pay launch fee with"><button aria-pressed="true">ETH</button><button aria-pressed="false">URU</button></div>
+        </div>
+        <dl>
+          <div class="kv"><dt>Launch fee</dt><dd class="num"><span class="strike">0.010</span>0.005 ETH</dd></div>
+          <div class="kv"><dt>Holder discount</dt><dd><span class="badge badge-buy">50% off</span></dd></div>
+          <div class="kv"><dt>First buy</dt><dd class="num" id="costBuy">0.000 ETH</dd></div>
+          <div class="kv"><dt>Network fee</dt><dd class="num faint">~0.0003 ETH</dd></div>
+          <div class="kv total"><dt>Total</dt><dd class="num" id="costTotal">0.0053 ETH</dd></div>
+        </dl>
+        <span class="hint">You hold an urufu gemu nft, so your launch fee is half price.</span>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var motion = window.gsap && !reducedMotion();
+    var $ = function (id) { return document.getElementById(id); };
+    var SAMPLE = TOKENS[0];
+
+    /* ---------- live preview ---------- */
+    var curveFake = 0;
+    function syncPreview() {
+      var n = $('name').value.trim(), t = $('ticker').value.trim().toUpperCase(), d = $('desc').value.trim();
+      $('nameCount').textContent = n.length + ' / 32';
+      $('pvName').textContent = n || 'Your token';
+      $('pvSym').textContent = t || 'TICKER';
+      $('pvDesc').textContent = d || 'Your description shows here.';
+      $('tickOk').hidden = t.length < 2;
+    }
+    var bump;
+    ['name', 'ticker', 'desc'].forEach(function (id) {
+      $(id).addEventListener('input', function () {
+        syncPreview();
+        if (!motion) return;
+        clearTimeout(bump);
+        bump = setTimeout(function () { gsap.fromTo('#pvCard', { y: -2 }, { y: 0, duration: 0.35, ease: 'power2.out' }); }, 120);
+      });
+    });
+
+    $('firstBuy').addEventListener('input', function () {
+      var v = parseFloat(this.value) || 0;
+      $('costBuy').textContent = v.toFixed(3) + ' ETH';
+      $('costTotal').textContent = (v + 0.0053).toFixed(4) + ' ETH';
+      var pct = Math.min(100, (v / 4.2) * 100);
+      $('pvCurve').textContent = 'Curve ' + pct.toFixed(0) + '%';
+      if (motion) gsap.to('#pvMeter', { width: pct + '%', duration: 0.5, ease: 'power3.out' });
+      else $('pvMeter').style.width = pct + '%';
+      if (motion && v) gsap.fromTo('#costTotal', { color: cssVar('--accent') }, { color: cssVar('--fg'), duration: 0.8, clearProps: 'color' });
+    });
+
+    /* ---------- image drop (mock: uses a sample image) ---------- */
+    var drop = $('drop');
+    function setImage() {
+      $('thumb').innerHTML = '<img src="' + SAMPLE.img + '" alt="" />';
+      $('pvArt').innerHTML = '<img src="' + SAMPLE.img + '" alt="" />';
+      $('dropTitle').textContent = 'pepe.png · 412 KB';
+      if (motion) {
+        gsap.from('#pvArt img', { scale: 1.08, opacity: 0, duration: 0.6, ease: 'power3.out' });
+        gsap.from('#thumb img', { scale: 0.8, opacity: 0, duration: 0.4, ease: 'back.out(2)' });
+      }
+    }
+    drop.addEventListener('click', setImage);
+    drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setImage(); } });
+    drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.dataset.over = 'true'; });
+    drop.addEventListener('dragleave', function () { drop.dataset.over = 'false'; });
+    drop.addEventListener('drop', function (e) { e.preventDefault(); drop.dataset.over = 'false'; setImage(); });
+
+    /* ---------- switches ---------- */
+    document.querySelectorAll('.switch').forEach(function (s) {
+      s.addEventListener('click', function () { s.setAttribute('aria-checked', s.getAttribute('aria-checked') === 'true' ? 'false' : 'true'); });
+    });
+
+    /* ---------- steps ---------- */
+    var step = 1;
+    function go(n) {
+      if (n < 1 || n > 2) return;
+      var from = $('step' + step), to = $('step' + n), dir = n > step ? 1 : -1;
+      document.querySelectorAll('#rail button').forEach(function (b) {
+        var s = +b.dataset.step;
+        if (s === n) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+        b.classList.toggle('done', s < n);
+        b.querySelector('.n').innerHTML = s < n ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 12 5 5 9-10"/></svg>' : s;
+      });
+      $('stepTxt').textContent = 'Step ' + n + ' of 3';
+      $('back').disabled = n === 1;
+      $('next').textContent = n === 2 ? 'Review launch' : 'Continue';
+      if (motion) {
+        gsap.to(from, { opacity: 0, x: -16 * dir, duration: 0.18, ease: 'power2.in', onComplete: function () {
+          from.hidden = true; gsap.set(from, { clearProps: 'all' });
+          to.hidden = false;
+          gsap.fromTo(to, { opacity: 0, x: 16 * dir }, { opacity: 1, x: 0, duration: 0.3, ease: 'power3.out', clearProps: 'all' });
+          gsap.from(to.querySelectorAll('.toggle-row, .field, .row2'), { opacity: 0, y: 6, duration: 0.3, stagger: 0.04, delay: 0.05 });
+        } });
+      } else { from.hidden = true; to.hidden = false; }
+      step = n;
+    }
+    $('next').addEventListener('click', function () { go(step + 1); });
+    $('back').addEventListener('click', function () { go(step - 1); });
+    document.querySelectorAll('#rail button').forEach(function (b) { b.addEventListener('click', function () { go(+b.dataset.step); }); });
+
+    if (motion) gsap.from('.rail, .form, .side > *', { opacity: 0, y: 8, duration: 0.4, ease: 'power2.out', stagger: 0.06 });
+
+    /* Prefill for review screenshots: ?filled */
+    if (location.search.indexOf('filled') > -1) {
+      $('name').value = 'urufu PEPE'; $('ticker').value = 'UPEPE';
+      $('desc').value = 'Pepe, but he lives in the urufu gemu forest now. No roadmap, no promises.';
+      $('firstBuy').value = '0.25';
+      syncPreview(); $('firstBuy').dispatchEvent(new Event('input')); setImage();
+    }
+  });
+})();
+</script>
+</body>
+</html>
