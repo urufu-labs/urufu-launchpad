@@ -32,15 +32,15 @@ import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 type Filter = 'trending' | 'new' | 'mcap' | 'near-graduation' | 'graduated' | 'whitelist' | 'dn404' | 'all' | 'nft';
 
 const FILTERS: Array<{ id: Filter; label: string; jp: string }> = [
-  { id: 'trending', label: 'trending', jp: '人気' },
-  { id: 'new', label: 'new', jp: '新着' },
-  { id: 'mcap', label: 'top mcap', jp: '時価' },
-  { id: 'near-graduation', label: 'near grad', jp: '卒業' },
-  { id: 'graduated', label: 'graduated', jp: '完了' },
-  { id: 'whitelist', label: 'whitelist', jp: '会員' },
-  { id: 'dn404', label: 'dn404', jp: '対' },
-  { id: 'nft', label: 'nft', jp: '絵' },
-  { id: 'all', label: 'all', jp: '全部' },
+  { id: 'trending', label: 'Trending', jp: '' },
+  { id: 'new', label: 'New', jp: '' },
+  { id: 'mcap', label: 'Top market cap', jp: '' },
+  { id: 'near-graduation', label: 'Near graduation', jp: '' },
+  { id: 'graduated', label: 'Graduated', jp: '' },
+  { id: 'whitelist', label: 'Whitelist', jp: '' },
+  { id: 'dn404', label: 'DN404', jp: '' },
+  { id: 'nft', label: 'NFT', jp: '' },
+  { id: 'all', label: 'All', jp: '' },
 ];
 
 function classNames(...names: Array<string | false | null | undefined>) {
@@ -94,16 +94,16 @@ export default function DiscoverPage() {
     <main className={styles.page}>
       <header className={styles.masthead}>
         <div className={styles.identity}>
-          <p>release index · {CHAIN_LABELS[activeChain]}</p>
+          <p>Release index · {CHAIN_LABELS[activeChain]}</p>
           <h1>Discover</h1>
         </div>
         <label className={styles.searchBox}>
-          <span>search releases</span>
+          <span>Search releases</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             type="search"
-            placeholder="name, ticker, or address"
+            placeholder="Name, ticker, or address"
             aria-label="Search name, ticker, or token address"
           />
         </label>
@@ -117,17 +117,17 @@ export default function DiscoverPage() {
                 : 'This preview chain uses local fixture launches.'}
           >
             {mockData.enabled ? (
-              <><b>demo releases</b><span>{source.length} fixtures</span></>
+              <><b>Demo releases</b><span>{source.length} fixtures</span></>
             ) : isIndexer && feed.ready ? (
-              <><b>live index</b><span>{source.length} releases</span></>
+              <><b>Live index</b><span>{source.length} releases</span></>
             ) : isIndexer ? (
-              <><b>live index</b><span>checking</span></>
+              <><b>Live index</b><span>{feed.error ? 'Offline, retrying' : 'Checking'}</span></>
             ) : (
-              <><b>preview chain</b><span>{source.length} fixtures</span></>
+              <><b>Preview chain</b><span>{source.length} fixtures</span></>
             )}
           </div>
-          <Link href="/create" className="uru-btn uru-btn-primary">
-            launch a token <span className="uru-arrow">→</span>
+          <Link href="/create" className="ui-btn" data-variant="primary">
+            Launch a token →
           </Link>
         </div>
       </header>
@@ -135,7 +135,7 @@ export default function DiscoverPage() {
       <section className={styles.browser} aria-label="Token browser">
         <div className={styles.browseBar}>
           <div className={styles.resultsSummary}>
-            <span>browse releases</span>
+            <span>Browse releases</span>
             <b>{activeFilter.label} <small>{activeFilter.jp}</small></b>
           </div>
           <div
@@ -170,7 +170,7 @@ export default function DiscoverPage() {
             <span>{totalTrades} trades</span>
             <span>{graduatedCount} graduated</span>
             {whitelistCount > 0 && <span>{whitelistCount} whitelist</span>}
-            {dn404Enabled && dn404Count > 0 && <span>{dn404Count} dn404</span>}
+            {dn404Enabled && dn404Count > 0 && <span>{dn404Count} DN404</span>}
           </div>
         </div>
 
@@ -185,7 +185,7 @@ export default function DiscoverPage() {
               <span>{activeFilter.label} releases</span>
               <b>{filtered.length} result{filtered.length === 1 ? '' : 's'}</b>
             </div>
-            <p>open a release to trade, inspect its curve, and see its pool state.</p>
+            <p>Open a release to trade, check its curve, and see its pool state.</p>
           </div>
           {filter === 'nft' ? (
             <NftCollectionGrid
@@ -195,6 +195,14 @@ export default function DiscoverPage() {
               variant="discover"
               limit={48}
             />
+          ) : isIndexer && feed.error && source.length === 0 ? (
+            <div className="uru-feed-error" role="status">
+              <b>Couldn&apos;t load live data</b>
+              <p>Our data service didn&apos;t respond, so tokens aren&apos;t showing. Nothing is lost. We&apos;ll keep retrying automatically.</p>
+              <button type="button" className="ui-btn" data-variant="primary" onClick={() => window.location.reload()}>Retry now</button>
+            </div>
+          ) : isIndexer && !feed.ready ? (
+            <p className={styles.loadingNote}>Loading tokens…</p>
           ) : filtered.length > 0 ? (
             <div className={styles.mosaic}>
               {filtered.map((launch) => (
@@ -223,10 +231,10 @@ function MarketEmpty({
     <div className={styles.emptyState}>
       <Image
         className={styles.emptyArt}
-        src="/culture-first-altar-v2.png"
+        src="/hero/wolf-sheep-light.webp"
         width={420}
-        height={356}
-        alt="Urufu culture-first artwork"
+        height={313}
+        alt="An urufu gemu wolf and sheep sitting together"
       />
       <div>
         <h2>{query.trim() ? 'No matching tokens' : `No tokens on ${chainLabel} yet`}</h2>
@@ -235,7 +243,7 @@ function MarketEmpty({
             ? 'The live indexer returned an empty market for this chain. No preview tokens are substituted here.'
             : 'This preview chain has no matching mock tokens for the current filter.'}
         </p>
-        <Link href="/create">create a token »</Link>
+        <Link href="/create">Launch a token →</Link>
       </div>
     </div>
   );
@@ -281,30 +289,30 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
           />
         ) : (
           <div className={launch.lane === 'dn404' ? `${styles.missingArt} ${styles.squareArt}` : styles.missingArt}>
-            <span>art pending</span>
+            <span>Art pending</span>
           </div>
         )}
         <div className={styles.badges}>
-          <span>{launch.graduated ? 'graduated' : 'curve'}</span>
-          {launch.hasWhitelist && <span>whitelist</span>}
-          {launch.payToken === 'URU' && <span>uru paid</span>}
+          <span data-tone={launch.graduated ? 'buy' : undefined}>{launch.graduated ? 'Graduated' : 'Curve'}</span>
+          {launch.hasWhitelist && <span data-tone="info">Whitelist</span>}
+          {launch.payToken === 'URU' && <span data-tone="accent">URU paid</span>}
           {launch.lane === 'dn404' && (
-            <span title="this token comes with NFTs: hold enough tokens and you get NFTs, sell and they go away">dn404</span>
+            <span title="This token comes with NFTs: hold enough tokens and you get NFTs, sell and they go away">DN404</span>
           )}
-          {isPairLaunch(launch) && <span>{(launch.pairSymbol ?? 'uru').toLowerCase()} pair</span>}
+          {isPairLaunch(launch) && <span>{(launch.pairSymbol ?? 'URU').toUpperCase()} pair</span>}
           {/* Legacy pill — already graduated on the pre-V3 (V10) stack. Same
               cliff LUV had; tag lets buyers know before they click through. */}
           {isLegacyGraduated(launch.address, launch.graduated) && (
-            <span className={styles.legacyBadge} title="graduated on the older MHH + Graduator (pre-V3). Pool was seeded at raw ratio.">
-              ✿ legacy
+            <span className={styles.legacyBadge} title="Graduated on the older hook and graduator. The pool was seeded at the old raw ratio.">
+              Legacy
             </span>
           )}
           {/* Cliff-warning pill — will graduate through the pre-V3 graduator.
               Different color from `legacy` so the "coming vs done" distinction
               reads at a glance. */}
           {willGraduateLegacy(launch.address, launch.graduated) && (
-            <span className={styles.cliffBadge} title="curve is on the old graduator; expect a price cliff on Uniswap after graduation.">
-              ⚠ cliff risk
+            <span className={styles.cliffBadge} data-tone="warn" title="This curve uses the old graduator. Expect a price drop on Uniswap after graduation.">
+              Cliff risk
             </span>
           )}
         </div>
@@ -326,10 +334,10 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
       </div>
 
       <div className={styles.metrics}>
-        <Metric label="px" value={formatPrice(spotPriceWei, unit, ethUsd)} />
-        <Metric label="mcap" value={formatMcap(mcap, unit, ethUsd)} />
-        <Metric label="in curve" value={`${raised}/${target}`} />
-        <Metric label="tx" value={String(tradeCountOf(launch))} />
+        <Metric label="Price" value={formatPrice(spotPriceWei, unit, ethUsd)} />
+        <Metric label="Market cap" value={formatMcap(mcap, unit, ethUsd)} />
+        <Metric label="In curve" value={`${raised}/${target}`} />
+        <Metric label="Trades" value={String(tradeCountOf(launch))} />
       </div>
 
       <div className={styles.progress}>
@@ -339,14 +347,14 @@ function LaunchCard({ launch }: { launch: MockLaunch }) {
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span>{launch.graduated ? 'pooled on v4' : `${progress.toFixed(1)}% to v4`}</span>
+        <span>{launch.graduated ? 'Pooled on Uniswap v4' : `${progress.toFixed(1)}% to Uniswap v4`}</span>
       </div>
 
       <div className={styles.releaseFoot}>
         <span>
           {launch.creator.slice(0, 6)}··{launch.creator.slice(-3)} · <AgoLabel ts={launch.launchedAt} />
         </span>
-        <b>trade <span className="uru-arrow">→</span></b>
+        <b>Trade →</b>
       </div>
     </Link>
   );

@@ -33,6 +33,8 @@ import { formatUnits, isAddress, parseUnits, type Address } from 'viem';
 import { tokenHolderModulesAbi } from '@/lib/abis';
 import type { WagmiChainId } from '@/lib/wagmi';
 import { decideVisibleModules, type MarkerResult } from './TokenHolderModules.logic';
+import ip from './info-panel.module.css';
+import hm from './TokenHolderModules.module.css';
 
 interface Props {
   /// The launched token address to probe + interact with.
@@ -82,10 +84,7 @@ export function TokenHolderModules({ token, chainId, decimals = 18 }: Props) {
   if (markers.isPending || !decision.anythingToRender) return null;
 
   return (
-    <section
-      className="uru-shell"
-      style={{ marginTop: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}
-    >
+    <section className={ip.block}>
       {showAdminRisk && (
         <AdminRiskBanner
           hasPausable={hasPausable}
@@ -97,14 +96,9 @@ export function TokenHolderModules({ token, chainId, decimals = 18 }: Props) {
 
       {(hasStaking || (hasVesting && isBene) || hasVotes) && (
         <>
-          <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span aria-hidden style={{ fontSize: 18 }}>✿</span>
-            <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
-              holder actions
-            </h3>
-            <span style={{ color: 'var(--anchor-soft)', fontSize: 12 }}>
-              modules the deployer picked at launch
-            </span>
+          <header className={ip.head}>
+            <h3 className={ip.label}>Holder actions</h3>
+            <span className={ip.sub}>Modules the deployer picked at launch</span>
           </header>
 
           {hasStaking && <StakingPanel token={token} chainId={chainId} decimals={decimals} />}
@@ -136,32 +130,15 @@ function AdminRiskBanner({
   const levers: string[] = [];
   if (hasPausable) levers.push('pause all transfers');
   if (hasAntiBot) levers.push('restrict who can receive tokens');
-  if (hasAntiWhale) levers.push('cap per-wallet balance + per-tx size');
+  if (hasAntiWhale) levers.push('cap the balance per wallet and the size of each transfer');
 
   return (
-    <div
-      role="alert"
-      style={{
-        padding: 12,
-        borderRadius: 10,
-        border: '1.5px solid var(--anchor)',
-        background: 'var(--yolk)',
-        color: 'var(--anchor)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span aria-hidden style={{ fontSize: 16 }}>⚠</span>
-        <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
-          deployer has admin power over this token
-        </strong>
-      </div>
-      <p style={{ margin: 0, fontSize: 13 }}>
-        the owner ({short(owner)}) can {levers.join(', ')}. curve-launched tokens usually renounce
-        ownership at launch — this one did not, so restrictions on your ability to trade or hold
-        are possible.
+    <div role="alert" className={hm.warn}>
+      <strong className={hm.warnTitle}>The deployer still has admin control over this token</strong>
+      <p className={hm.warnText}>
+        The owner (<span className="ui-num">{short(owner)}</span>) can {levers.join(', ')}. Curve
+        launches usually give up ownership at launch. This one didn&apos;t, so limits on your
+        ability to trade or hold are possible.
       </p>
     </div>
   );
@@ -234,55 +211,58 @@ function StakingPanel({
   }
 
   return (
-    <div style={panelStyle}>
-      <SectionHeading label="staking" hint={periodActive ? 'rewards live' : 'reward period ended'} />
-      <div style={statsGrid}>
-        <Stat label="your stake" value={fmt(staked, decimals)} />
-        <Stat label="claimable" value={fmt(earned, decimals)} />
-        <Stat label="total staked" value={fmt(total, decimals)} />
+    <div className={hm.panel}>
+      <SectionHeading label="Staking" hint={periodActive ? 'Rewards are live' : 'Reward period ended'} />
+      <div className={ip.stats}>
+        <Stat label="Your stake" value={fmt(staked, decimals)} />
+        <Stat label="Claimable" value={fmt(earned, decimals)} />
+        <Stat label="Total staked" value={fmt(total, decimals)} />
         <Stat
-          label="reward rate"
+          label="Reward rate"
           value={`${fmt(rewardRate * 86_400n, decimals)}/day`}
-          title="total tokens paid per day, split pro-rata across all stakers"
+          title="Total tokens paid per day, split across all stakers by stake size"
         />
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'stretch' }}>
+      <div className={hm.actions}>
         <input
           type="text"
           inputMode="decimal"
-          placeholder="amount"
+          placeholder="Amount"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           disabled={busy || !wallet}
-          style={inputStyle}
+          className={`ui-input ${hm.input}`}
+          data-mono="true"
         />
         <button
           type="button"
           onClick={() => submit('stake')}
           disabled={busy || !wallet || !amount}
-          style={btnPrimary}
+          className="ui-btn"
+          data-variant="primary"
         >
-          stake
+          Stake
         </button>
         <button
           type="button"
           onClick={() => submit('stakingWithdraw')}
           disabled={busy || !wallet || !amount || staked === 0n}
-          style={btnSecondary}
+          className="ui-btn"
         >
-          unstake
+          Unstake
         </button>
         <button
           type="button"
           onClick={() => submit('stakingClaim')}
           disabled={busy || !wallet || earned === 0n}
-          style={btnSecondary}
-          title={earned === 0n ? 'nothing accrued yet' : 'claim accrued rewards without touching your stake'}
+          className="ui-btn"
+          data-variant="ink"
+          title={earned === 0n ? 'Nothing earned yet' : 'Claim your rewards without touching your stake'}
         >
-          claim
+          Claim
         </button>
       </div>
-      {!wallet && <Muted>connect a wallet to stake</Muted>}
+      {!wallet && <Muted>Connect a wallet to stake.</Muted>}
     </div>
   );
 }
@@ -319,10 +299,10 @@ function VestingPanel({
 
   const status =
     nowSec < cliff
-      ? `cliff ${new Date(cliff * 1000).toLocaleDateString()}`
+      ? `Cliff ends ${new Date(cliff * 1000).toLocaleDateString()}`
       : nowSec < end
-        ? `linear release until ${new Date(end * 1000).toLocaleDateString()}`
-        : 'fully vested';
+        ? `Releasing gradually until ${new Date(end * 1000).toLocaleDateString()}`
+        : 'Fully vested';
 
   const { writeContract, data: txHash, isPending: writePending, reset: resetWrite } = useWriteContract();
   const { isLoading: waitPending, isSuccess: waitSuccess } = useWaitForTransactionReceipt({ hash: txHash });
@@ -330,22 +310,23 @@ function VestingPanel({
   const busy = writePending || waitPending;
 
   return (
-    <div style={panelStyle}>
-      <SectionHeading label="vesting (your allocation)" hint={status} />
-      <div style={statsGrid}>
-        <Stat label="total allocation" value={fmt(total, decimals)} />
-        <Stat label="already released" value={fmt(released, decimals)} />
-        <Stat label="claimable now" value={fmt(releasable, decimals)} />
+    <div className={hm.panel}>
+      <SectionHeading label="Vesting (your allocation)" hint={status} />
+      <div className={ip.stats}>
+        <Stat label="Total allocation" value={fmt(total, decimals)} />
+        <Stat label="Already released" value={fmt(released, decimals)} />
+        <Stat label="Claimable now" value={fmt(releasable, decimals)} />
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className={hm.actions}>
         <button
           type="button"
           onClick={() => writeContract({ abi: tokenHolderModulesAbi, address: token, functionName: 'vestingRelease', chainId })}
           disabled={busy || releasable === 0n}
-          style={btnPrimary}
-          title={releasable === 0n ? 'nothing has vested since your last release' : 'release the vested slice to your wallet'}
+          className="ui-btn"
+          data-variant="primary"
+          title={releasable === 0n ? 'Nothing has vested since your last release' : 'Send the vested amount to your wallet'}
         >
-          release
+          Release
         </button>
       </div>
     </div>
@@ -390,22 +371,23 @@ function VotesPanel({
   }
 
   return (
-    <div style={panelStyle}>
+    <div className={hm.panel}>
       <SectionHeading
-        label="voting power"
-        hint={nullDelegatee ? 'undelegated — voting power is 0 until you delegate' : selfDelegated ? 'self-delegated' : `delegated to ${short(delegatee!)}`}
+        label="Voting power"
+        hint={nullDelegatee ? 'Not delegated. Your voting power is 0 until you delegate.' : selfDelegated ? 'Delegated to yourself' : `Delegated to ${short(delegatee!)}`}
       />
-      <div style={statsGrid}>
-        <Stat label="your votes" value={fmt(votes, decimals)} />
+      <div className={ip.stats}>
+        <Stat label="Your votes" value={fmt(votes, decimals)} />
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className={hm.actions}>
         <button
           type="button"
           onClick={() => wallet && submit(wallet)}
           disabled={busy || !wallet || selfDelegated}
-          style={btnPrimary}
+          className="ui-btn"
+          data-variant="primary"
         >
-          delegate to self
+          Delegate to myself
         </button>
         <input
           type="text"
@@ -413,18 +395,20 @@ function VotesPanel({
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           disabled={busy || !wallet}
-          style={{ ...inputStyle, minWidth: 260 }}
+          className={`ui-input ${hm.inputWide}`}
+          data-mono="true"
         />
         <button
           type="button"
           onClick={() => isAddress(target) && submit(target as Address)}
           disabled={busy || !wallet || !isAddress(target)}
-          style={btnSecondary}
+          className="ui-btn"
+          data-variant="ink"
         >
-          delegate
+          Delegate
         </button>
       </div>
-      {!wallet && <Muted>connect a wallet to delegate</Muted>}
+      {!wallet && <Muted>Connect a wallet to delegate.</Muted>}
     </div>
   );
 }
@@ -490,77 +474,22 @@ function useAutoRefetch(fired: boolean, actions: Array<() => void>) {
 
 function SectionHeading({ label, hint }: { label: string; hint?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-      <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>{label}</strong>
-      {hint && <span style={{ color: 'var(--anchor-soft)', fontSize: 12 }}>{hint}</span>}
+    <div className={hm.panelHead}>
+      <strong className={hm.panelTitle}>{label}</strong>
+      {hint && <span className={ip.sub}>{hint}</span>}
     </div>
   );
 }
 
 function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div title={title} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ color: 'var(--anchor-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        {label}
-      </span>
-      <span className="uru-num" style={{ fontSize: 14 }}>{value}</span>
+    <div title={title} className={ip.stat}>
+      <span className={ip.statLabel}>{label}</span>
+      <span className={ip.statValue}>{value}</span>
     </div>
   );
 }
 
 function Muted({ children }: { children: React.ReactNode }) {
-  return <p style={{ margin: 0, color: 'var(--anchor-soft)', fontSize: 12 }}>{children}</p>;
+  return <p className={ip.muted}>{children}</p>;
 }
-
-// ---- shared inline styles ----
-
-const panelStyle: React.CSSProperties = {
-  padding: 12,
-  background: 'var(--card)',
-  border: '1px solid var(--anchor-soft)',
-  borderRadius: 10,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-};
-
-const statsGrid: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-  gap: 12,
-  padding: '6px 0',
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: '8px 12px',
-  border: '1px solid var(--anchor-soft)',
-  borderRadius: 8,
-  background: 'var(--input-bg, var(--paper-white, #fff))',
-  color: 'var(--anchor)',
-  fontFamily: 'var(--font-body), Georgia, serif',
-  fontSize: 14,
-  flex: '1 1 140px',
-  minWidth: 100,
-};
-
-const btnBase: React.CSSProperties = {
-  padding: '8px 16px',
-  border: '1px solid var(--anchor)',
-  borderRadius: 8,
-  background: 'var(--pink-warm)',
-  color: 'var(--anchor)',
-  fontFamily: 'var(--font-round), cursive',
-  fontSize: 14,
-  cursor: 'pointer',
-};
-
-const btnPrimary: React.CSSProperties = {
-  ...btnBase,
-  background: 'var(--pink-hot)',
-  color: 'var(--anchor)',
-};
-
-const btnSecondary: React.CSSProperties = {
-  ...btnBase,
-  background: 'var(--mizuiro)',
-};

@@ -1,10 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
+
+import { Menu } from '@/components/ui/Menu';
+import { IconChevron, IconCopy, IconLogout, IconUser, IconFeed } from '@/components/shell/icons';
+import styles from '@/components/shell/shell.module.css';
 
 function short(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+/// Deterministic two-tone avatar from the address so a wallet is recognizable at a glance.
+function avatarStyle(address: string): React.CSSProperties {
+  const h1 = parseInt(address.slice(2, 6), 16) % 360;
+  const h2 = (h1 + 60 + (parseInt(address.slice(6, 8), 16) % 120)) % 360;
+  return { background: `linear-gradient(135deg, hsl(${h1} 70% 60%), hsl(${h2} 70% 50%))` };
 }
 
 export function WalletButton() {
@@ -12,6 +24,7 @@ export function WalletButton() {
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const injected = connectors[0];
+  const [copied, setCopied] = useState(false);
 
   // Wagmi's connection state is client-only — the SSR render always shows disconnected,
   // but the client rehydrates with the persisted account. Rendering the account branch
@@ -22,56 +35,61 @@ export function WalletButton() {
 
   if (!mounted) {
     return (
-      <button
-        type="button"
-        className="uru-btn uru-btn-primary"
-        style={{
-          padding: '5px 12px',
-          fontSize: 12,
-        }}
-      >
-        <span aria-hidden style={{ marginRight: 4 }}>✿</span>
-        connect wallet
+      <button type="button" className={styles.connect}>
+        Connect wallet
       </button>
     );
   }
 
-  if (mounted && isConnected && address) {
+  if (isConnected && address) {
     return (
-      <button
-        type="button"
-        onClick={() => disconnect()}
-        title="click to disconnect ~~"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '5px 12px',
-          background: 'var(--cream-deep)',
-          color: 'var(--anchor)',
-          border: '1.5px solid var(--anchor)',
-          boxShadow: '2px 2px 0 var(--anchor)',
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 11,
-          fontWeight: 600,
-          cursor: 'pointer',
-          borderRadius: 4,
-          lineHeight: 1.1,
-        }}
+      <Menu
+        label="Wallet"
+        width={230}
+        trigger={(open) => (
+          <button type="button" className={styles.pill} aria-haspopup="menu" aria-expanded={open}>
+            <span className={styles.avatar} style={avatarStyle(address)} aria-hidden />
+            <span className={styles.mono}>{short(address)}</span>
+            <IconChevron />
+          </button>
+        )}
       >
-        <span
-          aria-hidden
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 999,
-            background: 'var(--mint)',
-            border: '1px solid var(--anchor)',
-            display: 'inline-block',
-          }}
-        />
-        {short(address)}
-      </button>
+        {(close) => (
+          <>
+            <div className="ui-menu-label">Connected</div>
+            <Link href={`/profile/${address}`} className="ui-menu-item" onClick={close}>
+              <IconUser /> Profile
+            </Link>
+            <Link href="/feed" className="ui-menu-item" onClick={close}>
+              <IconFeed /> Feed
+            </Link>
+            <button
+              type="button"
+              className="ui-menu-item"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(address);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                } catch {}
+              }}
+            >
+              <IconCopy /> {copied ? 'Copied' : 'Copy address'}
+            </button>
+            <div className="ui-menu-sep" />
+            <button
+              type="button"
+              className="ui-menu-item"
+              onClick={() => {
+                close();
+                disconnect();
+              }}
+            >
+              <IconLogout /> Disconnect
+            </button>
+          </>
+        )}
+      </Menu>
     );
   }
 
@@ -81,20 +99,9 @@ export function WalletButton() {
       type="button"
       onClick={() => injected && connect({ connector: injected })}
       disabled={disabled}
-      className="uru-btn uru-btn-primary"
-      style={{
-        padding: '5px 12px',
-        fontSize: 12,
-        opacity: disabled ? 0.55 : undefined,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
+      className={styles.connect}
     >
-      {isPending ? 'connecting..' : (
-        <>
-          <span aria-hidden style={{ marginRight: 4 }}>✿</span>
-          connect wallet
-        </>
-      )}
+      {isPending ? 'Connecting…' : 'Connect wallet'}
     </button>
   );
 }

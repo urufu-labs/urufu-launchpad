@@ -11,15 +11,18 @@
 /// per IP by default); the modal shows a distinct toast on 429 so the
 /// user knows to slow down instead of assuming their search "broke".
 ///
-/// Aesthetic: same kawaiicore shell language as FollowersModal /
-/// WelcomeModal — cream `uru-shell` card, dark border, offset shadow, esc /
-/// backdrop / X close.
+/// Aesthetic: global ui-overlay / ui-dialog look (same as FollowersModal),
+/// esc / backdrop / X close.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import Image from 'next/image';
 
 import { searchProfiles, type RemoteProfileSearchHit } from '@/lib/socialApi';
+import { IconSearch } from '@/components/shell/icons';
+import shellStyles from '@/components/shell/shell.module.css';
+import m from './UserSearchModal.module.css';
 
 // -------------------------- constants
 
@@ -85,45 +88,15 @@ export function UserSearchLauncher(): React.ReactElement {
       <button
         type="button"
         onClick={openModal}
-        aria-label="search users"
-        title="search people ( press / )"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '4px 10px',
-          background: 'var(--cream)',
-          color: 'var(--anchor)',
-          border: '1.5px solid var(--anchor)',
-          boxShadow: '2px 2px 0 var(--anchor)',
-          borderRadius: 999,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 11,
-          letterSpacing: '0.02em',
-          cursor: 'pointer',
-          lineHeight: 1,
-        }}
+        aria-label="Search people"
+        title="Search people (press /)"
+        className={shellStyles.searchBtn}
       >
-        <span aria-hidden>⌒</span>
-        <span>search</span>
-        {/* Compact kbd hint — hidden on very small viewports since screen space
-            is precious next to the wallet + chain switcher. */}
-        <kbd
-          className="hidden md:inline"
-          style={{
-            marginLeft: 4,
-            padding: '0 4px',
-            border: '1px solid var(--anchor-soft, var(--anchor))',
-            borderRadius: 4,
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            opacity: 0.7,
-          }}
-        >
-          /
-        </kbd>
+        <IconSearch />
+        <span>Search people</span>
+        <kbd>/</kbd>
       </button>
-      {open ? <UserSearchModal onClose={closeModal} /> : null}
+      {open ? createPortal(<UserSearchModal onClose={closeModal} />, document.body) : null}
     </>
   );
 }
@@ -201,68 +174,33 @@ function UserSearchModal({ onClose }: { onClose: () => void }): React.ReactEleme
       role="dialog"
       aria-modal="true"
       aria-label="find people"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(58, 44, 58, 0.45)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        zIndex: 100,
-        padding: '10vh 16px 16px',
-      }}
+      className={`ui-overlay ${m.overlay}`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="uru-shell"
-        style={{
-          background: 'var(--cream)',
-          width: '100%',
-          maxWidth: 480,
-          maxHeight: '75vh',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 0,
-        }}
+        className={`ui-dialog ${m.dialog}`}
       >
         {/* header strip: title + close */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '10px 14px',
-            borderBottom: '1.5px solid var(--anchor)',
-            background: 'var(--cream-deep)',
-          }}
-        >
-          <div className="uru-eyebrow" id="user-search-title">⌒ find people</div>
+        <div className={`ui-dialog-head ${m.head}`}>
+          <h2 className="ui-dialog-title" id="user-search-title">Find people</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="close"
-            style={{
-              fontFamily: 'var(--font-round), Klee One, cursive',
-              fontSize: 14,
-              padding: '2px 10px',
-              borderRadius: 999,
-              border: '1.5px solid var(--anchor)',
-              background: 'var(--cream)',
-              cursor: 'pointer',
-              lineHeight: 1,
-            }}
+            className={`ui-icon-btn ${m.close}`}
+            data-size="sm"
           >
             ×
           </button>
         </div>
 
         {/* input strip */}
-        <div style={{ padding: '10px 14px', borderBottom: '1px dashed var(--cream-shadow)' }}>
+        <div className={m.searchRow}>
           <input
             ref={inputRef}
             type="search"
-            className="uru-input"
-            placeholder="address, name, or @handle"
+            className="ui-input"
+            placeholder="Address, name or @handle"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             spellCheck={false}
@@ -275,24 +213,16 @@ function UserSearchModal({ onClose }: { onClose: () => void }): React.ReactEleme
               the results list. Kept lightweight so it doesn't compete with
               the input visually. */}
           {toast ? (
-            <div
-              role="status"
-              style={{
-                marginTop: 8,
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 11,
-                color: toast.kind === 'rate-limited' ? 'var(--pink-hot)' : 'var(--anchor-soft)',
-              }}
-            >
+            <div role="status" className={m.toast} data-kind={toast.kind}>
               {toast.kind === 'rate-limited'
-                ? 'too fast ~ try again in a sec'
-                : 'search hiccup ~ try again'}
+                ? 'Too many searches. Try again in a moment.'
+                : 'Search failed. Please try again.'}
             </div>
           ) : null}
         </div>
 
         {/* results body */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div className={m.body}>
           <ResultsList
             q={debouncedQ}
             loading={loading}
@@ -318,36 +248,28 @@ function ResultsList({
   results: RemoteProfileSearchHit[] | null;
   onPick: () => void;
 }): React.ReactElement {
-  const emptyStyle: React.CSSProperties = {
-    padding: 24,
-    textAlign: 'center',
-    color: 'var(--anchor-soft)',
-    fontSize: 12,
-    fontFamily: 'var(--font-pixel), monospace',
-  };
-
   // Below-min: prompt copy. Server + client both short-circuit sub-2-char
   // queries, so the modal never renders "loading" for those.
   if (q.length < MIN_SEARCH_LEN) {
-    return <div style={emptyStyle}>type an address, name, or @handle</div>;
+    return <div className={m.empty}>Type an address, name or @handle.</div>;
   }
   if (loading && results === null) {
     return (
-      <div style={emptyStyle} aria-live="polite">
-        looking..
+      <div className={m.empty} aria-live="polite">
+        Searching…
       </div>
     );
   }
   if (results !== null && results.length === 0) {
-    return <div style={emptyStyle}>no one matches ~</div>;
+    return <div className={m.empty}>No one matches that search.</div>;
   }
   if (results === null) {
     // shouldn't happen — but if it does, render the same "type" state so
     // the modal never sits blank.
-    return <div style={emptyStyle}>type an address, name, or @handle</div>;
+    return <div className={m.empty}>Type an address, name or @handle.</div>;
   }
   return (
-    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+    <ul className={m.list}>
       {results.map((hit) => (
         <SearchResultRow key={hit.address} hit={hit} onPick={onPick} />
       ))}
@@ -377,42 +299,16 @@ function SearchResultRow({
       <Link
         href={`/profile/${hit.address}`}
         onClick={onPick}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '8px 14px',
-          borderBottom: '1px dashed var(--cream-shadow)',
-          textDecoration: 'none',
-          color: 'var(--anchor)',
-        }}
+        className={m.row}
       >
         {/* avatar */}
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            background: 'var(--pink-warm)',
-            border: '1.5px solid var(--anchor)',
-            overflow: 'hidden',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 13,
-            fontWeight: 700,
-            position: 'relative',
-          }}
-        >
+        <div className={m.avatar}>
           {avatar ? (
             <Image
               src={avatar}
               alt=""
-              width={32}
-              height={32}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              width={36}
+              height={36}
             />
           ) : (
             label.slice(0, 1).toUpperCase()
@@ -420,20 +316,9 @@ function SearchResultRow({
         </div>
 
         {/* name + handle + short-address */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              flexWrap: 'wrap',
-              fontFamily: 'var(--font-round), Klee One, cursive',
-              fontSize: 14,
-              fontWeight: 600,
-              lineHeight: 1.2,
-            }}
-          >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div className={m.text}>
+          <div className={m.nameRow}>
+            <span className={m.name}>
               {label}
             </span>
             {hit.xVerifiedHandle ? (
@@ -442,16 +327,7 @@ function SearchResultRow({
               <UnverifiedHandlePill value={hit.twitter} />
             ) : null}
           </div>
-          <div
-            className="uru-num"
-            style={{
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10,
-              color: 'var(--anchor-soft)',
-              lineHeight: 1.3,
-              marginTop: 2,
-            }}
-          >
+          <div className={m.address}>
             {short}
           </div>
         </div>
@@ -462,25 +338,15 @@ function SearchResultRow({
 
 // -------------------------- handle badges
 
-/// Mint pill with a ✓ — same visual language as the profile page's
+/// Badge with a ✓ — same visual language as the profile page's
 /// XVerifiedBadge but non-anchor (the whole row is a Link already; nesting
 /// an <a> inside another Link would break router navigation and hydration).
 function VerifiedHandlePill({ handle }: { handle: string }): React.ReactElement {
   return (
     <span
-      title="verified X account"
-      style={{
-        padding: '1px 6px',
-        fontSize: 10,
-        fontFamily: 'var(--font-pixel), monospace',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 3,
-        background: 'var(--mint)',
-        color: 'var(--mint-hot,#2b8a3e)',
-        border: '1px solid var(--anchor)',
-        borderRadius: 4,
-      }}
+      title="Verified X account"
+      className="ui-badge"
+      data-tone="info"
     >
       @{handle} <span aria-hidden>✓</span>
       <span className="sr-only">verified</span>
@@ -499,18 +365,8 @@ function UnverifiedHandlePill({ value }: { value: string }): React.ReactElement 
     .split(/[/?#]/)[0];
   return (
     <span
-      title="self-declared handle, not verified"
-      style={{
-        padding: '1px 6px',
-        fontSize: 10,
-        fontFamily: 'var(--font-pixel), monospace',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 3,
-        border: '1px dashed var(--anchor-soft)',
-        color: 'var(--anchor-soft)',
-        borderRadius: 4,
-      }}
+      title="Self-declared handle, not verified"
+      className="ui-badge"
     >
       @{display || value} (unverified)
     </span>

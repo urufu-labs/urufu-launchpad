@@ -1,19 +1,20 @@
-/* NFT launch studio — mirrors create-studio.module.css structure so the
-   NFT page reads as the same product surface as the ERC-20 launcher: two-
-   column workbench, sticky preview rail, kawaii scrapbook framing. Fewer
-   sections than the token studio because NFT config is smaller (no module
-   cart, no bonding-curve math), so we skip the progress rail. */
+/* NFT + DN404 launch studios (shared module).
+   Two-column workbench: form panels on the left, sticky preview + launch
+   rail on the right. Built on the global ui-* primitives (ui-input, ui-seg,
+   ui-btn, ui-badge); this file only adds layout and the studio-specific
+   pieces (option cards, tier cards, preview card). */
 
 .studio {
-  width: min(100% - 24px, 1120px);
-  margin: 14px auto 28px;
-  color: var(--anchor);
+  width: min(100% - 32px, 1120px);
+  margin: 24px auto 56px;
+  color: var(--fg);
+  font-family: var(--font-sans);
 }
 
 .workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22rem;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -25,46 +26,66 @@
 
 .launchRail {
   position: sticky;
-  top: 14px;
+  top: 16px;
   align-self: start;
   display: grid;
-  gap: 14px;
-}
-
-.section {
-  position: relative;
-}
-
-.sectionHead {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.sectionEye {
-  color: var(--anchor);
-  opacity: 0.65;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
+  gap: 16px;
   min-width: 0;
 }
 
-.field:last-child {
-  margin-bottom: 0;
+/* --- Panels --- */
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  min-width: 0;
 }
 
-/* Force every input/select inside a .field to inherit the field's width
-   instead of falling back to the browser default (size="20"), which is
-   what was making paired inputs render at slightly different widths when
-   placeholders differed in length. */
-.field > .uru-input,
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panelHeadText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+  line-height: 1.3;
+}
+
+.panelSub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.panelBody {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  min-width: 0;
+}
+
+/* --- Fields --- */
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
 .field > input,
 .field > select,
 .field > textarea {
@@ -77,102 +98,121 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--anchor);
-  opacity: 0.85;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 .fieldHint {
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 11px;
-  color: var(--anchor-soft, var(--anchor));
-  opacity: 0.75;
-  margin-top: 2px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.fieldHint b,
+.fieldHint strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.fieldError {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--sell);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .rowInputs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 16px;
 }
 
-/* Fixed-column variant for pairs of SHORT-value inputs (mint price + step,
-   ticker + supply, chain + min-held). Two equal columns of a fixed width,
-   left-aligned in the shell so the un-used space collects on the right.
-   Avoids the "one box magically wider than the other" look that a 1fr 1fr
-   grid gives when the inputs are short and left-aligned inside the cell. */
-.rowInputsShort {
-  display: grid;
-  grid-template-columns: 220px 220px;
-  gap: 14px;
-}
-
-/* Even tighter — for a pair of 1-4 digit fields (min held + WL window). */
-.rowInputsTight {
-  display: grid;
-  grid-template-columns: 160px 160px;
-  gap: 14px;
-}
-
-/* Single-field variant of the same width, for a lone short input (WL
-   window in minutes) so it stops stretching to the shell edge. */
 .shortField {
-  max-width: 220px;
+  max-width: 260px;
 }
 
 .tinyField {
-  max-width: 160px;
+  max-width: 200px;
 }
 
-.modeRow {
+.hiddenInput {
+  display: none;
+}
+
+.textareaMono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* --- Option groups (ui-seg rows) --- */
+.optionGroups {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 16px 24px;
+}
+
+.optionGroup {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.seg {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.seg button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13.5px;
+}
+
+/* --- Option cards (many choices, e.g. DN404 tax modes) --- */
+.optionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.optionCard {
+  display: flex;
   align-items: center;
-  margin-bottom: 14px;
-}
-
-/* Small vertical rule between logical groups of chips inside a modeRow
-   (e.g. between "fixed / linear" and "pay ETH / pay URU"). Purely
-   visual; screen readers ignore. */
-.modeRowDivider {
-  width: 1px;
-  align-self: stretch;
-  margin: 4px 4px;
-  background: color-mix(in srgb, var(--anchor) 20%, transparent);
-}
-
-.modeChip {
-  padding: 6px 14px;
-  background: var(--paper-white, #fff);
-  color: var(--anchor);
-  border: 1.5px solid var(--anchor);
-  border-radius: 4px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
-  font-family: var(--font-round), "Klee One", cursive;
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
-  box-shadow: 2px 2px 0 var(--anchor);
-  transition: transform 80ms steps(2), box-shadow 80ms steps(2), background 100ms;
+  transition: border-color 120ms, background 120ms;
 }
 
-.modeChip:hover {
-  background: var(--pink-warm);
+.optionCard:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
 }
 
-.modeChip[data-active="true"] {
-  background: var(--pink-hot);
-  color: #fff;
+.optionCard[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
-.modeChip:active {
-  transform: translate(2px, 2px);
-  box-shadow: 0 0 0 var(--anchor);
+.optionCard:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* --- Cover image picker --- */
@@ -183,29 +223,41 @@
   flex-wrap: wrap;
 }
 
-.coverRemove {
-  background: transparent;
-  border: 1.5px solid var(--anchor);
-  padding: 4px 10px;
-  cursor: pointer;
-  color: var(--anchor);
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 12px;
-  border-radius: 4px;
+/* --- Inline number + unit rows (discount tiers) --- */
+.inlineRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
 }
 
-.coverRemove:hover {
-  background: var(--pink-warm);
+.inlineGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+
+.inlineGroup input {
+  width: 88px;
+  flex: none;
 }
 
 /* --- Tier cards --- */
+.tierList {
+  display: grid;
+  gap: 12px;
+}
+
 .tierCard {
-  position: relative;
-  padding: 12px;
-  border: 1.5px dashed var(--anchor);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--cream) 60%, transparent);
-  margin-bottom: 10px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  min-width: 0;
 }
 
 .tierHead {
@@ -213,17 +265,16 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
 }
 
-.tierKindRow {
-  display: flex;
-  gap: 4px;
+.tierLabelInput {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .tierBody {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tierFieldRow {
@@ -239,225 +290,245 @@
 }
 
 .chainSelect {
-  flex: 0 0 130px !important;
+  flex: 0 0 150px !important;
 }
 
-.addTierBtn {
-  align-self: flex-start;
-  padding: 6px 12px;
-  background: var(--paper-white, #fff);
-  color: var(--anchor);
-  border: 1.5px dashed var(--anchor);
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.addTierBtn:hover {
-  background: var(--pink-warm);
+.addTierRow {
+  display: flex;
 }
 
 /* --- Preview rail --- */
 .preview {
-  position: relative;
-  border: 2px double var(--anchor);
-  border-radius: 6px;
-  background:
-    linear-gradient(135deg, rgba(189, 224, 254, 0.12), transparent 42%),
-    var(--card);
-  padding: 12px;
-  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  overflow: hidden;
 }
 
-.preview::before {
-  position: absolute;
-  inset: 7px;
-  border: 1px dashed color-mix(in srgb, var(--anchor) 20%, transparent);
-  border-radius: 3px;
-  content: "";
-  pointer-events: none;
-}
-
-.previewTopline {
-  position: relative;
-  z-index: 1;
+.previewHead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.previewTopline span {
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--anchor-soft, var(--anchor));
-  opacity: 0.7;
-}
-
-.previewTopline b {
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--pink-hot);
+.previewHeadTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .previewArt {
-  position: relative;
-  z-index: 1;
   display: grid;
   aspect-ratio: 1;
   width: 100%;
   place-items: center;
-  border: 2px solid var(--anchor);
-  border-radius: 6px;
-  background:
-    linear-gradient(135deg, var(--pink-warm), var(--mizuiro-deep, var(--mizuiro)) 52%, var(--mint));
+  background: var(--surface-2);
   background-position: center;
   background-size: cover;
-  box-shadow: 3px 3px 0 var(--anchor);
-  color: var(--anchor);
-  font-family: var(--font-display), "Yusei Magic", cursive;
-  font-size: 28px;
+  border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
 
-.previewArt span {
-  border: 1px solid var(--anchor);
-  background: color-mix(in srgb, var(--cream) 82%, transparent);
-  padding: 5px 9px;
-  transform: rotate(-4deg);
-  font-size: 20px;
-  text-align: center;
+.previewArtEmpty {
   max-width: 80%;
-}
-
-.previewTicket {
-  position: relative;
-  z-index: 1;
-  margin-top: 12px;
-  border: 1.5px solid var(--anchor);
-  background: color-mix(in srgb, var(--cream) 88%, transparent);
-  padding: 11px;
-}
-
-.previewTicket b {
-  display: block;
-  color: var(--anchor);
-  font-family: var(--font-display), "Yusei Magic", cursive;
-  font-size: 20px;
-  font-weight: 400;
-  line-height: 1;
-}
-
-.previewTicket dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 8px;
-  row-gap: 4px;
-  margin: 10px 0 0;
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 12px;
-}
-
-.previewTicket dt {
-  color: var(--anchor-soft, var(--anchor));
-  opacity: 0.7;
-  text-transform: lowercase;
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  align-self: center;
-}
-
-.previewTicket dd {
-  margin: 0;
-  color: var(--anchor);
-  font-weight: 700;
+  font-size: 14px;
+  color: var(--fg-faint);
+  text-align: center;
   overflow-wrap: anywhere;
 }
 
-.launchCta {
-  display: grid;
-  gap: 8px;
+.previewBody {
+  padding: 16px;
 }
 
-.launchCta button {
-  width: 100%;
-  justify-content: center;
+.previewTicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.previewName {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.previewList {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.previewList dt {
+  color: var(--fg-muted);
+}
+
+.previewList dd {
+  margin: 0;
+  color: var(--fg);
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* --- Launch box --- */
+.launchCta {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+
+.feeRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.feeRow span {
+  color: var(--fg-muted);
+}
+
+.feeRow b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 .reasonNote {
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 11px;
-  color: var(--anchor-soft, var(--anchor));
-  opacity: 0.85;
-  text-align: center;
-  line-height: 1.4;
-}
-
-/* --- Tape decorations on the preview art top-right --- */
-.previewTape {
-  position: absolute;
-  top: 10px;
-  right: -12px;
-  width: 100px;
-  height: 22px;
-  transform: rotate(11deg);
-  z-index: 2;
-}
-
-/* --- Not-live pane --- */
-.warnPane {
-  border: 1.5px solid var(--pink-hot);
-  background: color-mix(in srgb, var(--pink-warm) 40%, transparent);
-  padding: 12px 14px;
-  border-radius: 6px;
-  font-family: var(--font-round), "Klee One", cursive;
+  margin: 0;
   font-size: 13px;
-  color: var(--anchor);
+  line-height: 1.5;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.errorNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--sell-soft);
+  color: var(--sell);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.successNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--info-soft);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.successNote a {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.altLink {
+  justify-self: center;
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.altLink:hover {
+  color: var(--fg);
+}
+
+/* --- Wrong-chain warning --- */
+.warnPane {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.warnPane b {
+  font-weight: 700;
 }
 
 /* --- Header block --- */
 .hero {
   display: grid;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 0;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.heroEyebrow {
+  margin: 0 0 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .heroTitle {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 14px;
   flex-wrap: wrap;
 }
 
 .heroTitle .uruH1 {
-  font-family: var(--font-display), "Yusei Magic", cursive;
+  margin: 0;
+  font-family: var(--font-display);
   font-weight: 400;
-  color: var(--anchor);
-  font-size: clamp(24px, 5vw, 34px);
-  line-height: 1.15;
+  color: var(--fg);
+  font-size: clamp(36px, 4.6vw, 58px);
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .heroSub {
-  font-family: var(--font-round), "Klee One", cursive;
-  font-size: 13px;
-  color: var(--anchor);
-  opacity: 0.85;
-  max-width: 620px;
-  line-height: 1.5;
+  margin: 12px 0 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--fg-muted);
+  max-width: 62ch;
+  line-height: 1.6;
 }
 
 .heroSub a {
-  color: var(--pink-hot);
+  color: var(--info);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* --- Responsive --- */
-@media (max-width: 900px) {
+@media (max-width: 860px) {
   .workbench {
     grid-template-columns: 1fr;
   }
@@ -466,54 +537,28 @@
     position: static;
   }
 
-  .rowInputs,
-  .rowInputsShort,
-  .rowInputsTight {
+  .rowInputs {
     grid-template-columns: 1fr;
+  }
+
+  .shortField,
+  .tinyField {
+    max-width: none;
   }
 }
 
 @media (max-width: 640px) {
   .studio {
-    width: min(100% - 12px, 1120px);
-    margin-top: 10px;
+    margin-top: 16px;
   }
-}
 
-/* --- Dark theme retunes --- */
-:root[data-theme="dark"] .tierCard {
-  background: rgba(36, 28, 48, 0.5);
-  border-color: rgba(255, 248, 231, 0.5);
-}
+  .panelHead,
+  .panelBody {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
 
-:root[data-theme="dark"] .preview {
-  border-color: #fff8e7;
-  background: rgba(36, 28, 48, 0.9);
-  box-shadow: 4px 4px 0 rgba(255, 136, 179, 0.34);
-}
-
-:root[data-theme="dark"] .preview::before {
-  border-color: rgba(255, 248, 231, 0.22);
-}
-
-:root[data-theme="dark"] .previewTicket,
-:root[data-theme="dark"] .previewArt span {
-  border-color: rgba(255, 248, 231, 0.5);
-  background: rgba(18, 14, 28, 0.52);
-  color: #fff8e7;
-}
-
-:root[data-theme="dark"] .modeChip {
-  background: rgba(36, 28, 48, 0.7);
-  color: #fff8e7;
-}
-
-:root[data-theme="dark"] .modeChip[data-active="true"] {
-  background: var(--pink-hot);
-}
-
-:root[data-theme="dark"] .addTierBtn {
-  background: rgba(36, 28, 48, 0.6);
-  color: #fff8e7;
-  border-color: rgba(255, 248, 231, 0.6);
+  .chainSelect {
+    flex: 1 1 100% !important;
+  }
 }

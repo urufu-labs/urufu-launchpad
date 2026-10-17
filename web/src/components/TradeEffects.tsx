@@ -5,13 +5,14 @@ import { formatEther, formatUnits } from 'viem';
 import { useSignMessage } from 'wagmi';
 
 import { fetchChat, postChat } from '@/lib/socialApi';
+import chatStyles from './chat-drawer.module.css';
 
 // ============================================================================
 // Small effects + helpers used by the trade page. Kept here so the page file
 // stays focused on data + layout.
 // ============================================================================
 
-/// Scrolling ticker of recent trades. Shows "BUY 0.5 ETH → 1.2M SYM ✿ 0x…" style
+/// Scrolling ticker of recent trades. Shows "BUY 0.5 ETH → 1.2M SYM 0x…" style
 /// entries colored by side. If no trades yet, shows a friendly filler.
 export function TradeTicker({
   trades,
@@ -29,9 +30,9 @@ export function TradeTicker({
   const entries = useMemo(() => {
     if (trades.length === 0) {
       return [
-        { key: 'idle-1', side: 'buy' as const, text: 'waiting for the first buy' },
-        { key: 'idle-2', side: 'sell' as const, text: 'curve prints once trading starts' },
-        { key: 'idle-3', side: 'buy' as const, text: 'paste a live token or open a release' },
+        { key: 'idle-1', side: 'buy' as const, text: 'Waiting for the first buy' },
+        { key: 'idle-2', side: 'sell' as const, text: 'Trades show up here as they land' },
+        { key: 'idle-3', side: 'buy' as const, text: 'Be the first to buy' },
       ];
     }
     return trades.slice(0, 20).map((t, i) => {
@@ -110,7 +111,7 @@ export function QuickAmounts({
   );
 }
 
-/// One-tap copy button for a contract address. Flips label to "copied ✿" for 1.4s.
+/// One-tap copy button for a contract address. Flips label to "copied" for 1.4s.
 export function CopyCA({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
   const onClick = async () => {
@@ -125,10 +126,10 @@ export function CopyCA({ address }: { address: string }) {
       type="button"
       onClick={onClick}
       className="uru-chip"
-      style={{ background: copied ? 'var(--mint)' : undefined }}
+      style={{ background: copied ? 'var(--surface-3)' : undefined }}
       aria-label="copy contract address"
     >
-      {copied ? 'copied ✿' : `copy CA ⧉`}
+      {copied ? 'copied' : `copy CA ⧉`}
     </button>
   );
 }
@@ -316,64 +317,40 @@ export function ChatDrawer({
   };
 
   return (
-    <div className="uru-shell uru-shell-tight">
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div className="uru-eyebrow">✿ chat</div>
-        <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-          {messages.length} msg{messages.length === 1 ? '' : 's'} ~ ur {senderName}
+    <div className={chatStyles.chat}>
+      <div className={chatStyles.head}>
+        <span className={chatStyles.label}>Chat</span>
+        <span className={chatStyles.meta}>
+          {messages.length} message{messages.length === 1 ? '' : 's'} · posting as <b>{senderName}</b>
         </span>
       </div>
 
-      <div
-        ref={listRef}
-        style={{
-          maxHeight: 220,
-          overflowY: 'auto',
-          padding: 6,
-          background: 'var(--cream-deep)',
-          border: '1.5px dashed var(--anchor)',
-          display: 'grid',
-          gap: 4,
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 12,
-          lineHeight: 1.35,
-        }}
-      >
+      <div ref={listRef} className={chatStyles.list}>
         {messages.length === 0 ? (
-          <div style={{ padding: 12, textAlign: 'center', color: 'var(--anchor-soft)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
-            no msgs yet ~~ break the silence ✿
-          </div>
+          <div className={chatStyles.empty}>No messages yet. Say hi.</div>
         ) : (
           messages.map((m, i) => (
-            <div
-              key={m.id}
-              className={i === messages.length - 1 ? 'uru-slide-in' : ''}
-              style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}
-            >
-              <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--pink-hot)', flexShrink: 0 }}>
-                {m.sender}
-              </span>
-              <span style={{ color: 'var(--anchor)', wordBreak: 'break-word', minWidth: 0 }}>{m.text}</span>
-              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', flexShrink: 0 }}>
-                {formatAgo(m.ts)}
-              </span>
+            <div key={m.id} className={`${chatStyles.msg} ${i === messages.length - 1 ? 'uru-slide-in' : ''}`}>
+              <span className={chatStyles.sender}>{m.sender}</span>
+              <span className={chatStyles.text}>{m.text}</span>
+              <span className={chatStyles.when}>{formatAgo(m.ts)}</span>
             </div>
           ))
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+      <div className={chatStyles.compose}>
         <input
-          className="uru-input"
+          className={chatStyles.input}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } }}
-          placeholder="say something ~"
+          placeholder="Say something"
+          aria-label="Chat message"
           maxLength={280}
-          style={{ flex: 1 }}
         />
-        <button type="button" onClick={send} className="uru-btn uru-btn-primary" style={{ padding: '4px 12px', fontSize: 12 }}>
-          send ✿
+        <button type="button" onClick={send} disabled={posting} className="ui-btn" data-variant="primary" data-size="lg">
+          Send
         </button>
       </div>
     </div>

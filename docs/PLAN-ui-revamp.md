@@ -153,7 +153,27 @@ _Status 2026-10-16: first pass built in `docs/mockups/v2/` (home, trade, create)
 - Pick fonts and finalize the token table from the mockups.
 - **Exit:** you approve the mockups. Nothing ships before this.
 
-### Phase 1: Foundation (invisible to users)
+### Phase 1: Foundation
+_Status 2026-10-16: done on branch `ui-revamp`. What landed:_
+- _`web/src/styles/tokens.css`: role tokens (light default + dark) and the legacy alias block. Old
+  color and font names (`--cream`, `--anchor`, `--pink-hot`, `--font-pixel`, ...) now resolve to v2
+  roles, so every page re-skinned at once with no per-page edits._
+- _Shared `.uru-*` classes in `globals.css` restyled flat (hairline panels, v2 buttons/inputs/chips,
+  stamps as badges, tape hidden). The hardcoded plum dark-mode overrides for home were removed._
+- _Mechanical sweep across CSS modules and inline styles: thick ink borders became `1px solid
+  var(--line)`, offset sticker shadows became none. Style strings only._
+- _Fonts: Hanken Grotesk + JetBrains Mono via `next/font`; five novelty faces dropped._
+- _`theme-bootstrap.js`: light default kept; `?theme=dark|light` forces a theme for screenshots._
+- _GSAP 3.13 + `@gsap/react`. Primitives and motion helpers live in `web/src/components/ui/`
+  (not `lib/`, which stays logic-only) with styles in `web/src/styles/ui.css`._
+- _`/ui-kit` gallery (404 in production unless `NEXT_PUBLIC_SHOW_UI_KIT=1`)._
+- _TradeChart reads its canvas colors from tokens and repaints on theme change (fixes the cream
+  chart in dark mode)._
+
+_Known leftovers for later phases: small text that used the pixel font at 9 to 10px is now tiny
+sans; lowercase copy everywhere; per-page layouts unchanged._
+
+Original scope:
 - `web/src/styles/tokens.css`: new role tokens for both themes, plus an **alias layer**
   (`--cream: var(--surface-1)`, `--anchor: var(--fg)`, `--pink-hot: var(--accent)`, ...) so the 828
   inline styles keep rendering while pages migrate one at a time.
@@ -170,6 +190,16 @@ _Status 2026-10-16: first pass built in `docs/mockups/v2/` (home, trade, create)
 - A `/_ui` route (dev only) that renders every primitive in both themes for review.
 
 ### Phase 2: App shell
+_Status 2026-10-16: done on `ui-revamp` (uncommitted). `components/shell/` holds SiteHeader, SettingsMenu,
+SiteFooter, MobileTabBar and icons; `components/ui/Menu.tsx` is the shared popover. Header: Explore,
+Trade, Launch menu (token / NFT / DN404), Feed, Flywheel, search, USD/ETH, chain, settings, wallet.
+Wallet menu adds Profile, Feed, Copy address, Disconnect. Settings holds dark mode, sound and the
+cursor buddy (now opt-in, off by default) plus docs/options/recover and external links. Ticker hides
+when empty. Mobile: bottom tab bar + a full-height menu sheet portaled to body. Logo + favicon come
+from wolf #0598 via `web/scripts/make-brand-icons.py`. Header is solid (no backdrop-filter) so fixed
+children are not clipped._
+
+Original scope:
 - Header: logo, 4 primary links (Launch, Explore, Trade, Flywheel), Cmd+K search (reuses
   `UserSearchModal` logic, extended to tokens), then a right cluster: price unit, chain, wallet.
   Theme/audio/cursor move into a small settings menu. Feed and profile live under the wallet menu.

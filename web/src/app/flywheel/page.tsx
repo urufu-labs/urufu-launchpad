@@ -28,6 +28,8 @@ import {
   type FlywheelActivityRow,
 } from '@/lib/indexer';
 
+import styles from './flywheel.module.css';
+
 const CHAIN: ChainKey = 'robinhood';
 const CHAIN_ID = CHAIN_KEY_TO_ID[CHAIN] as WagmiChainId;
 
@@ -146,150 +148,115 @@ export default function FlywheelPage() {
   }, [lifetimeTotals]);
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
-      <header style={{ marginBottom: 16 }}>
-        <h1
-          className="uru-h1"
-          style={{ fontSize: 26, fontFamily: 'var(--font-round), cursive' }}
-        >
-          ✿ where launch fees go
-        </h1>
-        <p style={{ color: 'var(--anchor-soft)', fontSize: 13, margin: '4px 0 0 0' }}>
-          every fee paid to launch a token gets split three ways. this page shows the
-          current split live from the contracts.
-        </p>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div>
+          <p className={styles.eyebrow}>Flywheel</p>
+          <h1 className={styles.title}>Where launch fees go</h1>
+          <p className={styles.lede}>
+            Every fee paid on urufu labs is split three ways. The numbers on this page are read live
+            from the contracts.
+          </p>
+        </div>
+        <span className={styles.liveTag}><span className={styles.liveDot} aria-hidden />Live on Robinhood</span>
       </header>
 
       {!feeSplitter && (
-        <div className="uru-shell" style={{ padding: 12, marginBottom: 16 }}>
-          fee split isn&apos;t live yet. check back after the next deploy ~
-        </div>
+        <p className={`${styles.panel} ${styles.state}`}>
+          The fee split isn&apos;t live yet. Check back after the next deploy.
+        </p>
       )}
 
       {feeSplitter && parsed && (
         <>
-          {/* "In the vault right now" — reads on-chain vault balance every
-              10s (useBalance auto-polls) so real users always see how much
-              ETH is currently in the gemu-holder reward pool + URU-buyback
-              pool. Reads from-chain, so display is independent of the
-              FLYWHEEL_HISTORY_START_BLOCK filter that zeros the lifetime
-              tiles below on launch day — meaning pre-launch dev-test
-              deposits DO surface here (they're real ETH in the pot). */}
-          <section
-            className="uru-shell"
-            style={{
-              padding: 16,
-              marginBottom: 12,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 12,
-            }}
-          >
-            <VaultBalanceTile
-              label="gemu rewards pool (on-chain)"
-              vaultAddress={nftRevenueVault}
-              tint="var(--mint-hot)"
-            />
-            <VaultBalanceTile
-              label="URU buyback pool (on-chain)"
-              vaultAddress={uruBuybackVault}
-              tint="var(--pink-hot)"
-            />
-          </section>
-
-          {/* Lifetime totals row — post-launch aggregates. Filtered by
-              FLYWHEEL_HISTORY_START_BLOCK so dev-test activity doesn't
-              inflate the launch-day numbers real users see. */}
-          <section
-            className="uru-shell"
-            style={{
-              padding: 16,
-              marginBottom: 12,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 12,
-            }}
-          >
-            <TotalTile
-              label="URU bought back (since launch)"
-              value={totals ? formatBig(totals.uruBoughtBack, 'URU') : '—'}
-              tint="var(--pink-hot)"
-            />
-            <TotalTile
-              label="paid to gemu holders (since launch)"
-              value={totals ? formatBig(totals.ethToGemu, 'ETH') : '—'}
-              tint="var(--mint-hot)"
-            />
-            <TotalTile
-              label="paid to team + ops (since launch)"
-              value={totals ? formatBig(totals.ethToTeam, 'ETH') : '—'}
-              tint="var(--yolk-deep)"
-            />
-          </section>
-
-          {/* Current split — one compact bar + a caption line. Way lighter
-              than the earlier three-row SinkRow list; the labels + %s in the
-              caption are enough since the totals above show the effect. */}
-          <section
-            className="uru-shell"
-            style={{ padding: 14, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
-          >
-            <header style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span aria-hidden style={{ fontSize: 15 }}>♡</span>
-              <h2 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
-                the split right now
-              </h2>
-            </header>
-            <SplitBar
-              parts={[
-                { label: 'URU buyback', bps: parsed.uruBps, color: 'var(--pink-hot)' },
-                { label: 'gemu rewards', bps: parsed.nftBps, color: 'var(--mint-hot)' },
-                { label: 'team + ops', bps: parsed.treasuryBps, color: 'var(--yolk-deep)' },
-              ]}
-            />
-            <div style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>
-              <b>{parsed.uruBps / 100}%</b> URU buyback ·{' '}
-              <b>{parsed.nftBps / 100}%</b> gemu rewards ·{' '}
-              <b>{parsed.treasuryBps / 100}%</b> team + ops
+          {/* Current split: one bar plus the three shares as big numbers. */}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <h2 className={styles.panelTitle}>The split right now</h2>
+              <p className={styles.panelSub}>Applies to every launch fee</p>
+            </div>
+            <div className={styles.split}>
+              <SplitBar
+                parts={[
+                  { label: 'URU buyback', bps: parsed.uruBps, color: 'var(--accent)' },
+                  { label: 'gemu rewards', bps: parsed.nftBps, color: 'var(--fg)' },
+                  { label: 'team + ops', bps: parsed.treasuryBps, color: 'var(--fg-faint)' },
+                ]}
+              />
+              {/* Columns sized like the bar segments so each number sits under its slice. */}
+              <div
+                className={styles.legend}
+                style={{ gridTemplateColumns: `${parsed.uruBps || 1}fr ${parsed.nftBps || 1}fr ${parsed.treasuryBps || 1}fr` }}
+              >
+                <LegendItem pct={parsed.uruBps / 100} color="var(--accent)" label="URU buyback" note="Buys URU on the open market." />
+                <LegendItem pct={parsed.nftBps / 100} color="var(--fg)" label="gemu rewards" note="Paid out to urufu gemu nft holders." />
+                <LegendItem pct={parsed.treasuryBps / 100} color="var(--fg-faint)" label="Team + ops" note="Keeps the lights on." />
+              </div>
             </div>
           </section>
 
-          {/* Pending timelock card — only when there's actually one queued. */}
+          {/* Pending timelock card, only when one is queued. */}
           {hasPending && (
-            <section
-              className="uru-shell"
-              style={{
-                padding: 14,
-                marginBottom: 12,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                background: pendingReady ? 'var(--mint)' : 'var(--yolk)',
-              }}
-            >
-              <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span aria-hidden style={{ fontSize: 15 }}>{pendingReady ? '✿' : '⏳'}</span>
-                <strong style={{ fontFamily: 'var(--font-round), cursive', fontSize: 14 }}>
-                  {pendingReady ? 'new split ready to activate' : 'new split coming soon'}
-                </strong>
-              </header>
-              <p style={{ margin: 0, fontSize: 12 }}>
+            <section className={styles.pending} data-ready={pendingReady ? 'true' : 'false'}>
+              <strong>{pendingReady ? 'A new split is ready to activate' : 'A new split is coming'}</strong>
+              <p>
                 {pendingReady
-                  ? <>timelock ended{' '}
-                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. next launch fee
-                    after the owner activates: </>
-                  : <>new split takes effect{' '}
-                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. after that: </>}
+                  ? <>The waiting period ended{' '}
+                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. Once the owner activates it, the next
+                    fees go: </>
+                  : <>The new split takes effect{' '}
+                    <b>{new Date(pendingReadyAt * 1000).toLocaleString()}</b>. After that: </>}
                 <b>{parsed.pending![3] / 100}%</b> URU buyback,{' '}
                 <b>{parsed.pending![4] / 100}%</b> gemu rewards,{' '}
                 <b>{parsed.pending![5] / 100}%</b> team + ops.
               </p>
             </section>
           )}
+
+          <div className={styles.tilesPair}>
+            {/* On-chain vault balances, polled every 10s. Independent of the
+                FLYWHEEL_HISTORY_START_BLOCK filter, so pre-launch deposits show. */}
+            <section className={styles.panel}>
+              <div className={styles.panelHead}>
+                <h2 className={styles.panelTitle}>In the pools now</h2>
+                <p className={styles.panelSub}>Updates every 10s</p>
+              </div>
+              <div className={styles.tiles} style={{ marginTop: 14 }}>
+                <VaultBalanceTile label="gemu rewards" vaultAddress={nftRevenueVault} tint="var(--fg)" />
+                <VaultBalanceTile label="URU buyback" vaultAddress={uruBuybackVault} tint="var(--accent)" />
+              </div>
+            </section>
+
+            {/* Lifetime totals, filtered by FLYWHEEL_HISTORY_START_BLOCK. */}
+            <section className={styles.panel}>
+              <div className={styles.panelHead}>
+                <h2 className={styles.panelTitle}>Since launch</h2>
+                <p className={styles.panelSub}>All time</p>
+              </div>
+              <div className={styles.tiles} style={{ marginTop: 14 }}>
+                <TotalTile label="URU bought back" value={totals ? formatBig(totals.uruBoughtBack, 'URU') : '—'} tint="var(--accent)" />
+                <TotalTile label="To gemu holders" value={totals ? formatBig(totals.ethToGemu, 'ETH') : '—'} tint="var(--fg)" />
+                <TotalTile label="To team + ops" value={totals ? formatBig(totals.ethToTeam, 'ETH') : '—'} tint="var(--fg-faint)" />
+              </div>
+            </section>
+          </div>
         </>
       )}
 
       <ActivityFeed rows={liveRows} error={activityError} />
+    </div>
+  );
+}
+
+function LegendItem({ pct, color, label, note }: { pct: number; color: string; label: string; note: string }) {
+  return (
+    <div className={styles.legendItem}>
+      <span className={styles.legendPct}>{pct}%</span>
+      <span className={styles.legendLabel}>
+        <span className={styles.legendSwatch} style={{ background: color }} aria-hidden />
+        {label}
+      </span>
+      <span className={styles.legendNote}>{note}</span>
     </div>
   );
 }
@@ -321,23 +288,13 @@ function VaultBalanceTile({
       : '—'
     : '—';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div
-        className="uru-num"
-        style={{
-          fontSize: 22,
-          lineHeight: 1.15,
-          fontFamily: 'var(--font-round), cursive',
-          borderBottom: `2px solid ${tint}`,
-          paddingBottom: 3,
-        }}
-      >
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
+    <div className={styles.tile}>
+      <span className={styles.tileLabel}>
+        <span className={styles.liveDot} aria-hidden />
         {label}
-        <span style={{ marginLeft: 6, color: 'var(--mint-hot)', fontSize: 9 }}>● live</span>
-      </div>
+      </span>
+      <span className={styles.tileValue}>{value}</span>
+      <span className={styles.tileBar} style={{ background: tint }} aria-hidden />
     </div>
   );
 }
@@ -346,20 +303,10 @@ function VaultBalanceTile({
 /// caption. Kept plain so a visitor can scan all three at once.
 function TotalTile({ label, value, tint }: { label: string; value: string; tint: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div
-        className="uru-num"
-        style={{
-          fontSize: 20,
-          lineHeight: 1.15,
-          fontFamily: 'var(--font-round), cursive',
-          borderBottom: `2px solid ${tint}`,
-          paddingBottom: 3,
-        }}
-      >
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>{label}</div>
+    <div className={styles.tile}>
+      <span className={styles.tileLabel}>{label}</span>
+      <span className={styles.tileValue}>{value}</span>
+      <span className={styles.tileBar} style={{ background: tint }} aria-hidden />
     </div>
   );
 }
@@ -399,54 +346,34 @@ function ActivityFeed({ rows, error }: { rows: FlywheelActivityRow[] | null; err
   const hiddenCount = rows ? Math.max(0, rows.length - INITIAL_ROWS) : 0;
 
   return (
-    <section className="uru-shell" style={{ padding: 12, marginBottom: 8 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span aria-hidden style={{ fontSize: 15 }}>✦</span>
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
-          what&apos;s been happening
-        </h3>
-      </header>
+    <section className={styles.panel}>
+      <div className={styles.panelHead}>
+        <h2 className={styles.panelTitle}>Recent activity</h2>
+        {rows && rows.length > 0 && <p className={styles.panelSub}>{rows.length} events</p>}
+      </div>
 
       {error && (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
-          can&apos;t reach the data feed right now, try again in a bit ~
-        </p>
+        <p className={styles.state}>Can&apos;t reach the data feed right now. Try again in a bit.</p>
       )}
 
-      {!error && rows === null && (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>loading ~</p>
-      )}
+      {!error && rows === null && <p className={styles.state}>Loading…</p>}
 
       {!error && rows?.length === 0 && (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--anchor-soft)' }}>
-          nothing yet. the flywheel starts turning the first time a token launches on here ~
+        <p className={styles.state}>
+          Nothing yet. The flywheel starts turning the first time a token launches here.
         </p>
       )}
 
       {!error && visibleRows && visibleRows.length > 0 && (
         <>
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <ul className={styles.activity}>
             {visibleRows.map((r) => (
               <ActivityRow key={`${r.kind}-${r.txHash}-${r.blockNumber}`} row={r} />
             ))}
           </ul>
           {hiddenCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((e) => !e)}
-              style={{
-                marginTop: 8,
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--anchor)',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 11,
-                textDecoration: 'underline',
-                padding: 0,
-              }}
-            >
-              {expanded ? `show fewer ~` : `show ${hiddenCount} more ~`}
+            <button type="button" onClick={() => setExpanded((e) => !e)} className={styles.more}>
+              {expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
             </button>
           )}
         </>
@@ -461,66 +388,49 @@ function ActivityRow({ row }: { row: FlywheelActivityRow }) {
   if (row.kind === 'distribution') {
     summary = (
       <>
-        split <b className="uru-num">{formatEth(row.total)}</b> ETH:{' '}
-        <span className="uru-num">{formatEth(row.toBuyback)}</span> for URU buyback,{' '}
-        <span className="uru-num">{formatEth(row.toNft)}</span> to gemu holders,{' '}
-        <span className="uru-num">{formatEth(row.toTreasury)}</span> to team + ops
+        Split <b className={styles.num}>{formatEth(row.total)}</b> ETH:{' '}
+        <span className={styles.num}>{formatEth(row.toBuyback)}</span> for URU buyback,{' '}
+        <span className={styles.num}>{formatEth(row.toNft)}</span> to gemu holders,{' '}
+        <span className={styles.num}>{formatEth(row.toTreasury)}</span> to team + ops
       </>
     );
   } else if (row.kind === 'buyback') {
     summary = (
       <>
-        bought back <b className="uru-num">{formatEth(row.uruOut)}</b> URU (spent{' '}
-        <span className="uru-num">{formatEth(row.ethIn)}</span> ETH)
+        Bought back <b className={styles.num}>{formatEth(row.uruOut)}</b> URU (spent{' '}
+        <span className={styles.num}>{formatEth(row.ethIn)}</span> ETH)
+      </>
+    );
+  } else if (isBurn(row)) {
+    // UruDepositSink conversion that returned no ETH: the URU was burned,
+    // not sold (the 2026-10-12 sink burn is the first of these).
+    summary = (
+      <>
+        Burned <b className={styles.num}>{formatEth(row.uruIn)}</b> URU from the fee sink
       </>
     );
   } else {
     summary = (
       <>
-        traded <b className="uru-num">{formatEth(row.uruIn)}</b> URU for{' '}
-        <span className="uru-num">{formatEth(row.ethOut)}</span> ETH
+        Swapped <b className={styles.num}>{formatEth(row.uruIn)}</b> URU paid in fees for{' '}
+        <span className={styles.num}>{formatEth(row.ethOut)}</span> ETH, sent to the split
       </>
     );
   }
-  const badge =
-    row.kind === 'distribution'
-      ? { text: 'split', bg: 'var(--yolk-deep)' }
-      : row.kind === 'buyback'
-        ? { text: 'buyback', bg: 'var(--pink-hot)' }
-        : { text: 'trade', bg: 'var(--mint-hot)' };
+  const tagKind = row.kind === 'distribution' || row.kind === 'buyback' ? row.kind : isBurn(row) ? 'burn' : 'conversion';
+  const tag = { distribution: 'Split', buyback: 'Buyback', burn: 'Burn', conversion: 'Convert' }[tagKind];
 
   return (
-    <li
-      style={{
-        padding: 8,
-        border: '1px solid var(--anchor-soft)',
-        borderRadius: 8,
-        fontSize: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span
-          style={{
-            fontSize: 10,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            padding: '1px 6px',
-            borderRadius: 4,
-            background: badge.bg,
-            color: 'var(--anchor)',
-            fontFamily: 'var(--font-round), cursive',
-          }}
-        >
-          {badge.text}
-        </span>
-        <span style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>{when}</span>
-      </div>
-      <div>{summary}</div>
+    <li className={styles.row}>
+      <span className={styles.tag} data-kind={tagKind}>{tag}</span>
+      <span>{summary}</span>
+      <span className={styles.when}>{when}</span>
     </li>
   );
+}
+
+function isBurn(row: FlywheelActivityRow): boolean {
+  return row.kind === 'conversion' && (!row.ethOut || row.ethOut === '0');
 }
 
 function formatEth(v: string | undefined): string {
@@ -563,48 +473,17 @@ function SplitBar({ parts }: { parts: Array<{ label: string; bps: number; color:
     <div
       role="img"
       aria-label={`fee split: ${parts.map((p) => `${p.label} ${(p.bps / 100).toFixed(0)}%`).join(', ')}`}
-      style={{
-        display: 'flex',
-        height: 14,
-        borderRadius: 8,
-        overflow: 'hidden',
-        border: '1px solid var(--anchor)',
-      }}
+      className={styles.splitBar}
+      // Same fr columns as the legend below, so the numbers line up with their slice.
+      style={{ gridTemplateColumns: parts.map((p) => `${total > 0 ? p.bps || 1 : 1}fr`).join(' ') }}
     >
       {parts.map((p) => (
         <div
           key={p.label}
-          title={`${p.label} — ${(p.bps / 100).toFixed(0)}%`}
-          style={{
-            flexBasis: `${total > 0 ? (p.bps * 100) / total : 0}%`,
-            background: p.color,
-          }}
+          title={`${p.label}: ${(p.bps / 100).toFixed(0)}%`}
+          style={{ background: p.color }}
         />
       ))}
     </div>
   );
-}
-
-function SinkRow({
-  label,
-  bps,
-  note,
-}: {
-  label: string;
-  bps: number;
-  note: string;
-}) {
-  return (
-    <li style={{ padding: '6px 0', borderTop: '1px solid var(--anchor-soft)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <b>{label}</b>
-        <span className="uru-num">{(bps / 100).toFixed(0)}%</span>
-      </div>
-      <div style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>{note}</div>
-    </li>
-  );
-}
-
-function short(a: Address): string {
-  return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }

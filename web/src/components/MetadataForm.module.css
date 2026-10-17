@@ -1,0 +1,89 @@
+.form {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.intro {
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--info-soft);
+  color: var(--fg);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.logoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.logoBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+
+.logoBox[data-filled='true'] {
+  background: var(--surface-1);
+}
+
+.logoBox img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.logoMeta {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file {
+  display: block;
+  width: 100%;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.file::file-selector-button {
+  height: 30px;
+  margin-right: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.file::file-selector-button:hover {
+  background: var(--surface-3);
+}
+
+.count {
+  font-family: var(--font-mono);
+  justify-self: end;
+}
+
+.socials {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}

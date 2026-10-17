@@ -42,7 +42,7 @@ export function ShelfItem({ mod, onQuickAdd }: Props) {
       }`}
     >
       <span className={`kawaii-tape ${style.polaroid.includes('mint') ? 'kawaii-tape-mint' : ''}`}
-        style={{ top: -6, left: 16, transform: 'rotate(-6deg)' }}
+        style={{ top: -6, left: 16, transform: 'rotate(0deg)' }}
       />
 
       <div className="flex items-start gap-3">
@@ -55,12 +55,12 @@ export function ShelfItem({ mod, onQuickAdd }: Props) {
             ) : (
               <span className={`kawaii-stamp ${style.stamp}`}>v{mod.version}</span>
             )}
-            {mod.flagged && <span className="kawaii-stamp" style={{ background: '#ff8585' }}>flagged</span>}
+            {mod.flagged && <span className="kawaii-stamp" style={{ background: 'var(--sell-soft)', color: 'var(--sell)' }}>flagged</span>}
           </div>
-          <p className="mt-2 text-xs leading-snug text-[var(--zone-ink-soft)]">
+          <p className="mt-2 text-xs leading-snug text-[var(--fg-muted)]">
             {mod.description}
           </p>
-          <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-[var(--zone-ink-soft)] uppercase tracking-widest">
+          <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-[var(--fg-muted)] uppercase tracking-widest">
             <span>{mod.bases.join(' · ')}</span>
             <span>·</span>
             <span>{mod.abiEncode}</span>
@@ -76,7 +76,7 @@ export function ShelfItem({ mod, onQuickAdd }: Props) {
             onQuickAdd?.();
           }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="mt-3 w-full rounded-full border-2 border-[var(--zone-ink)] bg-white py-1 text-[11px] font-bold uppercase tracking-widest text-[var(--zone-ink)] hover:bg-[var(--rose-300)] transition-colors"
+          className="mt-3 w-full rounded-full border-2 border-[var(--fg)] bg-white py-1 text-[11px] font-bold uppercase tracking-widest text-[var(--fg)] hover:bg-[var(--accent-soft)] transition-colors"
         >
           + add to cart
         </button>

@@ -48,14 +48,14 @@ export default function RecoverPage() {
         <main className={styles.page}>
             <header className={styles.incidentHeader} aria-labelledby="recover-title">
                 <div>
-                    <p className={styles.eyebrow}>historical curve recovery</p>
+                    <p className={styles.eyebrow}>recover eth</p>
                     <h1 id="recover-title" className={styles.title}>
-                        Recovery Console
+                        Sell back to an old curve
                     </h1>
                     <p className={styles.subtitle}>
-                        This is an exceptional support flow for orphaned Robinhood Chain
-                        bonding curves that no longer appear in the main launchpad UI.
-                        It does not create a new trade, mint, launch, or migration.
+                        A few early coins were launched on curves that no longer show in the app.
+                        If you still hold one, you can sell it back to its curve here and get ETH
+                        back. Nothing new is launched or traded.
                     </p>
                 </div>
                 <aside className={styles.safetyCard} aria-label="Recovery guardrails">

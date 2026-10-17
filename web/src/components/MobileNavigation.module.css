@@ -1,240 +1,107 @@
-.mobileNavigation {
-  display: contents;
-}
+/* Mobile menu sheet (below 1020px). v2 tokens only. */
 
-.menuButton,
-.closeButton {
-  align-items: center;
-  appearance: none;
-  background: var(--cream);
-  border: 1.5px solid var(--anchor);
-  box-shadow: 2px 2px 0 var(--anchor);
-  color: var(--anchor);
-  cursor: pointer;
-  display: inline-flex;
-  font-family: var(--font-round), Klee One, cursive;
-  font-size: 13px;
-  font-weight: 600;
-  justify-content: center;
-  line-height: 1;
-  min-height: 44px;
-  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+.mobileNavigation { display: none; }
+
+@media (max-width: 1020px) {
+  .mobileNavigation { display: inline-flex; }
 }
 
 .menuButton {
-  gap: 7px;
-  min-width: 44px;
-  padding: 0 10px;
-}
-
-.menuButton:hover,
-.closeButton:hover {
-  background: var(--pink-hot);
-  color: #fff;
-  box-shadow: 3px 3px 0 var(--anchor), var(--glow-pink);
-  transform: translate(-1px, -1px);
-}
-
-.menuButton:active,
-.closeButton:active {
-  box-shadow: 0 0 0 var(--anchor);
-  transform: translate(2px, 2px);
-}
-
-.menuGlyph {
-  display: grid;
-  gap: 3px;
-  width: 16px;
-}
-
-.menuGlyph i {
-  background: currentColor;
-  display: block;
-  height: 2px;
-  width: 16px;
-}
-
-.drawerLayer {
-  inset: 0;
-  position: fixed;
-  z-index: 10000;
-}
-
-.backdrop {
-  background: rgba(18, 14, 28, 0.54);
-  border: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-1);
+  color: var(--fg);
   cursor: pointer;
+}
+.menuButton:hover { background: var(--surface-3); }
+.menuGlyph { display: grid; gap: 4px; width: 16px; }
+.menuGlyph i { display: block; height: 2px; border-radius: 2px; background: currentColor; }
+.menuLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.drawerLayer { position: fixed; inset: 0; z-index: 200; }
+.backdrop {
+  position: absolute;
   inset: 0;
-  position: absolute;
-  width: 100%;
+  border: 0;
+  background: var(--overlay);
+  cursor: pointer;
 }
-
 .drawer {
-  background: var(--cream);
-  border-left: 2px solid var(--anchor);
-  box-shadow: -8px 0 0 color-mix(in srgb, var(--pink-hot) 45%, transparent);
-  color: var(--anchor);
-  height: 100dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: max(18px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
   position: absolute;
-  right: 0;
   top: 0;
-  width: min(100%, 390px);
+  right: 0;
+  bottom: 0;
+  width: min(360px, 92vw);
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  background: var(--surface-1);
+  color: var(--fg);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
 }
 
-.drawerHeader {
-  align-items: start;
-  border-bottom: 1.5px solid var(--anchor);
-  display: flex;
-  justify-content: space-between;
-  padding-bottom: 16px;
-}
-
-.kicker,
-.drawer h3 {
-  display: block;
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.kicker {
-  color: var(--pink-hot);
-  margin-bottom: 5px;
-}
-
-.drawer h2 {
-  font-family: var(--font-display), sans-serif;
-  font-size: 30px;
-  font-weight: 400;
-  letter-spacing: -0.04em;
-  line-height: 0.95;
-  margin: 0;
-}
-
+.drawerHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kicker { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); }
+.drawerHeader h2 { margin: 2px 0 0; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
 .closeButton {
-  min-width: 72px;
-  padding: 0 10px;
-}
-
-.primaryLinks {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 18px 0;
-}
-
-.primaryLink,
-.primaryLinkSecondary,
-.linkSection nav a {
+  display: inline-flex;
   align-items: center;
-  border: 1.5px solid var(--anchor);
-  color: var(--anchor);
-  display: flex;
-  font-family: var(--font-round), Klee One, cursive;
-  font-size: 15px;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   font-weight: 600;
-  justify-content: center;
-  min-height: 48px;
-  padding: 8px 12px;
-  text-decoration: none;
-  transition: background 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
+  cursor: pointer;
 }
 
-.primaryLink {
-  background: var(--pink-hot);
-  box-shadow: 3px 3px 0 var(--anchor), var(--glow-pink);
-  color: #fff;
-  grid-column: 1 / -1;
-}
-
-.primaryLinkSecondary,
-.linkSection nav a {
-  background: color-mix(in srgb, var(--pink-warm) 25%, var(--cream));
-}
-
-.primaryLink:hover,
-.primaryLinkSecondary:hover,
-.linkSection nav a:hover {
-  background: var(--mint);
-  box-shadow: 3px 3px 0 var(--anchor);
-  color: var(--anchor);
-  transform: translate(-1px, -1px);
-}
-
-.primaryLink:active,
-.primaryLinkSecondary:active,
-.linkSection nav a:active {
-  box-shadow: 0 0 0 var(--anchor);
-  transform: translate(2px, 2px);
-}
-
-/* Active route — drawer flags the current page so users can orient. Applied
-   via `data-active="true"` from usePathname in MobileNavigation.tsx. */
-.primaryLink[data-active],
-.primaryLinkSecondary[data-active],
-.linkSection nav a[data-active] {
-  background: var(--mint-hot, #2fbf6a);
-  color: var(--cream);
-  box-shadow: 3px 3px 0 var(--anchor);
-}
-
-.controlSection,
-.linkSection {
-  border-top: 1px solid color-mix(in srgb, var(--anchor) 35%, transparent);
-  padding: 16px 0;
-}
-
-.drawer h3 {
-  margin: 0 0 10px;
-}
-
-.preferences {
+.primaryLinks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.primaryLink,
+.primaryLinkSecondary {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* The shared header controls are compact by design; in a touch drawer they
-   need a full-size target without changing the desktop header. */
-.preferences :global(button) {
-  height: 44px !important;
-  width: 44px !important;
-}
-
-.controlSection > :global(div) > :global(button) {
+  align-items: center;
   min-height: 44px;
-  padding: 4px 12px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
 }
+.primaryLink { background: var(--surface-2); }
+.primaryLinkSecondary { background: var(--surface-1); }
+.primaryLink:first-child { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.primaryLink[data-active],
+.primaryLinkSecondary[data-active] { border-color: var(--fg); }
 
-.linkSection nav {
-  display: grid;
-  gap: 8px;
-}
+.controlSection { display: grid; gap: 10px; }
+.controlSection h3,
+.linkSection h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); }
+.preferences { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
+.linkSection { display: grid; gap: 6px; }
+.linkSection nav { display: grid; }
 .linkSection nav a {
-  justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: 14px;
+  text-decoration: none;
 }
-
-@media (max-width: 359px) {
-  .menuLabel {
-    display: none;
-  }
-
-  .menuButton {
-    padding: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .menuButton,
-  .closeButton,
-  .primaryLink,
-  .primaryLinkSecondary,
-  .linkSection nav a {
-    transition: none;
-  }
-}
+.linkSection nav a[data-active] { color: var(--fg); font-weight: 650; }

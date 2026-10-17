@@ -224,7 +224,9 @@ describe('web smoke: routes render', () => {
 
 describe('web smoke: pre-launch splash gate', () => {
   test('/ renders the NotLiveYet copy while LAUNCHPAD_LIVE=false', async () => {
-    const { body } = await getPage('/');
+    const { body: raw } = await getPage('/');
+    // Case-insensitive: the UI uses sentence case ("Live trades").
+    const body = raw.toLowerCase();
     // If someone flips LAUNCHPAD_LIVE without wiring the home feed back on
     // (or vice versa), this catches it early.
     const hasSplash =
@@ -239,11 +241,12 @@ describe('web smoke: pre-launch splash gate', () => {
   });
 
   test('/create renders the NotLiveYet copy while LAUNCHPAD_LIVE=false', async () => {
-    const { body } = await getPage('/create');
+    const { body: raw } = await getPage('/create');
+    const body = raw.toLowerCase();
     const hasSplash =
       body.includes('not live yet') || body.includes('urufu is taking a nap');
     const hasLaunchFlow =
-      body.includes('module picker') || body.includes('shippedModulesForBase') ||
+      body.includes('module picker') || body.includes('shippedmodulesforbase') ||
       body.includes('quick launch');
     assert.ok(
       hasSplash || hasLaunchFlow,

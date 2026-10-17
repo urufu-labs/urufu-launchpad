@@ -23,7 +23,7 @@ export function AudioBindings() {
 
     function onClick(e: MouseEvent) {
       const target = (e.target as HTMLElement | null)?.closest(
-        'button, a, [role="button"], .uru-chip, .uru-88',
+        'button, a, [role="button"], .uru-chip, .uru-88, .ui-chip',
       ) as HTMLElement | null;
       if (!target) return;
 
@@ -35,7 +35,12 @@ export function AudioBindings() {
         return;
       }
 
-      // Classes routed by intent
+      // Classes routed by intent. The v2 ui-* buttons map to the same sounds as
+      // the legacy classes they replaced, so the revamp keeps every click sound.
+      const variant = target.classList.contains('ui-btn') ? target.dataset.variant : undefined;
+      if (variant === 'primary' || variant === 'ink' || variant === 'buy' || variant === 'sell') return playSfx('stamp');
+      if (target.classList.contains('ui-chip') || target.parentElement?.classList.contains('ui-seg')) return playSfx('pop');
+      if (target.classList.contains('ui-badge')) return playSfx('flip');
       if (target.classList.contains('uru-btn-primary')) return playSfx('stamp');
       if (target.classList.contains('uru-btn-mint'))    return playSfx('stamp');
       if (target.classList.contains('uru-chip'))        return playSfx('pop');

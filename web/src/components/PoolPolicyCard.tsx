@@ -22,6 +22,7 @@ import type { Address, Hex } from 'viem';
 
 import { multiHookHostAbi } from '@/lib/abis';
 import type { WagmiChainId } from '@/lib/wagmi';
+import styles from './info-panel.module.css';
 
 interface Props {
   /// v4 pool id — the trade page derives this deterministically from
@@ -92,44 +93,32 @@ export function PoolPolicyCard({ poolId, hookAddress, chainId }: Props) {
   const totalGateSeconds = parsed.antiSniperBlocks * SEC_PER_L1_BLOCK;
 
   return (
-    <section
-      className="uru-shell"
-      style={{ marginTop: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}
-    >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span aria-hidden style={{ fontSize: 16 }}>✿</span>
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 15 }}>
-          pool policy
-        </h3>
-        <span style={{ color: 'var(--anchor-soft)', fontSize: 11 }}>
+    <section className={styles.block}>
+      <div className={styles.head}>
+        <p className={styles.label}>Pool rules</p>
+        <span className={styles.sub}>
           {parsed.immutable
-            ? 'frozen at launch — cannot change'
-            : 'set at graduation, freezes on first trade'}
+            ? 'Frozen at launch, can’t change'
+            : 'Set at graduation, frozen on the first trade'}
         </span>
-      </header>
+      </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 10,
-        }}
-      >
-        <Stat label="creator fee" value={bpsPct(parsed.creatorFeeBps)} title="paid to the token creator on every swap through this pool" />
-        <Stat label="platform fee" value={bpsPct(parsed.platformFeeBps)} title="paid to the launchpad platform (funds the flywheel)" />
+      <div className={styles.stats}>
+        <Stat label="Creator fee" value={bpsPct(parsed.creatorFeeBps)} title="paid to the token creator on every swap through this pool" />
+        <Stat label="Platform fee" value={bpsPct(parsed.platformFeeBps)} title="paid to the launchpad platform (funds the flywheel)" />
         <Stat
-          label="buyback burn"
+          label="Buyback burn"
           value={bpsPct(parsed.buybackBurnBps)}
           title="fraction of every trade auto-burned via the token's buyback path"
         />
         <Stat
-          label="anti-sniper"
+          label="Anti-sniper"
           value={
             parsed.antiSniperBlocks === 0
-              ? 'off'
+              ? 'Off'
               : gateActive
                 ? `~${gateSecondsLeft}s left`
-                : 'complete'
+                : 'Done'
           }
           title={
             parsed.antiSniperBlocks === 0
@@ -150,18 +139,9 @@ function bpsPct(bps: number): string {
 
 function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div title={title} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span
-        style={{
-          color: 'var(--anchor-soft)',
-          fontSize: 10.5,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-        }}
-      >
-        {label}
-      </span>
-      <span className="uru-num" style={{ fontSize: 13 }}>{value}</span>
+    <div title={title} className={styles.stat}>
+      <span className={styles.statLabel}>{label}</span>
+      <span className={styles.statValue}>{value}</span>
     </div>
   );
 }

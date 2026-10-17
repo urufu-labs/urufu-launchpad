@@ -1,176 +1,103 @@
-.entryPage {
-  box-sizing: border-box;
-  width: min(100%, 1180px);
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 18px 12px 28px;
-}
+/* /trade index. v2 tokens only. */
 
-.marketHeader {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
+.entryPage { max-width: 1080px; margin: 0 auto; padding: 40px 20px 72px; display: grid; gap: 20px; }
 
-.title {
-  margin: 0;
-  font-size: 42px;
-  line-height: 0.95;
-  letter-spacing: 0;
-}
+.pageHeader { padding-bottom: 4px; }
+.eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.title { margin: 0; font-family: var(--font-display); font-size: clamp(34px, 4.4vw, 52px); font-weight: 400; letter-spacing: -0.02em; line-height: 1.02; }
+.lede { margin: 12px 0 0; max-width: 58ch; font-size: 16px; line-height: 1.6; color: var(--fg-muted); }
 
-.marketMeta {
+.lookup {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 9px;
-  flex-wrap: wrap;
-  color: var(--anchor-soft);
-  font-family: var(--font-pixel), monospace;
-  font-size: 10px;
-  line-height: 1.2;
-}
-
-.marketMeta a {
-  color: var(--link-blue);
-  text-decoration: underline;
-}
-
-.lookupPanel {
-  display: grid;
-  grid-template-columns: minmax(170px, 0.34fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: end;
-  margin-bottom: 14px;
-  padding: 12px;
-}
-
-.lookupCopy {
-  min-width: 0;
-}
-
-.lookupTitle {
-  color: var(--anchor);
-  font-family: var(--font-round), Klee One, cursive;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.subtitle {
-  margin: 3px 0 0;
-  color: var(--anchor-soft);
-  font-family: var(--font-round), Klee One, cursive;
-  font-size: 12.5px;
-  line-height: 1.35;
-}
-
-.lookupForm {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.lookupInput {
-  min-width: 0;
-  font-family: var(--font-mono), monospace;
-  font-size: 12px;
-}
-
-.sectionHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0 8px;
-}
-
-.launchGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.emptyState {
-  margin-bottom: 16px;
-  padding: 16px;
-  color: var(--anchor-soft);
-  font-family: var(--font-round), Klee One, cursive;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.tile {
-  display: flex;
   gap: 10px;
-  align-items: center;
-  min-width: 0;
-  padding: 8px 10px;
-  color: inherit;
-  text-decoration: none;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-1);
+  transition: border-color 120ms, box-shadow 120ms;
 }
-
-.tileMark {
-  display: flex;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid var(--anchor);
-  border-radius: 4px;
-  background: var(--cream-deep);
-  color: var(--anchor);
-  font-family: var(--font-pixel), monospace;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.tileBody {
-  min-width: 0;
+.lookup:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.lookupIcon { width: 18px; height: 18px; flex: none; color: var(--fg-faint); }
+.lookupInput {
   flex: 1;
-}
-
-.tileTitle {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
   min-width: 0;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 15px;
 }
+.lookupInput::placeholder { color: var(--fg-faint); font-family: var(--font-sans); }
 
-.progressTrack {
-  height: 7px;
-  margin-top: 5px;
-  overflow: hidden;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream-deep);
+.listPanel { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; }
+.listHead { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.listTitle { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.listSub { margin: 2px 0 0; font-size: 13px; color: var(--fg-muted); }
+.rowHead,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 20px;
+  align-items: center;
+  padding: 12px 18px;
 }
+.rowHead { padding-top: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 11.5px; font-weight: 600; color: var(--fg-faint); }
+.row { border-bottom: 1px solid var(--line); color: var(--fg); text-decoration: none; transition: background 120ms; }
+.row:hover { background: var(--surface-2); }
+.right { text-align: right; justify-self: end; }
 
-.progressFill {
-  height: 100%;
-  background: var(--pink-hot);
+.token { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tokenImg {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background-size: cover !important;
+  background-position: center !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
 }
+.tokenText { display: grid; gap: 1px; min-width: 0; }
+.tokenName { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tokenSym { font-size: 12.5px; color: var(--fg-faint); font-weight: 600; }
 
-.helpPanel {
-  padding: 12px;
+.progress { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.progressTrack { flex: 1; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.progressFill { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.progressFill[data-graduated="true"] { background: var(--fg); }
+.progressPct { width: 74px; flex: none; text-align: right; font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-muted); }
+.raised { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-muted); white-space: nowrap; }
+
+.emptyState { padding: 32px 18px; text-align: center; color: var(--fg-muted); font-size: 14px; }
+.listFoot { padding: 12px 18px; font-size: 13.5px; }
+.listFoot a { color: var(--info); text-decoration: none; font-weight: 600; }
+.listFoot a:hover { text-decoration: underline; }
+
+.helpPanel { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-1); }
+.helpPanel summary {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; cursor: pointer; list-style: none; font-size: 14.5px; font-weight: 650;
 }
+.helpPanel summary::-webkit-details-marker { display: none; }
+.helpPanel summary::after { content: '+'; font-family: var(--font-mono); color: var(--fg-faint); font-size: 18px; }
+.helpPanel[open] summary::after { content: '−'; }
+.helpPanel ol { margin: 0; padding: 0 18px 18px 38px; display: grid; gap: 8px; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
+.helpPanel b { color: var(--fg); font-weight: 650; }
+.helpPanel a { color: var(--info); }
 
-@media (max-width: 860px) {
-  .lookupForm,
-  .lookupPanel,
-  .launchGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .marketHeader {
-    align-items: start;
-    flex-direction: column;
-  }
-
-  .title {
-    font-size: 40px;
-  }
+@media (max-width: 640px) {
+  .entryPage { padding: 24px 12px 56px; }
+  .lookup { flex-wrap: wrap; padding: 10px; }
+  .lookup button { width: 100%; }
+  .rowHead { display: none; }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .right { justify-self: start; text-align: left; }
 }

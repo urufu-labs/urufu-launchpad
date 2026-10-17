@@ -46,10 +46,10 @@ export const DEFAULT_CHAIN: ChainKey = 'robinhood';
 export const CHAIN_META: Record<ChainKey, { iconPath: string; emoji: string; jp: string }> = {
   base: { iconPath: '/chains/base.svg', emoji: '🔷', jp: '基' },
   mainnet: { iconPath: '/chains/mainnet.svg', emoji: '⛓️', jp: '本' },
-  robinhood: { iconPath: '/chains/robinhood.svg', emoji: '🏹', jp: '侠' },
+  robinhood: { iconPath: '/chains/robinhood.jpg', emoji: '🏹', jp: '侠' },
   'base-sepolia': { iconPath: '/chains/base-sepolia.svg', emoji: '🧪', jp: '基試' },
   sepolia: { iconPath: '/chains/base-sepolia.svg', emoji: '🧪', jp: '試' },
-  'robinhood-testnet': { iconPath: '/chains/robinhood.svg', emoji: '🏹', jp: '侠試' },
+  'robinhood-testnet': { iconPath: '/chains/robinhood.jpg', emoji: '🏹', jp: '侠試' },
 };
 
 export interface ContractSet {

@@ -73,8 +73,8 @@ export function NftCollectionGrid({ chain, chainEnabled, dn404Enabled = false, v
           c.lane === 'dn404' && c.pairedToken ? (
             <div key={c.id} style={{ display: 'grid', gap: 4, alignContent: 'start' }}>
               <NftHomeTile row={c} chainId={targetChainId} />
-              <Link href={`/trade/${c.pairedToken}`} className="uru-chip" style={{ justifySelf: 'start', textDecoration: 'none' }}>
-                trade the token →
+              <Link href={`/trade/${c.pairedToken}`} className="ui-btn" data-size="sm" style={{ justifySelf: 'start' }}>
+                Trade the token →
               </Link>
             </div>
           ) : (
@@ -92,7 +92,7 @@ export function NftCollectionGrid({ chain, chainEnabled, dn404Enabled = false, v
           <div key={c.id} className={styles.dn404Wrap}>
             <NftCollectionCard row={c} chainId={targetChainId} />
             <Link href={`/trade/${c.pairedToken}`} className={styles.dn404Trade}>
-              trade the token <span className="uru-arrow">→</span>
+              Trade the token →
             </Link>
           </div>
         ) : (
@@ -195,16 +195,16 @@ function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: num
           role="img"
           aria-label={cover ? `${row.name} cover art` : undefined}
           style={{ background: safeBackgroundImage(cover ?? undefined, undefined, 'contain') }}
-        >
-          {!cover && '❁'}
-        </div>
-        <span className="uru-launch-ticket-tag">{row.lane === 'dn404' ? 'dn404' : 'nft'}</span>
+        />
+        <span className="uru-launch-ticket-tag" data-kind={row.lane === 'dn404' ? 'dn404' : 'nft'}>
+          {row.lane === 'dn404' ? 'DN404' : 'NFT'}
+        </span>
       </div>
       <span className="uru-launch-ticket-name">{row.name}</span>
       <span className="uru-launch-ticket-symbol">${row.ticker}</span>
       <div className="uru-launch-ticket-meta">
-        <span>minted<b>{mintedLabel}</b></span>
-        <span>supply<b>{capLabel}</b></span>
+        <span>Minted<b>{mintedLabel}</b></span>
+        <span>Supply<b>{capLabel}</b></span>
       </div>
       <div
         className="uru-launch-ticket-progress"
@@ -216,7 +216,7 @@ function NftHomeTile({ row, chainId }: { row: IndexerNftCollection; chainId: num
         />
       </div>
       <p className="uru-launch-ticket-foot">
-        {shortAddr(row.launchedBy)} · {isSoldOut ? 'sold out' : `${progressPct.toFixed(0)}% minted`}
+        {shortAddr(row.launchedBy)} · {isSoldOut ? 'Sold out' : `${progressPct.toFixed(0)}% minted`}
       </p>
     </Link>
   );
@@ -282,7 +282,7 @@ function NftCollectionCard({
 
   const price = useMemo(() => {
     if (basePriceWei === undefined) return '—';
-    if (basePriceWei === 0n) return 'free';
+    if (basePriceWei === 0n) return 'Free';
     const n = Number(formatUnits(basePriceWei, 18));
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${isUru ? 'URU' : 'Ξ'}`;
   }, [basePriceWei, isUru]);
@@ -301,7 +301,7 @@ function NftCollectionCard({
 
   const isDn404 = row.lane === 'dn404';
   const isSoldOut = !isDn404 && maxSupply !== undefined && maxSupply !== 0n && totalSupply === maxSupply;
-  const paidLabel = isUru ? 'uru paid' : 'eth paid';
+  const paidLabel = isUru ? 'URU paid' : 'ETH paid';
   const dn404Pair = isDn404 && row.pairCurrency && row.pairCurrency !== zeroAddress ? 'URU' : 'ETH';
   const dn404Unit = isDn404 && row.unitWei
     ? Number(formatUnits(BigInt(row.unitWei), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -319,19 +319,19 @@ function NftCollectionCard({
           />
         ) : (
           <div className={styles.missingArt}>
-            <span>{cover === undefined ? 'loading art…' : 'art pending'}</span>
+            <span>{cover === undefined ? 'Loading art…' : 'Art pending'}</span>
           </div>
         )}
         <div className={styles.badges}>
           {isDn404 ? (
             <>
-              <span>dn404</span>
-              <span>{dn404Pair.toLowerCase()} pair</span>
+              <span>DN404</span>
+              <span>{dn404Pair} pair</span>
             </>
           ) : (
             <>
-              <span>nft</span>
-              {isSoldOut && <span>sold out</span>}
+              <span>NFT</span>
+              {isSoldOut && <span>Sold out</span>}
               <span>{paidLabel}</span>
             </>
           )}
@@ -345,8 +345,8 @@ function NftCollectionCard({
         </div>
         <p>
           {isDn404
-            ? `also a token: every ${dn404Unit} ${row.ticker} you hold is 1 NFT. buy the token to get NFTs, sell it and they go away.`
-            : `launched ${new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()} by ${shortAddr(row.launchedBy)}`}
+            ? `Also a token: every ${dn404Unit} ${row.ticker} you hold is 1 NFT. Buy the token to get NFTs, sell it and they go away.`
+            : `Launched ${new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()} by ${shortAddr(row.launchedBy)}`}
         </p>
       </div>
 
@@ -354,30 +354,30 @@ function NftCollectionCard({
         {isDn404 ? (
           <>
             <div className={styles.metric}>
-              <small>1 nft</small>
+              <small>1 NFT</small>
               <b>{dn404Unit} tokens</b>
             </div>
             <div className={styles.metric}>
-              <small>nfts out</small>
+              <small>NFTs out</small>
               <b>{supplyLabel}</b>
             </div>
             <div className={styles.metric}>
-              <small>pay</small>
+              <small>Pay</small>
               <b>{dn404Pair}</b>
             </div>
           </>
         ) : (
           <>
             <div className={styles.metric}>
-              <small>price</small>
+              <small>Price</small>
               <b>{price}</b>
             </div>
             <div className={styles.metric}>
-              <small>minted</small>
+              <small>Minted</small>
               <b>{supplyLabel}</b>
             </div>
             <div className={styles.metric}>
-              <small>pay</small>
+              <small>Pay</small>
               <b>{isUru ? 'URU' : 'ETH'}</b>
             </div>
           </>
@@ -388,14 +388,14 @@ function NftCollectionCard({
         <div>
           <i style={{ width: `${progressPct}%` }} />
         </div>
-        <span>{isDn404 ? `${progressPct.toFixed(1)}% of nfts out` : isSoldOut ? 'sold out' : `${progressPct.toFixed(1)}% minted`}</span>
+        <span>{isDn404 ? `${progressPct.toFixed(1)}% of NFTs out` : isSoldOut ? 'Sold out' : `${progressPct.toFixed(1)}% minted`}</span>
       </div>
 
       <div className={styles.releaseFoot}>
         <span>
           {shortAddr(row.launchedBy)} · {new Date(Number(row.blockTimestamp) * 1000).toLocaleDateString()}
         </span>
-        <b>{isDn404 ? 'view nfts' : 'mint'} <span className="uru-arrow">→</span></b>
+        <b>{isDn404 ? 'View NFTs' : 'Mint'} →</b>
       </div>
     </Link>
   );

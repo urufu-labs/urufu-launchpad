@@ -35,6 +35,7 @@ import { tokenOwnerAbi } from '@/lib/abis';
 import { type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchLaunchesByCreator, type IndexerLaunch } from '@/lib/indexer';
+import card from './profile-card.module.css';
 
 interface Props {
   /// The wallet whose profile is being viewed.
@@ -187,35 +188,27 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
   if (!isSelf) return null;
 
   return (
-    <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div className="uru-eyebrow">your tokens (owner controls)</div>
-        <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>管理</span>
+    <section className={card.card}>
+      <div className={card.head}>
+        <h2 className={card.title}>Owner controls</h2>
+        <span className={card.aside}>Tokens you still own</span>
       </div>
 
+      <div className={card.body}>
       {!launchesReady && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)' }}>
-          checking your launches...
-        </div>
+        <p className={card.empty}>Checking your launches…</p>
       )}
 
       {launchesReady && ownedTokens.length === 0 && (
-        <div
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10.5,
-            color: 'var(--anchor-soft)',
-            lineHeight: 1.5,
-          }}
-        >
-          no owned tokens on {chain}. most curve launches auto-renounce ownership at
-          launch, so this list only shows tokens where this wallet still
-          holds the owner role.
-        </div>
+        <p className={card.empty}>
+          You don&apos;t own any tokens on {chain}. Most curve launches give up ownership
+          at launch, so this list only shows tokens where this wallet still
+          has the owner role.
+        </p>
       )}
 
       {ownedTokens.length > 0 && (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <ul className={card.list}>
           {ownedTokens.map((t) => (
             <TokenRow
               key={t.tokenAddress}
@@ -230,6 +223,7 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
           ))}
         </ul>
       )}
+      </div>
     </section>
   );
 }
@@ -285,50 +279,39 @@ function TokenRow({
   const shortAddr = `${token.tokenAddress.slice(0, 6)}…${token.tokenAddress.slice(-4)}`;
 
   return (
-    <li
-      style={{
-        border: '1.5px solid var(--anchor)',
-        padding: 10,
-        background: 'var(--cream-deep)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontWeight: 700 }}>{token.name}</span>
-          <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-            ${token.ticker} · <Link href={`/trade/${token.tokenAddress}`} style={{ color: 'var(--link-blue)' }}>{shortAddr}</Link>
+    <li className={card.item}>
+      <div className={card.itemHead}>
+        <div>
+          <span className={card.itemName}>{token.name}</span>
+          <span className={card.itemMeta}>
+            ${token.ticker} · <Link href={`/trade/${token.tokenAddress}`}>{shortAddr}</Link>
           </span>
         </div>
-        <span
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          {[
-            token.modules.pausable && 'pausable',
-            token.modules.antiBot && 'antibot',
-            token.modules.antiWhale && 'antiwhale',
-          ].filter(Boolean).join(' · ') || 'ownable'}
+        <span className={card.tags}>
+          {([
+            token.modules.pausable && 'Pausable',
+            token.modules.antiBot && 'Anti-bot',
+            token.modules.antiWhale && 'Anti-whale',
+          ].filter(Boolean) as string[]).map((m) => (
+            <span key={m} className="ui-badge">{m}</span>
+          ))}
+          {!token.modules.pausable && !token.modules.antiBot && !token.modules.antiWhale && (
+            <span className="ui-badge">Ownable</span>
+          )}
         </span>
       </div>
 
       {/* Pausable controls */}
       {token.modules.pausable && (
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, flex: 1 }}>
-            status: <b style={{ color: isPaused ? 'var(--pink-hot)' : 'var(--mint-hot)' }}>{isPaused ? 'paused' : 'live'}</b>
+        <div className={card.row}>
+          <span className={card.status}>
+            Status: <b data-state={isPaused ? 'paused' : 'live'}>{isPaused ? 'Paused' : 'Live'}</b>
           </span>
           <button
             type="button"
-            className={isPaused ? 'uru-btn uru-btn-mint' : 'uru-btn uru-btn-primary'}
-            style={{ fontSize: 11, padding: '3px 10px' }}
+            className="ui-btn"
+            data-variant={isPaused ? 'primary' : 'ink'}
+            data-size="sm"
             disabled={busy}
             onClick={() =>
               runWrite({
@@ -337,26 +320,26 @@ function TokenRow({
               })
             }
           >
-            {isPaused ? 'unpause' : 'pause all trades'}
+            {isPaused ? 'Unpause' : 'Pause all trades'}
           </button>
         </div>
       )}
 
       {/* AntiBot allowlist add */}
       {token.modules.antiBot && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className={card.row}>
           <input
-            className="uru-input"
+            className={`ui-input ${card.grow}`}
+            data-mono="true"
             type="text"
-            placeholder="0x… (wallet to allow through anti-bot gate)"
+            placeholder="0x… wallet to let through the anti-bot gate"
             value={allowInput}
             onChange={(e) => setAllowInput(e.target.value)}
-            style={{ flex: 1, minWidth: 220, fontSize: 11 }}
           />
           <button
             type="button"
-            className="uru-btn uru-btn-mint"
-            style={{ fontSize: 11, padding: '3px 10px' }}
+            className="ui-btn"
+            data-variant="primary"
             disabled={busy || !isAddress(allowInput.trim())}
             onClick={() => {
               runWrite({
@@ -367,26 +350,26 @@ function TokenRow({
               setAllowInput('');
             }}
           >
-            + allow
+            Allow
           </button>
         </div>
       )}
 
       {/* AntiWhale exclude */}
       {token.modules.antiWhale && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div className={card.row}>
           <input
-            className="uru-input"
+            className={`ui-input ${card.grow}`}
+            data-mono="true"
             type="text"
-            placeholder="0x… (wallet to exempt from whale caps)"
+            placeholder="0x… wallet to exempt from whale caps"
             value={excludeInput}
             onChange={(e) => setExcludeInput(e.target.value)}
-            style={{ flex: 1, minWidth: 220, fontSize: 11 }}
           />
           <button
             type="button"
-            className="uru-btn uru-btn-mint"
-            style={{ fontSize: 11, padding: '3px 10px' }}
+            className="ui-btn"
+            data-variant="primary"
             disabled={busy || !isAddress(excludeInput.trim())}
             onClick={() => {
               runWrite({
@@ -397,37 +380,28 @@ function TokenRow({
               setExcludeInput('');
             }}
           >
-            + exempt
+            Exempt
           </button>
         </div>
       )}
 
       {/* Ownership handoff — always available since every token is Ownable */}
-      <details>
-        <summary
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-            cursor: 'pointer',
-          }}
-        >
-          ownership options ~~
-        </summary>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <details className={card.details}>
+        <summary>Ownership options</summary>
+        <div className={card.detailsBody}>
+          <div className={card.row}>
             <input
-              className="uru-input"
+              className={`ui-input ${card.grow}`}
+              data-mono="true"
               type="text"
-              placeholder="0x… new owner (multisig or new EOA)"
+              placeholder="0x… new owner (multisig or another wallet)"
               value={newOwnerInput}
               onChange={(e) => setNewOwnerInput(e.target.value)}
-              style={{ flex: 1, minWidth: 220, fontSize: 11 }}
             />
             <button
               type="button"
-              className="uru-btn uru-btn-primary"
-              style={{ fontSize: 11, padding: '3px 10px' }}
+              className="ui-btn"
+              data-variant="ink"
               disabled={busy || !isAddress(newOwnerInput.trim())}
               onClick={() => {
                 runWrite({
@@ -438,29 +412,23 @@ function TokenRow({
                 setNewOwnerInput('');
               }}
             >
-              hand off
+              Transfer
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <label style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, flex: 1 }}>
+          <div className={card.row}>
+            <label className={card.check}>
               <input
                 type="checkbox"
                 checked={renounceConfirm}
                 onChange={(e) => setRenounceConfirm(e.target.checked)}
-                style={{ marginRight: 4 }}
               />
-              i understand renouncing is <b>permanent</b>
+              <span>I understand renouncing is <b>permanent</b></span>
             </label>
             <button
               type="button"
-              className="uru-btn"
-              style={{
-                fontSize: 11,
-                padding: '3px 10px',
-                background: renounceConfirm ? 'var(--pink-hot)' : 'var(--cream-deep)',
-                color: renounceConfirm ? 'white' : 'var(--anchor-soft)',
-                border: '1px solid var(--anchor)',
-              }}
+              className="ui-btn"
+              data-variant={renounceConfirm ? 'primary' : undefined}
+              data-size="sm"
               disabled={busy || !renounceConfirm}
               onClick={() =>
                 runWrite({
@@ -469,23 +437,15 @@ function TokenRow({
                 })
               }
             >
-              ✕ renounce forever
+              Renounce forever
             </button>
           </div>
         </div>
       </details>
 
       {!walletOnTargetChain && (
-        <div
-          style={{
-            padding: 6,
-            background: 'var(--yolk)',
-            border: '1px solid var(--anchor)',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-          }}
-        >
-          switch to {chain} to sign owner txs ~~
+        <div className={card.warn}>
+          Switch to {chain} to sign owner transactions.
         </div>
       )}
     </li>

@@ -46,8 +46,45 @@ export interface TradePoint {
   isBuy?: boolean;
 }
 
-const UP_COLOR = '#2fbf6a';
-const DOWN_COLOR = '#ff88b3';
+/// Chart colors come from the v2 CSS tokens (styles/tokens.css) so the canvas
+/// follows the light/dark theme. lightweight-charts paints to canvas and can't
+/// read CSS variables itself, so we resolve them here and re-apply on theme flips.
+type ChartPalette = { bg: string; text: string; grid: string; border: string; crosshair: string; up: string; down: string };
+
+function readPalette(): ChartPalette {
+  const fallback: ChartPalette = { bg: '#FFFFFF', text: '#6C6A65', grid: '#E3E2DD', border: '#E3E2DD', crosshair: '#111110', up: '#097954', down: '#C33824' };
+  if (typeof document === 'undefined') return fallback;
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb;
+  return {
+    bg: v('--surface-1', fallback.bg),
+    text: v('--fg-faint', fallback.text),
+    grid: v('--line', fallback.grid),
+    border: v('--line', fallback.border),
+    crosshair: v('--fg', fallback.crosshair),
+    up: v('--buy', fallback.up),
+    down: v('--sell', fallback.down),
+  };
+}
+
+/// Hex color + alpha byte, e.g. withAlpha('#0B9466', 0.28). Tokens are 6-digit hex.
+function withAlpha(hex: string, a: number): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
+  return hex + Math.round(a * 255).toString(16).padStart(2, '0');
+}
+
+function chartThemeOptions(pal: ChartPalette) {
+  return {
+    layout: { background: { type: ColorType.Solid, color: pal.bg }, textColor: pal.text },
+    grid: { vertLines: { color: pal.grid }, horzLines: { color: pal.grid } },
+    rightPriceScale: { borderColor: pal.border },
+    timeScale: { borderColor: pal.border },
+    crosshair: {
+      horzLine: { color: pal.crosshair, labelBackgroundColor: pal.crosshair },
+      vertLine: { color: pal.crosshair, labelBackgroundColor: pal.crosshair },
+    },
+  };
+}
 
 /// `pairSymbol` set = ERC-20-paired curve (URU): plot whole pair tokens per token,
 /// never USD (no URU/USD feed) and never gwei (that unit is ETH-only).
@@ -84,7 +121,7 @@ function toAreaData(p: TradePoint, useUsd: boolean, ethUsd: number | null, pairS
   return { time: p.timestamp as AreaData['time'], value };
 }
 
-function toMarker(p: TradePoint): SeriesMarker<Time> | null {
+function toMarker(p: TradePoint, pal: ChartPalette): SeriesMarker<Time> | null {
   if (p.isBuy === undefined) return null;
   // Compact colored square sitting ON the price line (inBar). Was a circle at
   // size 1 -- rendered as fat 10px dots that dominated the chart with only 8
@@ -94,7 +131,7 @@ function toMarker(p: TradePoint): SeriesMarker<Time> | null {
   return {
     time: p.timestamp as Time,
     position: 'inBar',
-    color: p.isBuy ? UP_COLOR : DOWN_COLOR,
+    color: p.isBuy ? pal.up : pal.down,
     shape: 'square',
     size: 0,
   };
@@ -133,6 +170,15 @@ export function TradeChart({
   pairSymbolRef.current = pairSymbol;
 
   const sorted = useMemo(() => normalize(points), [points]);
+
+  // Re-resolve token colors whenever <html data-theme> flips.
+  const [palette, setPalette] = useState<ChartPalette>(() => readPalette());
+  useEffect(() => {
+    setPalette(readPalette());
+    const mo = new MutationObserver(() => setPalette(readPalette()));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => mo.disconnect();
+  }, []);
 
   const isUp = useMemo(() => {
     if (sorted.length < 2) return true;
@@ -208,19 +254,20 @@ export function TradeChart({
   // poll and forced a full chart teardown+repaint every ~15s.
   useEffect(() => {
     if (!containerRef.current) return;
+    const pal = readPalette();
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#fff8e7' },
-        textColor: '#3a2c3a',
+        background: { type: ColorType.Solid, color: pal.bg },
+        textColor: pal.text,
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(58, 44, 58, 0.08)' },
-        horzLines: { color: 'rgba(58, 44, 58, 0.08)' },
+        vertLines: { color: pal.grid },
+        horzLines: { color: pal.grid },
       },
       rightPriceScale: {
-        borderColor: '#3a2c3a',
+        borderColor: pal.border,
         // Start on Normal so a tight-range chart (early curve trades within
         // 1-2% of each other) shows visible wobble instead of collapsing to
         // a flat line under log's compressed axis. The mode auto-flips to
@@ -236,7 +283,7 @@ export function TradeChart({
         minimumWidth: 66,
       },
       timeScale: {
-        borderColor: '#3a2c3a',
+        borderColor: pal.border,
         timeVisible: true,
         secondsVisible: false,
         // A little breathing room before the newest bar so the last dot
@@ -245,8 +292,8 @@ export function TradeChart({
       },
       autoSize: true,
       crosshair: {
-        horzLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
-        vertLine: { color: '#3a2c3a', width: 1, style: 3, labelBackgroundColor: '#3a2c3a' },
+        horzLine: { color: pal.crosshair, width: 1, style: 3, labelBackgroundColor: pal.crosshair },
+        vertLine: { color: pal.crosshair, width: 1, style: 3, labelBackgroundColor: pal.crosshair },
       },
       localization: {
         priceFormatter: (p: number) => {
@@ -274,9 +321,9 @@ export function TradeChart({
       // angles that made our sparse chart look broken.
       lineType: LineType.Simple,
       lineWidth: 2,
-      lineColor: UP_COLOR,
-      topColor: 'rgba(47, 191, 106, 0.28)',
-      bottomColor: 'rgba(47, 191, 106, 0)',
+      lineColor: pal.up,
+      topColor: withAlpha(pal.up, 0.28),
+      bottomColor: withAlpha(pal.up, 0),
       // No built-in point markers. Our own createSeriesMarkers below draws
       // colored buy/sell circles at each trade, which fully replaces the
       // neutral gray dots.
@@ -286,7 +333,7 @@ export function TradeChart({
       // "here's the price right now" indicator.
       priceLineVisible: true,
       priceLineWidth: 1,
-      priceLineColor: UP_COLOR,
+      priceLineColor: pal.up,
       priceLineStyle: LineStyle.Dashed,
       lastValueVisible: true,
       priceFormat: {
@@ -310,24 +357,29 @@ export function TradeChart({
     };
   }, []);
 
-  // OPTIONS effect: applies line-color (up/down mint/pink) + precision changes
+  // THEME effect: repaint canvas colors in place when the theme flips.
+  useEffect(() => {
+    chartRef.current?.applyOptions(chartThemeOptions(palette));
+  }, [palette]);
+
+  // OPTIONS effect: applies line-color (up/down buy/sell) + precision changes
   // to the existing series WITHOUT recreating the chart. Runs whenever isUp
   // or precision changes but leaves the chart canvas / camera / data intact.
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
     series.applyOptions({
-      lineColor: isUp ? UP_COLOR : DOWN_COLOR,
-      topColor: isUp ? 'rgba(47, 191, 106, 0.28)' : 'rgba(255, 136, 179, 0.28)',
-      bottomColor: isUp ? 'rgba(47, 191, 106, 0)' : 'rgba(255, 136, 179, 0)',
-      priceLineColor: isUp ? UP_COLOR : DOWN_COLOR,
+      lineColor: isUp ? palette.up : palette.down,
+      topColor: withAlpha(isUp ? palette.up : palette.down, 0.28),
+      bottomColor: withAlpha(isUp ? palette.up : palette.down, 0),
+      priceLineColor: isUp ? palette.up : palette.down,
       priceFormat: {
         type: 'price',
         precision,
         minMove: 1 / Math.pow(10, precision),
       },
     });
-  }, [isUp, precision]);
+  }, [isUp, precision, palette]);
 
   // Scale-mode effect: flip Normal ↔ Logarithmic based on the range heuristic
   // above. applyOptions on the price scale swaps mode in place with no
@@ -401,12 +453,12 @@ export function TradeChart({
     if (markers) {
       const list: SeriesMarker<Time>[] = [];
       for (const p of sorted) {
-        const m = toMarker(p);
+        const m = toMarker(p, palette);
         if (m) list.push(m);
       }
       markers.setMarkers(list);
     }
-  }, [sorted, useUsd, ethUsd, pairSymbol]);
+  }, [sorted, useUsd, ethUsd, pairSymbol, palette]);
 
   const hasData = sorted.length > 0;
 
@@ -416,9 +468,11 @@ export function TradeChart({
         position: 'relative',
         width: '100%',
         height: 'clamp(280px, 34vw, 420px)',
-        border: '1.5px solid var(--anchor)',
-        boxShadow: '3px 3px 0 var(--anchor)',
-        background: '#fff8e7',
+        border: '1px solid var(--line)',
+        boxShadow: '0 0 0 transparent',
+        borderRadius: 'var(--r-md)',
+        overflow: 'hidden',
+        background: 'var(--surface-1)',
         boxSizing: 'border-box',
       }}
     >
@@ -433,8 +487,8 @@ export function TradeChart({
             inset: 0,
             pointerEvents: 'none',
             background: flashActive === 'buy'
-              ? 'rgba(47, 191, 106, 0.32)'
-              : 'rgba(255, 136, 179, 0.32)',
+              ? 'var(--buy-soft)'
+              : 'var(--sell-soft)',
             zIndex: 5,
           }}
         />
@@ -444,12 +498,13 @@ export function TradeChart({
           position: 'absolute',
           bottom: 8,
           left: 8,
-          fontFamily: 'var(--font-pixel), monospace',
+          fontFamily: 'var(--font-sans), monospace',
           fontSize: 10,
-          color: 'var(--anchor-soft)',
-          background: 'rgba(255, 248, 231, 0.9)',
+          color: 'var(--fg-muted)',
+          background: 'var(--surface-1)',
           padding: '2px 6px',
-          border: '1px solid rgba(58, 44, 58, 0.2)',
+          borderRadius: 4,
+          border: '1px solid var(--line)',
           pointerEvents: 'none',
           zIndex: 4,
         }}
@@ -464,9 +519,9 @@ export function TradeChart({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: 'var(--font-pixel), monospace',
+            fontFamily: 'var(--font-sans), monospace',
             fontSize: 12,
-            color: 'var(--anchor-soft)',
+            color: 'var(--fg-muted)',
             pointerEvents: 'none',
           }}
         >

@@ -16,6 +16,7 @@ import { useReadContracts } from 'wagmi';
 import { ECOSYSTEM_TOKENS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
+import card from './profile-card.module.css';
 
 interface Props {
   visibleFor: Address;
@@ -79,10 +80,10 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
   const loyaltyTier = useMemo(() => {
     const hasNft = nftCount > 0n;
     const hasUru = uru >= URU_LOYALTY_THRESHOLD_WEI;
-    if (hasNft && hasUru) return { pct: 50, label: 'combined tier' };
+    if (hasNft && hasUru) return { pct: 50, label: 'Combined tier' };
     if (hasUru) return { pct: 40, label: 'URU tier' };
-    if (hasNft) return { pct: 20, label: 'holder-pass tier' };
-    return { pct: 0, label: 'no tier' };
+    if (hasNft) return { pct: 20, label: 'urufu gemu nft tier' };
+    return { pct: 0, label: 'No tier' };
   }, [uru, nftCount]);
 
   const uruShort = (uru: bigint) => {
@@ -102,47 +103,35 @@ export function EcosystemHoldings({ visibleFor, chain }: Props) {
   if (!tokens) return null;
 
   return (
-    <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-      <div className="uru-eyebrow" style={{ marginBottom: 6 }}>
-        ecosystem holdings
+    <section className={card.card}>
+      <div className={card.head}>
+        <h2 className={card.title}>Ecosystem holdings</h2>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-          <span>URU</span>
-          <span className="uru-num" style={{ fontWeight: 600 }}>{uruShort(uru)}</span>
+      <div className={card.body}>
+        <div className={card.kv}>
+          <span className={card.kvKey}>URU</span>
+          <span className={card.kvValue}>{uruShort(uru)}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-          <span>gemu holder pass</span>
-          <span className="uru-num" style={{ fontWeight: 600 }}>{nftCount.toString()}</span>
+        <div className={card.kv}>
+          <span className={card.kvKey}>urufu gemu nft</span>
+          <span className={card.kvValue}>{nftCount.toString()}</span>
         </div>
         {loyalty.ready && (
-          <div
-            style={{
-              marginTop: 4,
-              paddingTop: 6,
-              borderTop: '1px dashed var(--cream-shadow)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 8,
-              alignItems: 'baseline',
-              fontSize: 12,
-              color: 'var(--anchor-soft)',
-            }}
-          >
-            <span>loyalty tier</span>
+          <div className={`${card.kv} ${card.divider}`}>
+            <span className={card.kvKey}>Loyalty tier</span>
             <span>
-              <span className="uru-num" style={{ fontWeight: 600, color: loyaltyTier.pct > 0 ? 'var(--pink-hot)' : 'inherit' }}>
+              <span className={`${card.kvValue} ${loyaltyTier.pct > 0 ? card.accentNum : ''}`}>
                 {loyaltyTier.pct}%
               </span>{' '}
-              off · {loyaltyTier.label}
+              <span className={card.faint}>off · {loyaltyTier.label}</span>
             </span>
           </div>
         )}
         {loyalty.ready && uruRemainingToTier !== null && (
-          <div style={{ fontSize: 11, color: 'var(--anchor-soft)', fontStyle: 'italic' }}>
-            hold <span className="uru-num">{uruShort(uruRemainingToTier)}</span> more URU
-            for the +{nftCount > 0n ? 30 : 40}% tier ~
-          </div>
+          <p className={card.muted}>
+            Hold <span className={card.num}>{uruShort(uruRemainingToTier)}</span> more URU
+            to reach the +{nftCount > 0n ? 30 : 40}% tier.
+          </p>
         )}
       </div>
     </section>

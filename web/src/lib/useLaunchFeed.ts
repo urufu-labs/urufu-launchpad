@@ -29,6 +29,10 @@ interface FeedState {
   source: 'indexer' | 'mock';
   launches: MockLaunch[];
   ready: boolean;
+  /// True when the indexer could not be reached and nothing has loaded yet.
+  /// Pages show a "couldn't load" state instead of zeros. Cleared by the next
+  /// successful poll; a failed poll after a good one keeps the last data.
+  error?: boolean;
 }
 
 // Chains where CONTRACTS[chain] has been populated by sync-addresses.mjs — the mock preview
@@ -115,7 +119,7 @@ export function useLaunchFeed(chainId: number): FeedState {
       const rows = await fetchRecentLaunches(60);
       if (cancelled) return;
       if (!rows) {
-        setState((prev) => (prev.ready ? prev : { source: 'indexer', launches: [], ready: true }));
+        setState((prev) => (prev.ready && !prev.error ? prev : { source: 'indexer', launches: [], ready: true, error: true }));
         return;
       }
       const forChain = rows

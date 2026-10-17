@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
 
-import { Mascot } from '@/components/Mascot';
+import { WalletButton } from '@/components/WalletButton';
 import styles from './profile.module.css';
 
 export default function ProfileMePage() {
@@ -27,23 +27,20 @@ export default function ProfileMePage() {
 
   return (
     <div className={styles.entryFrame}>
-      <section className={`uru-shell ${styles.entryCard}`} style={{ textAlign: 'center' }}>
-        <div className={styles.entryMascot}>
-          <Mascot size={84} mood={showConnected ? 'happy' : 'confused'} className="uru-idle-bob" />
-        </div>
-        <div className="uru-eyebrow">creator profile</div>
-        <h1 className="uru-h1" style={{ fontSize: 36, lineHeight: 1.05 }}>
-          {showConnected ? 'opening your profile' : 'connect to open your profile'}
+      <section className={styles.entryCard}>
+        <p className={styles.entryEyebrow}>Profile</p>
+        <h1 className={styles.entryTitle}>
+          {showConnected ? 'Opening your profile…' : 'Connect to see your profile'}
         </h1>
         <p className={styles.entryCopy}>
           {showConnected
-            ? 'sending this wallet to its profile, launched tokens, activity, and holdings.'
-            : 'profiles live at /profile/<wallet>. connect above to see yours, or paste any address in the url to view a public profile.'}
+            ? 'Taking you to your launches, holdings and activity.'
+            : 'Your profile shows the tokens you launched, what you hold, and your trades. You can also open anyone’s profile from a trade or the feed.'}
         </p>
         {!showConnected && (
           <div className={styles.entryActions}>
-            <Link href="/discover" className="uru-btn">browse tokens</Link>
-            <Link href="/feed" className="uru-btn uru-btn-mint">open feed</Link>
+            <WalletButton />
+            <Link href="/feed" className="ui-btn" data-size="lg">Open the feed</Link>
           </div>
         )}
       </section>

@@ -53,7 +53,7 @@ export function keyFor(chainId: number | string, tokenAddress: Address): string 
 /// the default `cover` crops to fill, as ERC-20 token cards always have.
 export function safeBackgroundImage(
   imageUrl: string | undefined | null,
-  fallback = 'var(--cream-deep)',
+  fallback = 'var(--surface-2)',
   fit: 'cover' | 'contain' = 'cover',
 ): string {
   if (!imageUrl) return fallback;
@@ -61,7 +61,7 @@ export function safeBackgroundImage(
   // encodeURI (they're valid URL chars) but not through the quote wrapper, so also
   // strip any embedded single-quotes defensively.
   const clean = encodeURI(imageUrl).replace(/'/g, '%27');
-  return `#fff url('${clean}') center/${fit} no-repeat`;
+  return `var(--surface-2) url('${clean}') center/${fit} no-repeat`;
 }
 
 export function saveMetadata(

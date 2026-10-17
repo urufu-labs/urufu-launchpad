@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 
 type Theme = 'light' | 'dark';
 
+/// Same scene in both themes (urufu gemu wolf #0375 + sheep #04776), so the
+/// hero reads as one place that goes from day to night with the theme toggle.
+/// Posters for each theme are set in globals.css (.uru-home-hero-art).
 const VIDEO_BY_THEME: Record<Theme, string | null> = {
-  light: '/urufu-altar-light-release-seal-loop-v2.mp4',
-  dark: '/urufu-altar-ring-braid-loop-v1.mp4',
+  light: '/hero/wolf-sheep-light.mp4',
+  dark: '/hero/wolf-sheep-dark.mp4',
 };
 
 function appliedTheme(): Theme {
@@ -82,7 +85,7 @@ export function CultureHeroArt() {
       className="uru-home-hero-art"
       data-video-ready={videoReady}
       role="img"
-      aria-label="An Urufu creator tending a glowing token-launch altar"
+      aria-label="An urufu gemu wolf and sheep sitting together"
     >
       {videoSource && (
         <video
@@ -97,7 +100,7 @@ export function CultureHeroArt() {
         />
       )}
       <span className="uru-home-art-label">
-        <b>❋ urufu gēmu</b> / soft + cruel
+        <b>urufu gēmu</b> / soft + cruel
       </span>
     </div>
   );

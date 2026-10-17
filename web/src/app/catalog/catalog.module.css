@@ -10,9 +10,10 @@
   gap: 12px;
   align-items: stretch;
   padding: 10px;
-  border: 2px solid var(--anchor);
-  background: var(--card);
-  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.12);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: none;
+  border-radius: var(--r-lg);
 }
 
 .specHeader p,
@@ -30,12 +31,12 @@
 .address,
 .addressLink,
 .muted {
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
 }
 
 .specHeader p {
   margin: 0 0 4px;
-  color: var(--pink-hot);
+  color: var(--accent);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -43,7 +44,7 @@
 
 .specHeader h1 {
   margin: 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 34px;
   line-height: 0.94;
@@ -53,14 +54,15 @@
 .headerMeta {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--anchor);
-  background: var(--cream-deep);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--r-lg);
 }
 
 .meta {
   min-width: 0;
   padding: 7px 9px;
-  border-right: 1px dotted var(--anchor);
+  border-right: 1px solid var(--line);
 }
 
 .meta:last-child {
@@ -69,14 +71,14 @@
 
 .meta span {
   display: block;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 9px;
   text-transform: uppercase;
 }
 
 .meta b {
   display: block;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 18px;
   line-height: 1.05;
@@ -88,11 +90,12 @@
   align-items: center;
   margin: 10px 0;
   padding: 7px 10px;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
   border-left-width: 6px;
-  background: var(--yolk);
-  color: var(--anchor);
+  background: var(--surface-3);
+  color: var(--fg);
   font-size: 11px;
+  border-radius: var(--r-lg);
 }
 
 .referenceLayout {
@@ -109,14 +112,15 @@
   display: grid;
   gap: 10px;
   padding: 10px;
-  border: 2px solid var(--anchor);
-  background: var(--card);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  border-radius: var(--r-lg);
 }
 
 .indexTitle {
   display: flex;
   justify-content: space-between;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -124,7 +128,7 @@
 
 .indexTitle small,
 .indexRail nav small {
-  font-family: var(--font-jp), monospace;
+  font-family: var(--font-sans), monospace;
   letter-spacing: 0;
 }
 
@@ -138,28 +142,30 @@
   justify-content: space-between;
   gap: 10px;
   padding: 7px 8px;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream);
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--fg);
   font-size: 11px;
   text-decoration: none;
+  border-radius: var(--r-lg);
 }
 
 .indexRail nav a:hover {
-  background: var(--pink-warm);
+  background: var(--accent-soft);
 }
 
 .indexActions {
   display: grid;
   gap: 7px;
   padding-top: 8px;
-  border-top: 1px dotted var(--anchor);
+  border-top: 1px solid var(--line);
 }
 
 .sheet {
   min-width: 0;
-  border: 2px solid var(--anchor);
-  background: var(--card);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  border-radius: var(--r-lg);
 }
 
 .sectionHead {
@@ -175,7 +181,7 @@
 
 .sectionHead h2 {
   margin: 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 25px;
   line-height: 1;
@@ -183,14 +189,14 @@
 }
 
 .sectionHead span {
-  color: var(--anchor-soft);
-  font-family: var(--font-jp), monospace;
+  color: var(--fg-muted);
+  font-family: var(--font-sans), monospace;
   font-size: 14px;
 }
 
 .sectionHead p {
   margin: 4px 0 0;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -199,14 +205,15 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0 10px 10px;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream-deep);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--r-lg);
 }
 
 .inventoryRow {
   min-width: 0;
   padding: 9px;
-  border-right: 1px dotted var(--anchor);
+  border-right: 1px solid var(--line);
 }
 
 .inventoryRow:last-child {
@@ -215,7 +222,7 @@
 
 .inventoryRow span {
   display: block;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 9px;
   text-transform: uppercase;
 }
@@ -223,7 +230,7 @@
 .inventoryRow b {
   display: block;
   margin: 3px 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 22px;
   line-height: 1;
@@ -231,7 +238,7 @@
 
 .inventoryRow p {
   margin: 0;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
   line-height: 1.3;
 }
@@ -239,7 +246,7 @@
 .coreTable {
   display: grid;
   margin: 0 10px 10px;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
 }
 
 .stackRow {
@@ -249,8 +256,8 @@
   align-items: center;
   min-width: 0;
   padding: 8px 10px;
-  border-bottom: 1px dotted var(--anchor);
-  background: var(--cream);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
 }
 
 .stackRow:last-child {
@@ -258,12 +265,12 @@
 }
 
 .stackRow b {
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 12px;
 }
 
 .stackRow span {
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 11px;
 }
 
@@ -277,13 +284,14 @@
   display: grid;
   grid-template-columns: minmax(128px, 0.34fr) minmax(0, 1fr);
   min-width: 0;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  border-radius: var(--r-lg);
 }
 
 .specimen[data-planned="true"] {
   border-style: dashed;
-  background: var(--cream-deep);
+  background: var(--surface-2);
 }
 
 .specimenCode {
@@ -292,13 +300,13 @@
   gap: 8px;
   min-width: 0;
   padding: 10px;
-  border-right: 1px dotted var(--anchor);
-  background: color-mix(in srgb, var(--mint) 28%, var(--cream));
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-3) 28%, var(--surface-1));
 }
 
 .specimenCode span {
   overflow: hidden;
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 11px;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -307,7 +315,7 @@
 
 .specimenCode code {
   overflow-wrap: anywhere;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
 }
 
@@ -326,7 +334,7 @@
 .specimenTitle h3 {
   min-width: 0;
   margin: 0 6px 0 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 19px;
   line-height: 1.05;
@@ -335,16 +343,17 @@
 
 .specimenTitle span {
   padding: 2px 5px;
-  border: 1px solid var(--anchor);
-  background: var(--card);
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--fg);
   font-size: 9px;
   text-transform: uppercase;
+  border-radius: var(--r-lg);
 }
 
 .specimenBody p {
   margin: 7px 0 0;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 12px;
   line-height: 1.38;
 }
@@ -360,16 +369,16 @@
 
 .warnings li {
   padding: 4px 6px;
-  border: 1px dashed var(--anchor);
-  background: color-mix(in srgb, var(--yolk) 58%, var(--card));
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-3) 58%, var(--surface-1));
+  color: var(--fg);
   font-size: 10px;
 }
 
 .recipeTable {
   display: grid;
   margin: 0 10px 12px;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
 }
 
 .recipeHead,
@@ -383,17 +392,17 @@
 
 .recipeHead {
   padding: 7px 10px;
-  border-bottom: 1.5px solid var(--anchor);
-  background: var(--cream-deep);
-  color: var(--anchor-soft);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--fg-muted);
   font-size: 9px;
   text-transform: uppercase;
 }
 
 .recipeRow {
   padding: 9px 10px;
-  border-bottom: 1px dotted var(--anchor);
-  background: var(--cream);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
 }
 
 .recipeRow:last-child {
@@ -402,18 +411,18 @@
 
 .recipeRow b {
   display: block;
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 12px;
 }
 
 .recipeRow small {
-  color: var(--anchor-soft);
-  font-family: var(--font-jp), monospace;
+  color: var(--fg-muted);
+  font-family: var(--font-sans), monospace;
 }
 
 .recipeRow p {
   margin: 3px 0 0;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
   line-height: 1.3;
 }
@@ -421,38 +430,20 @@
 .recipeRow span,
 .recipeRow code {
   overflow-wrap: anywhere;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
 }
 
 .address,
 .addressLink,
 .muted {
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
 }
 
 .addressLink {
-  color: var(--link-blue);
+  color: var(--info);
   text-decoration: underline;
-}
-
-:root[data-theme="dark"] .specHeader,
-:root[data-theme="dark"] .indexRail,
-:root[data-theme="dark"] .sheet {
-  background: var(--cream);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-}
-
-:root[data-theme="dark"] .specimen,
-:root[data-theme="dark"] .stackRow,
-:root[data-theme="dark"] .recipeRow,
-:root[data-theme="dark"] .indexRail nav a {
-  background: var(--card);
-}
-
-:root[data-theme="dark"] .specimenCode {
-  background: color-mix(in srgb, var(--mint) 20%, var(--card));
 }
 
 @media (max-width: 980px) {
@@ -492,7 +483,7 @@
   }
 
   .inventoryRow:nth-child(-n + 2) {
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -511,7 +502,7 @@
   }
 
   .meta:nth-child(-n + 2) {
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 
   .notice {
@@ -530,7 +521,7 @@
   .inventoryRow,
   .inventoryRow:nth-child(2n) {
     border-right: 0;
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 
   .inventoryRow:last-child {
@@ -547,7 +538,7 @@
 
   .specimenCode {
     border-right: 0;
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 
   .recipeHead {

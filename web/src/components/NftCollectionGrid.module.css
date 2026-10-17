@@ -15,21 +15,22 @@
   display: grid;
   min-width: 0;
   overflow: hidden;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
   color: inherit;
   text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  border-radius: var(--r-lg);
 }
 
 .releaseCard:hover {
-  border-color: var(--pink-hot);
-  box-shadow: 4px 4px 0 var(--pink-hot);
+  border-color: var(--accent);
+  box-shadow: none;
   transform: translate(-2px, -2px);
 }
 
 .releaseCard:focus-visible {
-  outline: 2px solid var(--pink-hot);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -45,21 +46,20 @@
 .missingArt {
   aspect-ratio: 1 / 1;
   width: 100%;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
   background-color: #fff;
   background-position: center;
   background-size: contain;
   background-repeat: no-repeat;
+  border-radius: var(--r-lg);
 }
 
 .missingArt {
   display: grid;
   place-items: center;
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--cream-deep) 72%, transparent) 0 8px, transparent 8px 16px),
-    var(--cream);
-  color: var(--anchor-soft);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  background: var(--surface-1);
+  color: var(--fg-muted);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 10px;
   text-align: center;
   text-transform: uppercase;
@@ -77,12 +77,13 @@
 
 .badges span {
   padding: 2px 5px;
-  border: 1px solid var(--anchor);
-  background: var(--card, var(--cream));
-  color: var(--anchor);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  border: 1px solid var(--line);
+  background: var(--surface-1, var(--surface-1));
+  color: var(--fg);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 8px;
   text-transform: uppercase;
+  border-radius: var(--r-lg);
 }
 
 .releaseInfo {
@@ -101,7 +102,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 21px;
   font-weight: 400;
@@ -112,8 +113,8 @@
 
 .nameRow span {
   flex: 0 0 auto;
-  color: var(--pink-hot);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  color: var(--accent);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 10px;
 }
 
@@ -123,7 +124,7 @@
   margin: 4px 0 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 11px;
   line-height: 1.32;
   -webkit-line-clamp: 2;
@@ -133,15 +134,16 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 10px 10px 0;
-  border: 1px solid color-mix(in srgb, var(--anchor) 54%, transparent);
-  background: color-mix(in srgb, var(--cream-deep) 76%, transparent);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+  border-radius: var(--r-lg);
 }
 
 .metric {
   min-width: 0;
   padding: 5px 6px;
-  border-right: 1px dotted var(--anchor);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  border-right: 1px solid var(--line);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
 }
 
 .metric:last-child {
@@ -150,7 +152,7 @@
 
 .metric small {
   display: block;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 8px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -158,7 +160,7 @@
 
 .metric b {
   display: block;
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 12px;
   font-weight: 700;
   overflow: hidden;
@@ -173,21 +175,22 @@
 .progress div {
   overflow: hidden;
   height: 7px;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream-deep);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--r-lg);
 }
 
 .progress i {
   display: block;
   height: 100%;
-  background: var(--pink-hot);
+  background: var(--accent);
 }
 
 .progress span {
   display: block;
   margin-top: 4px;
-  color: var(--anchor-soft);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  color: var(--fg-muted);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 8px;
   text-transform: uppercase;
 }
@@ -198,8 +201,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 10px 10px;
-  color: var(--anchor-soft);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  color: var(--fg-muted);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 8.5px;
 }
 
@@ -212,12 +215,8 @@
 
 .releaseFoot b {
   flex: 0 0 auto;
-  color: var(--pink-hot);
+  color: var(--accent);
   text-transform: uppercase;
-}
-
-:root[data-theme='dark'] .releaseCard {
-  background: var(--card, var(--cream));
 }
 
 @media (max-width: 1040px) {
@@ -245,17 +244,18 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
   border-top: 0;
-  background: var(--pink-soft, #ffe3ee);
-  color: var(--anchor);
+  background: var(--accent-soft, #ffe3ee);
+  color: var(--fg);
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
+  border-radius: var(--r-lg);
 }
 
 .dn404Trade:hover,
 .dn404Trade:focus-visible {
-  background: var(--pink-hot);
-  color: var(--cream);
+  background: var(--accent);
+  color: var(--surface-1);
 }

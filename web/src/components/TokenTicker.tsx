@@ -21,6 +21,7 @@ import { launchKind, mockSpotPriceWei, type MockLaunch } from '@/lib/mockLaunche
 import { useLaunchFeed } from '@/lib/useLaunchFeed';
 import { startTradeFlashPolling, tradeFlashClass, useTradeFlash } from '@/lib/useTradeFlash';
 import { loadMetadata, safeBackgroundImage } from '@/lib/metadata';
+import styles from '@/components/shell/shell.module.css';
 
 export function TokenTicker() {
   const activeChain = useActiveChain();
@@ -43,39 +44,31 @@ export function TokenTicker() {
     [feed.launches],
   );
 
-  const entries = useMemo(() => {
-    if (source.length === 0) {
-      return [
-        { key: 'empty-1', node: <span>✿ no launches yet on {chainLabel} ~ launch the first ✿</span> },
-        { key: 'empty-2', node: <span>❀ head to /create → tap tap launch ★</span> },
-      ];
-    }
-    return source.slice(0, 20).map((l, i) => {
-      // Use the graduated-aware helper -- prior version pulled straight from the frozen
-      // curve reserves via a local spotPriceOf(), which read 0 for every graduated token
-      // (BondingCurve drains reserves on graduation). Now v4 pool sqrtPriceX96 is used
-      // post-grad, curve virtual reserves pre-grad -- same numbers the trade + discover
-      // pages show, and formatPrice respects the USD/ETH header toggle.
-      const priceWei = mockSpotPriceWei(l);
-      const priceStr = priceWei > 0n ? formatPrice(priceWei, unit, ethUsd) : '—';
-      return {
-        key: `${l.address}-${i}`,
-        node: <TickerPill launch={l} priceStr={priceStr} />,
-      };
-    });
-  }, [source, chainLabel, unit, ethUsd]);
+  const entries = useMemo(
+    () =>
+      source.slice(0, 20).map((l, i) => {
+        // Graduated-aware price: v4 pool sqrtPriceX96 post-grad, curve virtual
+        // reserves pre-grad. Same numbers the trade + discover pages show, and
+        // formatPrice respects the USD/ETH header toggle.
+        const priceWei = mockSpotPriceWei(l);
+        const priceStr = priceWei > 0n ? formatPrice(priceWei, unit, ethUsd) : '–';
+        return { key: `${l.address}-${i}`, launch: l, priceStr };
+      }),
+    [source, unit, ethUsd],
+  );
+
+  // Nothing to scroll yet: render nothing rather than filler text.
+  if (entries.length === 0) return null;
 
   // Duplicate so translateX(-50%) wraps seamlessly.
   const loop = [...entries, ...entries];
 
   return (
-    <div className="uru-marquee-wrap" aria-label="Urufu token ticker">
-      <div className="uru-marquee">
-        <div className="uru-marquee-track">
-          {loop.map((e, i) => (
-            <span key={`${e.key}-${i}`}>{e.node}</span>
-          ))}
-        </div>
+    <div className={styles.ticker} aria-label={`Live tokens on ${chainLabel}`}>
+      <div className={styles.tickerTrack}>
+        {loop.map((e, i) => (
+          <TickerPill key={`${e.key}-${i}`} launch={e.launch} priceStr={e.priceStr} />
+        ))}
       </div>
     </div>
   );
@@ -103,40 +96,13 @@ function TickerPill({
   }, [launch.imageUrl, launch.chainId, launch.address]);
   const image = launch.imageUrl ?? localImage;
   return (
-    <Link
-      href={`/trade/${launch.address}`}
-      className={tradeFlashClass(flash)}
-      style={{
-        display: 'inline-flex',
-        gap: 6,
-        alignItems: 'center',
-        color: 'var(--anchor)',
-        textDecoration: 'none',
-        padding: '1px 8px',
-        borderLeft: `2px solid ${launch.graduated ? 'var(--mint-hot,#2b8a3e)' : 'var(--pink-hot)'}`,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          display: 'inline-block',
-          width: 16,
-          height: 16,
-          borderRadius: 3,
-          background: safeBackgroundImage(image, launch.logoBg),
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          fontSize: 12,
-          lineHeight: '16px',
-          textAlign: 'center',
-          flexShrink: 0,
-        }}
-      >
+    <Link href={`/trade/${launch.address}`} className={`${styles.tickItem} ${tradeFlashClass(flash)}`}>
+      <span aria-hidden className={styles.tickImg} style={{ background: safeBackgroundImage(image) }}>
         {!image && launch.logoEmoji}
       </span>
-      <span style={{ fontWeight: 700 }}>${launch.ticker}</span>
-      <span style={{ color: 'var(--anchor-soft)' }}>{priceStr}</span>
-      {launch.graduated && <span style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>✿ grad</span>}
+      <span className={styles.tickSym}>${launch.ticker}</span>
+      <span className={styles.tickPrice}>{priceStr}</span>
+      {launch.graduated && <span className={styles.tickGrad}>graduated</span>}
     </Link>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import { readFileAsDataUrl } from '@/lib/metadata';
+import styles from './MetadataForm.module.css';
 
 export interface MetadataInputs {
   logoDataUrl?: string;
@@ -22,16 +23,8 @@ interface Props {
   hideIntro?: boolean;
 }
 
-const EYEBROW: React.CSSProperties = {
-  fontFamily: 'var(--font-pixel), monospace',
-  fontSize: 10,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--anchor-soft)',
-};
-
 /// Pump.fun-style token metadata form: logo upload, description, socials. Uses the
-/// site's cream/paper design tokens so it slots into the shop, launch flow, and the
+/// site's role tokens so it slots into the shop, launch flow, and the
 /// per-token edit modal without palette clashes.
 export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -49,7 +42,7 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
       onChange({ ...value, logoDataUrl: result.dataUrl });
       if (result.optimized) {
         setLogoNotice(
-          `optimized ${Math.ceil(result.originalBytes / 1024)}KB → ${Math.ceil(result.outputBytes / 1024)}KB for launch ~`,
+          `Optimized ${Math.ceil(result.originalBytes / 1024)}KB → ${Math.ceil(result.outputBytes / 1024)}KB for launch.`,
         );
       }
     } catch (err) {
@@ -58,42 +51,19 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className={styles.form}>
       {!hideIntro && (
-        <div
-          style={{
-            padding: 10,
-            border: '1.5px dashed var(--anchor)',
-            background: 'var(--mint)',
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 12,
-            lineHeight: 1.5,
-            color: 'var(--anchor)',
-          }}
-        >
-          ✿ pin an image + a lil description so ur token shows up right on discover, home,
-          and every trade page. everyone sees the same thing once u sign the save ~
+        <div className={styles.intro}>
+          Add an image and a short description so your token looks right on Discover, the
+          home page and every trade page. Everyone sees the same thing once you sign the save.
         </div>
       )}
 
       {/* Logo */}
-      <label style={{ display: 'block' }}>
-        <span style={EYEBROW}>logo</span>
-        <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div
-            style={{
-              width: 64,
-              height: 64,
-              flexShrink: 0,
-              border: '1.5px solid var(--anchor)',
-              boxShadow: '2px 2px 0 var(--anchor)',
-              overflow: 'hidden',
-              background: value.logoDataUrl ? '#fff' : 'var(--cream-deep)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
+      <label className="ui-field">
+        <span className="ui-field-label">Logo</span>
+        <div className={styles.logoRow}>
+          <div className={styles.logoBox} data-filled={value.logoDataUrl ? 'true' : undefined}>
             {value.logoDataUrl ? (
               // Local data URL preview (before Pinata pin) — raw img by design;
               // next/image proxy only handles http(s) sources. width/height +
@@ -105,116 +75,71 @@ export function MetadataForm({ value, onChange, hideIntro = false }: Props) {
                 width={64}
                 height={64}
                 decoding="async"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
-              <span style={{ ...EYEBROW, fontSize: 9 }}>logo</span>
+              <span>Logo</span>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className={styles.logoMeta}>
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp,image/svg+xml,image/avif"
               onChange={(e) => void handleLogo(e.target.files?.[0] ?? null)}
-              style={{
-                display: 'block',
-                width: '100%',
-                fontFamily: 'var(--font-round), Klee One, cursive',
-                fontSize: 12,
-                color: 'var(--anchor)',
-              }}
+              className={styles.file}
             />
-            <div
-              style={{
-                marginTop: 6,
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: 'var(--anchor-soft)',
-                lineHeight: 1.5,
-              }}
-            >
-              png / jpeg / webp / svg up to 10MB. larger images get resized for launch ~
-            </div>
-            {logoNotice && (
-              <div
-                style={{
-                  marginTop: 6,
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--anchor-soft)',
-                }}
-              >
-                {logoNotice}
-              </div>
-            )}
-            {logoError && (
-              <div
-                style={{
-                  marginTop: 6,
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10,
-                  color: 'var(--pink-hot)',
-                }}
-              >
-                {logoError}
-              </div>
-            )}
+            <span className="ui-hint">
+              PNG, JPEG, WebP or SVG up to 10MB. Larger images are resized for launch.
+            </span>
+            {logoNotice && <span className="ui-hint">{logoNotice}</span>}
+            {logoError && <span className="ui-error">{logoError}</span>}
           </div>
         </div>
       </label>
 
       {/* Description */}
-      <label style={{ display: 'block' }}>
-        <span style={EYEBROW}>description</span>
+      <label className="ui-field">
+        <span className="ui-field-label">Description</span>
         <textarea
-          className="uru-input"
+          className="ui-input"
           value={value.description ?? ''}
           onChange={(e) => onChange({ ...value, description: e.target.value })}
           rows={3}
           maxLength={500}
-          placeholder="a short pitch. two or three sentences ~"
-          style={{ marginTop: 6, width: '100%', resize: 'vertical', minHeight: 64, fontFamily: 'var(--font-round), Klee One, cursive' }}
+          placeholder="A short pitch, two or three sentences."
         />
-        <div
-          style={{
-            marginTop: 4,
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-          }}
-        >
+        <span className={`ui-hint ${styles.count}`}>
           {(value.description ?? '').length}/500
-        </div>
+        </span>
       </label>
 
       {/* Socials */}
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+      <div className={styles.socials}>
         <SocialInput
-          label="website"
+          label="Website"
           placeholder="https://…"
           value={value.website}
           onChange={(v) => onChange({ ...value, website: v })}
         />
         <SocialInput
-          label="twitter / x"
+          label="X (Twitter)"
           placeholder="https://x.com/…"
           value={value.twitter}
           onChange={(v) => onChange({ ...value, twitter: v })}
         />
         <SocialInput
-          label="telegram"
+          label="Telegram"
           placeholder="https://t.me/…"
           value={value.telegram}
           onChange={(v) => onChange({ ...value, telegram: v })}
         />
         <SocialInput
-          label="discord"
+          label="Discord"
           placeholder="https://discord.gg/…"
           value={value.discord}
           onChange={(v) => onChange({ ...value, discord: v })}
         />
         <SocialInput
-          label="tiktok"
+          label="TikTok"
           placeholder="https://tiktok.com/@…"
           value={value.tiktok}
           onChange={(v) => onChange({ ...value, tiktok: v })}
@@ -236,15 +161,14 @@ function SocialInput({
   onChange: (v: string) => void;
 }) {
   return (
-    <label style={{ display: 'block' }}>
-      <span style={EYEBROW}>{label}</span>
+    <label className="ui-field">
+      <span className="ui-field-label">{label}</span>
       <input
-        className="uru-input"
+        className="ui-input"
         type="url"
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        style={{ marginTop: 6, width: '100%', fontFamily: 'var(--font-round), Klee One, cursive' }}
       />
     </label>
   );

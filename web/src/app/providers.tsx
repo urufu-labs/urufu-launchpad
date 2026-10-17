@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { wagmiConfig } from '@/lib/wagmi';
 import { MockDataProvider } from '@/lib/mockDataMode';
+import { ToastProvider } from '@/components/ui/Overlay';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -23,7 +24,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <MockDataProvider>{children}</MockDataProvider>
+        <MockDataProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </MockDataProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
