@@ -11,6 +11,7 @@ import {
   type AddressKey,
   type ChainSlug,
 } from './chains';
+import { withRangeHints } from './rpcRangeHints';
 
 /// Multi-chain Ponder config. One process subscribes to every chain in
 /// `enabledChains()` at once — no more one-service-per-chain on Railway.
@@ -377,9 +378,12 @@ function batchedTransport(rpcUrl: string) {
   // ordofi serves realtime + 10k-block history, dRPC realtime only, the
   // official RPC huge history ranges but is throttled. Any error/429 on one
   // endpoint moves the request to the next.
+  // Each endpoint is wrapped so its eth_getLogs range rejections carry a hint
+  // Ponder can read (see rpcRangeHints.ts); without it Ponder can't shrink the
+  // range and the historical sync crawls or crashes (2026-10-17).
   const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean);
   const one = (u: string, retryCount: number) =>
-    http(u, { batch, fetchOptions: { keepalive: true }, retryCount, timeout: 15_000 });
+    withRangeHints(http(u, { batch, fetchOptions: { keepalive: true }, retryCount, timeout: 15_000 }));
   if (urls.length <= 1) return one(urls[0] ?? rpcUrl, 5);
   return fallback(urls.map((u) => one(u, 1)), { retryCount: 3 });
 }
