@@ -441,10 +441,12 @@ function CreatePageContent() {
   });
   const curveSupplyWei = (curveDefaultSupplyQuery.data as bigint | undefined) ?? 800_000_000n * 10n ** 18n;
   const useCurve = base === 'ERC20';
-  /// Quick-launch defaults. Sniper gate at 1 L1 block (~12s on RH — one
-  /// Ethereum block cadence); short enough to be invisible to real buyers,
-  /// long enough to price out the fastest MEV searchers on the fresh v4 pool.
-  const QUICK_ANTI_SNIPER_BLOCKS = 1;
+  /// Quick-launch defaults. Sniper gate at 5 L1 blocks (~60s on RH; the gate
+  /// counts Ethereum blocks, ~12s each). Matches the agent launch path
+  /// (lib/agentApi.ts QUICK_ANTI_SNIPER_BLOCKS) and the "60 sec" shown on the
+  /// quick-launch card; verified on-chain with the Sniper60 test token (49-64s).
+  /// Was 1 block (~12s) until 2026-10-17, which disagreed with both.
+  const QUICK_ANTI_SNIPER_BLOCKS = 5;
   /// L1 block cadence used to translate the launcher's seconds input into
   /// the blocks-based `params.antiSniperBlocks` the MHH gate uses. RH is on
   /// Arbitrum stack: `block.number` inside a contract returns the L1 block
@@ -1341,7 +1343,7 @@ function CreatePageContent() {
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
-                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 4.2 ETH graduation target, 5-block sniper gate."
+                    title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 4.2 ETH graduation target, 60-second sniper gate after graduation."
                     aria-label="quick launch, safe defaults"
                     className={styles.choiceCard}
                     data-selected={mechanic === 'quick'}
