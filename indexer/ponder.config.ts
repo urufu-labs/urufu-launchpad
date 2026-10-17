@@ -1,5 +1,5 @@
 import { createConfig } from '@ponder/core';
-import { fallback, http, parseAbi, parseAbiItem } from 'viem';
+import { parseAbi, parseAbiItem } from 'viem';
 
 import {
   CHAIN_CATALOG,
@@ -11,7 +11,7 @@ import {
   type AddressKey,
   type ChainSlug,
 } from './chains';
-import { withRangeHints } from './rpcRangeHints';
+import { batchedTransport } from './rpcTransport';
 
 /// Multi-chain Ponder config. One process subscribes to every chain in
 /// `enabledChains()` at once — no more one-service-per-chain on Railway.
@@ -348,45 +348,9 @@ function tokenNet() {
 
 // ---------------------------------------------------------------- networks
 
-/// Batched HTTP transport with keepalive. Bundles multiple JSON-RPC calls into one
-/// HTTP request -- Ponder's parallel getLogs during historical sync easily fills
-/// batches. `wait: 16ms` gives Ponder's scheduler a moment to accumulate calls into
-/// the same batch. `keepalive` reuses TCP connections instead of tearing them down.
-///
-/// batchSize kept at 50 (down from an earlier 1000) because Alchemy's response body
-/// size cap kicks in with big batches -- getLogs replies can each carry hundreds of
-/// log entries, so a batch of 1000 getLogs blows past the ~10MB Alchemy response
-/// limit and viem throws ResponseBodyTooLargeError. 50 stays well under the limit
-/// while still giving 50x fewer HTTP round-trips than raw http().
-function batchedTransport(rpcUrl: string) {
-  // Batch aggressively — the RPC round-trip is by far the largest cost during
-  // historical sync. On a good RPC we can pack 100+ calls into one HTTP request
-  // and each batch overlaps ~10-20ms of network. Larger `wait` fills batches
-  // more completely at the cost of tail latency, which doesn't matter for
-  // historical sync (we're seconds behind head anyway) and is barely visible
-  // at live-tail (16-20ms is well under human perception).
-  //
-  // retryCount 5 (was 3) — public RPCs 429 during bursts; a couple more
-  // retries with the transport's built-in exponential backoff smooths that
-  // out without blocking forward progress.
-  // RPC_BATCH=false for rate-limited public RPCs (e.g. Robinhood's public
-  // endpoint counts every call inside a batch toward its limit and answers a
-  // 25-call batch with 429). Default stays batched for paid providers.
-  const batch = process.env.RPC_BATCH === 'false' ? false : { batchSize: 100, wait: 20 };
-  // Comma-separated list = viem fallback across free public endpoints, in
-  // order. On Robinhood (2026-10-02) no single free RPC does everything:
-  // ordofi serves realtime + 10k-block history, dRPC realtime only, the
-  // official RPC huge history ranges but is throttled. Any error/429 on one
-  // endpoint moves the request to the next.
-  // Each endpoint is wrapped so its eth_getLogs range rejections carry a hint
-  // Ponder can read (see rpcRangeHints.ts); without it Ponder can't shrink the
-  // range and the historical sync crawls or crashes (2026-10-17).
-  const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean);
-  const one = (u: string, retryCount: number) =>
-    withRangeHints(http(u, { batch, fetchOptions: { keepalive: true }, retryCount, timeout: 15_000 }));
-  if (urls.length <= 1) return one(urls[0] ?? rpcUrl, 5);
-  return fallback(urls.map((u) => one(u, 1)), { retryCount: 3 });
-}
+// batchedTransport (rpcTransport.ts): batched keepalive HTTP per RPC; a
+// comma-separated URL list becomes a viem fallback plus an eth_getLogs router
+// that knows each Robinhood RPC's range cap (2026-10-17 sync crashes).
 
 /// Build the Ponder `networks` map. Every chain in ENABLED gets a network entry
 /// with its own RPC + chainId + polling interval. Static conditional spreads

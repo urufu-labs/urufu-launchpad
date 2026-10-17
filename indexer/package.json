@@ -8,15 +8,19 @@
     "start": "ponder start",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint 'src/**/*.ts'"
+    "lint": "eslint 'src/**/*.ts'",
+    "replay:getlogs": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-getlogs.ts",
+    "replay:realtime": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-realtime.ts"
   },
   "dependencies": {
     "@ponder/core": "^0.7.0",
+    "@ponder/utils": "0.2.3",
     "hono": "^4.5.0",
     "viem": "^2.20.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.5.0"
   }
 }
