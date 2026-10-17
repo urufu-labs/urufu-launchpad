@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { isAudioEnabled, playSfx, setAudioEnabled } from '@/lib/audio/sfx';
 
 /**
- * ♪ on/off toggle for procedural SFX. Persists in localStorage; defaults
+ * On/off toggle for procedural SFX. Persists in localStorage; defaults
  * off. Plays a friendly two-tone chime the first time you turn it on so the
  * permission grant feels meaningful.
  */
@@ -39,9 +39,9 @@ export function AudioToggle() {
       <button
         type="button"
         aria-label="Toggle audio"
-        style={audioToggleStyle(false)}
+        className="ui-icon-btn"
       >
-        ♪
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" /><path d="m22 9-6 6M16 9l6 6" /></svg>
       </button>
     );
   }
@@ -51,32 +51,12 @@ export function AudioToggle() {
       type="button"
       onClick={handleClick}
       aria-label={on ? 'Mute audio' : 'Enable audio'}
-      title={on ? 'mute all sfx' : 'turn on sfx (clicks + trades + chimes)'}
-      style={audioToggleStyle(on)}
+      title={on ? 'Mute sound effects' : 'Turn on sound effects'}
+      className="ui-icon-btn"
       // Skip the doc-level click delegation so toggling doesn't fire a stray click sfx.
       data-sfx="none"
     >
-      {on ? '♪' : '♪̸'}
+      {on ? <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" /></svg> : <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" /><path d="m22 9-6 6M16 9l6 6" /></svg>}
     </button>
   );
-}
-
-function audioToggleStyle(on: boolean): React.CSSProperties {
-  return {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 28,
-    height: 28,
-    padding: 0,
-    background: on ? 'var(--mint)' : 'var(--cream)',
-    color: 'var(--anchor)',
-    border: '1.5px solid var(--anchor)',
-    boxShadow: '2px 2px 0 var(--anchor)',
-    fontFamily: 'var(--font-pixel), monospace',
-    fontSize: 13,
-    lineHeight: 1,
-    cursor: 'pointer',
-    letterSpacing: '-0.05em',
-  };
 }

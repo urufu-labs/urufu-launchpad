@@ -7,8 +7,9 @@
 .masthead,
 .browseBar,
 .marketBoard {
-  border: 2px double var(--anchor);
-  background: var(--card);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  border-radius: var(--r-lg);
 }
 
 .masthead {
@@ -18,14 +19,14 @@
   gap: 16px;
   align-items: end;
   padding: 14px 16px;
-  box-shadow: 4px 4px 0 color-mix(in srgb, var(--pink-hot) 26%, transparent);
+  box-shadow: none;
 }
 
 .masthead::before {
   position: absolute;
   inset: 7px;
-  border: 1px dashed color-mix(in srgb, var(--anchor) 22%, transparent);
-  content: "";
+  border: 1px solid var(--line);
+  content: none;
   pointer-events: none;
 }
 
@@ -49,12 +50,12 @@
 .releaseFoot,
 .missingArt,
 .emptyState a {
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
 }
 
 .identity p {
   margin: 0 0 5px;
-  color: var(--pink-hot);
+  color: var(--accent);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -62,7 +63,7 @@
 
 .identity h1 {
   margin: 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 35px;
   font-weight: 400;
@@ -73,7 +74,7 @@
 .searchBox {
   display: grid;
   gap: 5px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 10px;
   text-transform: uppercase;
 }
@@ -82,10 +83,10 @@
   width: 100%;
   min-width: 0;
   padding: 9px 10px;
-  border: 1.5px solid var(--anchor);
-  border-radius: 0;
-  background: var(--cream);
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--fg);
   font: inherit;
   font-size: 11px;
   text-transform: none;
@@ -94,7 +95,7 @@
 .searchBox input:focus-visible,
 .filterButton:focus-visible,
 .releaseCard:focus-visible {
-  outline: 2px solid var(--pink-hot);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -109,8 +110,8 @@
   gap: 2px;
   min-width: 100px;
   padding: 6px 8px;
-  border: 1.5px solid var(--anchor);
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  color: var(--fg);
   font-size: 9px;
   line-height: 1.15;
   text-transform: uppercase;
@@ -121,11 +122,11 @@
 }
 
 .sourceBadge span {
-  color: color-mix(in srgb, var(--anchor) 68%, transparent);
+  color: color-mix(in srgb, var(--fg) 68%, transparent);
 }
 
-.sourceLive { background: var(--mint); }
-.sourcePreview { background: var(--yolk); }
+.sourceLive { background: var(--surface-3); }
+.sourcePreview { background: var(--surface-3); }
 
 .browser {
   display: grid;
@@ -146,26 +147,26 @@
   gap: 2px;
   min-width: 126px;
   padding-right: 12px;
-  border-right: 1px dotted var(--anchor);
+  border-right: 1px solid var(--line);
 }
 
 .resultsSummary span,
 .boardHeader span {
-  color: var(--pink-hot);
+  color: var(--accent);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .resultsSummary b {
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 13px;
 }
 
 .resultsSummary small,
 .filterButton small {
   margin-left: 4px;
-  font-family: var(--font-jp), monospace;
+  font-family: var(--font-sans), monospace;
   font-size: 10px;
   font-weight: 400;
 }
@@ -181,10 +182,10 @@
   gap: 2px;
   align-items: baseline;
   padding: 5px 7px;
-  border: 1px solid var(--anchor);
-  border-radius: 0;
-  background: var(--cream);
-  color: var(--anchor);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--fg);
   cursor: pointer;
   font-size: 10px;
   line-height: 1;
@@ -192,19 +193,19 @@
 }
 
 .filterButton:hover {
-  border-color: var(--pink-hot);
+  border-color: var(--accent);
 }
 
 .filterButton[data-active="true"] {
-  background: var(--pink-hot);
-  color: #3a2c3a;
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 .marketFacts {
   display: flex;
   justify-content: flex-end;
   gap: 7px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 9px;
   text-align: right;
   white-space: nowrap;
@@ -212,8 +213,8 @@
 
 .marketFacts span + span::before {
   margin-right: 7px;
-  color: var(--pink-hot);
-  content: "✦";
+  color: var(--fg-faint);
+  content: "•";
 }
 
 .marketBoard {
@@ -226,8 +227,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  border-bottom: 1.5px solid var(--anchor);
-  background: color-mix(in srgb, var(--cream-deep) 84%, transparent);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 84%, transparent);
 }
 
 .boardHeader div {
@@ -236,15 +237,15 @@
 }
 
 .boardHeader b {
-  color: var(--anchor);
+  color: var(--fg);
   font-size: 14px;
 }
 
 .boardHeader p {
   max-width: 360px;
   margin: 0;
-  color: var(--anchor-soft);
-  font-family: var(--font-round), "Klee One", cursive;
+  color: var(--fg-muted);
+  font-family: var(--font-sans), "Klee One", cursive;
   font-size: 12px;
   font-weight: 600;
   line-height: 1.25;
@@ -262,16 +263,17 @@
   display: grid;
   min-width: 0;
   overflow: hidden;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
   color: inherit;
   text-decoration: none;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  border-radius: var(--r-lg);
 }
 
 .releaseCard:hover {
-  border-color: var(--pink-hot);
-  box-shadow: 4px 4px 0 var(--pink-hot);
+  border-color: var(--accent);
+  box-shadow: none;
   transform: translate(-2px, -2px);
 }
 
@@ -285,17 +287,16 @@
 .missingArt {
   aspect-ratio: 4 / 3;
   width: 100%;
-  border: 1.5px solid var(--anchor);
-  background-color: var(--mizuiro);
+  border: 1px solid var(--line);
+  background-color: var(--info-soft);
+  border-radius: var(--r-lg);
 }
 
 .missingArt {
   display: grid;
   place-items: center;
-  background:
-    repeating-linear-gradient(135deg, color-mix(in srgb, var(--cream-deep) 72%, transparent) 0 8px, transparent 8px 16px),
-    var(--cream);
-  color: var(--anchor-soft);
+  background: var(--surface-1);
+  color: var(--fg-muted);
   font-size: 10px;
   text-align: center;
   text-transform: uppercase;
@@ -318,29 +319,37 @@
 }
 
 .badges span {
-  padding: 2px 5px;
-  border: 1px solid var(--anchor);
-  background: var(--card);
-  color: var(--anchor);
-  font-size: 8px;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(11, 11, 12, 0.78);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #FFFFFF;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-/* Legacy pill — already graduated on pre-V3 stack. Same warm gradient
-   as the trade-page pill so a user recognizes the tag across surfaces. */
+/* Solid tones so a badge stays readable on any artwork. */
+.badges span[data-tone="buy"] { background: #0B9466; }
+.badges span[data-tone="accent"] { background: #E0215F; }
+.badges span[data-tone="info"] { background: #2D5BD0; }
+.badges span[data-tone="warn"] { background: #F2C14E; color: #111110; }
+
+/* Legacy pill: already graduated on the pre-V3 stack (same tag as the trade page). */
 .legacyBadge {
-  background: linear-gradient(135deg, var(--cream-deep) 0%, var(--pink-warm) 100%) !important;
-  letter-spacing: 0.06em;
+  background: rgba(11, 11, 12, 0.78);
 }
 
-/* Cliff-risk pill — pre-graduation curve on the old graduator. Warmer
-   / more attention-getting than the legacy pill because the outcome is
-   still in the buyer's future and they can avoid it. */
+/* Cliff-risk pill: still ahead of the buyer, so it gets the warning color. */
 .cliffBadge {
-  background: var(--yolk) !important;
-  color: var(--anchor) !important;
   font-weight: 700;
-  letter-spacing: 0.06em;
 }
 
 .releaseInfo {
@@ -359,7 +368,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 21px;
   font-weight: 400;
@@ -370,8 +379,8 @@
 
 .nameRow span {
   flex: 0 0 auto;
-  color: var(--pink-hot);
-  font-family: var(--font-pixel), "Pixelify Sans", monospace;
+  color: var(--accent);
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
   font-size: 10px;
 }
 
@@ -381,7 +390,7 @@
   margin: 4px 0 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 11px;
   line-height: 1.32;
   -webkit-line-clamp: 2;
@@ -391,14 +400,15 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 10px 10px 0;
-  border: 1px solid color-mix(in srgb, var(--anchor) 54%, transparent);
-  background: color-mix(in srgb, var(--cream-deep) 76%, transparent);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+  border-radius: var(--r-lg);
 }
 
 .metric {
   min-width: 0;
   padding: 5px 6px;
-  border-right: 1px dotted var(--anchor);
+  border-right: 1px solid var(--line);
 }
 
 .metric:last-child {
@@ -407,7 +417,7 @@
 
 .metric span {
   display: block;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 8px;
   text-transform: uppercase;
 }
@@ -415,7 +425,7 @@
 .metric b {
   display: block;
   overflow: hidden;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-mono), "JetBrains Mono", monospace;
   font-size: 10px;
   line-height: 1.25;
@@ -430,20 +440,21 @@
 .progress div {
   overflow: hidden;
   height: 7px;
-  border: 1.5px solid var(--anchor);
-  background: var(--cream-deep);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--r-lg);
 }
 
 .progress i {
   display: block;
   height: 100%;
-  background: var(--pink-hot);
+  background: var(--accent);
 }
 
 .progress span {
   display: block;
   margin-top: 4px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 8px;
   text-transform: uppercase;
 }
@@ -454,7 +465,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 10px 10px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 8.5px;
 }
 
@@ -467,7 +478,7 @@
 
 .releaseFoot b {
   flex: 0 0 auto;
-  color: var(--pink-hot);
+  color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -479,21 +490,22 @@
   margin: 12px;
   min-height: 310px;
   padding: 18px;
-  border: 1.5px dashed var(--anchor);
-  background: color-mix(in srgb, var(--cream-deep) 70%, transparent);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  border-radius: var(--r-lg);
 }
 
 .emptyArt {
   width: 100%;
   aspect-ratio: 1.18;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
   object-fit: cover;
-  box-shadow: 5px 5px 0 color-mix(in srgb, var(--mizuiro-deep) 42%, transparent);
+  box-shadow: none;
 }
 
 .emptyState h2 {
   margin: 0;
-  color: var(--anchor);
+  color: var(--fg);
   font-family: var(--font-display), "Yusei Magic", cursive;
   font-size: 28px;
   font-weight: 400;
@@ -503,26 +515,15 @@
 .emptyState p {
   max-width: 520px;
   margin: 8px 0 12px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 13px;
   line-height: 1.42;
 }
 
 .emptyState a {
-  color: var(--link-blue);
+  color: var(--info);
   font-size: 12px;
   text-decoration: underline;
-}
-
-:root[data-theme="dark"] .masthead,
-:root[data-theme="dark"] .browseBar,
-:root[data-theme="dark"] .marketBoard {
-  background: var(--cream);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-}
-
-:root[data-theme="dark"] .releaseCard {
-  background: var(--card);
 }
 
 @media (max-width: 1040px) {
@@ -543,7 +544,7 @@
     grid-column: 1 / -1;
     justify-content: flex-start;
     padding-top: 7px;
-    border-top: 1px dotted var(--anchor);
+    border-top: 1px solid var(--line);
     text-align: left;
   }
 }
@@ -569,7 +570,7 @@
     align-items: baseline;
     padding: 0 0 7px;
     border-right: 0;
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 
   .filterRail {
@@ -637,7 +638,7 @@
   }
 
   .metric:nth-child(-n + 2) {
-    border-bottom: 1px dotted var(--anchor);
+    border-bottom: 1px solid var(--line);
   }
 
   .emptyState {
@@ -654,3 +655,5 @@
     transition: none;
   }
 }
+
+.loadingNote { margin: 0; padding: 32px 4px; font-size: 14px; color: var(--fg-muted); }

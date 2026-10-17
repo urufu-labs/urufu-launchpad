@@ -1,74 +1,57 @@
 import type { Metadata, Viewport } from 'next';
-import { Yusei_Magic, Klee_One, Pixelify_Sans, DotGothic16, JetBrains_Mono } from 'next/font/google';
-import Link from 'next/link';
+import { Hanken_Grotesk, Instrument_Serif, JetBrains_Mono } from 'next/font/google';
 import Script from 'next/script';
 import './globals.css';
 
 import { Providers } from './providers';
-import { WalletButton } from '@/components/WalletButton';
-import { ChainSwitcher } from '@/components/ChainSwitcher';
-import { CreateNavDropdown } from '@/components/CreateNavDropdown';
 import { CursorMascot } from '@/components/CursorMascot';
 import { AudioBindings } from '@/components/AudioBindings';
-import { AudioToggle } from '@/components/AudioToggle';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { TokenTicker } from '@/components/TokenTicker';
-import { PriceUnitToggle } from '@/components/PriceUnitToggle';
-import { MobileNavigation } from '@/components/MobileNavigation';
-import { UserSearchLauncher } from '@/components/UserSearchModal';
+import { SiteHeader } from '@/components/shell/SiteHeader';
+import { SiteFooter } from '@/components/shell/SiteFooter';
+import { MobileTabBar } from '@/components/shell/MobileTabBar';
 
-const yusei = Yusei_Magic({
-  variable: '--font-display',
-  weight: '400',
+// v2 type: one UI sans + one mono for numbers (docs/PLAN-ui-revamp.md).
+// The legacy font roles (--font-display/round/pixel/jp/body) alias to the sans
+// in styles/tokens.css, so existing inline styles pick it up automatically.
+const sans = Hanken_Grotesk({
+  variable: '--font-hanken',
+  weight: ['400', '500', '600', '700', '800'],
   subsets: ['latin', 'latin-ext'],
 });
 
-const klee = Klee_One({
-  variable: '--font-round',
-  weight: ['400', '600'],
-  subsets: ['latin'],
-});
-
-const pixel = Pixelify_Sans({
-  variable: '--font-pixel',
-  weight: ['400', '500', '600', '700'],
-  subsets: ['latin'],
-});
-
-// Georgia serif is what the skill mandates for body — declared in globals.css.
-// Load DotGothic16 as an inline JP accent font for kanji headings.
-const dot = DotGothic16({
-  variable: '--font-jp',
+// Display face for big headlines only (hero, page titles). Gives the site its
+// voice; everything else stays in the UI sans.
+const display = Instrument_Serif({
+  variable: '--font-instrument',
   weight: '400',
-  subsets: ['latin'],
+  style: ['normal', 'italic'],
+  subsets: ['latin', 'latin-ext'],
 });
 
-// Monospaced numeric font with tabular figures + slashed zero. Pixel font's
-// 5/S and 2/Z were confusable at small sizes; JetBrains Mono has clearer
-// digit shapes for market caps, prices, holder counts, everywhere numbers
-// need to be read fast without misreading.
+// Tabular figures + slashed zero so prices, caps and counts read fast.
 const mono = JetBrains_Mono({
-  variable: '--font-mono',
+  variable: '--font-jetbrains',
   weight: ['400', '500', '600'],
   subsets: ['latin'],
 });
 
 // One line, shows in browser tabs + link previews. Slogan-shaped.
-const TAGLINE = 'tap tap launch ✿ liquidity locked forever ✿ 好き好き大好き';
-const TITLE = 'urufu labs ✿ tap tap launch';
-const DESCRIPTION = 'make ur token, hit launch, done ✿ once it takes off the liquidity locks forever, and every trade rewards urufu gemu nft holders ~';
+const TAGLINE = 'Launch a token in one click. Liquidity locks forever when it graduates.';
+const TITLE = 'urufu labs · token launchpad';
+const DESCRIPTION = 'Launch a token on Robinhood Chain. When it fills the bonding curve, liquidity moves to Uniswap v4 and locks forever, and trading fees reward urufu gemu nft holders.';
 
 /// Viewport meta — required for mobile so pages render at device width instead of the
 /// legacy 980px "desktop" fallback. `viewportFit: cover` lets the paper background bleed
-/// under the notch on iOS. `themeColor` matches --paper-base so the address bar tints
-/// with the site paint instead of Safari's default white.
+/// under the notch on iOS. `themeColor` matches --bg (styles/tokens.css) so the address
+/// bar tints with the site paint instead of Safari's default white.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f5ecda' },
-    { media: '(prefers-color-scheme: dark)', color: '#1c1a24' },
+    { media: '(prefers-color-scheme: light)', color: '#F3F3F0' },
+    { media: '(prefers-color-scheme: dark)', color: '#0B0B0C' },
   ],
 };
 
@@ -78,11 +61,8 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://urufulabs.xyz'),
   title: TITLE,
   description: DESCRIPTION,
-  icons: {
-    icon: '/favicon.svg',
-    shortcut: '/favicon.svg',
-    apple: '/favicon.svg',
-  },
+  // Icons come from the app-router conventions: src/app/favicon.ico, icon.png and
+  // apple-icon.png (built by web/scripts/make-brand-icons.py).
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
@@ -125,7 +105,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${yusei.variable} ${klee.variable} ${pixel.variable} ${dot.variable} ${mono.variable} h-full`}
+      className={`${sans.variable} ${display.variable} ${mono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>
@@ -182,154 +162,11 @@ export default function RootLayout({
         <Providers>
           <CursorMascot />
           <AudioBindings />
-          <header
-            className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2"
-            style={{ borderBottom: '1.5px solid var(--anchor)', background: 'var(--cream)', color: 'var(--anchor)' }}
-          >
-            <Link href="/" className="flex items-center gap-2 shrink-0" aria-label="urufu labs home">
-              <span
-                aria-hidden
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-sm"
-                style={{
-                  background: 'var(--pink-hot)',
-                  color: '#fff',
-                  border: '1.5px solid var(--anchor)',
-                  boxShadow: '2px 2px 0 var(--anchor)',
-                  fontFamily: 'var(--font-jp), "DotGothic16", monospace',
-                }}
-              >
-                ウ
-              </span>
-              <span
-                className="uru-h1 hidden min-[360px]:inline"
-                style={{ fontSize: 'clamp(16px, 4vw, 22px)' }}
-              >
-                urufu<span style={{ color: 'var(--pink-hot)' }}>labs</span>
-                <sup style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: '10px', marginLeft: 2 }}>®</sup>
-              </span>
-            </Link>
-            {/* Full navigation only appears when every destination can remain visible. */}
-            <nav
-              className="hidden lg:flex items-center gap-3 text-[13px] justify-end"
-              style={{ fontFamily: 'var(--font-round), Klee One, cursive' }}
-              aria-label="primary navigation"
-            >
-              <CreateNavDropdown />
-              <Link href="/discover" className="hover:underline" style={{ color: 'var(--anchor)' }}>❁ launches</Link>
-              <Link href="/trade" className="hover:underline" style={{ color: 'var(--anchor)' }}>✦ trade</Link>
-              <Link href="/feed" className="hover:underline" style={{ color: 'var(--anchor)' }}>☆ feed</Link>
-              <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
-              <Link href="/profile" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ profile</Link>
-              <a
-                href="https://studio.urufulabs.xyz/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: 'var(--anchor)' }}
-              >
-                ✿ chibi studio ↗
-              </a>
-              <a
-                href="https://www.urufu.xyz"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: 'var(--pink-hot)' }}
-              >
-                ❋ urufu gemu ↗
-              </a>
-              <PriceUnitToggle />
-              <ThemeToggle />
-              <AudioToggle />
-              {/* Directory search — opens a modal keyed to GET /profile/search
-                  on the compile service. `/` global shortcut is wired inside
-                  the component so a bare-page keyboard user can jump in
-                  without going through the header. Rendered before the chain
-                  switcher so it sits with the utility toggles rather than
-                  the wallet stack. */}
-              <UserSearchLauncher />
-              <ChainSwitcher />
-              <WalletButton />
-            </nav>
-            <div className="flex lg:hidden items-center gap-2 shrink-0">
-              <WalletButton />
-              <MobileNavigation />
-            </div>
-          </header>
+          <SiteHeader />
           <TokenTicker />
           <main className="flex-1">{children}</main>
-          <footer
-            className="mt-8 px-4 py-4 text-center"
-            style={{
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: '11px',
-              color: 'var(--anchor)',
-              borderTop: '1.5px dashed var(--anchor)',
-              background: 'var(--cream)',
-            }}
-          >
-            {/* Utility + external links. Shelf + docs live down here so the header
-                stays focused on the primary launch / trade / discover flow. */}
-            <nav
-              className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2"
-              style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 12 }}
-              aria-label="footer links"
-            >
-              <Link href="/catalog" className="hover:underline" style={{ color: 'var(--anchor)' }}>❀ modules</Link>
-              <Link href="/docs" className="hover:underline" style={{ color: 'var(--anchor)' }}>❉ docs</Link>
-              <Link href="/flywheel" className="hover:underline" style={{ color: 'var(--anchor)' }}>♡ flywheel</Link>
-              <Link href="/recover" className="hover:underline" style={{ color: 'var(--anchor)' }}>✿ recover eth</Link>
-              <a
-                href="https://x.com/urugemu"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: 'var(--anchor)' }}
-              >
-                ✧ twitter ↗
-              </a>
-              <a
-                href="https://discord.gg/urufugemu"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: 'var(--anchor)' }}
-              >
-                ✧ discord ↗
-              </a>
-              <a
-                href="https://www.urufu.xyz"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: 'var(--pink-hot)' }}
-              >
-                ❋ urufu gemu ↗
-              </a>
-            </nav>
-            <div style={{ marginTop: 10 }}>site by ❀ urufu labs ❀ last updated 2026-07-14 ❀ best viewed on desktop lol</div>
-            <div style={{ marginTop: 4, opacity: 0.7 }}>a launchpad, not a landing pad (づ｡◕‿‿◕｡)づ</div>
-            <div style={{ marginTop: 4, opacity: 0.7 }}>
-              powered by{' '}
-              <a
-                href="https://docs.uniswap.org/contracts/v4/overview"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
-              >
-                uniswap v4 hooks
-              </a>
-            </div>
-            {/* Mobile-only theme + audio row — the header hides these under sm because
-                room is scarce; surface them here so touch users can still flip themes. */}
-            <div
-              className="sm:hidden"
-              style={{ marginTop: 10, display: 'flex', justifyContent: 'center', gap: 12 }}
-            >
-              <ThemeToggle />
-              <AudioToggle />
-            </div>
-          </footer>
+          <SiteFooter />
+          <MobileTabBar />
         </Providers>
       </body>
     </html>

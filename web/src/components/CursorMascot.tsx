@@ -6,9 +6,40 @@ import { Mascot } from './Mascot';
 
 const SPARKLE_GLYPHS = ['✦', '✧', '♡', '★'] as const;
 
+export const CURSOR_STORAGE_KEY = 'urufu-cursor';
+export const CURSOR_EVENT = 'urufu-cursor-toggle';
+
+export function isCursorMascotOn(): boolean {
+  try {
+    return window.localStorage.getItem(CURSOR_STORAGE_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+export function setCursorMascotOn(on: boolean): void {
+  try {
+    window.localStorage.setItem(CURSOR_STORAGE_KEY, on ? 'on' : 'off');
+  } catch {}
+  window.dispatchEvent(new Event(CURSOR_EVENT));
+}
+
+/// Opt-in wrapper: the cursor mascot is off by default (v2 pro look) and can be
+/// switched on from the header settings menu.
+export function CursorMascot() {
+  const [optedIn, setOptedIn] = useState(false);
+  useEffect(() => {
+    const sync = () => setOptedIn(isCursorMascotOn());
+    sync();
+    window.addEventListener(CURSOR_EVENT, sync);
+    return () => window.removeEventListener(CURSOR_EVENT, sync);
+  }, []);
+  return optedIn ? <CursorMascotInner /> : null;
+}
+
 /// Mascot follows the cursor with a small lag. Auto-hides if user prefers reduced motion,
 /// on touch, or when tab hidden.
-export function CursorMascot() {
+function CursorMascotInner() {
   const [enabled, setEnabled] = useState(false);
   const [sparkles, setSparkles] = useState<
     Array<{ id: number; glyph: string; x: number; y: number; driftX: number; driftY: number }>

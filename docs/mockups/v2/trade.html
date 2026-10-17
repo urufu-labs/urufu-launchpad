@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UPEPE · urufu labs (v2 mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<script src="shell.js"></script>
+<style>
+  .term { max-width: 1480px; margin: 0 auto; padding: 16px 20px 40px; }
+
+  /* token header */
+  .tok-head {
+    display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .tok-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .tok-id img { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; border: 1px solid var(--line); }
+  .tok-name { display: flex; align-items: center; gap: 8px; }
+  .tok-name h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tok-name .sym { color: var(--fg-muted); font-weight: 600; font-size: 15px; }
+  .tok-meta { display: flex; align-items: center; gap: 12px; margin-top: 3px; font-size: 12.5px; color: var(--fg-muted); }
+  .tok-meta .num { font-size: 12px; }
+  .copy { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .copy:hover { color: var(--fg); }
+  .socials { display: inline-flex; gap: 4px; }
+  .socials a { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--fg-faint); }
+  .socials a:hover { background: var(--surface-3); color: var(--fg); }
+  .socials svg { width: 13px; height: 13px; }
+
+  .stats { display: flex; gap: 28px; margin-left: auto; flex-wrap: wrap; }
+  .stat .label { display: block; margin-bottom: 2px; font-size: 10.5px; }
+  .stat .v { font-family: var(--font-mono); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .stat .v.big { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .price-wrap { display: flex; align-items: baseline; gap: 8px; }
+  .price-wrap .chg { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+
+  /* layout */
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
+  .col-main { display: grid; gap: 12px; min-width: 0; }
+  .col-side { display: grid; gap: 12px; position: sticky; top: 68px; }
+
+  /* chart */
+  .chart-head { padding: 8px 12px; }
+  .chart-tools { display: flex; align-items: center; gap: 10px; }
+  .ohlc { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-muted); display: flex; gap: 12px; }
+  .ohlc b { font-weight: 500; color: var(--fg); }
+  #chart { height: 440px; }
+
+  /* activity */
+  .act-head { padding: 0 16px; }
+  .act-body { max-height: 420px; overflow: auto; }
+  .panel { min-width: 0; overflow: hidden; }
+  .col-side .panel { overflow: visible; }
+  .type { font-weight: 700; font-size: 12px; }
+  .wallet { display: inline-flex; align-items: center; gap: 7px; }
+  .wallet i { width: 16px; height: 16px; border-radius: 50%; display: inline-block; }
+  .txlink { color: var(--fg-faint); }
+  .txlink:hover { color: var(--fg); }
+  .hold-bar { display: inline-block; width: 80px; height: 4px; border-radius: 4px; background: var(--surface-3); vertical-align: middle; margin-right: 8px; overflow: hidden; }
+  .hold-bar i { display: block; height: 100%; background: var(--fg-muted); }
+  .tag { font-size: 10.5px; font-weight: 600; color: var(--fg-faint); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+
+  /* order panel */
+  .order { padding: 12px; display: grid; gap: 12px; }
+  .col-side, .order, .order > * { min-width: 0; }
+  .amount-row input { width: 100%; }
+  .side-seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; background: var(--surface-3); border-radius: 10px; }
+  .side-seg button { height: 36px; border: 0; border-radius: 8px; background: transparent; font-weight: 700; font-size: 14px; color: var(--fg-muted); cursor: pointer; }
+  .side-seg button[aria-pressed="true"][data-side="buy"] { background: var(--surface-1); color: var(--buy); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .side-seg button[aria-pressed="true"][data-side="sell"] { background: var(--surface-1); color: var(--sell); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  :root[data-theme="dark"] .side-seg button[aria-pressed="true"] { background: var(--line-strong); }
+
+  .amount-box { border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 10px 12px; transition: border-color 120ms, box-shadow 120ms; }
+  .amount-box:focus-within { border-color: var(--accent); box-shadow: var(--focus); background: var(--surface-1); }
+  .amount-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-muted); font-weight: 600; }
+  .amount-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .amount-row input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font-family: var(--font-mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; padding: 0; }
+  .amount-row input::placeholder { color: var(--fg-faint); }
+  .asset { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 4px; border-radius: 999px; background: var(--surface-1); border: 1px solid var(--line); font-weight: 700; font-size: 13px; }
+  .asset img, .asset .eth { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+  .asset .eth { display: grid; place-items: center; background: var(--fg); color: var(--bg); font-size: 12px; }
+  .amount-sub { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; color: var(--fg-faint); }
+  .quick { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .quick .chip { justify-content: center; padding: 0; font-family: var(--font-mono); font-size: 12px; border-radius: 7px; }
+  .swap-arrow { display: grid; place-items: center; margin: -18px auto; width: 30px; height: 30px; border-radius: 8px; background: var(--surface-1); border: 1px solid var(--line); position: relative; z-index: 1; color: var(--fg-muted); }
+  .receive .amount-row .out { flex: 1; font-family: var(--font-mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
+  .quote { border-top: 1px solid var(--line); padding-top: 4px; }
+  .quote .kv { padding: 5px 0; font-size: 12.5px; }
+  .slip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border-bottom: 1px dashed var(--line-strong); }
+
+  .curve { padding: 14px 16px; display: grid; gap: 10px; }
+  .curve-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .curve-pct { font-family: var(--font-mono); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .curve .meter { height: 8px; }
+  .curve .meter i { background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 100%); }
+  .curve-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--fg-muted); }
+  .curve p { margin: 0; font-size: 12.5px; color: var(--fg-muted); }
+
+  .split { display: flex; height: 6px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 8px 0 10px; }
+  .split i:nth-child(1) { background: var(--accent); }
+  .split i:nth-child(2) { background: var(--fg); }
+  .split i:nth-child(3) { background: var(--fg-faint); }
+  .legend { display: grid; gap: 4px; font-size: 12.5px; }
+  .legend div { display: flex; align-items: center; gap: 8px; }
+  .legend span.sw { width: 8px; height: 8px; border-radius: 2px; }
+  .legend .num { margin-left: auto; }
+
+  .flash-buy { animation: fb 900ms ease-out; }
+  .flash-sell { animation: fs 900ms ease-out; }
+  @keyframes fb { from { background: var(--buy-soft); } to { background: transparent; } }
+  @keyframes fs { from { background: var(--sell-soft); } to { background: transparent; } }
+
+  .mobile-cta { display: none; }
+
+  @media (max-width: 1100px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .col-side { position: static; grid-row: 1; }
+    .stats { margin-left: 0; width: 100%; }
+  }
+  @media (max-width: 760px) {
+    .term { padding: 12px 12px 120px; }
+    .tok-head { gap: 14px; }
+    .stats { gap: 18px 22px; }
+    .stat.hide-sm { display: none; }
+    #chart { height: 300px; }
+    .col-side { grid-row: auto; }
+    .order-panel { display: none; }
+    .mobile-cta {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      position: fixed; left: 0; right: 0; bottom: 60px; z-index: 45;
+      padding: 10px 12px; background: var(--surface-1); border-top: 1px solid var(--line);
+    }
+    .ohlc { display: none; }
+    .table th:nth-child(5), .table td:nth-child(5), .table th:nth-child(7), .table td:nth-child(7) { display: none; }
+  }
+</style>
+</head>
+<body data-page="trade">
+
+<main class="term">
+  <section class="panel tok-head">
+    <div class="tok-id">
+      <img id="tokImg" alt="" />
+      <div style="min-width:0">
+        <div class="tok-name">
+          <h1 id="tokName">urufu PEPE</h1>
+          <span class="sym" id="tokSym">UPEPE</span>
+          <span class="badge badge-accent"><span class="dot"></span>Bonding curve</span>
+        </div>
+        <div class="tok-meta">
+          <span class="copy num" title="Copy contract address">0x803b…c29c
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+          </span>
+          <span>by <a class="num" href="#" style="color:var(--fg)">0x142f…a0e7</a></span>
+          <span class="hide-sm">launched 2h ago</span>
+          <span class="socials">
+            <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.8 3h3.1l-6.8 7.7L22 21h-6.2l-4.9-6.4L5.3 21H2.2l7.2-8.3L1.8 3h6.4l4.4 5.8L17.8 3zm-1.1 16.2h1.7L7.3 4.7H5.5l11.2 14.5z"/></svg></a>
+            <a href="#" aria-label="Telegram"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.9 4.3 18.7 19.4c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3z"/></svg></a>
+            <a href="#" aria-label="Website"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></a>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="label">Price</span>
+        <div class="price-wrap"><span class="v big" id="price">$0.0₄320</span><span class="chg up" id="chg">+18.4%</span></div>
+      </div>
+      <div class="stat"><span class="label">Market cap</span><span class="v" id="mcap">$25.6K</span></div>
+      <div class="stat"><span class="label">24h volume</span><span class="v">3.10 ETH</span></div>
+      <div class="stat hide-sm"><span class="label">Holders</span><span class="v">88</span></div>
+      <div class="stat hide-sm"><span class="label">Liquidity</span><span class="v">2.69 ETH</span></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="col-main">
+      <section class="panel">
+        <div class="panel-head chart-head">
+          <div class="chart-tools">
+            <div class="seg" role="group" aria-label="Timeframe">
+              <button aria-pressed="false">1m</button><button aria-pressed="true">5m</button><button aria-pressed="false">15m</button><button aria-pressed="false">1h</button><button aria-pressed="false">4h</button><button aria-pressed="false">1D</button>
+            </div>
+            <div class="ohlc" id="ohlc"></div>
+          </div>
+          <div class="seg hide-sm" role="group" aria-label="Chart value"><button aria-pressed="true">Price</button><button aria-pressed="false">Mcap</button></div>
+        </div>
+        <div id="chart"></div>
+      </section>
+
+      <section class="panel">
+        <div class="act-head">
+          <div class="tabs" id="actTabs" role="tablist">
+            <button role="tab" aria-selected="true" data-tab="trades">Trades<span class="count">212</span></button>
+            <button role="tab" aria-selected="false" data-tab="holders">Holders<span class="count">88</span></button>
+            <button role="tab" aria-selected="false" data-tab="modules">Modules<span class="count">3</span></button>
+            <button role="tab" aria-selected="false" data-tab="about">About</button>
+          </div>
+        </div>
+        <div class="act-body" id="pane-trades">
+          <table class="table">
+            <thead><tr><th>Time</th><th>Type</th><th class="r">Price</th><th class="r">ETH</th><th class="r">UPEPE</th><th>Wallet</th><th class="r">Tx</th></tr></thead>
+            <tbody id="trades"></tbody>
+          </table>
+        </div>
+        <div class="act-body" id="pane-holders" hidden>
+          <table class="table">
+            <thead><tr><th>#</th><th>Wallet</th><th class="r">Share</th><th class="r">Amount</th><th class="r">Value</th></tr></thead>
+            <tbody id="holders"></tbody>
+          </table>
+        </div>
+        <div class="act-body" id="pane-modules" hidden style="padding:16px; display:grid; gap:10px">
+        </div>
+        <div class="act-body" id="pane-about" hidden style="padding:16px 16px 8px">
+          <p style="margin:0 0 12px; max-width:68ch">Pepe, but he lives in the urufu gemu forest now. No roadmap, no promises. Just a frog with a wolf hat.</p>
+          <dl style="margin:0; max-width:440px">
+            <div class="kv"><dt>Contract</dt><dd class="num">0x803b…c29c</dd></div>
+            <div class="kv"><dt>Total supply</dt><dd class="num">1,000,000,000</dd></div>
+            <div class="kv"><dt>Created</dt><dd>Oct 16, 2026, 2:14 PM</dd></div>
+            <div class="kv"><dt>Ownership</dt><dd>Renounced</dd></div>
+          </dl>
+        </div>
+      </section>
+    </div>
+
+    <aside class="col-side">
+      <section class="panel order order-panel" id="order">
+        <div class="side-seg" role="group" aria-label="Side">
+          <button data-side="buy" aria-pressed="true">Buy</button>
+          <button data-side="sell" aria-pressed="false">Sell</button>
+        </div>
+
+        <div>
+          <div class="amount-box">
+            <div class="amount-top"><span>You pay</span><span class="num" id="bal">Balance 1.284 ETH</span></div>
+            <div class="amount-row">
+              <input id="amt" inputmode="decimal" placeholder="0.00" aria-label="Amount" />
+              <span class="asset" id="payAsset"><span class="eth">Ξ</span>ETH</span>
+            </div>
+            <div class="amount-sub"><span class="num" id="amtUsd">$0.00</span></div>
+          </div>
+          <div class="swap-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+          <div class="amount-box receive">
+            <div class="amount-top"><span>You receive</span><span class="num faint">est.</span></div>
+            <div class="amount-row">
+              <span class="out num" id="out">0</span>
+              <span class="asset" id="getAsset"><img id="assetImg" alt="" />UPEPE</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick" id="quick">
+          <button class="chip">0.05</button><button class="chip">0.1</button><button class="chip">0.25</button><button class="chip">0.5</button><button class="chip">1</button>
+        </div>
+
+        <dl class="quote" style="margin:0">
+          <div class="kv"><dt>Price impact</dt><dd class="num" id="impact">0.00%</dd></div>
+          <div class="kv"><dt>Trading fee</dt><dd class="num">1%</dd></div>
+          <div class="kv"><dt>Min. received</dt><dd class="num" id="minOut">0</dd></div>
+          <div class="kv"><dt>Max slippage</dt><dd><span class="slip num">2% <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></dd></div>
+        </dl>
+
+        <button class="btn btn-lg btn-block btn-buy" id="cta">Enter an amount</button>
+      </section>
+
+      <section class="panel curve">
+        <div class="curve-top">
+          <span class="panel-title">Graduation</span>
+          <span class="curve-pct" id="curvePct">0%</span>
+        </div>
+        <div class="meter"><i id="curveBar" style="transform:scaleX(0)"></i></div>
+        <div class="curve-foot"><span class="num">2.69 ETH raised</span><span class="num">4.20 ETH goal</span></div>
+        <p>At 4.20 ETH the token moves to Uniswap v4 and its liquidity locks forever.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-body" style="padding:14px 16px">
+          <div class="panel-title">Where the 1% fee goes</div>
+          <div class="split"><i style="flex:40"></i><i style="flex:35"></i><i style="flex:25"></i></div>
+          <div class="legend">
+            <div><span class="sw" style="background:var(--accent)"></span>URU buyback<span class="num">40%</span></div>
+            <div><span class="sw" style="background:var(--fg)"></span>urufu gemu nft holders<span class="num">35%</span></div>
+            <div><span class="sw" style="background:var(--fg-faint)"></span>Treasury<span class="num">25%</span></div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<div class="mobile-cta">
+  <button class="btn btn-lg btn-buy">Buy</button>
+  <button class="btn btn-lg btn-sell">Sell</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function () {
+  var T = TOKENS[0];
+  var ETH_USD = 3420;
+  var price = 0.0000320; // USD
+  var SUPPLY = 1e9;
+
+  /* $0.0₄320 style: zero count as subscript so tiny prices stay readable. */
+  var SUB = '₀₁₂₃₄₅₆₇₈₉';
+  function fmtPrice(p) {
+    if (!(p > 1e-11)) return '$0';
+    if (p >= 0.01) return '$' + p.toFixed(4);
+    var s = p.toFixed(12).split('.')[1];
+    var z = 0; while (s[z] === '0') z++;
+    var sig = s.slice(z, z + 3);
+    var sub = String(z).split('').map(function (d) { return SUB[+d]; }).join('');
+    return '$0.0' + sub + sig;
+  }
+  function fmtTok(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return n.toFixed(0);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('tokImg').src = T.img;
+    document.getElementById('assetImg').src = T.img;
+
+    /* ---------- chart ---------- */
+    var el = document.getElementById('chart');
+    var chart, series, vol;
+    var candles = [], vols = [];
+    (function gen() {
+      var t = Math.floor(Date.now() / 1000 / 300) * 300 - 160 * 300;
+      var p = 0.0000060;
+      for (var i = 0; i < 160; i++) {
+        var drift = i < 60 ? 0.012 : i < 110 ? 0.022 : 0.006;
+        var o = p;
+        var c = Math.max(0.000004, o * (1 + drift + (Math.random() - 0.48) * 0.09));
+        var h = Math.max(o, c) * (1 + Math.random() * 0.03);
+        var l = Math.min(o, c) * (1 - Math.random() * 0.03);
+        candles.push({ time: t + i * 300, open: o, high: h, low: l, close: c });
+        vols.push({ time: t + i * 300, value: Math.random() * 0.4 + (Math.abs(c - o) / o) * 6, up: c >= o });
+        p = c;
+      }
+      price = p;
+    })();
+
+    function themeOpts() {
+      return {
+        layout: { background: { type: 'solid', color: cssVar('--surface-1') }, textColor: cssVar('--fg-faint'), fontFamily: 'JetBrains Mono, monospace', fontSize: 11, attributionLogo: false },
+        grid: { vertLines: { color: cssVar('--line') }, horzLines: { color: cssVar('--line') } },
+        rightPriceScale: { borderColor: cssVar('--line') },
+        timeScale: { borderColor: cssVar('--line'), timeVisible: true, secondsVisible: false },
+        crosshair: { mode: 0, vertLine: { color: cssVar('--line-strong'), labelBackgroundColor: cssVar('--fg') }, horzLine: { color: cssVar('--line-strong'), labelBackgroundColor: cssVar('--fg') } }
+      };
+    }
+    function seriesOpts() {
+      var up = cssVar('--buy'), dn = cssVar('--sell');
+      return { upColor: up, downColor: dn, borderUpColor: up, borderDownColor: dn, wickUpColor: up, wickDownColor: dn };
+    }
+    function volData() {
+      var up = cssVar('--buy'), dn = cssVar('--sell');
+      return vols.map(function (v) { return { time: v.time, value: v.value, color: (v.up ? up : dn) + '55' }; });
+    }
+
+    if (window.LightweightCharts) {
+      var LC = LightweightCharts;
+      chart = LC.createChart(el, Object.assign({ autoSize: true }, themeOpts()));
+      series = chart.addSeries(LC.CandlestickSeries, Object.assign({
+        priceFormat: { type: 'custom', minMove: 0.0000000001, formatter: fmtPrice }
+      }, seriesOpts()));
+      series.setData(candles);
+      vol = chart.addSeries(LC.HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      series.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
+      vol.setData(volData());
+      chart.timeScale().fitContent();
+
+      var ohlc = document.getElementById('ohlc');
+      function showOhlc(c) {
+        if (!c) return;
+        var cls = c.close >= c.open ? 'up' : 'down';
+        ohlc.innerHTML = 'O <b>' + fmtPrice(c.open) + '</b> H <b>' + fmtPrice(c.high) + '</b> L <b>' + fmtPrice(c.low) + '</b> C <b class="' + cls + '">' + fmtPrice(c.close) + '</b>';
+      }
+      showOhlc(candles[candles.length - 1]);
+      chart.subscribeCrosshairMove(function (p) { showOhlc(p && p.seriesData ? p.seriesData.get(series) : candles[candles.length - 1]); });
+
+      document.addEventListener('themechange', function () {
+        chart.applyOptions(themeOpts());
+        series.applyOptions(seriesOpts());
+        vol.setData(volData());
+      });
+    }
+
+    /* ---------- price header ---------- */
+    var priceEl = document.getElementById('price');
+    var mcapEl = document.getElementById('mcap');
+    function paintPrice(dir) {
+      priceEl.textContent = fmtPrice(price);
+      mcapEl.textContent = fmtUsd(price * SUPPLY);
+      if (window.gsap && dir && !reducedMotion()) {
+        gsap.fromTo(priceEl, { color: dir > 0 ? cssVar('--buy') : cssVar('--sell') }, { color: cssVar('--fg'), duration: 0.9, ease: 'power2.out', clearProps: 'color' });
+      }
+    }
+    paintPrice(0);
+
+    /* ---------- trades ---------- */
+    var tbody = document.getElementById('trades');
+    var hues = [340, 160, 20, 210, 280, 45, 120, 0];
+    function tradeRow(side, eth, ago) {
+      var tokens = (eth * ETH_USD) / price;
+      var hue = hues[Math.floor(Math.random() * hues.length)];
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="faint">' + ago + '</td>' +
+        '<td><span class="type ' + (side === 'buy' ? 'up' : 'down') + '">' + (side === 'buy' ? 'Buy' : 'Sell') + '</span></td>' +
+        '<td class="r num">' + fmtPrice(price) + '</td>' +
+        '<td class="r num ' + (side === 'buy' ? 'up' : 'down') + '">' + eth.toFixed(4) + '</td>' +
+        '<td class="r num">' + fmtTok(tokens) + '</td>' +
+        '<td><span class="wallet num"><i style="background:hsl(' + hue + ' 70% 60%)"></i>' + shortAddr() + '</span></td>' +
+        '<td class="r"><a class="txlink" href="#" aria-label="View transaction"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7M8 7h9v9"/></svg></a></td>';
+      return tr;
+    }
+    var agoList = ['12s', '40s', '1m', '2m', '2m', '4m', '5m', '7m', '9m', '12m', '14m', '18m', '21m', '25m'];
+    agoList.forEach(function (a) {
+      var side = Math.random() > 0.35 ? 'buy' : 'sell';
+      tbody.appendChild(tradeRow(side, Math.random() * 0.3 + 0.005, a));
+    });
+
+    function liveTrade() {
+      var side = Math.random() > 0.38 ? 'buy' : 'sell';
+      var eth = Math.random() * 0.25 + 0.005;
+      price = price * (1 + (side === 'buy' ? 1 : -1) * eth * 0.06);
+      var row = tradeRow(side, eth, 'now');
+      tbody.insertBefore(row, tbody.firstChild);
+      if (tbody.children.length > 40) tbody.removeChild(tbody.lastChild);
+      row.classList.add(side === 'buy' ? 'flash-buy' : 'flash-sell');
+      if (window.gsap && !reducedMotion()) gsap.from(row, { y: -6, opacity: 0, duration: 0.3, ease: 'power2.out' });
+      paintPrice(side === 'buy' ? 1 : -1);
+      if (series) {
+        var last = candles[candles.length - 1];
+        last.close = price; last.high = Math.max(last.high, price); last.low = Math.min(last.low, price);
+        series.update(last);
+      }
+    }
+    setInterval(liveTrade, 3200);
+
+    /* ---------- holders ---------- */
+    var hb = document.getElementById('holders');
+    var shares = [8.4, 6.1, 4.9, 3.8, 3.2, 2.7, 2.2, 1.9, 1.6, 1.4];
+    var curveRow = document.createElement('tr');
+    curveRow.innerHTML = '<td class="faint"></td><td>Bonding curve<span class="tag">curve</span></td><td class="r num"><span class="hold-bar"><i style="width:100%"></i></span>36.0%</td><td class="r num">360.0M</td><td class="r num">' + fmtUsd(360e6 * price) + '</td>';
+    hb.appendChild(curveRow);
+    shares.forEach(function (s, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="faint num">' + (i + 1) + '</td><td class="num">' + shortAddr() + (i === 2 ? '<span class="tag">creator</span>' : '') + '</td>' +
+        '<td class="r num"><span class="hold-bar"><i style="width:' + (s / 8.4 * 100) + '%"></i></span>' + s.toFixed(1) + '%</td>' +
+        '<td class="r num">' + fmtTok(s / 100 * SUPPLY) + '</td><td class="r num">' + fmtUsd(s / 100 * SUPPLY * price) + '</td>';
+      hb.appendChild(tr);
+    });
+
+    /* ---------- modules ---------- */
+    var mods = [
+      ['Anti-snipe opening', 'Max buy of 0.5 ETH per wallet for the first 10 minutes.', 'Active'],
+      ['Holder rewards', '0.5% of each trade is shared with holders over 100K UPEPE.', 'Active'],
+      ['Burn on sell', '0.25% of every sell is burned.', 'Active']
+    ];
+    var mp = document.getElementById('pane-modules');
+    mods.forEach(function (m) {
+      mp.insertAdjacentHTML('beforeend', '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:10px">' +
+        '<div style="flex:1"><div style="font-weight:650">' + m[0] + '</div><div class="muted" style="font-size:13px">' + m[1] + '</div></div>' +
+        '<span class="badge badge-buy"><span class="dot"></span>' + m[2] + '</span></div>');
+    });
+
+    wireTabs(document.getElementById('actTabs'), function (tab) {
+      ['trades', 'holders', 'modules', 'about'].forEach(function (k) {
+        var p = document.getElementById('pane-' + k);
+        p.hidden = k !== tab;
+        if (k === tab && window.gsap && !reducedMotion()) gsap.from(p, { opacity: 0, y: 4, duration: 0.2, ease: 'power2.out' });
+      });
+    });
+
+    /* ---------- order panel ---------- */
+    var side = 'buy';
+    var amt = document.getElementById('amt');
+    var out = document.getElementById('out');
+    var cta = document.getElementById('cta');
+    function quote() {
+      var v = parseFloat(amt.value) || 0;
+      document.getElementById('amtUsd').textContent = side === 'buy' ? '$' + (v * ETH_USD).toFixed(2) : fmtUsd(v * price);
+      var res = side === 'buy' ? (v * ETH_USD * 0.99) / price : (v * price * 0.99) / ETH_USD;
+      var impact = side === 'buy' ? Math.min(v * 2.4, 40) : Math.min(v / 1e6 * 0.8, 40);
+      out.textContent = side === 'buy' ? fmtTok(res) : res.toFixed(4);
+      document.getElementById('minOut').textContent = side === 'buy' ? fmtTok(res * 0.98) + ' UPEPE' : (res * 0.98).toFixed(4) + ' ETH';
+      var im = document.getElementById('impact');
+      im.textContent = impact.toFixed(2) + '%';
+      im.className = 'num' + (impact > 5 ? ' down' : '');
+      if (!v) { cta.disabled = true; cta.textContent = 'Enter an amount'; }
+      else { cta.disabled = false; cta.textContent = (side === 'buy' ? 'Buy ' : 'Sell ') + (side === 'buy' ? fmtTok(res) + ' UPEPE' : v + ' UPEPE'); }
+    }
+    amt.addEventListener('input', quote);
+    document.getElementById('quick').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      amt.value = b.textContent; quote();
+      if (window.gsap && !reducedMotion()) gsap.fromTo(out, { y: 4, opacity: 0.4 }, { y: 0, opacity: 1, duration: 0.25, ease: 'power2.out' });
+    });
+    document.querySelector('.side-seg').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      side = b.dataset.side;
+      this.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      cta.className = 'btn btn-lg btn-block ' + (side === 'buy' ? 'btn-buy' : 'btn-sell');
+      var pay = document.getElementById('payAsset'), get = document.getElementById('getAsset');
+      var ethHtml = '<span class="eth">Ξ</span>ETH', tokHtml = '<img src="' + T.img + '" alt="" />UPEPE';
+      pay.innerHTML = side === 'buy' ? ethHtml : tokHtml;
+      get.innerHTML = side === 'buy' ? tokHtml : ethHtml;
+      document.getElementById('bal').textContent = side === 'buy' ? 'Balance 1.284 ETH' : 'Balance 4.21M UPEPE';
+      var q = document.getElementById('quick');
+      q.innerHTML = side === 'buy'
+        ? '<button class="chip">0.05</button><button class="chip">0.1</button><button class="chip">0.25</button><button class="chip">0.5</button><button class="chip">1</button>'
+        : '<button class="chip">25%</button><button class="chip">50%</button><button class="chip">75%</button><button class="chip">100%</button><button class="chip" style="visibility:hidden">.</button>';
+      amt.value = ''; quote();
+    });
+    amt.value = '0.1';
+    quote();
+
+    /* ---------- curve ---------- */
+    var pct = document.getElementById('curvePct');
+    if (window.gsap && !reducedMotion()) {
+      gsap.to('#curveBar', { scaleX: 0.64, duration: 1.2, ease: 'power3.out', delay: 0.2 });
+      countUp(pct, 64, function (v) { return Math.round(v) + '%'; }, 1.2);
+    } else {
+      document.getElementById('curveBar').style.transform = 'scaleX(0.64)';
+      pct.textContent = '64%';
+    }
+
+    /* ---------- page enter ---------- */
+    if (window.gsap && !reducedMotion()) {
+      gsap.from('.term .panel', { opacity: 0, y: 8, duration: 0.4, ease: 'power2.out', stagger: 0.04 });
+    }
+  });
+})();
+</script>
+</body>
+</html>

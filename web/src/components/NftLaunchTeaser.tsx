@@ -1,16 +1,12 @@
 'use client';
 
-/// NFT launch teaser — the empty-state panel shown on surfaces where NFT
-/// collections would render if any existed. Currently reused by:
+/// NFT launch teaser: the empty state shown where NFT collections would
+/// render if any existed. Reused by:
 ///   - /discover NFT tab
 ///   - Home page NFT rail
 ///
-/// Design language: kawaii scrapbook page. Numbered polaroid slots
-/// (#001..#004) with tape strips + rotated stamps hint at how launched
-/// collections will present. Shimmer animation on the tinted art wells
-/// signals "these are placeholders, real cards will replace them". Copy
-/// bar underneath sells the feature set specifically so it reads as
-/// "here's what's coming" rather than a blank waiting-room.
+/// Four dashed placeholder frames shaped like collection cards, so the
+/// section reads as "NFTs go here" even before the first launch.
 
 import Link from 'next/link';
 import styles from './NftLaunchTeaser.module.css';
@@ -20,79 +16,67 @@ interface NftLaunchTeaserProps {
   variant?: 'discover' | 'home';
 }
 
-const PLACEHOLDER_SLOTS = [
-  { emoji: '❁', tint: 'var(--pink-warm)', tape: 'uru-tape-mint', angle: -3, stamp: 'gen-1' },
-  { emoji: '✿', tint: 'var(--mizuiro)', tape: 'uru-tape-yolk', angle: 2, stamp: '10K' },
-  { emoji: '❉', tint: 'var(--mint)', tape: 'uru-tape', angle: -2, stamp: 'wl' },
-  { emoji: '❋', tint: 'var(--yolk)', tape: 'uru-tape-mizuiro', angle: 3, stamp: 'soon' },
-] as const;
+const PLACEHOLDER_TAGS = ['1/1', 'PFP', 'Whitelist', 'DN404'] as const;
+
+function ImageGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <circle cx="9" cy="9" r="1.8" />
+      <path d="M21 15.5 16 11 6 20" />
+    </svg>
+  );
+}
 
 export function NftLaunchTeaser({ chainEnabled, variant = 'discover' }: NftLaunchTeaserProps) {
   if (!chainEnabled) {
     return (
       <div className={styles.wrongChain}>
-        <div className="uru-h2" style={{ marginBottom: 6 }}>
-          nft launches aren&apos;t live on this chain yet ~
-        </div>
-        <p>switch to robinhood to preview the flow.</p>
+        <b>NFT launches aren&apos;t live on this chain yet.</b>
+        Switch to Robinhood Chain to see them.
       </div>
     );
   }
 
   return (
     <div className={styles.shell}>
-      {/* Corner tape decorations — hand-placed for that scrapbook feel */}
-      <span className={`uru-tape uru-tape-mint ${styles.tapeTL}`} aria-hidden="true" />
-      <span className={`uru-tape uru-tape-yolk ${styles.tapeTR}`} aria-hidden="true" />
-
       <div className={styles.masthead}>
-        <span className="uru-eyebrow">❁ nft collections</span>
-        <h2 className={styles.title}>
-          the first collections land here <span aria-hidden="true">✿</span>
-        </h2>
+        {variant === 'discover' && <p className={styles.eyebrow}>NFT collections</p>}
+        <h3 className={styles.title}>No collections yet</h3>
         <p className={styles.tagline}>
-          {variant === 'home'
-            ? 'be first in the gallery.'
-            : 'be first in the gallery. contracts ship in days, not weeks.'}
+          The first NFT collections launched here will show up in this spot. Bring your own art,
+          or make it in chibi studio.
         </p>
       </div>
 
-      <div className={styles.gallery}>
-        {PLACEHOLDER_SLOTS.map((slot, i) => {
-          const num = String(i + 1).padStart(3, '0');
-          return (
-            <div
-              key={i}
-              className={styles.slot}
-              style={{ ['--slot-tint' as string]: slot.tint, ['--slot-angle' as string]: `${slot.angle}deg` }}
-              aria-hidden="true"
-            >
-              <span className={styles.slotNum}>#{num}</span>
-              <div className={styles.slotArt}>
-                <span className={styles.slotEmoji}>{slot.emoji}</span>
-                <span className={styles.shimmer} aria-hidden="true" />
-              </div>
-              <span className={`uru-stamp uru-stamp-pink ${styles.slotStamp}`}>{slot.stamp}</span>
-              <div className={styles.slotMeta}>
-                <span>your name here</span>
-                <span>0.0—</span>
-              </div>
+      <div className={styles.gallery} aria-hidden="true">
+        {PLACEHOLDER_TAGS.map((tag, i) => (
+          <div key={tag} className={styles.slot}>
+            <div className={styles.slotArt}>
+              <span className={styles.slotNum}>#{String(i + 1).padStart(3, '0')}</span>
+              <span className={styles.slotTag}>{tag}</span>
+              <ImageGlyph />
             </div>
-          );
-        })}
+            <div className={styles.slotMeta}>
+              <span className={styles.slotLine} />
+              <span className={styles.slotLine} />
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className={styles.dealActions}>
-        <Link href="/create/nft" className="uru-btn uru-btn-primary">
-          ✿ launch a collection
+        <Link href="/create/nft" className="ui-btn" data-variant="primary" data-size="lg">
+          Launch a collection
         </Link>
         <a
           href="https://studio.urufulabs.xyz/"
           target="_blank"
           rel="noopener noreferrer"
-          className="uru-btn uru-btn-mint"
+          className="ui-btn"
+          data-size="lg"
         >
-          build art in chibi studio ↗
+          Make art in chibi studio ↗
         </a>
       </div>
     </div>

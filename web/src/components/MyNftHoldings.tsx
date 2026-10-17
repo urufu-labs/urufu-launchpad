@@ -35,6 +35,7 @@ import { fetchWalletNfts, type WalletNftAvatar } from '@/lib/nftAvatarApi';
 import { fetchNftCollectionsByAddresses, fetchNftMintsByMinter } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { safeBackgroundImage } from '@/lib/metadata';
+import card from './profile-card.module.css';
 
 interface Props {
   visibleFor: Address;
@@ -135,7 +136,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           contractAddress: n.contractAddress as Address,
           displayName: `${collectionLabel} #${n.tokenId}`,
           subtitle: (launchpadMeta?.ticker ? `$${launchpadMeta.ticker}` : addr.slice(0, 10) + '…')
-            + (ext ? ' · opensea ↗' : ''),
+            + (ext ? ' · OpenSea ↗' : ''),
           imageUrl: n.imageUrl || null,
           dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}` },
           chainId: n.chainId,
@@ -172,23 +173,16 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
   if (tiles.length === 0) return null;
 
   return (
-    <section>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-        <div className="uru-eyebrow">❁ your nfts</div>
-        <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-          あなたのNFT
-        </span>
+    <section className={card.card}>
+      <div className={card.head}>
+        <h2 className={card.title}>Your NFTs</h2>
       </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: 10,
-        }}
-      >
-        {tiles.map((t) => (
-          <NftTile key={t.key} tile={t} viewer={visibleFor} />
-        ))}
+      <div className={card.body}>
+        <div className={card.tiles}>
+          {tiles.map((t) => (
+            <NftTile key={t.key} tile={t} viewer={visibleFor} />
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -240,51 +234,19 @@ function NftTile({ tile, viewer }: { tile: Tile; viewer: Address }) {
       href={tile.dest.href}
       title={tile.displayName}
       {...linkProps}
-      style={{
-        textDecoration: 'none',
-        color: 'inherit',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 8,
-        overflow: 'hidden',
-        background: 'var(--paper, #fff)',
-        border: '1.5px solid var(--anchor)',
-      }}
+      className={card.tile}
     >
       <div
+        className={card.tileArt}
         style={{
-          aspectRatio: '1 / 1',
           background: image
             ? safeBackgroundImage(image, undefined, 'contain')
-            : `repeating-linear-gradient(45deg, var(--cream) 0 8px, var(--cream-deep) 8px 16px)`,
+            : 'var(--surface-3)',
         }}
       />
-      <div style={{ padding: '6px 8px' }}>
-        <div
-          style={{
-            fontFamily: 'var(--font-body), sans-serif',
-            fontSize: 12,
-            fontWeight: 600,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {tile.displayName}
-        </div>
-        <div
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            color: 'var(--anchor-soft)',
-            textTransform: 'uppercase',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {tile.subtitle}
-        </div>
+      <div className={card.tileText}>
+        <div className={card.tileName}>{tile.displayName}</div>
+        <div className={card.tileSub}>{tile.subtitle}</div>
       </div>
     </Link>
   );

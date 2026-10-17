@@ -62,21 +62,21 @@ export function NftAvatarPicker({ address, selected, onSelect }: Props) {
       <div className={styles.head}>
         <div>
           <div className={styles.label}>NFT avatar</div>
-          <p className={styles.copy}>Use an NFT you hold. Its original media URL is saved — we do not copy or host the image.</p>
+          <p className={styles.copy}>Use an NFT you hold. We save its original media link and don&apos;t copy or host the image.</p>
         </div>
-        <button type="button" className="uru-btn uru-btn-mint" onClick={scan} disabled={scanning}>
-          {scanning ? 'scanning 12 chains…' : chains ? 'rescan NFTs' : 'find my NFTs'}
+        <button type="button" className="ui-btn" data-variant="ink" data-size="sm" onClick={scan} disabled={scanning}>
+          {scanning ? 'Scanning 12 chains…' : chains ? 'Rescan NFTs' : 'Find my NFTs'}
         </button>
       </div>
 
       {selected && (
         <div className={styles.selectedNote}>
-          selected: {selected.tokenName ?? selected.collectionName ?? `#${selected.tokenId}`} · {selected.chain}
+          Selected: {selected.tokenName ?? selected.collectionName ?? `#${selected.tokenId}`} · {selected.chain}
         </div>
       )}
       {error && <div className={styles.error}>{error}</div>}
       {chains && found === 0 && !scanning && (
-        <div className={styles.empty}>no displayable NFTs found across these networks</div>
+        <div className={styles.empty}>No NFTs we can show were found on these networks.</div>
       )}
       {chains?.map((chain) => chain.items.length > 0 && (
         <section className={styles.chain} key={chain.id}>
@@ -118,13 +118,13 @@ export function NftAvatarPicker({ address, selected, onSelect }: Props) {
               onClick={() => loadMore(chain)}
               disabled={loadingChain === chain.id}
             >
-              {loadingChain === chain.id ? 'loading…' : `more ${chain.label} NFTs`}
+              {loadingChain === chain.id ? 'Loading…' : `More ${chain.label} NFTs`}
             </button>
           )}
         </section>
       ))}
       {chains?.some((chain) => chain.error) && (
-        <p className={styles.partial}>A network did not answer in time; rescan to try it again.</p>
+        <p className={styles.partial}>A network didn&apos;t answer in time. Rescan to try it again.</p>
       )}
     </section>
   );

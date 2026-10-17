@@ -1,0 +1,73 @@
+/* ============================================================================
+   urufu labs v2 design tokens (docs/PLAN-ui-revamp.md, docs/mockups/v2).
+   Light is the default theme; <html data-theme="dark"> switches to dark.
+   Tokens are named by ROLE. New code uses these names only.
+   ============================================================================ */
+
+:root {
+  --bg: #F3F3F0;
+  --surface-1: #FFFFFF;
+  --surface-2: #F8F8F6;
+  --surface-3: #EEEEEA;
+  --line: #E3E2DD;
+  --line-strong: #CCCAC3;
+  --fg: #111110;
+  --fg-muted: #5C5B56;
+  --fg-faint: #6C6A65;
+  --accent: #CC1E56;
+  --accent-hover: #B01849;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(224, 33, 95, 0.08);
+  --buy: #097954;
+  --buy-soft: rgba(11, 148, 102, 0.10);
+  --sell: #C33824;
+  --sell-soft: rgba(212, 61, 39, 0.10);
+  --info: #2D5BD0;
+  --info-soft: rgba(45, 91, 208, 0.08);
+  --warn: #8D6300;
+  --warn-soft: rgba(168, 118, 0, 0.10);
+  --overlay: rgba(17, 17, 16, 0.32);
+  --shadow-pop: 0 1px 2px rgba(17, 17, 16, 0.06), 0 8px 24px -6px rgba(17, 17, 16, 0.14);
+  --focus-ring: 0 0 0 3px rgba(224, 33, 95, 0.22);
+
+  --font-sans: var(--font-hanken), "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --font-serif: var(--font-instrument), "Instrument Serif", Georgia, serif;
+  --font-display: var(--font-serif);
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0B0B0C;
+  --surface-1: #131315;
+  --surface-2: #19191C;
+  --surface-3: #222226;
+  --line: #27272B;
+  --line-strong: #36363C;
+  --fg: #EDEDEA;
+  --fg-muted: #9D9C97;
+  --fg-faint: #8C8A90;
+  --accent: #FF4D8A;
+  --accent-hover: #FF6B9E;
+  --accent-fg: #17070D;
+  --accent-soft: rgba(255, 77, 138, 0.12);
+  --buy: #2BD697;
+  --buy-soft: rgba(43, 214, 151, 0.12);
+  --sell: #FF6449;
+  --sell-soft: rgba(255, 100, 73, 0.12);
+  --info: #8EB0FF;
+  --info-soft: rgba(142, 176, 255, 0.12);
+  --warn: #F2C14E;
+  --warn-soft: rgba(242, 193, 78, 0.12);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  --focus-ring: 0 0 0 3px rgba(255, 77, 138, 0.28);
+
+  color-scheme: dark;
+}

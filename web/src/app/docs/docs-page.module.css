@@ -2,7 +2,7 @@
   width: min(1220px, calc(100vw - 24px));
   margin: 0 auto;
   padding: 18px 0 42px;
-  color: var(--anchor);
+  color: var(--fg);
 }
 
 .manualHeader,
@@ -10,9 +10,10 @@
 .referenceSection,
 .factCard {
   position: relative;
-  border: 2px solid var(--anchor);
-  background: var(--card);
-  box-shadow: 4px 4px 0 rgba(58, 44, 58, 0.18);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  box-shadow: none;
+  border-radius: var(--r-lg);
 }
 
 .manualHeader {
@@ -21,19 +22,17 @@
   gap: 18px;
   align-items: center;
   padding: 14px 16px;
-  background:
-    linear-gradient(90deg, rgba(255, 209, 220, 0.26) 0 1px, transparent 1px 18px),
-    var(--card);
+  background: var(--surface-1);
 }
 
 .manualHeader::before,
 .toc::before,
 .referenceSection::before,
 .factCard::before {
-  content: "";
+  content: none;
   position: absolute;
   inset: 6px;
-  border: 1px dashed rgba(58, 44, 58, 0.28);
+  border: 1px solid var(--line);
   pointer-events: none;
 }
 
@@ -55,11 +54,11 @@
 .noteKicker {
   display: block;
   margin: 0 0 5px;
-  font-family: var(--font-pixel), monospace;
+  font-family: var(--font-sans), monospace;
   font-size: 11px;
   letter-spacing: 0;
   text-transform: uppercase;
-  color: var(--pink-hot);
+  color: var(--accent);
 }
 
 .manualHeader h1 {
@@ -73,7 +72,7 @@
 .manualHeader p {
   max-width: 620px;
   margin: 0;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   line-height: 1.45;
 }
 
@@ -104,23 +103,23 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px dashed rgba(58, 44, 58, 0.28);
+  border-bottom: 1px solid var(--line);
   padding: 7px 0;
-  color: var(--anchor);
-  font-family: var(--font-round), "Klee One", cursive;
+  color: var(--fg);
+  font-family: var(--font-sans), "Klee One", cursive;
   font-size: 13px;
   text-decoration: none;
 }
 
 .toc a:hover,
 .toc a:focus-visible {
-  color: var(--pink-hot);
+  color: var(--accent);
 }
 
 .toc a span {
   flex: none;
-  font-family: var(--font-jp), monospace;
-  color: var(--anchor-soft);
+  font-family: var(--font-sans), monospace;
+  color: var(--fg-muted);
   font-size: 11px;
 }
 
@@ -138,15 +137,15 @@
 }
 
 .sectionTitle {
-  border-right: 1px dashed var(--anchor-soft);
+  border-right: 1px solid var(--line);
   padding: 14px;
 }
 
 .sectionTitle span {
   display: block;
   margin-bottom: 7px;
-  font-family: var(--font-jp), monospace;
-  color: var(--anchor-soft);
+  font-family: var(--font-sans), monospace;
+  color: var(--fg-muted);
   font-size: 13px;
 }
 
@@ -181,15 +180,16 @@
 
 .processList {
   gap: 0;
-  border: 1.5px solid var(--anchor);
-  background: var(--paper-white, #fff);
+  border: 1px solid var(--line);
+  background: var(--surface-1, #fff);
+  border-radius: var(--r-lg);
 }
 
 .processList li {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 12px;
-  border-bottom: 1px dashed var(--anchor-soft);
+  border-bottom: 1px solid var(--line);
   padding: 11px 12px;
 }
 
@@ -199,13 +199,13 @@
 
 .processList li > span {
   font-family: var(--font-mono), "JetBrains Mono", monospace;
-  color: var(--pink-hot);
+  color: var(--accent);
   font-size: 13px;
 }
 
 .processList h3 {
   margin: 0 0 3px;
-  font-family: var(--font-round), "Klee One", cursive;
+  font-family: var(--font-sans), "Klee One", cursive;
   font-size: 16px;
   line-height: 1.15;
 }
@@ -214,7 +214,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
 }
 
 .factList li,
@@ -226,10 +226,10 @@
 
 .factList li::before,
 .compactList li::before {
-  content: "✿";
+  content: "•";
   position: absolute;
   left: 0;
-  color: var(--pink-hot);
+  color: var(--fg-faint);
 }
 
 .compactList li {
@@ -238,23 +238,24 @@
 
 .callout {
   margin-top: 13px;
-  border: 1.5px solid var(--anchor);
+  border: 1px solid var(--line);
   border-left-width: 5px;
   padding: 11px 12px;
-  background: var(--yolk);
+  background: var(--surface-3);
+  border-radius: var(--r-lg);
 }
 
-.callout[data-tone="pink"] { background: var(--pink-warm); }
-.callout[data-tone="mint"] { background: var(--mint); }
-.callout[data-tone="mizuiro"] { background: var(--mizuiro); }
+.callout[data-tone="pink"] { background: var(--accent-soft); }
+.callout[data-tone="mint"] { background: var(--surface-3); }
+.callout[data-tone="mizuiro"] { background: var(--info-soft); }
 
 .callout span {
   display: block;
   margin-bottom: 5px;
-  font-family: var(--font-pixel), monospace;
+  font-family: var(--font-sans), monospace;
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--anchor);
+  color: var(--fg);
 }
 
 .callout div {
@@ -276,24 +277,25 @@
 .metric,
 .risk,
 .faq {
-  border: 1.5px solid var(--anchor);
-  background: var(--paper-white, #fff);
+  border: 1px solid var(--line);
+  background: var(--surface-1, #fff);
+  border-radius: var(--r-lg);
 }
 
 .metric {
   padding: 10px;
-  background: var(--pink-warm);
+  background: var(--accent-soft);
 }
 
-.metric[data-tone="mint"] { background: var(--mint); }
-.metric[data-tone="mizuiro"] { background: var(--mizuiro); }
+.metric[data-tone="mint"] { background: var(--surface-3); }
+.metric[data-tone="mizuiro"] { background: var(--info-soft); }
 
 .metric span {
   display: block;
   margin-bottom: 6px;
-  font-family: var(--font-pixel), monospace;
+  font-family: var(--font-sans), monospace;
   font-size: 10px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   text-transform: uppercase;
 }
 
@@ -310,15 +312,15 @@
 
 .risk {
   padding: 10px;
-  background: var(--cream-deep);
+  background: var(--surface-2);
 }
 
 .risk h3 {
   margin: 0 0 6px;
-  font-family: var(--font-pixel), monospace;
+  font-family: var(--font-sans), monospace;
   font-size: 11px;
   text-transform: uppercase;
-  color: var(--pink-hot);
+  color: var(--accent);
 }
 
 .risk p {
@@ -330,12 +332,12 @@
 .faq {
   margin-bottom: 7px;
   padding: 8px 10px;
-  background: var(--cream-deep);
+  background: var(--surface-2);
 }
 
 .faq summary {
   cursor: pointer;
-  font-family: var(--font-round), "Klee One", cursive;
+  font-family: var(--font-sans), "Klee One", cursive;
   font-weight: 700;
   list-style: none;
 }
@@ -345,15 +347,15 @@
 }
 
 .faq summary::before {
-  content: "❀ ";
-  color: var(--pink-hot);
+  content: "•";
+  color: var(--fg-faint);
 }
 
 .faq div {
   margin-top: 8px;
   font-size: 13px;
   line-height: 1.55;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
 }
 
 .factRail {
@@ -368,19 +370,19 @@
 .factCard b {
   display: block;
   margin-bottom: 6px;
-  font-family: var(--font-round), "Klee One", cursive;
+  font-family: var(--font-sans), "Klee One", cursive;
   font-size: 17px;
 }
 
 .factCard p {
   margin: 0 0 10px;
-  color: var(--anchor-soft);
+  color: var(--fg-muted);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .factCard[data-tone="warning"] {
-  background: var(--yolk);
+  background: var(--surface-3);
 }
 
 .factCard :global(.uru-btn) {
@@ -424,7 +426,7 @@
 
   .sectionTitle {
     border-right: 0;
-    border-bottom: 1px dashed var(--anchor-soft);
+    border-bottom: 1px solid var(--line);
   }
 
   .factRail {
@@ -459,46 +461,6 @@
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 8px;
   }
-}
-
-:global(:root[data-theme="dark"]) .manualHeader,
-:global(:root[data-theme="dark"]) .toc,
-:global(:root[data-theme="dark"]) .referenceSection,
-:global(:root[data-theme="dark"]) .factCard {
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
-}
-
-:global(:root[data-theme="dark"]) .manualHeader::before,
-:global(:root[data-theme="dark"]) .toc::before,
-:global(:root[data-theme="dark"]) .referenceSection::before,
-:global(:root[data-theme="dark"]) .factCard::before {
-  border-color: rgba(255, 248, 231, 0.22);
-}
-
-:global(:root[data-theme="dark"]) .manualHeader {
-  background:
-    linear-gradient(90deg, rgba(255, 209, 220, 0.08) 0 1px, transparent 1px 18px),
-    var(--card);
-}
-
-:global(:root[data-theme="dark"]) .manualHeader p,
-:global(:root[data-theme="dark"]) .processList p,
-:global(:root[data-theme="dark"]) .faq div,
-:global(:root[data-theme="dark"]) .sectionBody p,
-:global(:root[data-theme="dark"]) .factCard p {
-  color: #f4e0b3;
-}
-
-:global(:root[data-theme="dark"]) .processList,
-:global(:root[data-theme="dark"]) .metric,
-:global(:root[data-theme="dark"]) .risk,
-:global(:root[data-theme="dark"]) .faq {
-  background: var(--card-lifted);
-}
-
-:global(:root[data-theme="dark"]) .callout[data-tone="yolk"],
-:global(:root[data-theme="dark"]) .factCard[data-tone="warning"] {
-  background: #40311a;
 }
 
 @media (prefers-reduced-motion: reduce) {

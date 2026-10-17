@@ -30,6 +30,7 @@ import {
 import { graduatorAbi } from '@/lib/abis';
 import { GRADUATORS, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
+import card from './profile-card.module.css';
 
 interface Props {
   visibleFor: Address;
@@ -112,88 +113,72 @@ export function GraduatorRefund({ visibleFor, chain }: Props) {
   }
 
   return (
-    <section
-      className="uru-shell"
-      style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}
-    >
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span aria-hidden style={{ fontSize: 18 }}>✿</span>
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-round), cursive', fontSize: 18 }}>
-          graduation refund
-        </h3>
-        <span style={{ color: 'var(--anchor-soft)', fontSize: 12 }}>
-          LP-add dust credited to you from a token you launched
-        </span>
-      </header>
-
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--anchor-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          claimable
-        </span>
-        <span className="uru-num" style={{ fontSize: 20, fontWeight: 700 }}>
-          {formatEther(claimable)} ETH
-        </span>
+    <section className={card.card}>
+      <div className={card.head}>
+        <h2 className={card.title}>Graduation refund</h2>
+        <span className={card.aside}>Leftover ETH from a token you launched</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
-        {(['self', 'to'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setRouteMode(m)}
-            className="uru-btn"
-            style={{
-              flex: 1,
-              justifyContent: 'center',
-              fontSize: 11,
-              padding: '5px 8px',
-              background: routeMode === m ? 'var(--pink-hot)' : 'var(--cream-deep)',
-              color: routeMode === m ? 'var(--cream)' : 'var(--anchor)',
-              borderColor: 'var(--anchor)',
-            }}
-          >
-            {m === 'self' ? 'to my wallet' : 'to another address'}
-          </button>
-        ))}
+      <div className={card.body}>
+        <div className={card.kv}>
+          <span className={card.kvKey}>Claimable</span>
+          <span className={card.totalValue}>
+            {formatEther(claimable)} ETH
+          </span>
+        </div>
+
+        <div className="ui-seg" data-block="true">
+          {(['self', 'to'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setRouteMode(m)}
+              aria-pressed={routeMode === m}
+            >
+              {m === 'self' ? 'To my wallet' : 'To another address'}
+            </button>
+          ))}
+        </div>
+
+        {routeMode === 'to' && (
+          <input
+            type="text"
+            placeholder="0x… recipient"
+            value={routeTo}
+            onChange={(e) => setRouteTo(e.target.value)}
+            disabled={busy}
+            className="ui-input"
+            data-mono="true"
+            title="Use this for Safe or contract wallets that can't receive ETH directly"
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={submit}
+          disabled={busy || switchPending || (routeMode === 'to' && !isAddress(routeTo))}
+          className="ui-btn"
+          data-variant="primary"
+          data-block="true"
+        >
+          {switchPending
+            ? `Switching to ${chain}…`
+            : writePending
+              ? 'Confirm in your wallet…'
+              : waitPending
+                ? 'Waiting for confirmation…'
+                : !onTargetChain
+                  ? `Claim on ${chain} (switches chain)`
+                  : routeMode === 'to'
+                    ? `Claim to ${routeTo ? routeTo.slice(0, 6) + '…' : '…'}`
+                    : 'Claim to my wallet'}
+        </button>
+
+        <p className={card.muted}>
+          Adding liquidity at graduation always leaves a little rounding dust, and it gets
+          credited here. It&apos;s safe to skip. Nothing bad happens if you never claim it.
+        </p>
       </div>
-
-      {routeMode === 'to' && (
-        <input
-          type="text"
-          placeholder="0x… recipient"
-          value={routeTo}
-          onChange={(e) => setRouteTo(e.target.value)}
-          disabled={busy}
-          className="uru-input"
-          style={{ width: '100%', fontFamily: 'var(--font-pixel), monospace' }}
-          title="use this for Safe / contract-wallet launchers that can't receive ETH directly"
-        />
-      )}
-
-      <button
-        type="button"
-        onClick={submit}
-        disabled={busy || switchPending || (routeMode === 'to' && !isAddress(routeTo))}
-        className="uru-btn uru-btn-primary"
-        style={{ width: '100%', justifyContent: 'center' }}
-      >
-        {switchPending
-          ? `switch to ${chain} ~`
-          : writePending
-            ? 'confirming ~~'
-            : waitPending
-              ? 'waiting..'
-              : !onTargetChain
-                ? `claim on ${chain} (switch chain)`
-                : routeMode === 'to'
-                  ? `claim to ${routeTo ? routeTo.slice(0, 6) + '…' : '…'}`
-                  : 'claim to my wallet'}
-      </button>
-
-      <p style={{ margin: 0, fontSize: 11, color: 'var(--anchor-soft)' }}>
-        rounding dust from LP addition — every graduation leaves a small residual that
-        gets credited here. safe to skip; nothing bad happens if you never claim ~
-      </p>
     </section>
   );
 }

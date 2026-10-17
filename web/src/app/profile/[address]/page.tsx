@@ -51,7 +51,7 @@ import {
 } from '@/lib/profileAvatarUpload';
 import type { NftAvatarSource, WalletNftAvatar } from '@/lib/nftAvatarApi';
 import { playSfx } from '@/lib/audio/sfx';
-import { getFollowing, isFollowing, onFollowsChange, toggleFollow, toggleFollowRemote } from '@/lib/follows';
+import { isFollowing, onFollowsChange, toggleFollow, toggleFollowRemote } from '@/lib/follows';
 import { fetchFollowers, fetchFollowing } from '@/lib/socialApi';
 import { FollowersModal, type FollowsMode } from '@/components/FollowersModal';
 import { computePositions, type Position } from '@/lib/pnl';
@@ -270,7 +270,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   // name; hover shows the full name + address for disambiguation.
   function tokenLabel(addr: Address): { display: string; full: string } {
     const meta = tokenMeta[addr.toLowerCase()];
-    if (meta) return { display: meta.ticker || meta.name, full: `${meta.name} (${meta.ticker}) — ${addr}` };
+    if (meta) return { display: meta.ticker || meta.name, full: `${meta.name} (${meta.ticker}) · ${addr}` };
     return { display: `${addr.slice(0, 6)}…${addr.slice(-4)}`, full: addr };
   }
 
@@ -321,11 +321,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
     return [...eth, ...pair].sort((a, b) => Number(BigInt(b.ts) - BigInt(a.ts)));
   }, [allTrades, pairTrades, pairOfToken, activeChain]);
 
-  const [followingCount, setFollowingCount] = useState(0);
   const [isFollowingThis, setIsFollowingThis] = useState(false);
   useEffect(() => {
     const refresh = () => {
-      setFollowingCount(getFollowing().length);
       setIsFollowingThis(isFollowing(address));
     };
     refresh();
@@ -333,8 +331,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   }, [address]);
 
   // Remote counts for the profile being viewed — powers the clickable
-  // "N followers · N following" pills. Local `followingCount` above is for
-  // the wallet's own feed count, not the viewed profile's counts.
+  // "N followers · N following" pills.
   //
   // `remoteRefreshTick` is bumped explicitly by the follow-button handler
   // AFTER the backend write completes, so we don't fire a refetch on the
@@ -363,12 +360,12 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
   if (!isValid) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-12 text-center">
+      <div className={styles.badAddress}>
         <Mascot size={72} mood="confused" />
-        <div className="uru-h1 mt-3" style={{ fontSize: 26 }}>bad address ~~</div>
-        <p style={{ marginTop: 6, color: 'var(--anchor-soft)' }}>
-          the url doesnt look like an ethereum address. try{' '}
-          <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>/profile/0x…</code>
+        <h1 className={styles.badTitle}>That address isn’t valid</h1>
+        <p className={styles.badCopy}>
+          This link doesn’t look like a wallet address. Try{' '}
+          <code>/profile/0x…</code>
         </p>
       </div>
     );
@@ -381,209 +378,175 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       {xVerifiedToast && (
         <div
           role="status"
-          style={{
-            marginBottom: 10,
-            padding: '8px 12px',
-            border: '1.5px solid var(--anchor)',
-            background: xVerifiedToast.startsWith('X connected') ? 'var(--mint)' : 'var(--pink-warm)',
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 12.5,
-            color: 'var(--anchor)',
-            boxShadow: '2px 2px 0 var(--anchor)',
-          }}
+          className={styles.toast}
+          data-tone={xVerifiedToast.startsWith('X connected') ? 'ok' : 'error'}
         >
           {xVerifiedToast}
         </div>
       )}
       {/* ================================================================
           IDENTITY HEADER — avatar + name + address + socials + CTA
-          Uses the pressKit two-pane grid: identityPlate (avatar + text)
-          on the left, actionShelf on the right (edit / follow / feed).
+          Avatar on the left, identity text in the middle, actions
+          (edit / follow / feed) on the right.
           ================================================================ */}
-      <section className={styles.pressKit}>
-        <div className={styles.identityPlate}>
-          {/* Avatar is a CSS background — same approach as 10x's design. We
-              previously used <Image fill> here for LCP tuning, but .avatarStamp
-              lacks position:relative, so fill climbed to the viewport and
-              painted the PFP over the whole page. Background-image sizes
-              itself to the 118px box regardless of source (data URL, IPFS,
-              Vercel Blob) and never escapes the container. */}
-          <div className={styles.avatarStamp} style={{ background: safeBackgroundImage(profile.avatarDataUrl) }}>
-            {!profile.avatarDataUrl && <span>ウ</span>}
-          </div>
+      <header className={styles.header}>
+        {/* Avatar is a CSS background — same approach as 10x's design. We
+            previously used <Image fill> here for LCP tuning, but the box
+            lacks position:relative, so fill climbed to the viewport and
+            painted the PFP over the whole page. Background-image sizes
+            itself to the box regardless of source (data URL, IPFS,
+            Vercel Blob) and never escapes the container. */}
+        <div className={styles.avatar} style={{ background: safeBackgroundImage(profile.avatarDataUrl) }}>
+          {!profile.avatarDataUrl && <span>{name.slice(0, 1).toUpperCase()}</span>}
+        </div>
 
-          <div className={styles.identityText}>
-            <div className="uru-eyebrow">creator profile</div>
-            <h1 className={`uru-h1 ${styles.profileName}`}>{name}</h1>
-            <div className={styles.addressLine}>{address}</div>
-            {profile.bio && <p className={styles.bio}>{profile.bio}</p>}
-            {(profile.xVerifiedHandle || profile.twitter || profile.telegram || profile.discord || profile.website) && (
-              <div className={styles.socials}>
-                {profile.xVerifiedHandle ? (
-                  // Verified X — link out and show the green checkmark. Uses the
-                  // exact stored handle string; the id is what actually pins the
-                  // binding (see xVerifiedId) but the handle is what humans read.
-                  <XVerifiedBadge handle={profile.xVerifiedHandle} />
-                ) : profile.twitter ? (
-                  // Legacy / unverified self-declared handle — NEVER link out
-                  // (phishing vector: anyone could type "https://x.com/vitalik").
-                  // Rendered gray + noninteractive with an "unverified" hint.
-                  <XUnverifiedBadge value={profile.twitter} />
-                ) : null}
-                {profile.telegram && <MiniLink href={profile.telegram} label="tg" />}
-                {profile.discord && <MiniLink href={profile.discord} label="discord" />}
-                {profile.website && <MiniLink href={profile.website} label="site" />}
-              </div>
-            )}
-            {/* Follower/following pills open the modal listing that bucket. */}
-            <div className={styles.followPills}>
-              <button type="button" onClick={() => setModalMode('followers')} className={styles.followPill}>
-                <b className="uru-num">{remoteFollowersCount ?? '—'}</b> followers
-              </button>
-              <button type="button" onClick={() => setModalMode('following')} className={styles.followPill}>
-                <b className="uru-num">{remoteFollowingCount ?? '—'}</b> following
-              </button>
+        <div className={styles.identity}>
+          <p className={styles.eyebrow}>Profile</p>
+          <h1 className={styles.name}>{name}</h1>
+          <div className={styles.addressRow}>
+            <span className={styles.address} title={address}>{address}</span>
+            <CopyAddressButton value={address} />
+          </div>
+          {profile.bio && <p className={styles.bio}>{profile.bio}</p>}
+          {(profile.xVerifiedHandle || profile.twitter || profile.telegram || profile.discord || profile.website) && (
+            <div className={styles.socials}>
+              {profile.xVerifiedHandle ? (
+                // Verified X — link out and show the checkmark. Uses the
+                // exact stored handle string; the id is what actually pins the
+                // binding (see xVerifiedId) but the handle is what humans read.
+                <XVerifiedBadge handle={profile.xVerifiedHandle} />
+              ) : profile.twitter ? (
+                // Legacy / unverified self-declared handle — NEVER link out
+                // (phishing vector: anyone could type "https://x.com/vitalik").
+                // Rendered gray + noninteractive with an "unverified" hint.
+                <XUnverifiedBadge value={profile.twitter} />
+              ) : null}
+              {profile.telegram && <MiniLink href={profile.telegram} label="Telegram" />}
+              {profile.discord && <MiniLink href={profile.discord} label="Discord" />}
+              {profile.website && <MiniLink href={profile.website} label="Website" />}
             </div>
+          )}
+          {/* Follower/following counts open the modal listing that bucket. */}
+          <div className={styles.followStats}>
+            <button type="button" onClick={() => setModalMode('followers')} className={styles.followStat}>
+              <b>{remoteFollowersCount ?? '…'}</b> followers
+            </button>
+            <button type="button" onClick={() => setModalMode('following')} className={styles.followStat}>
+              <b>{remoteFollowingCount ?? '…'}</b> following
+            </button>
           </div>
         </div>
 
-        <div className={styles.pressFacts}>
-          <div className={styles.actionShelf}>
-            {isOwn ? (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="uru-btn uru-btn-primary"
-              >
-                edit profile
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={async () => {
-                  // Optimistic local toggle for the instant button flip, then
-                  // fire the signed backend write so the followee's /followers
-                  // list reflects it. If the wallet isn't connected we fall back
-                  // to local-only (backend needs a signature).
-                  if (wallet) {
-                    const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
-                    playSfx(nowFollowing ? 'coin' : 'flip');
-                    // Backend write completed — bump the tick so the counts
-                    // pill refetches the new server-side state. Without this
-                    // the refetch races the signature and reads stale data.
-                    setRemoteRefreshTick((n) => n + 1);
-                  } else {
-                    const nowFollowing = toggleFollow(address);
-                    playSfx(nowFollowing ? 'coin' : 'flip');
-                  }
-                }}
-                className={isFollowingThis ? 'uru-btn' : 'uru-btn uru-btn-primary'}
-              >
-                {isFollowingThis ? 'following' : '+ follow'}
-              </button>
-            )}
-            {isOwn && (
-              <Link href="/feed" className="uru-btn uru-btn-mint">
-                ur feed ({followingCount})
-              </Link>
-            )}
-          </div>
-          {/* Six-key facts pane — mirrors the stats strip but presented as
-              a labelled dl grid, which pairs with the pressKit layout on
-              wide screens (stats sit next to the identity plate). */}
-          <dl className={styles.factGrid}>
-            <div>
-              <dt>launches</dt>
-              <dd>{stats.launched.toString()}</dd>
-            </div>
-            <div>
-              <dt>trades</dt>
-              <dd>{stats.tradeCount.toString()}</dd>
-            </div>
-            <div>
-              <dt>buys</dt>
-              <dd>{stats.buyCount.toString()}</dd>
-            </div>
-            <div>
-              <dt>sells</dt>
-              <dd>{stats.sellCount.toString()}</dd>
-            </div>
-            <div>
-              <dt>net eth</dt>
-              <dd>{formatSignedEth(stats.netFlow)} Ξ</dd>
-            </div>
-            <div>
-              <dt>realized pnl</dt>
-              <dd>{formatSignedEth(realizedTotal)} Ξ</dd>
-            </div>
-          </dl>
+        <div className={styles.actions}>
+          {isOwn ? (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="ui-btn"
+            >
+              Edit profile
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={async () => {
+                // Optimistic local toggle for the instant button flip, then
+                // fire the signed backend write so the followee's /followers
+                // list reflects it. If the wallet isn't connected we fall back
+                // to local-only (backend needs a signature).
+                if (wallet) {
+                  const nowFollowing = await toggleFollowRemote(wallet, address, ({ message }) => signMessageAsyncTop({ message }));
+                  playSfx(nowFollowing ? 'coin' : 'flip');
+                  // Backend write completed — bump the tick so the counts
+                  // pill refetches the new server-side state. Without this
+                  // the refetch races the signature and reads stale data.
+                  setRemoteRefreshTick((n) => n + 1);
+                } else {
+                  const nowFollowing = toggleFollow(address);
+                  playSfx(nowFollowing ? 'coin' : 'flip');
+                }
+              }}
+              className="ui-btn"
+              data-variant={isFollowingThis ? undefined : 'primary'}
+            >
+              {isFollowingThis ? 'Following' : 'Follow'}
+            </button>
+          )}
+          {isOwn && (
+            <Link href="/feed" className="ui-btn" data-variant="primary">
+              Your feed
+            </Link>
+          )}
         </div>
-      </section>
+      </header>
 
-      <div
-        style={{
-          marginBottom: 12,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 10,
-          color: 'var(--anchor-soft)',
-        }}
-      >
-        spent {formatEther(stats.ethSpent)} Ξ · received {formatEther(stats.ethReceived)} Ξ ~ realized pnl uses buy-side avg cost basis
-      </div>
+      {/* Six-key facts pane — stat tiles under the header. */}
+      <dl className={styles.statGrid}>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Launches</dt>
+          <dd className="ui-stat-value">{stats.launched.toString()}</dd>
+        </div>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Trades</dt>
+          <dd className="ui-stat-value">{stats.tradeCount.toString()}</dd>
+        </div>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Buys</dt>
+          <dd className={`ui-stat-value ${styles.up}`}>{stats.buyCount.toString()}</dd>
+        </div>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Sells</dt>
+          <dd className={`ui-stat-value ${styles.down}`}>{stats.sellCount.toString()}</dd>
+        </div>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Net ETH</dt>
+          <dd className={`ui-stat-value ${stats.netFlow > 0n ? styles.up : stats.netFlow < 0n ? styles.down : ''}`}>
+            {formatSignedEth(stats.netFlow)} Ξ
+          </dd>
+        </div>
+        <div className={`ui-stat ${styles.statTile}`}>
+          <dt className="ui-label">Realized PnL</dt>
+          <dd className={`ui-stat-value ${realizedTotal > 0n ? styles.up : realizedTotal < 0n ? styles.down : ''}`}>
+            {formatSignedEth(realizedTotal)} Ξ
+          </dd>
+        </div>
+      </dl>
+
+      <p className={styles.statNote}>
+        Spent <span>{trimEth(stats.ethSpent)} ETH</span>, received <span>{trimEth(stats.ethReceived)} ETH</span>.
+        Realized PnL uses your average buy price as the cost basis.
+      </p>
 
       {/* ================================================================
           MAIN + RAIL
           ================================================================ */}
-      <div className={styles.profileBody}>
+      <div className={styles.body}>
         {/* MAIN */}
-        <div className={styles.dossierPanel} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className={styles.main}>
           {/* creations */}
-          <section>
-            <SectionHead label="creations" jp="発行" count={launches?.length} />
+          <section className={styles.panel}>
+            <SectionHead label="Launches" count={launches?.length} />
             {launches === null && !loaded && <LoadingRow />}
             {loaded && launches && launches.length === 0 && (
-              <EmptyRow label={isOwn ? "u havent launched anything yet ~ head to /create" : "no launches yet"} />
+              <EmptyRow label={isOwn ? 'You haven’t launched anything yet. Head to Create to start one.' : 'No launches yet.'} />
             )}
             {launches && launches.length > 0 && (
-              <div
-                className="grid gap-2"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
-              >
+              <div className={styles.launchGrid}>
                 {launches.map((l) => (
                   <Link
                     key={l.id}
                     href={`/trade/${l.tokenAddress}`}
-                    className="uru-shell-tight uru-launch-card"
-                    style={{
-                      textDecoration: 'none',
-                      color: 'inherit',
-                      padding: 8,
-                    }}
+                    className={styles.launchCard}
                   >
-                    <div className="uru-h2" style={{ fontSize: 13, lineHeight: 1.15 }}>
-                      {l.name}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        color: 'var(--anchor-soft)',
-                      }}
-                    >
+                    <div className={styles.launchName}>{l.name}</div>
+                    <div className={styles.launchMeta}>
                       ${l.ticker} · {BASE_LABEL[l.base] ?? '?'}
                     </div>
-                    <div style={{ marginTop: 5, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {l.installedBondingCurve && <MiniBadge label="curve" tint="mint" />}
-                      {l.installedHook && <MiniBadge label="hook" tint="mizuiro" />}
+                    <div className={styles.badgeRow}>
+                      {l.installedBondingCurve && <MiniBadge label="Curve" />}
+                      {l.installedHook && <MiniBadge label="Hook" tint="info" />}
                     </div>
-                    <div
-                      style={{
-                        marginTop: 5,
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 9,
-                        color: 'var(--anchor-soft)',
-                      }}
-                    >
+                    <div className={styles.launchTime}>
                       {formatAgo(Number(l.blockTimestamp) * 1000)} ago
                     </div>
                   </Link>
@@ -593,47 +556,23 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           </section>
 
           {/* positions */}
-          <section>
-            <SectionHead label="positions" jp="持高" count={openPositions.length} />
+          <section className={styles.panel}>
+            <SectionHead label="Positions" count={openPositions.length} />
             {trades === null && !loaded && <LoadingRow />}
-            {loaded && openPositions.length === 0 && <EmptyRow label="no positions yet" />}
+            {loaded && openPositions.length === 0 && <EmptyRow label="No open positions yet." />}
             {openPositions.length > 0 && (
-              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
-                    gap: 8,
-                    padding: '5px 10px',
-                    background: 'var(--cream-deep)',
-                    borderBottom: '1.5px solid var(--anchor)',
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 9,
-                    letterSpacing: '0.08em',
-                    color: 'var(--anchor-soft)',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  <span>token</span>
-                  <span>trades</span>
-                  <span>held</span>
-                  <span style={{ textAlign: 'right' }}>realized pnl</span>
+              <>
+                <div className={`${styles.thead} ${styles.positionCols}`}>
+                  <span>Token</span>
+                  <span>Trades</span>
+                  <span className={styles.right}>Held</span>
+                  <span className={styles.right}>Realized PnL</span>
                 </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {openPositions.map((p, i) => (
+                <ul className={styles.tableList}>
+                  {openPositions.map((p) => (
                     <li
                       key={p.tokenAddress}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(120px, 1.5fr) 1fr 1fr 1fr',
-                        gap: 8,
-                        alignItems: 'center',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        borderBottom: i === openPositions.length - 1 ? 'none' : '1px dotted var(--anchor)',
-                        borderLeft: `3px solid ${p.realizedPnl > 0n ? 'var(--mint-hot,#2b8a3e)' : p.realizedPnl < 0n ? 'var(--pink-hot)' : 'transparent'}`,
-                      }}
+                      className={`${styles.trow} ${styles.positionCols}`}
                     >
                       {(() => {
                         const lbl = tokenLabel(p.tokenAddress);
@@ -641,45 +580,34 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                           <Link
                             href={`/trade/${p.tokenAddress}`}
                             title={lbl.full}
-                            style={{
-                              color: 'var(--link-blue)',
-                              textDecoration: 'underline',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
+                            className={styles.tokenLink}
                           >
                             {lbl.display}
                           </Link>
                         );
                       })()}
-                      <span title="buys · sells">
-                        <span style={{ color: 'var(--mint-hot,#2b8a3e)' }}>{p.buyCount}b</span>
-                        {' · '}
-                        <span style={{ color: 'var(--pink-hot)' }}>{p.sellCount}s</span>
+                      <span className={styles.num} title="buys · sells">
+                        <span className={styles.up}>{p.buyCount}B</span>
+                        <span className={styles.faint}>{' / '}</span>
+                        <span className={styles.down}>{p.sellCount}S</span>
                       </span>
-                      <span title="net token balance from trades">
+                      <span className={`${styles.num} ${styles.right}`} title="Net token balance from trades">
                         {p.netTokens > 0n
                           ? Number(formatUnits(p.netTokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })
-                          : 'flat'}
+                          : 'Flat'}
                       </span>
                       <span
-                        style={{
-                          textAlign: 'right',
-                          fontWeight: 700,
-                          color: p.realizedPnl > 0n
-                            ? 'var(--mint-hot,#2b8a3e)'
-                            : p.realizedPnl < 0n
-                              ? 'var(--pink-hot)'
-                              : 'var(--anchor)',
-                        }}
+                        className={`${styles.num} ${styles.right} ${
+                          p.realizedPnl > 0n ? styles.up : p.realizedPnl < 0n ? styles.down : ''
+                        }`}
+                        style={{ fontWeight: 600 }}
                       >
                         {formatSignedEth(p.realizedPnl)} Ξ
                       </span>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </>
             )}
           </section>
 
@@ -687,78 +615,55 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
           <MyNftHoldings visibleFor={address} chain={activeChain} />
 
           {/* activity */}
-          <section>
-            <SectionHead label="activity" jp="取引" count={activityRows.length} />
+          <section className={styles.panel}>
+            <SectionHead label="Trade history" count={activityRows.length} />
             {trades === null && !loaded && <LoadingRow />}
             {loaded && activityRows.length === 0 && (
-              <EmptyRow label={isOwn ? "no trades yet ~ hit /trade to get started" : "no trades yet"} />
+              <EmptyRow label={isOwn ? 'No trades yet. Open Trade to get started.' : 'No trades yet.'} />
             )}
             {activityRows.length > 0 && (
-              <div className="uru-shell-tight" style={{ padding: 0, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '42px 1fr 1fr auto',
-                    gap: 8,
-                    padding: '5px 10px',
-                    background: 'var(--cream-deep)',
-                    borderBottom: '1.5px solid var(--anchor)',
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 9,
-                    letterSpacing: '0.08em',
-                    color: 'var(--anchor-soft)',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  <span>side</span>
-                  <span>amount</span>
-                  <span>token</span>
-                  <span style={{ textAlign: 'right' }}>ago</span>
+              <>
+                <div className={`${styles.thead} ${styles.activityCols}`}>
+                  <span>Token</span>
+                  <span>Side</span>
+                  <span className={styles.right}>Amount</span>
+                  <span className={styles.right}>Time</span>
                 </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                  {activityRows.slice(0, 30).map((t, i) => (
+                <ul className={styles.tableList}>
+                  {activityRows.slice(0, 30).map((t) => (
                     <li
                       key={t.id}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '42px 1fr 1fr auto',
-                        gap: 8,
-                        alignItems: 'center',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        borderBottom: i === Math.min(29, activityRows.length - 1) ? 'none' : '1px dotted var(--anchor)',
-                      }}
+                      className={`${styles.trow} ${styles.activityCols}`}
                     >
-                      <span style={{ color: t.isBuy ? 'var(--mint-hot)' : 'var(--pink-hot)', fontWeight: 700 }}>
-                        {t.isBuy ? 'BUY' : 'SELL'}
-                      </span>
-                      <span>
-                        {t.unit === 'Ξ'
-                          ? `${Number(formatEther(t.amount)).toFixed(4)} Ξ`
-                          : `${Number(formatEther(t.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${t.unit}`}
-                      </span>
-                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className={styles.cell}>
                         {(() => {
                           const lbl = tokenLabel(t.tokenAddress);
                           return (
                             <Link
                               href={`/trade/${t.tokenAddress}`}
                               title={lbl.full}
-                              style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                              className={styles.tokenLink}
                             >
                               {lbl.display}
                             </Link>
                           );
                         })()}
                       </span>
-                      <span style={{ color: 'var(--anchor-soft)', textAlign: 'right' }}>
+                      <span className={t.isBuy ? styles.sideBuy : styles.sideSell}>
+                        {t.isBuy ? 'Buy' : 'Sell'}
+                      </span>
+                      <span className={`${styles.num} ${styles.right} ${styles.cell}`}>
+                        {t.unit === 'Ξ'
+                          ? `${Number(formatEther(t.amount)).toFixed(4)} Ξ`
+                          : `${Number(formatEther(t.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${t.unit}`}
+                      </span>
+                      <span className={`${styles.num} ${styles.right} ${styles.muted}`}>
                         {formatAgo(Number(t.ts) * 1000)}
                       </span>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </>
             )}
           </section>
         </div>
@@ -784,7 +689,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             When the toggle is on AND a stranger is viewing, we render a
             single explanatory placeholder card so the absence of data
             is obvious (never silent). */}
-        <aside className={styles.sideStack}>
+        <aside className={styles.side}>
           {isOwn && profile.hideHoldings && <PrivateModeHint />}
 
           {shouldHideHoldingsFromView({ isOwn, hideHoldings: profile.hideHoldings }) ? (
@@ -793,11 +698,11 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
             <>
               <EcosystemHoldings visibleFor={address} chain={activeChain} />
 
-              <section className={styles.sideCard}>
-                <div className="uru-eyebrow" style={{ marginBottom: 6 }}>launchpad holdings</div>
+              <section className={styles.panel}>
+                <SectionHead label="Launchpad holdings" />
                 {holdings === null && !loaded && <LoadingRow tight />}
                 {loaded && holdings && holdings.filter((h) => BigInt(h.balance) > 0n).length === 0 && (
-                  <EmptyRow label="no urufu tokens held" tight />
+                  <EmptyRow label="No launchpad tokens held." tight />
                 )}
                 {holdings && holdings.length > 0 && (
                   <ul className={styles.holdingList}>
@@ -812,13 +717,13 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                               <Link
                                 href={`/trade/${h.tokenAddress}`}
                                 title={lbl.full}
-                                style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}
+                                className={styles.tokenLink}
                               >
                                 {lbl.display}
                               </Link>
                             );
                           })()}
-                          <span>
+                          <span className={styles.num}>
                             {Number(formatUnits(BigInt(h.balance), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </span>
                         </li>
@@ -856,34 +761,46 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 // subcomponents
 // ============================================================================
 
-function SectionHead({ label, jp, count }: { label: string; jp: string; count?: number }) {
+function SectionHead({ label, count }: { label: string; count?: number }) {
   return (
-    <div className={styles.sectionHead}>
-      <span className={`uru-h1 ${styles.sectionTitle}`}>{label}</span>
-      <span className={styles.sectionJp}>{jp}</span>
+    <div className={styles.panelHead}>
+      <h2 className={styles.panelTitle}>{label}</h2>
       {typeof count === 'number' && (
-        <span className={styles.sectionCount}>· {count}</span>
+        <span className={styles.panelCount}>{count}</span>
       )}
     </div>
   );
 }
 
-function MiniBadge({ label, tint }: { label: string; tint?: 'mint' | 'mizuiro' }) {
-  const bg = tint === 'mint' ? 'var(--mint)' : tint === 'mizuiro' ? 'var(--mizuiro)' : 'var(--cream-deep)';
+/// Small copy-to-clipboard affordance next to the address. Purely local UI
+/// state (a "Copied" flash); no data flow.
+function CopyAddressButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '1px 5px',
-        background: bg,
-        border: '1px solid var(--anchor)',
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 9,
-        textTransform: 'uppercase',
-        letterSpacing: '0.06em',
-        lineHeight: 1.2,
+    <button
+      type="button"
+      className="ui-btn"
+      data-variant="ghost"
+      data-size="sm"
+      onClick={() => {
+        navigator.clipboard?.writeText(value).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          },
+          () => {},
+        );
       }}
+      aria-label="Copy address"
     >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+function MiniBadge({ label, tint }: { label: string; tint?: 'info' }) {
+  return (
+    <span className="ui-badge" data-tone={tint}>
       {label}
     </span>
   );
@@ -891,16 +808,8 @@ function MiniBadge({ label, tint }: { label: string; tint?: 'mint' | 'mizuiro' }
 
 function LoadingRow({ tight }: { tight?: boolean }) {
   return (
-    <div
-      style={{
-        padding: tight ? 8 : 14,
-        textAlign: 'center',
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 11,
-        color: 'var(--anchor-soft)',
-      }}
-    >
-      loading ~~
+    <div className={styles.empty} data-tight={tight ? 'true' : undefined}>
+      Loading…
     </div>
   );
 }
@@ -910,18 +819,8 @@ function LoadingRow({ tight }: { tight?: boolean }) {
 /// Never rendered to strangers (they get `HoldingsHiddenPlaceholder` instead).
 function PrivateModeHint() {
   return (
-    <div
-      className="uru-shell-tight"
-      style={{
-        background: 'var(--mint)',
-        padding: '6px 10px',
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 10.5,
-        color: 'var(--anchor)',
-        lineHeight: 1.35,
-      }}
-    >
-      <span aria-hidden="true">♡ </span>private mode on ~ others cannot see this section
+    <div className={styles.note}>
+      Private mode is on. Other people can’t see your holdings.
     </div>
   );
 }
@@ -932,43 +831,20 @@ function PrivateModeHint() {
 /// guessing whether the wallet is empty vs. hidden.
 function HoldingsHiddenPlaceholder() {
   return (
-    <section
-      className="uru-shell-tight"
-      style={{
-        background: 'var(--cream)',
-        padding: '10px 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <div className="uru-eyebrow">✿ holdings + balances hidden</div>
-      <p
-        style={{
-          margin: 0,
-          fontFamily: 'var(--font-round), Klee One, cursive',
-          fontSize: 12,
-          lineHeight: 1.45,
-          color: 'var(--anchor)',
-        }}
-      >
-        this user chose to keep their holdings private.
-      </p>
+    <section className={styles.panel}>
+      <SectionHead label="Holdings hidden" />
+      <div className={styles.panelBody}>
+        <p className={styles.hiddenCopy}>
+          This user keeps their holdings and balances private.
+        </p>
+      </div>
     </section>
   );
 }
 
 function EmptyRow({ label, tight }: { label: string; tight?: boolean }) {
   return (
-    <div
-      style={{
-        padding: tight ? 8 : 14,
-        textAlign: 'center',
-        fontFamily: 'var(--font-pixel), monospace',
-        fontSize: 11,
-        color: 'var(--anchor-soft)',
-      }}
-    >
+    <div className={styles.empty} data-tight={tight ? 'true' : undefined}>
       {label}
     </div>
   );
@@ -980,18 +856,8 @@ function XVerifiedBadge({ handle }: { handle: string }) {
       href={`https://x.com/${encodeURIComponent(handle)}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="uru-88"
-      style={{
-        padding: '2px 8px',
-        fontSize: 11,
-        fontFamily: 'var(--font-pixel), monospace',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        background: 'var(--mint)',
-        color: 'var(--mint-hot,#2b8a3e)',
-      }}
-      title="verified X account"
+      className={`${styles.socialLink} ${styles.socialVerified}`}
+      title="Verified X account"
     >
       @{handle} <span aria-hidden="true">✓</span>
       <span className="sr-only">verified</span>
@@ -1003,19 +869,7 @@ function XUnverifiedBadge({ value }: { value: string }) {
   // Strip a leading @ or https://x.com/ prefix for display; keep the handle bit.
   const display = value.replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0];
   return (
-    <span
-      style={{
-        padding: '2px 8px',
-        fontSize: 11,
-        fontFamily: 'var(--font-pixel), monospace',
-        border: '1px dashed var(--anchor-soft)',
-        color: 'var(--anchor-soft)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-      }}
-      title="self-declared handle, not verified"
-    >
+    <span className={styles.socialMuted} title="Self-declared handle, not verified">
       @{display || value} (unverified)
     </span>
   );
@@ -1027,14 +881,9 @@ function MiniLink({ href, label }: { href: string; label: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="uru-88"
-      style={{
-        padding: '2px 8px',
-        fontSize: 11,
-        fontFamily: 'var(--font-pixel), monospace',
-      }}
+      className={styles.socialLink}
     >
-      {label} →
+      {label} <span aria-hidden="true">↗</span>
     </a>
   );
 }
@@ -1057,8 +906,8 @@ function ConnectXButton({
 
   const startConnect = async () => {
     if (busy) return;
-    if (!connected) { setError('connect ur wallet first'); return; }
-    if (!connectedMatches) { setError('connect the wallet that owns this profile'); return; }
+    if (!connected) { setError('Connect your wallet first.'); return; }
+    if (!connectedMatches) { setError('Connect the wallet that owns this profile.'); return; }
     setError(null);
     setBusy('connect');
     try {
@@ -1085,14 +934,14 @@ function ConnectXButton({
       if (!j.url) throw new Error('no url');
       window.location.href = j.url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'connect failed');
+      setError(err instanceof Error ? err.message : 'Couldn’t connect X.');
       setBusy(null);
     }
   };
 
   const startDisconnect = async () => {
     if (busy) return;
-    if (!connected || !connectedMatches) { setError('connect the wallet that owns this profile'); return; }
+    if (!connected || !connectedMatches) { setError('Connect the wallet that owns this profile.'); return; }
     setError(null);
     setBusy('disconnect');
     try {
@@ -1111,7 +960,7 @@ function ConnectXButton({
       }
       onDisconnect();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'disconnect failed');
+      setError(err instanceof Error ? err.message : 'Couldn’t disconnect X.');
     } finally {
       setBusy(null);
     }
@@ -1120,8 +969,8 @@ function ConnectXButton({
   if (!connected) {
     return (
       <div>
-        <button type="button" className="uru-btn" disabled style={{ fontSize: 12, padding: '6px 12px' }}>
-          connect wallet to link X
+        <button type="button" className="ui-btn" data-size="sm" disabled>
+          Connect a wallet to link X
         </button>
       </div>
     );
@@ -1129,30 +978,21 @@ function ConnectXButton({
 
   if (xVerifiedHandle) {
     return (
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span
-          style={{
-            padding: '4px 10px',
-            background: 'var(--mint)',
-            border: '1.5px solid var(--anchor)',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 12,
-            color: 'var(--mint-hot,#2b8a3e)',
-          }}
-        >
-          @{xVerifiedHandle} ✓ verified
+      <div className={styles.xRow}>
+        <span className={styles.xVerified}>
+          @{xVerifiedHandle} <span aria-hidden="true">✓</span> Verified
         </span>
         <button
           type="button"
           onClick={startDisconnect}
           disabled={busy !== null}
-          className="uru-btn"
-          style={{ fontSize: 11, padding: '5px 10px' }}
+          className="ui-btn"
+          data-size="sm"
         >
-          {busy === 'disconnect' ? 'disconnecting…' : 'disconnect'}
+          {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
         </button>
         {error && (
-          <span style={{ fontSize: 11, color: 'var(--pink-hot)' }}>~~ {error}</span>
+          <span className="ui-error">{error}</span>
         )}
       </div>
     );
@@ -1164,18 +1004,19 @@ function ConnectXButton({
         type="button"
         onClick={startConnect}
         disabled={busy !== null || !connectedMatches}
-        className="uru-btn uru-btn-primary"
-        style={{ fontSize: 12, padding: '6px 12px' }}
+        className="ui-btn"
+        data-variant="primary"
+        data-size="sm"
       >
-        {busy === 'connect' ? 'opening X…' : 'connect X'}
+        {busy === 'connect' ? 'Opening X…' : 'Connect X'}
       </button>
       {!connectedMatches && (
-        <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--anchor-soft)' }}>
-          connect {wallet.slice(0, 6)}…{wallet.slice(-4)} to link X
+        <div className={`ui-hint ${styles.xHint}`}>
+          Connect <span className={styles.num}>{wallet.slice(0, 6)}…{wallet.slice(-4)}</span> to link X.
         </div>
       )}
       {error && (
-        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--pink-hot)' }}>~~ {error}</div>
+        <div className={`ui-error ${styles.xHint}`}>{error}</div>
       )}
     </div>
   );
@@ -1231,7 +1072,7 @@ function EditProfileModal({
       setAvatarNft(undefined);
       setAvatarPreviewUrl(URL.createObjectURL(file));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'could not select file');
+      setError(err instanceof Error ? err.message : 'Couldn’t use that file.');
     }
   };
 
@@ -1251,7 +1092,7 @@ function EditProfileModal({
         }
         resolvedAvatarNft = undefined;
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'could not upload avatar');
+        setError(err instanceof Error ? err.message : 'Couldn’t upload your avatar.');
         playSfx('error');
         return;
       }
@@ -1325,7 +1166,7 @@ function EditProfileModal({
       if (!remote.ok) {
         // Only surface a warning if the server rejected — user cancel throws before we
         // get here and is handled by the catch below silently.
-        setError(`local saved; shared save failed (${remote.error})`);
+        setError(`Saved on this device, but the shared save failed (${remote.error}).`);
       }
     } catch {
       // Signature cancelled or network error — profile stays local for this session.
@@ -1338,49 +1179,49 @@ function EditProfileModal({
 
   return (
     <div className={styles.modalBackdrop} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className={`uru-shell ${styles.editModal}`}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-          <div className="uru-eyebrow">edit profile</div>
-          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer' }} aria-label="close">✕</button>
+      <div onClick={(e) => e.stopPropagation()} className={styles.editModal}>
+        <div className={styles.modalHead}>
+          <h2 className={styles.modalTitle}>Edit profile</h2>
+          <button type="button" onClick={onClose} className="ui-icon-btn" data-size="sm" aria-label="close">✕</button>
         </div>
 
-        <div className="space-y-3">
-          <label style={{ display: 'block' }}>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>avatar</span>
-            <div style={{ marginTop: 4, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <div className={styles.modalBody}>
+          <div className="ui-field">
+            <span className="ui-field-label">Avatar</span>
+            <div className={styles.avatarEdit}>
               <div
-                style={{
-                  width: 72, height: 72, borderRadius: 12,
-                  border: '1.5px solid var(--anchor)', boxShadow: '2px 2px 0 var(--anchor)',
-                  background: safeBackgroundImage(avatarPreviewUrl ?? avatarDataUrl),
-                  flexShrink: 0,
-                }}
+                className={styles.avatarPreview}
+                style={{ background: safeBackgroundImage(avatarPreviewUrl ?? avatarDataUrl) }}
               />
               <div>
-                <label className="uru-btn uru-btn-mint" style={{ cursor: 'pointer', fontSize: 12, padding: '6px 12px' }}>
-                  {avatarPreviewUrl || avatarDataUrl ? 'change' : 'upload'}
-                  <input type="file" accept="image/*" onChange={(e) => pickAvatar(e.target.files?.[0])} style={{ display: 'none' }} />
-                </label>
-                {(avatarPreviewUrl || avatarDataUrl) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAvatarDataUrl('');
-                      setAvatarNft(undefined);
-                      setAvatarFile(null);
-                      setAvatarPreviewUrl(null);
-                    }}
-                    style={{ marginLeft: 6, background: 'transparent', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, padding: '5px 10px', cursor: 'pointer' }}
-                  >
-                    remove
-                  </button>
-                )}
-                <div style={{ marginTop: 4, fontSize: 10, fontFamily: 'var(--font-pixel), monospace', color: 'var(--anchor-soft)' }}>
-                  png / jpg / webp / gif / avif · up to 10MB with Vercel Blob
+                <div className={styles.avatarButtons}>
+                  <label className="ui-btn" data-size="sm">
+                    {avatarPreviewUrl || avatarDataUrl ? 'Change' : 'Upload'}
+                    <input type="file" accept="image/*" onChange={(e) => pickAvatar(e.target.files?.[0])} className={styles.fileInput} />
+                  </label>
+                  {(avatarPreviewUrl || avatarDataUrl) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarDataUrl('');
+                        setAvatarNft(undefined);
+                        setAvatarFile(null);
+                        setAvatarPreviewUrl(null);
+                      }}
+                      className="ui-btn"
+                      data-variant="ghost"
+                      data-size="sm"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <div className={`ui-hint ${styles.xHint}`}>
+                  PNG, JPG, WebP, GIF or AVIF, up to 10 MB.
                 </div>
               </div>
             </div>
-          </label>
+          </div>
 
           <NftAvatarPicker
             address={initial.address}
@@ -1401,39 +1242,37 @@ function EditProfileModal({
             }}
           />
 
-          <label style={{ display: 'block' }}>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>username (max 24)</span>
-            <input className="uru-input" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={24} placeholder="ur name ~" style={{ marginTop: 3 }} />
+          <label className="ui-field">
+            <span className="ui-field-label">Username <span className="ui-field-aside">Max 24</span></span>
+            <input className="ui-input" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={24} placeholder="Your name" />
           </label>
 
-          <label style={{ display: 'block' }}>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>bio (max 200)</span>
-            <textarea className="uru-input" rows={2} maxLength={200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="say something ~" style={{ marginTop: 3 }} />
+          <label className="ui-field">
+            <span className="ui-field-label">Bio <span className="ui-field-aside">Max 200</span></span>
+            <textarea className="ui-input" rows={2} maxLength={200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="A line about you" />
           </label>
 
-          <div>
-            <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>X (twitter)</span>
-            <div style={{ marginTop: 3 }}>
-              <ConnectXButton
-                wallet={initial.address as Address}
-                xVerifiedHandle={initial.xVerifiedHandle}
-                onDisconnect={() => onClose()}
-              />
-            </div>
+          <div className="ui-field">
+            <span className="ui-field-label">X (Twitter)</span>
+            <ConnectXButton
+              wallet={initial.address as Address}
+              xVerifiedHandle={initial.xVerifiedHandle}
+              onDisconnect={() => onClose()}
+            />
           </div>
 
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            <label>
-              <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>telegram</span>
-              <input className="uru-input" value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="https://t.me/…" style={{ marginTop: 3 }} />
+          <div className={styles.socialGrid}>
+            <label className="ui-field">
+              <span className="ui-field-label">Telegram</span>
+              <input className="ui-input" value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="https://t.me/…" />
             </label>
-            <label>
-              <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>discord</span>
-              <input className="uru-input" value={discord} onChange={(e) => setDiscord(e.target.value)} placeholder="https://discord.gg/…" style={{ marginTop: 3 }} />
+            <label className="ui-field">
+              <span className="ui-field-label">Discord</span>
+              <input className="ui-input" value={discord} onChange={(e) => setDiscord(e.target.value)} placeholder="https://discord.gg/…" />
             </label>
-            <label>
-              <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>website</span>
-              <input className="uru-input" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" style={{ marginTop: 3 }} />
+            <label className="ui-field">
+              <span className="ui-field-label">Website</span>
+              <input className="ui-input" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://…" />
             </label>
           </div>
 
@@ -1443,65 +1282,30 @@ function EditProfileModal({
               on-chain lookup by address still returns the same balances.
               Keep this above the error banner + action buttons so it never
               gets pushed off a short screen. */}
-          <div
-            style={{
-              borderTop: '1px dashed var(--anchor-soft)',
-              paddingTop: 10,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
-            <div className="uru-eyebrow">✿ privacy</div>
-            <label
-              style={{
-                display: 'flex',
-                gap: 8,
-                alignItems: 'flex-start',
-                fontFamily: 'var(--font-round), Klee One, cursive',
-                fontSize: 12.5,
-                lineHeight: 1.4,
-                cursor: 'pointer',
-              }}
-            >
+          <div className={styles.privacy}>
+            <div className={styles.sectionLabel}>Privacy</div>
+            <label className={styles.checkRow}>
               <input
                 type="checkbox"
                 checked={hideHoldings}
                 onChange={(e) => setHideHoldings(e.target.checked)}
-                style={{
-                  marginTop: 3,
-                  width: 14,
-                  height: 14,
-                  accentColor: 'var(--pink-hot)',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
               />
-              <span>hide my holdings + balances from public profile</span>
+              <span>Hide my holdings and balances on my public profile</span>
             </label>
-            <div
-              style={{
-                marginLeft: 22,
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: 'var(--anchor-soft)',
-                lineHeight: 1.5,
-              }}
-            >
-              ~ note: on-chain data is still public, this only hides
-              from your profile page here.
+            <div className={`ui-hint ${styles.checkHint}`}>
+              On-chain data is still public. This only hides it on your profile page here.
             </div>
           </div>
 
           {error && (
-            <div style={{ padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontSize: 11, color: 'var(--anchor)' }}>
-              ~~ {error}
+            <div className={styles.errorBox}>
+              {error}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-            <button type="button" onClick={onClose} className="uru-btn" data-sfx="click">cancel</button>
-            <button type="button" onClick={save} className="uru-btn uru-btn-primary">✿ save</button>
+          <div className={styles.modalActions}>
+            <button type="button" onClick={onClose} className="ui-btn" data-sfx="click">Cancel</button>
+            <button type="button" onClick={save} className="ui-btn" data-variant="primary">Save</button>
           </div>
         </div>
       </div>
@@ -1517,14 +1321,15 @@ const BASE_LABEL: Record<number, string> = { 0: 'ERC-20', 1: 'ERC-721A', 2: 'ERC
 
 /// Human-readable toast copy per xVerified reason code emitted by the callback
 /// route. Keys align with the return values from web/src/app/api/auth/x/callback/route.ts.
+/// NOTE: the `ok` string must keep starting with "X connected" (the toast tone keys off it).
 const _X_VERIFIED_TOAST: Record<string, string> = {
-  ok: 'X connected! ur handle is verified now ✿',
-  denied: 'X sign-in cancelled ~ no changes made',
-  expired: 'that link expired, hit connect X again',
-  walletMismatch: 'wallet changed mid-flow, please retry with the same wallet',
-  xUserMismatch: 'that X account is already linked to a different wallet',
-  badRequest: 'something went sideways ~ pls try again',
-  error: 'X sign-in failed ~ try again in a moment',
+  ok: 'X connected. Your handle is now verified.',
+  denied: 'X sign-in was cancelled. Nothing changed.',
+  expired: 'That link expired. Tap Connect X to try again.',
+  walletMismatch: 'Your wallet changed during sign-in. Please retry with the same wallet.',
+  xUserMismatch: 'That X account is already linked to a different wallet.',
+  badRequest: 'Something went wrong. Please try again.',
+  error: 'X sign-in failed. Try again in a moment.',
 };
 
 function formatSignedEth(v: bigint): string {
@@ -1539,4 +1344,12 @@ function formatAgo(ms: number): string {
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
   return `${Math.floor(secs / 86400)}d`;
+}
+
+/// Display-only: up to 6 decimals, trailing zeros dropped (the raw value can
+/// run to 18 digits).
+function trimEth(wei: bigint): string {
+  const [whole, frac = ''] = formatEther(wei).split('.');
+  const f = frac.slice(0, 6).replace(/0+$/, '');
+  return f ? `${whole}.${f}` : whole;
 }

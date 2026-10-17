@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>urufu labs (v2 mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="tokens.css" />
+<script src="shell.js"></script>
+<style>
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- hero (one of the few marketing spots that carries house art) ---------- */
+  .hero {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 12px;
+    margin-top: 16px;
+  }
+  .hero-copy {
+    display: flex; flex-direction: column; justify-content: space-between; gap: 40px;
+    padding: 40px 40px 28px;
+  }
+  .kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--fg-muted); }
+  .kicker .chain-dot { width: 7px; height: 7px; }
+  .hero h1 {
+    margin: 18px 0 16px;
+    font-size: clamp(40px, 5.2vw, 76px);
+    line-height: 0.98; letter-spacing: -0.045em; font-weight: 700;
+    max-width: 15ch;
+  }
+  .hero h1 em { font-style: normal; color: var(--fg-faint); }
+  .hero p.lede { margin: 0; max-width: 46ch; font-size: 17px; line-height: 1.55; color: var(--fg-muted); }
+  .hero-cta { display: flex; gap: 8px; margin-top: 28px; flex-wrap: wrap; }
+
+  .hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); padding-top: 20px; }
+  .hero-stats div + div { padding-left: 20px; border-left: 1px solid var(--line); }
+  .hero-stats .v { display: block; font-family: var(--font-mono); font-size: 24px; font-weight: 500; letter-spacing: -0.03em; margin-top: 4px; }
+
+  .hero-art { position: relative; overflow: hidden; min-height: 440px; background: #EFE7DA; }
+  .hero-art video, .hero-art img.poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .hero-art .float {
+    position: absolute; left: 16px; bottom: 16px; right: 16px; max-width: 340px;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-1) 90%, transparent); backdrop-filter: blur(12px);
+    border: 1px solid var(--line); box-shadow: var(--shadow-pop);
+  }
+  .float img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+  .float .t { font-weight: 650; font-size: 13.5px; }
+  .float .s { font-size: 12px; color: var(--fg-muted); }
+
+  /* ---------- explore ---------- */
+  .explore { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; margin-top: 12px; align-items: start; }
+  .ex-head { display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  .ex-head .tabs { border-bottom: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
+  .ex-head .tabs button { height: 52px; white-space: nowrap; }
+  .ex-tools { display: flex; align-items: center; gap: 8px; }
+  .select {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-1);
+    font-weight: 600; font-size: 12.5px; color: var(--fg-muted); cursor: pointer;
+  }
+  .select b { color: var(--fg); font-weight: 600; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px; }
+  .card {
+    display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    background: var(--surface-1); transition: border-color 140ms, transform 140ms var(--ease-out);
+  }
+  .card:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+  .card-art { position: relative; aspect-ratio: 16 / 11; background: var(--surface-3); overflow: hidden; }
+  .card-art img { width: 100%; height: 100%; object-fit: cover; transition: transform 400ms var(--ease-out); }
+  .card:hover .card-art img { transform: scale(1.04); }
+  .card-art .badge { position: absolute; top: 8px; left: 8px; background: color-mix(in srgb, var(--surface-1) 92%, transparent); backdrop-filter: blur(6px); }
+  .card-body { padding: 12px; display: grid; gap: 10px; }
+  .card-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .card-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-sym { font-size: 12px; color: var(--fg-faint); font-weight: 600; }
+  .card-mcap { display: flex; justify-content: space-between; align-items: baseline; }
+  .card-mcap .num { font-size: 16px; font-weight: 500; }
+  .card-mcap .chg { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+  .card-curve { display: grid; gap: 5px; }
+  .card-curve .row { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--fg-faint); }
+  .card-foot { display: flex; gap: 10px; font-size: 11.5px; color: var(--fg-faint); border-top: 1px solid var(--line); padding-top: 9px; }
+  .meter.grad > i { background: var(--buy); }
+
+  .list { display: none; }
+  .view-list .cards { display: none; }
+  .view-list .list { display: block; }
+  .list .table td { padding-top: 10px; padding-bottom: 10px; }
+  .list .tokcell { display: flex; align-items: center; gap: 10px; }
+  .list .meter { width: 90px; display: inline-block; vertical-align: middle; margin-right: 8px; }
+
+  /* ---------- rail ---------- */
+  .rail { display: grid; gap: 12px; position: sticky; top: 68px; }
+  .tape { list-style: none; margin: 0; padding: 4px 0; max-height: 380px; overflow: hidden; }
+  .tape li { overflow: hidden; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 16px; font-size: 12.5px; }
+  .tape li img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+  .tape .who { min-width: 0; }
+  .tape .who b { font-weight: 650; }
+  .tape .who span { display: block; font-size: 11.5px; color: var(--fg-faint); }
+  .tape .amt { text-align: right; font-family: var(--font-mono); font-size: 12px; }
+  .tape .amt span { display: block; font-size: 11px; color: var(--fg-faint); }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted); font-weight: 600; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--buy); box-shadow: 0 0 0 3px var(--buy-soft); }
+
+  .split { display: flex; height: 6px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 10px 0; }
+  .split i:nth-child(1) { background: var(--accent); }
+  .split i:nth-child(2) { background: var(--fg); }
+  .split i:nth-child(3) { background: var(--fg-faint); }
+  .legend { display: grid; gap: 5px; font-size: 12.5px; }
+  .legend div { display: flex; align-items: center; gap: 8px; }
+  .legend span.sw { width: 8px; height: 8px; border-radius: 2px; }
+  .legend .num { margin-left: auto; }
+
+  /* ---------- how it works ---------- */
+  .how { margin-top: 64px; }
+  .how-head { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 20px; }
+  .how-head h2 { margin: 0; font-size: clamp(28px, 3vw, 40px); letter-spacing: -0.035em; line-height: 1.05; font-weight: 700; max-width: 18ch; }
+  .how-head p { margin: 0; max-width: 44ch; color: var(--fg-muted); }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .step { padding: 24px; display: grid; gap: 14px; align-content: start; min-height: 230px; }
+  .step .n { font-family: var(--font-mono); font-size: 12px; color: var(--fg-faint); }
+  .step h3 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+  .step p { margin: 0; color: var(--fg-muted); }
+  .step .viz { margin-top: auto; }
+  .viz-curve { height: 54px; }
+  .viz-curve path { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .viz-curve .area { fill: var(--accent-soft); stroke: none; }
+
+  footer.site { margin-top: 64px; border-top: 1px solid var(--line); }
+  footer.site .wrap { display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between; padding-top: 24px; padding-bottom: 40px; font-size: 13px; color: var(--fg-muted); }
+  footer.site nav { display: flex; gap: 18px; flex-wrap: wrap; }
+  footer.site a:hover { color: var(--fg); }
+
+  @media (max-width: 1180px) {
+    .explore { grid-template-columns: minmax(0, 1fr); }
+    .rail { position: static; grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: minmax(0, 1fr); }
+    .hero-art { min-height: 300px; order: -1; }
+    .steps { grid-template-columns: minmax(0, 1fr); }
+    .how-head { flex-direction: column; align-items: start; }
+  }
+  @media (max-width: 760px) {
+    .wrap { padding: 0 12px; }
+    .hero-copy { padding: 24px 20px 20px; gap: 28px; }
+    .hero-stats { grid-template-columns: 1fr 1fr; gap: 16px 0; }
+    .hero-stats div:nth-child(3) { padding-left: 0; border-left: 0; }
+    .hero-stats .v { font-size: 20px; }
+    .rail { grid-template-columns: minmax(0, 1fr); }
+    .cards { grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }
+    .card-body { padding: 10px; gap: 8px; }
+    .card-foot { display: none; }
+    .ex-tools .select { display: none; }
+  }
+</style>
+</head>
+<body data-page="home">
+
+<main class="wrap">
+  <section class="hero">
+    <div class="panel hero-copy">
+      <div>
+        <span class="kicker"><span class="chain-dot"></span>Live on Robinhood Chain</span>
+        <h1 id="headline">Launch a token. Trade it <em>right away.</em></h1>
+        <p class="lede">Every token starts on a bonding curve. When it raises 4.2 ETH it moves to Uniswap v4, the liquidity locks forever, and trading fees go to URU buybacks and urufu gemu nft holders.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="create.html">Launch a token</a>
+          <a class="btn btn-lg" href="#explore">Explore tokens</a>
+        </div>
+      </div>
+      <div class="hero-stats">
+        <div><span class="label">Tokens</span><span class="v" data-count="18" data-fmt="int">0</span></div>
+        <div><span class="label">Graduated</span><span class="v" data-count="1" data-fmt="int">0</span></div>
+        <div><span class="label">ETH in curves</span><span class="v" data-count="4.61" data-fmt="2">0</span></div>
+        <div><span class="label">Trades</span><span class="v" data-count="1662" data-fmt="int">0</span></div>
+      </div>
+    </div>
+    <div class="panel hero-art">
+      <img class="poster" src="/web/public/urufu-altar-light-poster-v1.png" alt="" />
+      <video id="heroVid" src="/web/public/urufu-altar-light-loop-v1.mp4" muted loop playsinline autoplay preload="metadata"></video>
+      <a class="float" href="trade.html" id="heroFloat">
+        <img alt="" />
+        <div style="min-width:0">
+          <div class="t">LUV just graduated</div>
+          <div class="s">Liquidity moved to Uniswap v4 and locked forever</div>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <section class="explore" id="explore">
+    <div class="panel" id="exPanel" style="min-width:0">
+      <div class="ex-head">
+        <div class="tabs" id="exTabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="trending">Trending</button>
+          <button role="tab" aria-selected="false" data-tab="new">New</button>
+          <button role="tab" aria-selected="false" data-tab="near">Near graduation</button>
+          <button role="tab" aria-selected="false" data-tab="grad">Graduated</button>
+          <button role="tab" aria-selected="false" data-tab="nft">NFT</button>
+          <button role="tab" aria-selected="false" data-tab="dn404">DN404</button>
+        </div>
+        <div class="ex-tools">
+          <span class="select">Sort <b>Market cap</b> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+          <div class="seg" role="group" aria-label="View" id="viewSeg">
+            <button aria-pressed="true" aria-label="Grid view"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+            <button aria-pressed="false" aria-label="List view"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          </div>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+      <div class="list" style="overflow-x:auto">
+        <table class="table">
+          <thead><tr><th>Token</th><th class="r">Market cap</th><th class="r">24h</th><th class="r">Volume</th><th>Curve</th><th class="r">Holders</th><th class="r">Age</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <section class="panel">
+        <div class="panel-head"><span class="panel-title">Live trades</span><span class="live"><i></i>Live</span></div>
+        <ul class="tape" id="tape"></ul>
+      </section>
+      <section class="panel">
+        <div class="panel-body">
+          <div class="panel-title">Where trading fees go</div>
+          <div class="split"><i style="flex:40"></i><i style="flex:35"></i><i style="flex:25"></i></div>
+          <div class="legend">
+            <div><span class="sw" style="background:var(--accent)"></span>URU buyback<span class="num">40%</span></div>
+            <div><span class="sw" style="background:var(--fg)"></span>urufu gemu nft holders<span class="num">35%</span></div>
+            <div><span class="sw" style="background:var(--fg-faint)"></span>Treasury<span class="num">25%</span></div>
+          </div>
+          <p class="hint" style="margin:12px 0 0">Hold URU or an urufu gemu nft to get up to 50% off launch fees.</p>
+        </div>
+      </section>
+    </aside>
+  </section>
+
+  <section class="how" id="how">
+    <div class="how-head">
+      <h2>From idea to Uniswap in three steps.</h2>
+      <p>Pick a name, add art, and trading opens in the same transaction. No waiting list, no approval.</p>
+    </div>
+    <div class="steps">
+      <article class="panel step">
+        <span class="n">01</span>
+        <h3>Launch</h3>
+        <p>Name, ticker, image. Add a first buy if you want to be holder number one.</p>
+        <div class="viz"><div class="meter"><i style="width:18%"></i></div></div>
+      </article>
+      <article class="panel step">
+        <span class="n">02</span>
+        <h3>Trade on the curve</h3>
+        <p>Price rises as people buy and falls as they sell. Anyone can trade from the first second.</p>
+        <div class="viz">
+          <svg class="viz-curve" viewBox="0 0 300 54" preserveAspectRatio="none" width="100%">
+            <path class="area" d="M0 52 C 100 50, 180 40, 300 4 L300 54 L0 54 Z" />
+            <path id="curvePath" d="M0 52 C 100 50, 180 40, 300 4" />
+          </svg>
+        </div>
+      </article>
+      <article class="panel step">
+        <span class="n">03</span>
+        <h3>Graduate</h3>
+        <p>At 4.2 ETH the token moves to Uniswap v4 with liquidity locked forever. Nobody can pull it, including you.</p>
+        <div class="viz"><div class="meter grad"><i style="width:100%"></i></div></div>
+      </article>
+    </div>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <span>urufu labs</span>
+    <nav>
+      <a href="#">Docs</a><a href="#">Modules</a><a href="#">Flywheel</a><a href="#">Recover ETH</a>
+      <a href="https://x.com/spoobsV1">X</a><a href="#">urufu gemu</a><a href="#">Chibi studio</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/SplitText.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/Flip.min.js"></script>
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var motion = window.gsap && !reducedMotion();
+    if (window.gsap) gsap.registerPlugin(ScrollTrigger, SplitText, Flip);
+
+    var luv = TOKENS.find(function (t) { return t.sym === 'LUV'; });
+    document.querySelector('#heroFloat img').src = luv.img;
+
+    var vid = document.getElementById('heroVid');
+    if (reducedMotion()) { vid.removeAttribute('autoplay'); vid.pause(); }
+
+    /* ---------- cards ---------- */
+    var cards = document.getElementById('cards');
+    var rows = document.getElementById('rows');
+    function cardHtml(t) {
+      var chg = t.chg === 0 ? '<span class="chg faint">0.0%</span>' : '<span class="chg ' + (t.chg > 0 ? 'up' : 'down') + '">' + fmtPct(t.chg) + '</span>';
+      return '<a class="card" href="trade.html" data-id="' + t.sym + '">' +
+        '<div class="card-art"><img src="' + t.img + '" alt="" loading="lazy" />' +
+          (t.grad ? '<span class="badge badge-buy"><span class="dot"></span>Graduated</span>' : '') + '</div>' +
+        '<div class="card-body">' +
+          '<div class="card-top"><span class="card-name">' + t.name + '</span><span class="card-sym">' + t.sym + '</span></div>' +
+          '<div class="card-mcap"><span class="num">' + fmtUsd(t.mcap) + '</span>' + chg + '</div>' +
+          '<div class="card-curve"><div class="meter' + (t.grad ? ' grad' : '') + '"><i style="width:' + t.curve + '%"></i></div>' +
+            '<div class="row"><span>' + (t.grad ? 'On Uniswap v4' : 'Curve ' + t.curve + '%') + '</span><span class="num">' + t.vol.toFixed(2) + ' ETH vol</span></div></div>' +
+          '<div class="card-foot"><span>' + t.age + '</span><span>' + t.trades + ' trades</span><span>' + t.holders + ' holders</span></div>' +
+        '</div></a>';
+    }
+    function rowHtml(t) {
+      return '<tr><td><a class="tokcell" href="trade.html"><img class="tok" src="' + t.img + '" alt="" /><span><b style="font-weight:650">' + t.name + '</b> <span class="faint">' + t.sym + '</span></span></a></td>' +
+        '<td class="r num">' + fmtUsd(t.mcap) + '</td>' +
+        '<td class="r num ' + (t.chg > 0 ? 'up' : t.chg < 0 ? 'down' : 'faint') + '">' + fmtPct(t.chg) + '</td>' +
+        '<td class="r num">' + t.vol.toFixed(2) + ' ETH</td>' +
+        '<td><span class="meter' + (t.grad ? ' grad' : '') + '"><i style="width:' + t.curve + '%"></i></span><span class="num faint">' + t.curve + '%</span></td>' +
+        '<td class="r num">' + t.holders + '</td><td class="r faint">' + t.age + '</td></tr>';
+    }
+    var orders = {
+      trending: function (a, b) { return b.vol - a.vol; },
+      new: function (a, b) { return parseAge(a.age) - parseAge(b.age); },
+      near: function (a, b) { return (b.grad ? -1 : b.curve) - (a.grad ? -1 : a.curve); },
+      grad: function (a, b) { return (b.grad ? 1 : 0) - (a.grad ? 1 : 0); }
+    };
+    function parseAge(s) { var n = parseFloat(s); return s.indexOf('m') > -1 ? n : s.indexOf('h') > -1 ? n * 60 : n * 1440; }
+    function render(tab, animate) {
+      var list = TOKENS.slice().sort(orders[tab] || orders.trending);
+      if (tab === 'grad') list = list.filter(function (t) { return t.grad; });
+      var state = animate && window.Flip ? Flip.getState('.card') : null;
+      // Reuse existing card nodes so Flip can track them across the reorder.
+      var existing = {};
+      cards.querySelectorAll('.card').forEach(function (c) { existing[c.dataset.id] = c; });
+      var frag = document.createDocumentFragment();
+      list.forEach(function (t) {
+        var node = existing[t.sym];
+        if (!node) { var d = document.createElement('div'); d.innerHTML = cardHtml(t); node = d.firstChild; }
+        delete existing[t.sym];
+        frag.appendChild(node);
+      });
+      Object.keys(existing).forEach(function (k) { existing[k].remove(); });
+      cards.appendChild(frag);
+      rows.innerHTML = list.map(rowHtml).join('');
+      if (state && motion) {
+        Flip.from(state, { duration: 0.5, ease: 'power3.inOut', absolute: true, stagger: 0.01,
+          onEnter: function (els) { return gsap.fromTo(els, { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.35 }); },
+          onLeave: function (els) { return gsap.to(els, { opacity: 0, scale: 0.96, duration: 0.25 }); } });
+      }
+    }
+    render('trending', false);
+    wireTabs(document.getElementById('exTabs'), function (tab) { render(tab, true); });
+
+    document.getElementById('viewSeg').addEventListener('segchange', function (e) {
+      var panel = document.getElementById('exPanel');
+      panel.classList.toggle('view-list', e.detail === '' && this.querySelectorAll('button')[1].getAttribute('aria-pressed') === 'true');
+      if (motion) gsap.from(panel.classList.contains('view-list') ? '.list tr' : '.card', { opacity: 0, y: 6, duration: 0.3, stagger: 0.02 });
+    });
+
+    /* ---------- live tape ---------- */
+    var tape = document.getElementById('tape');
+    function tapeItem(ago) {
+      var t = TOKENS[Math.floor(Math.random() * 8)];
+      var buy = Math.random() > 0.35;
+      var eth = (Math.random() * 0.3 + 0.01).toFixed(3);
+      var li = document.createElement('li');
+      li.innerHTML = '<img src="' + t.img + '" alt="" /><span class="who"><b>' + t.sym + '</b><span class="num">' + shortAddr() + '</span></span>' +
+        '<span class="amt ' + (buy ? 'up' : 'down') + '">' + (buy ? '+' : '−') + eth + ' ETH<span>' + ago + '</span></span>';
+      return li;
+    }
+    ['now', '8s', '21s', '40s', '1m', '1m', '2m', '3m', '4m'].forEach(function (a) { tape.appendChild(tapeItem(a)); });
+    setInterval(function () {
+      var li = tapeItem('now');
+      tape.insertBefore(li, tape.firstChild);
+      if (tape.children.length > 12) tape.removeChild(tape.lastChild);
+      if (motion) {
+        gsap.from(li, { height: 0, opacity: 0, paddingTop: 0, paddingBottom: 0, duration: 0.35, ease: 'power2.out' });
+        gsap.fromTo(li, { backgroundColor: cssVar('--surface-3') }, { backgroundColor: 'rgba(0,0,0,0)', duration: 1.2, delay: 0.2, clearProps: 'backgroundColor' });
+      }
+    }, 2600);
+
+    /* ---------- hero motion ---------- */
+    document.querySelectorAll('[data-count]').forEach(function (el) {
+      var to = parseFloat(el.dataset.count), f = el.dataset.fmt;
+      countUp(el, to, function (v) { return f === 'int' ? Math.round(v).toLocaleString() : v.toFixed(+f); }, 1.4);
+    });
+    if (motion) {
+      var split = new SplitText('#headline', { type: 'words', mask: 'words' });
+      gsap.from(split.words, { yPercent: 110, duration: 0.8, ease: 'power4.out', stagger: 0.05 });
+      gsap.from('.hero .lede, .hero-cta', { opacity: 0, y: 10, duration: 0.6, ease: 'power2.out', delay: 0.35, stagger: 0.08 });
+      gsap.from('#heroFloat', { opacity: 0, y: 16, duration: 0.6, ease: 'power3.out', delay: 0.8 });
+      gsap.from('.explore .card', { opacity: 0, y: 12, duration: 0.5, ease: 'power2.out', stagger: 0.03, delay: 0.2 });
+      gsap.to('.hero-art video, .hero-art .poster', { yPercent: 8, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
+
+      gsap.from('.step', { opacity: 0, y: 24, duration: 0.6, ease: 'power3.out', stagger: 0.1, scrollTrigger: { trigger: '.steps', start: 'top 80%' } });
+      var path = document.getElementById('curvePath');
+      var len = path.getTotalLength();
+      gsap.fromTo(path, { strokeDasharray: len, strokeDashoffset: len }, { strokeDashoffset: 0, duration: 1.2, ease: 'power2.inOut', scrollTrigger: { trigger: '.steps', start: 'top 75%' } });
+      gsap.from('.step .meter i', { scaleX: 0, transformOrigin: 'left', duration: 1, ease: 'power3.out', stagger: 0.25, scrollTrigger: { trigger: '.steps', start: 'top 75%' } });
+    }
+  });
+})();
+</script>
+</body>
+</html>

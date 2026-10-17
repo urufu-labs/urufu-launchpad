@@ -36,6 +36,7 @@ import {
   totalFor,
   type CollectionRow,
 } from './NftLauncherEarnings.logic';
+import styles from './NftLauncherEarnings.module.css';
 
 // V5 two-role model: the ERC-721 clone's `minter()` returns the mint
 // module (Solady owner() returns the LAUNCHER in V5, not the module).
@@ -164,93 +165,61 @@ export function NftLauncherEarnings({ visibleFor, chain }: Props) {
   if (!isSelf) return null;
 
   return (
-    <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div className="uru-eyebrow">❁ nft launcher earnings</div>
-        <span
-          style={{
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          NFT収益
-        </span>
+    <section className={styles.panel}>
+      <div className={styles.head}>
+        <h2 className={styles.title}>NFT launch earnings</h2>
       </div>
 
       {!ready && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)' }}>
-          checking your collections...
+        <div className={styles.muted}>
+          Checking your collections…
         </div>
       )}
 
       {ready && rows.length === 0 && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)', lineHeight: 1.5 }}>
-          no nft launches yet ~~ launch a collection and 90% of every mint accrues here for you to claim.
+        <div className={styles.muted}>
+          No NFT launches yet. Launch a collection and 90% of every mint collects here for you to claim.
         </div>
       )}
 
       {ready && rows.length > 0 && (
         <>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              padding: '4px 0',
-              borderBottom: '1px dashed var(--cream-shadow)',
-              marginBottom: 6,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10.5,
-            }}
-          >
-            <span style={{ color: 'var(--anchor-soft)' }}>unclaimed</span>
-            <span>
+          <div className={styles.total}>
+            <span className={styles.totalLabel}>Unclaimed</span>
+            <span className={styles.totalValues}>
               {totalEth > 0n && (
-                <b style={{ color: 'var(--mint-hot)', marginRight: 8 }}>
-                  {Number(formatEther(totalEth)).toFixed(6)}Ξ
+                <b className={styles.num}>
+                  {Number(formatEther(totalEth)).toFixed(6)} Ξ
                 </b>
               )}
               {totalUru > 0n && (
-                <b style={{ color: 'var(--mint-hot)' }}>
+                <b className={styles.num}>
                   {Number(formatUnits(totalUru, 18)).toFixed(4)} URU
                 </b>
               )}
               {totalEth === 0n && totalUru === 0n && (
-                <span style={{ color: 'var(--anchor)' }}>0</span>
+                <span className={styles.num}>0</span>
               )}
             </span>
           </div>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <ul className={styles.list}>
             {rows.map((r) => {
               const state = claimButtonState(r, walletChainId, targetChainId, pendingRowKey);
               const amount = r.mode === 'eth'
-                ? `${Number(formatEther(r.balance)).toFixed(6)}Ξ`
+                ? `${Number(formatEther(r.balance)).toFixed(6)} Ξ`
                 : `${Number(formatUnits(r.balance, 18)).toFixed(4)} URU`;
               return (
-                <li
-                  key={rowKey(r)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '4px 0',
-                    borderBottom: '1px dashed var(--cream-shadow)',
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 10.5,
-                  }}
-                >
-                  <span style={{ color: 'var(--anchor-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
-                    <b style={{ color: 'var(--anchor)' }}>{r.name}</b>
-                  </span>
-                  <span>{amount}</span>
+                <li key={rowKey(r)} className={styles.row}>
+                  <span className={styles.name} title={r.name}>{r.name}</span>
+                  <span className={styles.num}>{amount}</span>
                   {state.kind === 'none' ? (
-                    <span style={{ color: 'var(--anchor-soft)', fontSize: 10 }}>—</span>
+                    <span className={styles.none}>Nothing to claim</span>
                   ) : (
                     <button
                       type="button"
-                      className="uru-chip"
+                      className="ui-btn"
+                      data-size="sm"
+                      data-variant={state.kind === 'claim' ? 'primary' : undefined}
                       disabled={isSubmitting || isMining || switchPending}
                       onClick={() => {
                         if (state.kind === 'switch') {
@@ -265,10 +234,9 @@ export function NftLauncherEarnings({ visibleFor, chain }: Props) {
                           chainId: targetChainId,
                         });
                       }}
-                      style={{ padding: '2px 8px', fontSize: 10 }}
-                      title={state.kind === 'switch' ? 'click to switch chain + claim' : 'claim your earnings'}
+                      title={state.kind === 'switch' ? 'Switch network, then claim' : 'Claim your earnings'}
                     >
-                      {state.kind === 'pending' ? 'claiming...' : state.kind === 'switch' ? 'switch → claim' : 'claim'}
+                      {state.kind === 'pending' ? 'Claiming…' : state.kind === 'switch' ? 'Switch network' : 'Claim'}
                     </button>
                   )}
                 </li>

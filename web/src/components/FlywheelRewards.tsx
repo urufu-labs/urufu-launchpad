@@ -22,6 +22,7 @@ import { nftRevenueVaultAbi } from '@/lib/abis';
 import { FLYWHEEL, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchEpochsForHolder, fetchVaultSummary, type EpochAllocation, type VaultSummary } from '@/lib/rewardsApi';
+import card from './profile-card.module.css';
 
 interface Props {
   /// Wallet the profile is rendering for. Rewards only surface when this matches
@@ -42,12 +43,12 @@ const REWARDS_CHAIN_ID = CHAIN_KEY_TO_ID[REWARDS_CHAIN];
 /// an epoch's tree exists off-chain but on-chain activation is still pending.
 function _relativeUnlock(unixSec: number): string {
   const delta = unixSec - Math.floor(Date.now() / 1000);
-  if (delta <= 0) return 'unlocks now';
+  if (delta <= 0) return 'Unlocks now';
   const h = Math.floor(delta / 3600);
   const m = Math.floor((delta % 3600) / 60);
-  if (h >= 24) return 'unlocks in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
-  if (h > 0) return 'unlocks in ' + h + 'h ' + m + 'm';
-  return 'unlocks in ' + m + 'm';
+  if (h >= 24) return 'Unlocks in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+  if (h > 0) return 'Unlocks in ' + h + 'h ' + m + 'm';
+  return 'Unlocks in ' + m + 'm';
 }
 
 export function FlywheelRewards({ visibleFor }: Props) {
@@ -198,161 +199,136 @@ export function FlywheelRewards({ visibleFor }: Props) {
   if (!shouldRender) return null;
 
   return (
-    <section className="uru-shell-tight" style={{ background: 'var(--cream)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div className="uru-eyebrow">gemu holder rewards</div>
-        <span
-          style={{
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          報酬
-        </span>
+    <section className={card.card}>
+      <div className={card.head}>
+        <h2 className={card.title}>urufu gemu nft rewards</h2>
+        <span className={card.aside}>ETH from trading fees</span>
       </div>
 
       {!loaded && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)' }}>
-          checking eligibility...
+        <div className={card.body}>
+          <p className={card.empty}>Checking eligibility…</p>
         </div>
       )}
 
       {loaded && rows.length === 0 && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)', lineHeight: 1.5 }}>
-          no epochs yet ~~
-          {summary && summary.publishedEpochs === 0 && (
-            <> rewards pool balance is <b>{Number(formatEther(BigInt(summary.vaultBalance))).toFixed(4)}Ξ</b> and waiting for the first distribution.</>
-          )}
-          {summary && summary.publishedEpochs > 0 && (
-            <> hold a gemu pass during the next snapshot to be eligible.</>
-          )}
+        <div className={card.body}>
+          <p className={card.empty}>
+            No reward rounds yet.
+            {summary && summary.publishedEpochs === 0 && (
+              <> The rewards pool holds <b>{Number(formatEther(BigInt(summary.vaultBalance))).toFixed(4)} ETH</b> and is waiting for the first payout.</>
+            )}
+            {summary && summary.publishedEpochs > 0 && (
+              <> Hold an urufu gemu nft during the next snapshot to qualify.</>
+            )}
+          </p>
         </div>
       )}
 
       {loaded && rows.length > 0 && rows.every((r) => !r.activated) && (
-        <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10.5, color: 'var(--anchor-soft)', lineHeight: 1.5, marginBottom: 6 }}>
-          your allocation is pending — claim unlocks after the epoch's timelock activates on-chain.
+        <div className={card.body}>
+          <div className={card.note}>
+            Your share is pending. You can claim it once this round&apos;s waiting period ends on-chain.
+          </div>
         </div>
       )}
 
       {loaded && rows.length > 0 && (
         <>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              padding: '4px 0',
-              borderBottom: '1px dashed var(--cream-shadow)',
-              marginBottom: 6,
-              fontFamily: 'var(--font-pixel), monospace',
-              fontSize: 10.5,
-            }}
-          >
-            <span style={{ color: 'var(--anchor-soft)' }}>unclaimed</span>
-            <span style={{ fontWeight: 700, color: unclaimedTotal > 0n ? 'var(--mint-hot)' : 'var(--anchor)' }}>
-              {Number(formatEther(unclaimedTotal)).toFixed(5)}Ξ
+          <div className={card.total}>
+            <span className={card.totalLabel}>Unclaimed</span>
+            <span className={card.totalValue} data-positive={unclaimedTotal > 0n}>
+              {Number(formatEther(unclaimedTotal)).toFixed(5)} ETH
             </span>
           </div>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {rows.map((r) => (
-              <li
-                key={r.epochId}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '4px 0',
-                  borderBottom: '1px dashed var(--cream-shadow)',
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 10.5,
-                }}
-              >
-                <span style={{ color: 'var(--anchor-soft)' }}>
-                  epoch <b style={{ color: 'var(--anchor)' }}>#{r.epochId}</b>
-                </span>
-                <span>
-                  {Number(formatEther(BigInt(r.amount))).toFixed(5)}Ξ
-                </span>
-                {r.claimed ? (
-                  <span style={{ color: 'var(--anchor-soft)', fontSize: 10 }}>✓ claimed</span>
-                ) : !r.activated ? (
-                  <span
-                    style={{ color: 'var(--anchor-soft)', fontSize: 10 }}
-                    title={
-                      r.isPending && pendingReadyAtSec > 0
-                        ? 'unlocks ' + new Date(pendingReadyAtSec * 1000).toLocaleString()
-                        : 'epoch not yet published'
-                    }
-                  >
-                    {r.isPending && pendingReadyAtSec > 0
-                      ? _relativeUnlock(pendingReadyAtSec)
-                      : 'unpublished'}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="uru-chip"
-                    disabled={isSubmitting || isMining || isSwitching || !vaultAddress}
-                    onClick={() => {
-                      if (!vaultAddress) return;
-                      // Prompt a chain switch first if the wallet isn't on
-                      // Robinhood — wagmi's writeContract would otherwise
-                      // submit the tx on the wrong chain and revert against
-                      // a nonexistent contract. Queue the claim so it auto-
-                      // fires once the switch completes (see effect above).
-                      if (!walletOnRewardsChain) {
-                        setAutoClaimAfterSwitch({
-                          epochId: r.epochId,
-                          amount: r.amount,
-                          proof: r.proof,
-                        });
-                        switchChain({ chainId: REWARDS_CHAIN_ID });
-                        return;
-                      }
-                      setPendingEpoch(r.epochId);
-                      writeContract({
-                        abi: nftRevenueVaultAbi,
-                        address: vaultAddress,
-                        functionName: 'claim',
-                        args: [BigInt(r.epochId), BigInt(r.amount), r.proof],
-                        chainId: REWARDS_CHAIN_ID,
-                      });
-                    }}
-                    style={{ padding: '2px 8px', fontSize: 10 }}
-                    title={walletOnRewardsChain ? 'claim your share' : 'click to switch to Robinhood + claim'}
-                  >
-                    {isSwitching
-                      ? 'switching…'
-                      : pendingEpoch === r.epochId && (isSubmitting || isMining)
-                        ? 'claiming...'
-                        : walletOnRewardsChain
-                          ? 'claim'
-                          : 'switch → claim'}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <div className={card.tableWrap}>
+            <table className={card.table}>
+              <thead>
+                <tr>
+                  <th>Round</th>
+                  <th data-align="right">Amount</th>
+                  <th data-align="right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.epochId}>
+                    <td className={card.num}>#{r.epochId}</td>
+                    <td className={card.num} data-align="right">
+                      {Number(formatEther(BigInt(r.amount))).toFixed(5)} ETH
+                    </td>
+                    <td data-align="right">
+                      {r.claimed ? (
+                        <span className={card.faint}>Claimed</span>
+                      ) : !r.activated ? (
+                        <span
+                          className={card.faint}
+                          title={
+                            r.isPending && pendingReadyAtSec > 0
+                              ? 'Unlocks ' + new Date(pendingReadyAtSec * 1000).toLocaleString()
+                              : 'Round not published yet'
+                          }
+                        >
+                          {r.isPending && pendingReadyAtSec > 0
+                            ? _relativeUnlock(pendingReadyAtSec)
+                            : 'Not published'}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ui-btn"
+                          data-variant="primary"
+                          data-size="sm"
+                          disabled={isSubmitting || isMining || isSwitching || !vaultAddress}
+                          onClick={() => {
+                            if (!vaultAddress) return;
+                            // Prompt a chain switch first if the wallet isn't on
+                            // Robinhood — wagmi's writeContract would otherwise
+                            // submit the tx on the wrong chain and revert against
+                            // a nonexistent contract. Queue the claim so it auto-
+                            // fires once the switch completes (see effect above).
+                            if (!walletOnRewardsChain) {
+                              setAutoClaimAfterSwitch({
+                                epochId: r.epochId,
+                                amount: r.amount,
+                                proof: r.proof,
+                              });
+                              switchChain({ chainId: REWARDS_CHAIN_ID });
+                              return;
+                            }
+                            setPendingEpoch(r.epochId);
+                            writeContract({
+                              abi: nftRevenueVaultAbi,
+                              address: vaultAddress,
+                              functionName: 'claim',
+                              args: [BigInt(r.epochId), BigInt(r.amount), r.proof],
+                              chainId: REWARDS_CHAIN_ID,
+                            });
+                          }}
+                          title={walletOnRewardsChain ? 'Claim your share' : 'Switches to Robinhood Chain, then claims'}
+                        >
+                          {isSwitching
+                            ? 'Switching…'
+                            : pendingEpoch === r.epochId && (isSubmitting || isMining)
+                              ? 'Claiming…'
+                              : walletOnRewardsChain
+                                ? 'Claim'
+                                : 'Switch and claim'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {(writeError || switchError || mineError) && (
-            <div
-              style={{
-                marginTop: 6,
-                padding: '4px 6px',
-                borderRadius: 4,
-                background: 'rgba(200,0,0,0.08)',
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                color: '#a11',
-                lineHeight: 1.4,
-                wordBreak: 'break-word',
-              }}
-            >
-              {switchError && <>chain switch failed: {switchError.message}</>}
-              {writeError && <>claim tx failed to submit: {writeError.message}</>}
-              {mineError && <>claim tx reverted on-chain: {mineError.message}</>}
+            <div className={card.body}>
+              <div className={card.error}>
+                {switchError && <>Chain switch failed: {switchError.message}</>}
+                {writeError && <>Claim couldn&apos;t be sent: {writeError.message}</>}
+                {mineError && <>Claim failed on-chain: {mineError.message}</>}
+              </div>
             </div>
           )}
         </>

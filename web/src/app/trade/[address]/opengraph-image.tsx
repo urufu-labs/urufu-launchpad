@@ -4,7 +4,7 @@
 /// someone shares a token's trade page link.
 ///
 /// Design: giant ticker + name on a warm cream background with the site
-/// signature ✿. Deliberately text-only — every earlier revision tried to
+/// signature. Deliberately text-only — every earlier revision tried to
 /// embed the launcher's uploaded image and satori (the engine behind
 /// ImageResponse) crashed HTTP 500 on ~any real-world image URL (IPFS
 /// timeouts, wrong content-types, CORS, malformed bytes). A try/catch
@@ -29,7 +29,7 @@ export const runtime = 'nodejs';
 // simplified CSS parser handles them without variable resolution.
 const CREAM = '#f5ecda';
 const CREAM_DEEP = '#fff5d6';
-const ANCHOR = '#3a2c3a';
+const ANCHOR = '#111110';
 const ANCHOR_SOFT = '#6b4d6b';
 const PINK_HOT = '#ff88b3';
 const MINT_HOT = '#2fbf6a';
@@ -84,7 +84,7 @@ export default async function OgImage({ params }: { params: Promise<{ address: s
           color: ANCHOR,
         }}
       >
-        {/* Signature mark — big pixel-style ✿ on the left as brand anchor. */}
+        {/* Signature mark — big pixel-style on the left as brand anchor. */}
         <div
           style={{
             width: 340,
@@ -150,7 +150,7 @@ export default async function OgImage({ params }: { params: Promise<{ address: s
               fontWeight: 600,
             }}
           >
-            ✿ trade + track on urufulabs.xyz
+            trade + track on urufulabs.xyz
           </div>
         </div>
       </div>

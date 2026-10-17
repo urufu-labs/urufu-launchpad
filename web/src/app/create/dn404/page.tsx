@@ -40,6 +40,7 @@ import {
   CONTRACTS,
   DN404_LAUNCHES,
   DN404_LAUNCHES_ENABLED,
+  CHAIN_LABELS,
   DN404_TAX_MODES,
   ECOSYSTEM_TOKENS,
   activePairCurrencies,
@@ -70,10 +71,10 @@ const MAX_BURN_PERCENT = 20;
 /// which on Robinhood (Arbitrum stack) is the Ethereum L1 block, ~12 s.
 /// Same conversion as the ERC-20 launcher's AntiSniper input.
 const PAUSE_OPTIONS = [
-  { blocks: 0, label: 'no pause', ticket: 'none' },
-  { blocks: 1, label: 'about 12 seconds', ticket: '~12 sec' },
-  { blocks: 5, label: 'about 1 minute', ticket: '~1 min' },
-  { blocks: 25, label: 'about 5 minutes', ticket: '~5 min' },
+  { blocks: 0, label: 'No pause', ticket: 'None' },
+  { blocks: 1, label: 'About 12 seconds', ticket: 'About 12 sec' },
+  { blocks: 5, label: 'About 1 minute', ticket: 'About 1 min' },
+  { blocks: 25, label: 'About 5 minutes', ticket: 'About 5 min' },
 ] as const;
 
 function sanitizeTicker(input: string): string {
@@ -112,14 +113,10 @@ function fmtTokens(wei: bigint): string {
   return frac ? `${w}.${frac.slice(0, 4)}` : w;
 }
 
-/// Chip copy: lowercase like the NFT studio, but keep URU in caps.
-function chipText(s: string): string {
-  return s.toLowerCase().replace(/\buru\b/g, 'URU').replace(/\beth\b/g, 'ETH');
+/// Capitalize the first letter (config descriptions are stored lowercase).
+function sentence(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
-
-/// Mode chips force lowercase via CSS; DN404 chips carry token names that
-/// must stay upper case, so they opt out and lowercase in `chipText`.
-const CHIP_STYLE = { textTransform: 'none' } as const;
 
 export default function CreateDn404Page() {
   if (!LAUNCHPAD_LIVE) return <NotLiveYet />;
@@ -175,7 +172,7 @@ function CreateDn404Form() {
       const result = await readFileAsDataUrl(file);
       setCoverDataUrl(result.dataUrl);
     } catch (e) {
-      setCoverError(e instanceof Error ? e.message : 'upload failed');
+      setCoverError(e instanceof Error ? e.message : 'Upload failed.');
     }
   };
 
@@ -474,26 +471,26 @@ function CreateDn404Form() {
     !isWaitingLaunch;
 
   const disabledReason = useMemo(() => {
-    if (!chainEnabled) return `dn404 launches are not live on this chain yet`;
-    if (!deployReady) return 'launch contracts are not set up on this chain yet';
-    if (!walletAddress) return 'connect a wallet to launch';
-    if (!nameOk) return 'add a name';
-    if (!tickerOk) return 'add a ticker';
+    if (!chainEnabled) return 'DN404 launches are not live on this chain yet.';
+    if (!deployReady) return 'Launch contracts are not set up on this chain yet.';
+    if (!walletAddress) return 'Connect a wallet to launch.';
+    if (!nameOk) return 'Add a name.';
+    if (!tickerOk) return 'Add a ticker.';
     if (!collectionSizeOk) return collectionSizeTooBig
-      ? `max ${fmtWhole(MAX_DN404_COLLECTION_SIZE)} NFTs per collection`
-      : 'set how many NFTs the collection has';
-    if (!unitOk) return 'set how many tokens make one NFT';
-    if (supplyTooBig) return 'total supply is too large. use fewer NFTs or fewer tokens per NFT';
-    if (!founderBpsOk) return `your share can be at most ${MAX_FOUNDER_PERCENT}%`;
-    if (!premintNftsOk) return `your share can include at most ${MAX_PREMINT_NFT_COUNT} NFTs`;
-    if (!taxBpsOk) return `tax rate must be above 0% and at most ${MAX_TAX_PERCENT}%`;
-    if (!taxTargetOk) return 'pick which token the tax buys';
-    if (!burnBpsOk) return `burn can be at most ${MAX_BURN_PERCENT}%`;
+      ? `Max ${fmtWhole(MAX_DN404_COLLECTION_SIZE)} NFTs per collection.`
+      : 'Set how many NFTs the collection has.';
+    if (!unitOk) return 'Set how many tokens make one NFT.';
+    if (supplyTooBig) return 'Total supply is too large. Use fewer NFTs or fewer tokens per NFT.';
+    if (!founderBpsOk) return `Your share can be at most ${MAX_FOUNDER_PERCENT}%.`;
+    if (!premintNftsOk) return `Your share can include at most ${MAX_PREMINT_NFT_COUNT} NFTs.`;
+    if (!taxBpsOk) return `Tax rate must be above 0% and at most ${MAX_TAX_PERCENT}%.`;
+    if (!taxTargetOk) return 'Pick which token the tax buys.';
+    if (!burnBpsOk) return `Burn can be at most ${MAX_BURN_PERCENT}%.`;
     if (curveTooSmall && minCurveSupplyWei !== undefined) {
-      return `too few tokens for the curve. it needs at least ${fmtWhole(ceilTokens(minCurveSupplyWei))} ${ticker || 'tokens'} after your share. use more NFTs, more tokens per NFT, or a smaller share`;
+      return `Too few tokens for the curve. It needs at least ${fmtWhole(ceilTokens(minCurveSupplyWei))} ${ticker || 'tokens'} after your share. Use more NFTs, more tokens per NFT, or a smaller share.`;
     }
-    if (!feeLoaded || minCurveSupplyWei === undefined) return 'loading launch settings ~';
-    if (uruShort) return `you need ${fmtWhole(ceilTokens(requiredUruFee))} URU in your wallet for the launch fee`;
+    if (!feeLoaded || minCurveSupplyWei === undefined) return 'Loading launch settings…';
+    if (uruShort) return `You need ${fmtWhole(ceilTokens(requiredUruFee))} URU in your wallet for the launch fee.`;
     return null;
   }, [
     chainEnabled, deployReady, walletAddress, nameOk, tickerOk, collectionSizeOk,
@@ -534,26 +531,24 @@ function CreateDn404Form() {
     });
   };
 
-  const previewTitle = name.trim() || 'your collection';
-  const previewTicker = ticker || '???';
+  const previewTitle = name.trim() || 'Your collection';
+  const previewTicker = ticker || 'TICKER';
   // Before a ticker is typed, read naturally ("spend ETH to get tokens").
   const tickLabel = ticker || 'tokens';
-  const pauseTicket = PAUSE_OPTIONS.find((p) => p.blocks === antiSniperBlocks)?.ticket ?? 'none';
+  const pauseTicket = PAUSE_OPTIONS.find((p) => p.blocks === antiSniperBlocks)?.ticket ?? 'None';
+  const chainName = activeChain === 'robinhood' ? 'Robinhood Chain' : (CHAIN_LABELS[activeChain] ?? activeChain);
 
   return (
     <div className={styles.studio}>
       <header className={styles.hero}>
+        <p className={styles.heroEyebrow}>Launch · DN404</p>
         <div className={styles.heroTitle}>
-          <Mascot size={48} mood="happy" />
-          <h1 className={styles.uruH1}>❁ launch a DN404 collection</h1>
-          <span className="uru-stamp uru-stamp-mint" style={{ transform: 'rotate(-4deg)' }}>
-            token + nft
-          </span>
+          <h1 className={styles.uruH1}>Launch a DN404 collection</h1>
         </div>
         <p className={styles.heroSub}>
-          one token and one NFT collection, joined together. hold enough tokens and you hold an
-          NFT; sell them and the NFT goes away. it trades on a curve until it fills up, then moves
-          to Uniswap. got your art already? paste the links. or make it in{' '}
+          One token and one NFT collection, joined together. Hold enough tokens and you hold an
+          NFT; sell them and the NFT goes away. It trades on a curve until it fills up, then moves
+          to Uniswap. Have your art already? Paste the links. Or make it in{' '}
           <a href="https://studio.urufulabs.xyz/" target="_blank" rel="noopener noreferrer">
             chibi studio ↗
           </a>.
@@ -561,460 +556,506 @@ function CreateDn404Form() {
       </header>
 
       {!chainEnabled && (
-        <div className={styles.warnPane} style={{ marginBottom: 14 }}>
-          <b>not live on {activeChain}.</b> switch to robinhood to launch.
+        <div className={styles.warnPane} role="status">
+          <b>DN404 launches aren&apos;t live on {chainName} yet.</b> Switch to Robinhood Chain to launch.
         </div>
       )}
 
       <div className={styles.workbench}>
         <div className={styles.mainStack}>
           {/* Basics */}
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">❀ basics</span>
-              <span className={styles.sectionEye}>name · ticker · size</span>
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <div className={styles.panelHeadText}>
+                <h2 className={styles.panelTitle}>Basics</h2>
+                <p className={styles.panelSub}>Name, ticker and size</p>
+              </div>
             </div>
 
-            <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="dn-name">name</label>
-              <input
-                id="dn-name"
-                type="text"
-                className="uru-input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="my chibi collection"
-                maxLength={40}
-              />
-            </div>
-
-            <div className={styles.rowInputsShort}>
+            <div className={styles.panelBody}>
               <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="dn-ticker">ticker</label>
+                <label className={styles.fieldLabel} htmlFor="dn-name">Name</label>
                 <input
-                  id="dn-ticker"
+                  id="dn-name"
                   type="text"
-                  className="uru-input"
-                  value={ticker}
-                  onChange={(e) => setTicker(sanitizeTicker(e.target.value))}
-                  placeholder="CHIBI"
-                  maxLength={10}
+                  className="ui-input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="My chibi collection"
+                  maxLength={40}
                 />
               </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel} htmlFor="dn-size">how many NFTs</label>
+
+              <div className={styles.rowInputs}>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="dn-ticker">Ticker</label>
+                  <input
+                    id="dn-ticker"
+                    type="text"
+                    className="ui-input"
+                    data-mono="true"
+                    value={ticker}
+                    onChange={(e) => setTicker(sanitizeTicker(e.target.value))}
+                    placeholder="CHIBI"
+                    maxLength={10}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor="dn-size">Number of NFTs</label>
+                  <input
+                    id="dn-size"
+                    type="text"
+                    inputMode="numeric"
+                    className="ui-input"
+                    data-mono="true"
+                    value={collectionSize}
+                    onChange={(e) => setCollectionSize(digitsOnly(e.target.value))}
+                    placeholder="1000"
+                    aria-invalid={collectionSizeTooBig || undefined}
+                  />
+                  {collectionSizeTooBig && (
+                    <p className={styles.fieldError}>
+                      Max <span className={styles.mono}>{fmtWhole(MAX_DN404_COLLECTION_SIZE)}</span> NFTs
+                      per collection, so buys stay under Robinhood Chain&apos;s gas limit.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className={`${styles.field} ${styles.shortField}`}>
+                <label className={styles.fieldLabel} htmlFor="dn-unit">Tokens per NFT</label>
                 <input
-                  id="dn-size"
+                  id="dn-unit"
                   type="text"
                   inputMode="numeric"
-                  className="uru-input"
-                  value={collectionSize}
-                  onChange={(e) => setCollectionSize(digitsOnly(e.target.value))}
-                  placeholder="1000"
+                  className="ui-input"
+                  data-mono="true"
+                  value={unit}
+                  onChange={(e) => setUnit(digitsOnly(e.target.value))}
+                  placeholder="800000"
                 />
-                {collectionSizeTooBig && (
-                  <span className={styles.fieldHint} style={{ color: 'var(--pink-hot)' }}>
-                    max {fmtWhole(MAX_DN404_COLLECTION_SIZE)} NFTs per collection, so buys stay
-                    under Robinhood&apos;s gas limit.
-                  </span>
-                )}
               </div>
-            </div>
-
-            <div className={`${styles.field} ${styles.shortField}`}>
-              <label className={styles.fieldLabel} htmlFor="dn-unit">tokens per NFT</label>
-              <input
-                id="dn-unit"
-                type="text"
-                inputMode="numeric"
-                className="uru-input"
-                value={unit}
-                onChange={(e) => setUnit(digitsOnly(e.target.value))}
-                placeholder="800000"
-              />
-              <span className={styles.fieldHint}>
-                hold {unit ? fmtWhole(unitBig) : 'this many'} {tickLabel}, get 1 NFT.
+              <p className={styles.fieldHint}>
+                Hold <b className={styles.mono}>{unit ? fmtWhole(unitBig) : 'this many'}</b> {tickLabel} to get 1 NFT.
                 {unitOk && collectionSizeOk && (
-                  <> total supply: {fmtWhole(collectionSizeBig * unitBig)} {tickLabel}.</>
-                )}
-                {supplyTooBig && (
-                  <span style={{ color: 'var(--pink-hot)' }}>
-                    {' '}too large. use fewer NFTs or fewer tokens per NFT.
-                  </span>
-                )}
-                {curveTooSmall && minCurveSupplyWei !== undefined && (
-                  <span style={{ color: 'var(--pink-hot)' }}>
-                    {' '}too small. the curve needs at least {fmtWhole(ceilTokens(minCurveSupplyWei))} {tickLabel}
-                    {founderBps > 0 ? ' after your share' : ''}.
-                  </span>
+                  <> Total supply: <b className={styles.mono}>{fmtWhole(collectionSizeBig * unitBig)}</b> {tickLabel}.</>
                 )}
                 {minCurveSupplyWei !== undefined && !unitOk && (
-                  <> the curve needs at least {fmtWhole(ceilTokens(minCurveSupplyWei))} {tickLabel} in total.</>
+                  <> The curve needs at least <span className={styles.mono}>{fmtWhole(ceilTokens(minCurveSupplyWei))}</span> {tickLabel} in total.</>
                 )}
-              </span>
+              </p>
+              {supplyTooBig && (
+                <p className={styles.fieldError}>
+                  Total supply is too large. Use fewer NFTs or fewer tokens per NFT.
+                </p>
+              )}
+              {curveTooSmall && minCurveSupplyWei !== undefined && (
+                <p className={styles.fieldError}>
+                  Too small. The curve needs at least{' '}
+                  <span className={styles.mono}>{fmtWhole(ceilTokens(minCurveSupplyWei))}</span> {tickLabel}
+                  {founderBps > 0 ? ' after your share' : ''}.
+                </p>
+              )}
             </div>
           </section>
 
           {/* Art */}
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">✿ art</span>
-              <span className={styles.sectionEye}>what the NFTs look like</span>
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="dn-baseuri">art folder link</label>
-              <input
-                id="dn-baseuri"
-                type="text"
-                className="uru-input"
-                value={baseUri}
-                onChange={(e) => setBaseUri(e.target.value)}
-                placeholder="ipfs://bafy.../"
-              />
-              <span className={styles.fieldHint}>
-                the folder holding 1.json, 2.json and so on. end it with a slash. chibi studio fills
-                this in for you.
-              </span>
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor="dn-cuuri">collection info link (optional)</label>
-              <input
-                id="dn-cuuri"
-                type="text"
-                className="uru-input"
-                value={contractUri}
-                onChange={(e) => setContractUri(e.target.value)}
-                placeholder="ipfs://bafy.../collection.json"
-              />
-              <span className={styles.fieldHint}>
-                the cover and description marketplaces like OpenSea show. leave blank to skip.
-              </span>
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>cover preview</label>
-              <div className={styles.coverActionsRow}>
-                <label
-                  className="uru-btn uru-btn-mint"
-                  style={{ cursor: 'pointer', display: 'inline-flex' }}
-                >
-                  {coverDataUrl ? 'change cover' : '✿ upload cover'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => onPickCover(e.target.files?.[0])}
-                    style={{ display: 'none' }}
-                  />
-                </label>
-                {coverDataUrl && (
-                  <button
-                    type="button"
-                    className={styles.coverRemove}
-                    onClick={() => { setCoverDataUrl(null); setCoverError(null); }}
-                  >
-                    remove
-                  </button>
-                )}
-                {coverError && (
-                  <span className={styles.fieldHint} style={{ color: 'var(--pink-hot)' }}>
-                    {coverError}
-                  </span>
-                )}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <div className={styles.panelHeadText}>
+                <h2 className={styles.panelTitle}>Art</h2>
+                <p className={styles.panelSub}>What the NFTs look like</p>
               </div>
-              <span className={styles.fieldHint}>
-                {coverDataUrl
-                  ? 'showing your upload. it is only for this preview; marketplaces use the art from your links.'
-                  : artLookupPending
-                    ? 'looking for your art ~'
-                    : autoCover
-                      ? 'found your art from the links above.'
-                      : baseUri || contractUri
-                        ? 'could not load art from those links yet. you can upload an image to preview.'
-                        : 'paste your art links and the cover shows up here, or upload an image to preview.'}
-              </span>
+            </div>
+
+            <div className={styles.panelBody}>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="dn-baseuri">Art folder link</label>
+                <input
+                  id="dn-baseuri"
+                  type="text"
+                  className="ui-input"
+                  data-mono="true"
+                  value={baseUri}
+                  onChange={(e) => setBaseUri(e.target.value)}
+                  placeholder="ipfs://bafy.../"
+                />
+                <p className={styles.fieldHint}>
+                  The folder holding 1.json, 2.json and so on. End it with a slash. chibi studio
+                  fills this in for you.
+                </p>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="dn-cuuri">
+                  Collection info link <span className="ui-field-aside">(optional)</span>
+                </label>
+                <input
+                  id="dn-cuuri"
+                  type="text"
+                  className="ui-input"
+                  data-mono="true"
+                  value={contractUri}
+                  onChange={(e) => setContractUri(e.target.value)}
+                  placeholder="ipfs://bafy.../collection.json"
+                />
+                <p className={styles.fieldHint}>
+                  The cover and description that marketplaces like OpenSea show. Leave it blank to skip.
+                </p>
+              </div>
+
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Cover preview</span>
+                <div className={styles.coverActionsRow}>
+                  <label className="ui-btn">
+                    {coverDataUrl ? 'Change cover' : 'Upload cover'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => onPickCover(e.target.files?.[0])}
+                      className={styles.hiddenInput}
+                    />
+                  </label>
+                  {coverDataUrl && (
+                    <button
+                      type="button"
+                      className="ui-btn"
+                      data-variant="ghost"
+                      onClick={() => { setCoverDataUrl(null); setCoverError(null); }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {coverError && <p className={styles.fieldError}>{coverError}</p>}
+                <p className={styles.fieldHint}>
+                  {coverDataUrl
+                    ? 'Showing your upload. It is only for this preview; marketplaces use the art from your links.'
+                    : artLookupPending
+                      ? 'Looking for your art…'
+                      : autoCover
+                        ? 'Found your art from the links above.'
+                        : baseUri || contractUri
+                          ? "Couldn't load art from those links yet. You can upload an image to preview."
+                          : 'Paste your art links and the cover shows up here, or upload an image to preview.'}
+                </p>
+              </div>
             </div>
           </section>
 
           {/* Trading */}
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">✦ trading</span>
-              <span className={styles.sectionEye}>what buyers pay with</span>
-            </div>
-
-            <div className={styles.modeRow}>
-              {pairOptions.map((opt) => (
-                <button
-                  key={opt.address}
-                  type="button"
-                  className={styles.modeChip}
-                  style={CHIP_STYLE}
-                  data-active={pairCurrency === opt.address}
-                  onClick={() => setPairCurrency(opt.address as Address)}
-                  aria-label={`Pay in ${opt.label}`}
-                >
-                  pay in {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className={styles.fieldHint}>
-              buyers spend {pairLabel} to get {tickLabel}. once the curve fills up, it moves to a
-              Uniswap pool paired with {pairLabel}.
-            </p>
-
-            <div className={styles.field} style={{ marginTop: 14 }}>
-              <label className={styles.fieldLabel}>pause trading right after it moves to Uniswap</label>
-              <div className={styles.modeRow} style={{ marginBottom: 4 }}>
-                {PAUSE_OPTIONS.map((p) => (
-                  <button
-                    key={p.blocks}
-                    type="button"
-                    className={styles.modeChip}
-                    data-active={antiSniperBlocks === p.blocks}
-                    onClick={() => setAntiSniperBlocks(p.blocks)}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <div className={styles.panelHeadText}>
+                <h2 className={styles.panelTitle}>Trading</h2>
+                <p className={styles.panelSub}>What buyers pay with</p>
               </div>
-              <span className={styles.fieldHint}>
-                a short pause stops bots from buying the instant the pool opens.
-              </span>
             </div>
 
-            <div className={`${styles.field} ${styles.tinyField}`}>
-              <label className={styles.fieldLabel} htmlFor="dn-burn">burn on Uniswap buys (%)</label>
-              <input
-                id="dn-burn"
-                type="text"
-                inputMode="decimal"
-                className="uru-input"
-                value={burnPercent}
-                onChange={(e) => setBurnPercent(percentInput(e.target.value))}
-                placeholder="0"
-              />
-            </div>
-            <span className={styles.fieldHint}>
-              {burnBpsOk
-                ? burnBps > 0
-                  ? `${burnPercent}% of the ${tickLabel} from every Uniswap buy is burned. 0 turns it off.`
-                  : `0 = off. up to ${MAX_BURN_PERCENT}%.`
-                : <span style={{ color: 'var(--pink-hot)' }}>max {MAX_BURN_PERCENT}%.</span>}
-            </span>
-          </section>
-
-          {/* Your share */}
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">✧ your share (optional)</span>
-              <span className={styles.sectionEye}>up to {MAX_FOUNDER_PERCENT}%, the rest goes on the curve</span>
-            </div>
-
-            <div className={`${styles.field} ${styles.tinyField}`}>
-              <label className={styles.fieldLabel} htmlFor="dn-founder">your share (%)</label>
-              <input
-                id="dn-founder"
-                type="text"
-                inputMode="decimal"
-                className="uru-input"
-                value={founderPercent}
-                onChange={(e) => setFounderPercent(percentInput(e.target.value))}
-                placeholder="0"
-              />
-            </div>
-            <span className={styles.fieldHint}>
-              {!founderBpsOk ? (
-                <span style={{ color: 'var(--pink-hot)' }}>max {MAX_FOUNDER_PERCENT}%.</span>
-              ) : founderBps === 0 ? (
-                'everything goes on the curve. you buy like everyone else.'
-              ) : (
-                <>
-                  you get {fmtTokens(founderMintWei)} {tickLabel} and {fmtWhole(premintNfts)} NFT
-                  {premintNfts === 1n ? '' : 's'} at launch.
-                  {!premintNftsOk && (
-                    <span style={{ color: 'var(--pink-hot)' }}>
-                      {' '}that is over the {MAX_PREMINT_NFT_COUNT} NFT limit. lower your share or
-                      raise tokens per NFT.
-                    </span>
-                  )}
-                </>
-              )}
-            </span>
-          </section>
-
-          {/* Tax */}
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">♡ tax (optional)</span>
-              <span className={styles.sectionEye}>take a cut of transfers and put it to work</span>
-            </div>
-
-            <div className={styles.modeRow}>
-              {DN404_TAX_MODES.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  className={styles.modeChip}
-                  style={CHIP_STYLE}
-                  data-active={taxMode === m.value}
-                  onClick={() => {
-                    setTaxMode(m.value);
-                    if (!m.needsAllowlistedTarget) setTaxTarget(ZERO);
-                  }}
-                >
-                  {chipText(m.label)}
-                </button>
-              ))}
-            </div>
-
-            <p className={styles.fieldHint}>
-              {taxMode === 0
-                ? 'no tax. this is the default and makes transfers cheapest.'
-                : `${taxModeOption.description}. our bot handles it automatically and keeps 5% of each payout for gas. the rate can not change after launch.`}
-            </p>
-
-            {taxMode !== 0 && (
-              <div className={`${styles.field} ${styles.tinyField}`} style={{ marginTop: 12 }}>
-                <label className={styles.fieldLabel} htmlFor="dn-tax">tax rate (%)</label>
-                <input
-                  id="dn-tax"
-                  type="text"
-                  inputMode="decimal"
-                  className="uru-input"
-                  value={taxPercent}
-                  onChange={(e) => setTaxPercent(percentInput(e.target.value))}
-                  placeholder="1"
-                />
-                <span className={styles.fieldHint}>
-                  {taxBpsOk
-                    ? `up to ${MAX_TAX_PERCENT}%.`
-                    : <span style={{ color: 'var(--pink-hot)' }}>pick a rate above 0% and up to {MAX_TAX_PERCENT}%.</span>}
-                </span>
-              </div>
-            )}
-
-            {taxModeOption.needsAllowlistedTarget && (
+            <div className={styles.panelBody}>
               <div className={styles.field}>
-                <label className={styles.fieldLabel}>token to buy</label>
-                <div className={styles.modeRow} style={{ marginBottom: 4 }}>
-                  {taxDestOptions.map((opt) => (
+                <span className={styles.fieldLabel}>Pair currency</span>
+                <div className={`ui-seg ${styles.seg}`}>
+                  {pairOptions.map((opt) => (
                     <button
                       key={opt.address}
                       type="button"
-                      className={styles.modeChip}
-                      style={CHIP_STYLE}
-                      data-active={taxTarget === opt.address}
-                      onClick={() => setTaxTarget(opt.address as Address)}
-                      title={opt.description}
+                      aria-pressed={pairCurrency === opt.address}
+                      onClick={() => setPairCurrency(opt.address as Address)}
+                      aria-label={`Pay in ${opt.label}`}
                     >
                       {opt.label}
                     </button>
                   ))}
                 </div>
-                <span className={styles.fieldHint}>
-                  {taxDestOptions.length === 0
-                    ? 'no tokens are approved for this yet.'
-                    : 'only approved tokens are shown.'}
-                </span>
+                <p className={styles.fieldHint}>
+                  Buyers spend {pairLabel} to get {tickLabel}. Once the curve fills up, it moves to a
+                  Uniswap pool paired with {pairLabel}.
+                </p>
               </div>
-            )}
+
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>Pause trading right after it moves to Uniswap</span>
+                <div className={`ui-seg ${styles.seg}`}>
+                  {PAUSE_OPTIONS.map((p) => (
+                    <button
+                      key={p.blocks}
+                      type="button"
+                      aria-pressed={antiSniperBlocks === p.blocks}
+                      onClick={() => setAntiSniperBlocks(p.blocks)}
+                    >
+                      {sentence(p.label)}
+                    </button>
+                  ))}
+                </div>
+                <p className={styles.fieldHint}>
+                  A short pause stops bots from buying the instant the pool opens.
+                </p>
+              </div>
+
+              <div className={`${styles.field} ${styles.tinyField}`}>
+                <label className={styles.fieldLabel} htmlFor="dn-burn">Burn on Uniswap buys (%)</label>
+                <input
+                  id="dn-burn"
+                  type="text"
+                  inputMode="decimal"
+                  className="ui-input"
+                  data-mono="true"
+                  value={burnPercent}
+                  onChange={(e) => setBurnPercent(percentInput(e.target.value))}
+                  placeholder="0"
+                  aria-invalid={!burnBpsOk || undefined}
+                />
+              </div>
+              {burnBpsOk ? (
+                <p className={styles.fieldHint}>
+                  {burnBps > 0
+                    ? `${burnPercent}% of the ${tickLabel} from every Uniswap buy is burned. 0 turns it off.`
+                    : `0 means off. Up to ${MAX_BURN_PERCENT}%.`}
+                </p>
+              ) : (
+                <p className={styles.fieldError}>Max {MAX_BURN_PERCENT}%.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Your share */}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <div className={styles.panelHeadText}>
+                <h2 className={styles.panelTitle}>Your share</h2>
+                <p className={styles.panelSub}>Up to {MAX_FOUNDER_PERCENT}%, the rest goes on the curve</p>
+              </div>
+              <span className="ui-badge">Optional</span>
+            </div>
+
+            <div className={styles.panelBody}>
+              <div className={`${styles.field} ${styles.tinyField}`}>
+                <label className={styles.fieldLabel} htmlFor="dn-founder">Your share (%)</label>
+                <input
+                  id="dn-founder"
+                  type="text"
+                  inputMode="decimal"
+                  className="ui-input"
+                  data-mono="true"
+                  value={founderPercent}
+                  onChange={(e) => setFounderPercent(percentInput(e.target.value))}
+                  placeholder="0"
+                  aria-invalid={!founderBpsOk || !premintNftsOk || undefined}
+                />
+              </div>
+              {!founderBpsOk ? (
+                <p className={styles.fieldError}>Max {MAX_FOUNDER_PERCENT}%.</p>
+              ) : founderBps === 0 ? (
+                <p className={styles.fieldHint}>Everything goes on the curve. You buy like everyone else.</p>
+              ) : (
+                <>
+                  <p className={styles.fieldHint}>
+                    You get <b className={styles.mono}>{fmtTokens(founderMintWei)}</b> {tickLabel} and{' '}
+                    <b className={styles.mono}>{fmtWhole(premintNfts)}</b> NFT
+                    {premintNfts === 1n ? '' : 's'} at launch.
+                  </p>
+                  {!premintNftsOk && (
+                    <p className={styles.fieldError}>
+                      That is over the {MAX_PREMINT_NFT_COUNT} NFT limit. Lower your share or raise
+                      tokens per NFT.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+
+          {/* Tax */}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <div className={styles.panelHeadText}>
+                <h2 className={styles.panelTitle}>Tax</h2>
+                <p className={styles.panelSub}>Take a cut of transfers and put it to work</p>
+              </div>
+              <span className="ui-badge">Optional</span>
+            </div>
+
+            <div className={styles.panelBody}>
+              <div className={styles.optionGrid}>
+                {DN404_TAX_MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={styles.optionCard}
+                    aria-pressed={taxMode === m.value}
+                    onClick={() => {
+                      setTaxMode(m.value);
+                      if (!m.needsAllowlistedTarget) setTaxTarget(ZERO);
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <p className={styles.fieldHint}>
+                {taxMode === 0
+                  ? 'No tax. This is the default and makes transfers cheapest.'
+                  : `${sentence(taxModeOption.description)}. Our bot handles it automatically and keeps 5% of each payout for gas. The rate can't change after launch.`}
+              </p>
+
+              {taxMode !== 0 && (
+                <div className={`${styles.field} ${styles.tinyField}`}>
+                  <label className={styles.fieldLabel} htmlFor="dn-tax">Tax rate (%)</label>
+                  <input
+                    id="dn-tax"
+                    type="text"
+                    inputMode="decimal"
+                    className="ui-input"
+                    data-mono="true"
+                    value={taxPercent}
+                    onChange={(e) => setTaxPercent(percentInput(e.target.value))}
+                    placeholder="1"
+                    aria-invalid={!taxBpsOk || undefined}
+                  />
+                  {taxBpsOk ? (
+                    <p className={styles.fieldHint}>Up to {MAX_TAX_PERCENT}%.</p>
+                  ) : (
+                    <p className={styles.fieldError}>Pick a rate above 0% and up to {MAX_TAX_PERCENT}%.</p>
+                  )}
+                </div>
+              )}
+
+              {taxModeOption.needsAllowlistedTarget && (
+                <div className={styles.field}>
+                  <span className={styles.fieldLabel}>Token to buy</span>
+                  <div className={styles.optionGrid}>
+                    {taxDestOptions.map((opt) => (
+                      <button
+                        key={opt.address}
+                        type="button"
+                        className={styles.optionCard}
+                        aria-pressed={taxTarget === opt.address}
+                        onClick={() => setTaxTarget(opt.address as Address)}
+                        title={opt.description}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className={styles.fieldHint}>
+                    {taxDestOptions.length === 0
+                      ? 'No tokens are approved for this yet.'
+                      : 'Only approved tokens are shown.'}
+                  </p>
+                </div>
+              )}
+            </div>
           </section>
         </div>
 
         {/* Right rail: preview + CTA */}
         <aside className={styles.launchRail}>
           <div className={styles.preview}>
-            <div className={styles.previewTopline}>
-              <span>preview</span>
-              <b>token + nft</b>
+            <div className={styles.previewHead}>
+              <h2 className={styles.previewHeadTitle}>Preview</h2>
+              <span className="ui-badge" data-tone="accent">Token + NFT</span>
             </div>
             <div
               className={styles.previewArt}
               style={coverUrl ? { backgroundImage: `url(${coverUrl})` } : undefined}
             >
-              {!coverUrl && <span>{previewTitle}</span>}
+              {!coverUrl && <span className={styles.previewArtEmpty}>{previewTitle}</span>}
             </div>
-            <div className={styles.previewTicket}>
-              <b>❁ {previewTicker}</b>
-              <dl>
-                <dt>chain</dt><dd>{activeChain}</dd>
-                <dt>pay with</dt><dd>{pairLabel}</dd>
-                <dt>NFTs</dt><dd>{collectionSizeOk ? fmtWhole(collectionSizeBig) : '?'}</dd>
-                <dt>1 NFT</dt><dd>{unitOk ? `${fmtWhole(unitBig)} ${tickLabel}` : '?'}</dd>
-                <dt>supply</dt>
-                <dd>{unitOk && collectionSizeOk ? `${fmtWhole(collectionSizeBig * unitBig)} ${tickLabel}` : '?'}</dd>
+            <div className={styles.previewBody}>
+              <p className={styles.previewTicker}>{previewTicker}</p>
+              <p className={styles.previewName}>{previewTitle}</p>
+              <dl className={styles.previewList}>
+                <dt>Chain</dt><dd>{chainName}</dd>
+                <dt>Pay with</dt><dd>{pairLabel}</dd>
+                <dt>NFTs</dt>
+                <dd className={styles.mono}>{collectionSizeOk ? fmtWhole(collectionSizeBig) : 'Not set'}</dd>
+                <dt>1 NFT</dt>
+                <dd className={styles.mono}>{unitOk ? `${fmtWhole(unitBig)} ${tickLabel}` : 'Not set'}</dd>
+                <dt>Supply</dt>
+                <dd className={styles.mono}>
+                  {unitOk && collectionSizeOk ? `${fmtWhole(collectionSizeBig * unitBig)} ${tickLabel}` : 'Not set'}
+                </dd>
                 {founderBps > 0 && founderBpsOk && (
-                  <><dt>your share</dt><dd>{founderPercent}% ({fmtWhole(premintNfts)} NFTs)</dd></>
+                  <>
+                    <dt>Your share</dt>
+                    <dd className={styles.mono}>{founderPercent}% ({fmtWhole(premintNfts)} NFTs)</dd>
+                  </>
                 )}
-                <dt>tax</dt>
+                <dt>Tax</dt>
                 <dd>
                   {taxMode === 0
-                    ? 'none'
-                    : `${taxPercent || 0}%, ${chipText(taxModeOption.label)}${taxTargetLabel ? ` (${taxTargetLabel})` : ''}`}
+                    ? 'None'
+                    : `${taxPercent || 0}%, ${taxModeOption.label}${taxTargetLabel ? ` (${taxTargetLabel})` : ''}`}
                 </dd>
-                {antiSniperBlocks > 0 && <><dt>pause</dt><dd>{pauseTicket}</dd></>}
-                {burnBps > 0 && burnBpsOk && <><dt>burn</dt><dd>{burnPercent}% of Uniswap buys</dd></>}
-                {requiredUruFee > 0n && <><dt>launch fee</dt><dd>{fmtTokens(requiredUruFee)} URU</dd></>}
+                {antiSniperBlocks > 0 && <><dt>Pause</dt><dd className={styles.mono}>{pauseTicket}</dd></>}
+                {burnBps > 0 && burnBpsOk && <><dt>Burn</dt><dd>{burnPercent}% of Uniswap buys</dd></>}
               </dl>
             </div>
           </div>
 
           <div className={styles.launchCta}>
+            {requiredUruFee > 0n && (
+              <div className={styles.feeRow}>
+                <span>Launch fee</span>
+                <b>{fmtTokens(requiredUruFee)} URU</b>
+              </div>
+            )}
             {needsUruApprove && !isApproved && (
               <button
                 type="button"
-                className="uru-btn uru-btn-mint"
+                className="ui-btn"
+                data-variant="ink"
+                data-size="lg"
+                data-block="true"
                 disabled={isApproving || isWaitingApprove}
                 onClick={approveUru}
               >
                 {isWaitingApprove
-                  ? 'waiting for approval ~'
+                  ? 'Waiting for approval…'
                   : isApproving
-                    ? 'approving URU ~'
-                    : `✿ approve ${fmtTokens(requiredUruFee)} URU`}
+                    ? 'Approving URU…'
+                    : `Approve ${fmtTokens(requiredUruFee)} URU`}
               </button>
             )}
             <button
               type="button"
-              className={`uru-btn ${canSubmit ? 'uru-btn-primary' : ''}`}
+              className="ui-btn"
+              data-variant={canSubmit ? 'primary' : undefined}
+              data-size="lg"
+              data-block="true"
               disabled={!canSubmit || isLaunched}
               onClick={submit}
             >
               {isLaunched
-                ? '✿ launched ✓'
+                ? 'Launched'
                 : isWaitingLaunch
-                  ? 'waiting for receipt ~'
+                  ? 'Waiting for confirmation…'
                   : isLaunching
-                    ? 'confirming in wallet ~'
+                    ? 'Confirm in your wallet…'
                     : canSubmit
-                      ? '✿ launch collection'
-                      : '❁ launch collection'}
+                      ? 'Launch collection'
+                      : 'Launch collection'}
             </button>
-            {requiredUruFee > 0n && (
-              <p className={styles.reasonNote}>
-                launch fee: {fmtTokens(requiredUruFee)} URU (approve first)
-              </p>
-            )}
             {launchError && (
-              <p className={styles.reasonNote} style={{ color: 'var(--pink-hot)' }}>
+              <p className={styles.errorNote} role="alert">
                 {launchError.message.split('\n')[0]}
               </p>
             )}
             {isLaunched && receipt && (
-              <p className={styles.reasonNote}>
-                launched in block {receipt.blockNumber.toString()}.
+              <p className={styles.successNote} role="status">
+                Launched in block <span className={styles.mono}>{receipt.blockNumber.toString()}</span>.
                 {launchedToken ? (
                   <>
-                    {' '}opening{' '}
-                    <Link href={`/trade/${launchedToken}`} style={{ textDecoration: 'underline' }}>
+                    {' '}Opening{' '}
+                    <Link href={`/trade/${launchedToken}`}>
                       the trade page
                     </Link>
-                    {' '}~
+                    …
                   </>
                 ) : (
-                  <> find it on the discover page under dn404.</>
+                  <> Find it on the Discover page under DN404.</>
                 )}
               </p>
             )}
@@ -1022,14 +1063,10 @@ function CreateDn404Form() {
               <p className={styles.reasonNote}>{disabledReason}</p>
             )}
             {!disabledReason && needsUruApprove && !isLaunched && (
-              <p className={styles.reasonNote}>approve the URU fee, then launch.</p>
+              <p className={styles.reasonNote}>Approve the URU fee, then launch.</p>
             )}
-            <Link
-              href="/create/nft"
-              className="uru-eyebrow"
-              style={{ textAlign: 'center', textDecoration: 'underline' }}
-            >
-              or launch a regular NFT collection
+            <Link href="/create/nft" className={styles.altLink}>
+              Or launch a regular NFT collection
             </Link>
           </div>
         </aside>

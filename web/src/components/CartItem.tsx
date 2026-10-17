@@ -34,7 +34,7 @@ export function CartItem({ mod, params, onParamsChange, onRemove, index }: Props
           </span>
           <div>
             <div className="font-bold text-sm">{mod.label}</div>
-            <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--zone-ink-soft)]">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--fg-muted)]">
               slot {index}
             </div>
           </div>
@@ -42,7 +42,7 @@ export function CartItem({ mod, params, onParamsChange, onRemove, index }: Props
         <button
           type="button"
           onClick={onRemove}
-          className="text-[var(--zone-ink-soft)] hover:text-[var(--rose-700)] text-lg leading-none"
+          className="text-[var(--fg-muted)] hover:text-[var(--sell)] text-lg leading-none"
           aria-label={`Remove ${mod.label}`}
         >
           ✕
@@ -57,10 +57,10 @@ export function CartItem({ mod, params, onParamsChange, onRemove, index }: Props
             const inputType = field.type === 'integer' ? 'number' : 'text';
             return (
               <label key={field.key} className="block">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--zone-ink-soft)]">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[var(--fg-muted)]">
                   {field.label}
                   {field.min !== undefined && field.max !== undefined && (
-                    <span className="ml-1 text-[var(--zone-ink-soft)]">
+                    <span className="ml-1 text-[var(--fg-muted)]">
                       [{field.min}–{field.max}]
                     </span>
                   )}
@@ -72,10 +72,10 @@ export function CartItem({ mod, params, onParamsChange, onRemove, index }: Props
                     setField(field.key, inputType === 'number' ? Number(e.target.value) : e.target.value)
                   }
                   className="kawaii-input mt-1"
-                  style={err ? { boxShadow: '2px 2px 0 var(--rose-700)' } : undefined}
+                  style={err ? { boxShadow: '2px 2px 0 var(--sell)' } : undefined}
                 />
                 {err && (
-                  <div className="mt-1 text-[10px] text-[var(--rose-700)] font-mono">{err}</div>
+                  <div className="mt-1 text-[10px] text-[var(--sell)] font-mono">{err}</div>
                 )}
               </label>
             );

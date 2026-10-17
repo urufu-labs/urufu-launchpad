@@ -8,9 +8,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useAccount } from 'wagmi';
 import { formatEther, formatUnits, zeroAddress, type Address } from 'viem';
 
-import { Mascot } from '@/components/Mascot';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { DN404_LAUNCHES_ENABLED, DN404_PAIR_CURRENCIES, NFT_LAUNCHES_ENABLED, type ChainKey } from '@/lib/config';
 import {
@@ -21,6 +21,10 @@ import {
   fetchNftCollectionsByLaunchers,
   fetchNftMintsByMinters,
   fetchPairTradesByTraders,
+  fetchRecentLaunches,
+  fetchRecentNftCollections,
+  fetchRecentPairTrades,
+  fetchRecentTrades,
   fetchTradesByTrader,
   type IndexerLaunch,
   type IndexerNftCollection,
@@ -30,6 +34,7 @@ import {
 } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { getFollowing, onFollowsChange } from '@/lib/follows';
+import { fetchFollowing } from '@/lib/socialApi';
 import { displayNameFor, loadProfile, type UserProfile } from '@/lib/profile';
 import styles from './feed.module.css';
 
@@ -42,14 +47,16 @@ type FeedItem =
   | { kind: 'nftMint'; ts: number; who: string; data: IndexerNftMint }
   | { kind: 'pairTrade'; ts: number; who: string; data: IndexerPairTrade };
 
+type Scope = 'everyone' | 'following';
+
 type Kind = 'all' | 'launches' | 'mints' | 'buys' | 'sells';
 
 const KINDS: Array<{ id: Kind; label: string; jp: string }> = [
-  { id: 'all', label: 'all', jp: '全部' },
-  { id: 'launches', label: 'launches', jp: '発行' },
-  { id: 'mints', label: 'mints', jp: '鋳造' },
-  { id: 'buys', label: 'buys', jp: '買い' },
-  { id: 'sells', label: 'sells', jp: '売り' },
+  { id: 'all', label: 'All', jp: '' },
+  { id: 'launches', label: 'Launches', jp: '' },
+  { id: 'mints', label: 'Mints', jp: '' },
+  { id: 'buys', label: 'Buys', jp: '' },
+  { id: 'sells', label: 'Sells', jp: '' },
 ];
 
 function isBuyItem(i: FeedItem): boolean {
@@ -73,7 +80,14 @@ export default function FeedPage() {
   const activeChain = useActiveChain();
   const nftOn = NFT_LAUNCHES_ENABLED[activeChain] === true;
   const dn404On = DN404_LAUNCHES_ENABLED[activeChain] === true;
-  const [following, setFollowing] = useState<string[]>([]);
+  const { address: wallet } = useAccount();
+  const [localFollowing, setLocalFollowing] = useState<string[]>([]);
+  // Follows saved on the server for the connected wallet. The profile page
+  // reads these, so the feed has to as well: localStorage alone is empty on
+  // a new browser or device even when the wallet follows people.
+  const [remoteFollowing, setRemoteFollowing] = useState<string[]>([]);
+  const followKey = Array.from(new Set([...localFollowing, ...remoteFollowing])).sort().join(',');
+  const following = useMemo(() => (followKey ? followKey.split(',') : []), [followKey]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [items, setItems] = useState<FeedItem[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,14 +97,73 @@ export default function FeedPage() {
   const [collectionMeta, setCollectionMeta] = useState<Record<string, IndexerNftCollection>>({});
 
   useEffect(() => {
-    const refresh = () => setFollowing(getFollowing());
+    const refresh = () => setLocalFollowing(getFollowing());
     refresh();
     return onFollowsChange(refresh);
   }, []);
 
   useEffect(() => {
+    if (!wallet) { setRemoteFollowing([]); return; }
+    let cancelled = false;
+    void fetchFollowing(wallet)
+      .then((rows) => { if (!cancelled) setRemoteFollowing(rows.map((r) => r.address.toLowerCase())); })
+      .catch(() => { /* server unreachable: local list still works */ });
+    return () => { cancelled = true; };
+  }, [wallet]);
+
+  // "everyone" reads the newest activity across the whole launchpad, so the
+  // feed has something in it before you follow anyone. Follows live in this
+  // browser's storage, so a fresh browser starts on "everyone".
+  const [scopeChoice, setScopeChoice] = useState<Scope | null>(null);
+  const scope: Scope = scopeChoice ?? (following.length > 0 ? 'following' : 'everyone');
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    if (scope === 'everyone') {
+      (async () => {
+        const [trades, launches, nftLaunches, pairTrades] = await Promise.all([
+          fetchRecentTrades(60),
+          fetchRecentLaunches(20),
+          nftOn || dn404On ? fetchRecentNftCollections(20) : Promise.resolve([]),
+          dn404On ? fetchRecentPairTrades(40) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        const merged: FeedItem[] = [];
+        for (const t of trades ?? []) merged.push({ kind: 'trade', ts: Number(t.blockTimestamp), who: t.trader, data: t });
+        for (const l of launches ?? []) merged.push({ kind: 'launch', ts: Number(l.blockTimestamp), who: l.launchedBy, data: l });
+        for (const c of nftLaunches ?? []) {
+          const isDn404 = c.lane === 'dn404';
+          if (isDn404 ? !dn404On : !nftOn) continue;
+          merged.push({ kind: 'nftLaunch', ts: Number(c.blockTimestamp), who: c.launchedBy, data: c });
+        }
+        for (const p of pairTrades ?? []) merged.push({ kind: 'pairTrade', ts: Number(p.blockTimestamp), who: p.trader, data: p });
+        merged.sort((a, b) => b.ts - a.ts);
+        const capped = merged.slice(0, 100);
+        const profileMap: Record<string, UserProfile> = {};
+        for (const it of capped) if (!profileMap[it.who]) profileMap[it.who] = loadProfile(it.who);
+        setProfiles(profileMap);
+        setItems(capped);
+        setLoading(false);
+
+        const tradeTokens = new Set<string>();
+        for (const it of capped) {
+          if (it.kind === 'trade' || it.kind === 'pairTrade') tradeTokens.add(it.data.tokenAddress.toLowerCase());
+        }
+        const [tokLaunches, dn404Rows] = await Promise.all([
+          tradeTokens.size ? fetchLaunchesByTokens(Array.from(tradeTokens) as Address[]) : Promise.resolve([]),
+          tradeTokens.size && dn404On ? fetchDn404ByPairedTokens(Array.from(tradeTokens) as Address[]) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        const meta: Record<string, TokenMeta> = {};
+        for (const d of dn404Rows ?? []) {
+          if (d.pairedToken) meta[d.pairedToken.toLowerCase()] = { name: d.name, ticker: d.ticker, pairCurrency: d.pairCurrency };
+        }
+        for (const l of tokLaunches ?? []) meta[l.tokenAddress.toLowerCase()] = { name: l.name, ticker: l.ticker };
+        setTokenMeta(meta);
+      })();
+      return () => { cancelled = true; };
+    }
     if (following.length === 0) {
       setItems([]);
       setLoading(false);
@@ -179,7 +252,7 @@ export default function FeedPage() {
       setCollectionMeta(cmeta);
     })();
     return () => { cancelled = true; };
-  }, [following, nftOn, dn404On]);
+  }, [following, nftOn, dn404On, scope]);
 
   const followingCount = following.length;
 
@@ -209,48 +282,61 @@ export default function FeedPage() {
     return c;
   }, [items]);
 
+  const showEmptyFollowing = scope === 'following' && followingCount === 0;
+
   return (
     <div className={styles.feedFrame}>
-      <section className={styles.ledgerMasthead}>
+      <header className={styles.ledgerMasthead}>
         <div>
-          <div className="uru-eyebrow">wallet activity</div>
-          <h1 className={`uru-h1 ${styles.feedTitle}`}>feed</h1>
+          <p className={styles.eyebrow}>Feed</p>
+          <h1 className={styles.feedTitle}>What people are doing</h1>
+          <p className={styles.lede}>
+            Launches, buys and sells as they land. Follow a wallet from its profile to build your own feed.
+          </p>
         </div>
-        <span className={styles.headerMeta}>
-          {followingCount} wallet{followingCount === 1 ? '' : 's'} followed locally
-        </span>
-        <Link href="/discover" className="uru-btn">
-          browse tokens
-        </Link>
-      </section>
+        <div className="ui-seg" data-size="lg" role="group" aria-label="Feed scope">
+          {(['everyone', 'following'] as const).map((sc) => (
+            <button
+              key={sc}
+              type="button"
+              aria-pressed={scope === sc}
+              onClick={() => setScopeChoice(sc)}
+            >
+              {sc === 'everyone' ? 'Everyone' : `Following${followingCount ? ` ${followingCount}` : ''}`}
+            </button>
+          ))}
+        </div>
+      </header>
 
       <div className={styles.ledgerLayout}>
         <aside className={styles.filterRail}>
-          <div className={styles.filterGroup} aria-label="activity filters">
-            {KINDS.filter((k) => k.id !== 'mints' || nftOn).map((k) => (
-              <button
-                key={k.id}
-                type="button"
-                onClick={() => setKind(k.id)}
-                className="uru-chip"
-                data-active={kind === k.id}
-              >
-                <span>{k.label}</span>
-                <small>
-                  {k.jp}
-                </small>
-                {items && <b>{counts[k.id]}</b>}
-              </button>
-            ))}
+          <div>
+            <p className={styles.railLabel}>Show</p>
+            <div className={styles.filterGroup} aria-label="activity filters">
+              {KINDS.filter((k) => (k.id !== 'mints' || nftOn) && (k.id !== 'mints' || scope === 'following')).map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  onClick={() => setKind(k.id)}
+                  className={styles.filterBtn}
+                  data-active={kind === k.id}
+                >
+                  <span>{k.label}</span>
+                  {items && <b>{counts[k.id]}</b>}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className={styles.followRail}>
             <div className={styles.railHeader}>
-              <div className="uru-eyebrow">following</div>
+              <p className={styles.railLabel}>Following</p>
               <span className={styles.railHint}>{followingCount}</span>
             </div>
             {followingCount === 0 ? (
-              <div className={styles.railHint}>no wallets followed yet</div>
+              <p className={styles.railHint}>
+                You aren&apos;t following anyone in this browser yet.
+              </p>
             ) : (
               <ul className={styles.followedList}>
                 {following.map((addr) => {
@@ -267,60 +353,62 @@ export default function FeedPage() {
                 })}
               </ul>
             )}
-            <Link href="/discover" className={styles.findLink}>find more wallets</Link>
+            <Link href="/discover" className={styles.findLink}>Find people to follow</Link>
           </div>
         </aside>
 
         <section className={styles.ledgerPaper}>
-          <div className={styles.ledgerHead}>
-            <span>event</span>
-            <span>wallet / token</span>
-            <span>age</span>
+          <div className={styles.paperHead}>
+            <div>
+              <h2 className={styles.paperTitle}>{scope === 'everyone' ? 'Latest across urufu labs' : 'From wallets you follow'}</h2>
+              {filteredItems && filteredItems.length > 0 && (
+                <p className={styles.paperSub}>Showing the latest {filteredItems.length}</p>
+              )}
+            </div>
           </div>
 
-          {followingCount === 0 && (
+          {showEmptyFollowing && (
             <div className={styles.emptyLedger}>
-              <Mascot size={48} mood="sleepy" />
-              <div className={`uru-h2 ${styles.emptyTitle}`}>no followed wallets yet</div>
+              <h3 className={styles.emptyTitle}>You aren&apos;t following anyone yet</h3>
               <p className={styles.emptyCopy}>
-                paste a wallet at <code>/profile/0x…</code> and follow it. This feed is built from the addresses saved in this browser.
+                Open someone&apos;s profile and hit follow. Follows are saved in this browser, so they
+                won&apos;t carry over to another device or site.
               </p>
               <div className={styles.emptyActions}>
-                <Link href="/discover" className="uru-btn">browse tokens</Link>
-                <Link href="/trade" className="uru-btn uru-btn-primary">find traders</Link>
+                <button type="button" className="ui-btn" onClick={() => setScopeChoice('everyone')}>
+                  See everyone
+                </button>
+                <Link href="/discover" className="ui-btn" data-variant="primary">Browse tokens</Link>
               </div>
             </div>
           )}
 
-          {followingCount > 0 && loading && <FeedFallback text="loading feed ~~" />}
+          {!showEmptyFollowing && loading && <FeedFallback text="Loading activity…" />}
 
-          {followingCount > 0 && !loading && filteredItems && filteredItems.length === 0 && (
+          {!showEmptyFollowing && !loading && filteredItems && filteredItems.length === 0 && (
             <FeedFallback text={
               kind === 'all'
-                ? 'nothing to show yet ~ the wallets u follow havent traded, minted or launched anything the indexer knows about'
-                : `no ${kind} yet ~ try the "all" tab`
+                ? scope === 'everyone'
+                  ? 'Nothing has happened yet.'
+                  : 'The wallets you follow haven\'t launched, minted or traded anything yet.'
+                : `No ${kind} yet. Try "All".`
             } />
           )}
 
-          {filteredItems && filteredItems.length > 0 && (
-            <>
-              <ol className={styles.ledgerList}>
-                {filteredItems.map((item, i) => (
-                  <li key={`${item.kind}-${i}-${item.ts}`}>
-                    <FeedRow
-                      item={item}
-                      profile={profiles[item.who]}
-                      tokenMeta={tokenMeta}
-                      collectionMeta={collectionMeta}
-                      chainKey={activeChain}
-                    />
-                  </li>
-                ))}
-              </ol>
-              <div className={styles.feedLimit}>
-                showing latest {filteredItems.length} · follow more wallets to broaden this local feed
-              </div>
-            </>
+          {!showEmptyFollowing && filteredItems && filteredItems.length > 0 && (
+            <ol className={styles.ledgerList}>
+              {filteredItems.map((item, i) => (
+                <li key={`${item.kind}-${i}-${item.ts}`}>
+                  <FeedRow
+                    item={item}
+                    profile={profiles[item.who]}
+                    tokenMeta={tokenMeta}
+                    collectionMeta={collectionMeta}
+                    chainKey={activeChain}
+                  />
+                </li>
+              ))}
+            </ol>
           )}
         </section>
       </div>
@@ -389,10 +477,10 @@ function FeedRow({
     const href = isDn404 && c.pairedToken ? `/trade/${c.pairedToken}` : `/collection/${c.collectionAddress}`;
     return (
       <article className={styles.ledgerRow} data-kind="launch">
-        <span className={styles.rowKind}>{isDn404 ? 'dn404' : 'nft'}</span>
+        <span className={styles.rowKind}>{isDn404 ? 'DN404' : 'NFT'}</span>
         <div className={styles.rowBody}>
           <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
-          <span>{isDn404 ? ' launched dn404 ' : ' launched nft collection '}</span>
+          <span>{isDn404 ? ' launched DN404 ' : ' launched the collection '}</span>
           <Link href={href} className={styles.tokenLink}>
             <FeedThumb cover={c.coverImageUrl} baseUri={c.baseUri} />
             {c.name} {c.ticker && <span>${c.ticker}</span>}
@@ -412,7 +500,7 @@ function FeedRow({
     const shortCol = `${m.collectionAddress.slice(0, 6)}…${m.collectionAddress.slice(-4)}`;
     return (
       <article className={styles.ledgerRow} data-kind="mint">
-        <span className={styles.rowKind}>mint</span>
+        <span className={styles.rowKind}>Mint</span>
         <div className={styles.rowBody}>
           <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
           <span> minted {m.quantity} from </span>
@@ -440,7 +528,7 @@ function FeedRow({
     const unit = meta?.pairCurrency ? pairLabel(chainKey, meta.pairCurrency) : 'URU';
     return (
       <article className={styles.ledgerRow} data-kind={p.isBuy ? 'buy' : 'sell'}>
-        <span className={styles.rowKind}>{p.isBuy ? 'buy' : 'sell'}</span>
+        <span className={styles.rowKind}>{p.isBuy ? 'Buy' : 'Sell'}</span>
         <div className={styles.rowBody}>
           <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
           <span>{p.isBuy ? ' bought ' : ' sold '}</span>
@@ -463,7 +551,7 @@ function FeedRow({
     // header — the two were visually swapped.
     return (
       <article className={styles.ledgerRow} data-kind="launch">
-        <span className={styles.rowKind}>launch</span>
+        <span className={styles.rowKind}>Launch</span>
         <div className={styles.rowBody}>
           <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
           <span> launched </span>
@@ -485,7 +573,7 @@ function FeedRow({
   const shortAddr = `${t.tokenAddress.slice(0, 6)}…${t.tokenAddress.slice(-4)}`;
   return (
     <article className={styles.ledgerRow} data-kind={t.isBuy ? 'buy' : 'sell'}>
-      <span className={styles.rowKind}>{t.isBuy ? 'buy' : 'sell'}</span>
+      <span className={styles.rowKind}>{t.isBuy ? 'Buy' : 'Sell'}</span>
       <div className={styles.rowBody}>
         <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
         <span>{t.isBuy ? ' bought ' : ' sold '}</span>

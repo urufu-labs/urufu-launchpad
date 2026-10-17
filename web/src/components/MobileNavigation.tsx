@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -11,26 +12,27 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import styles from './MobileNavigation.module.css';
 
 const primaryLinks = [
-  { href: '/create', label: '✦ launch token', primary: true },
-  { href: '/create/nft', label: '❁ launch nft', primary: true },
-  { href: '/create/dn404', label: '✧ launch dn404', primary: true },
-  { href: '/discover', label: '❁ launches' },
-  { href: '/trade', label: '✦ trade' },
-  { href: '/feed', label: '☆ feed' },
-  { href: '/profile', label: '♡ profile' },
+  { href: '/create', label: 'Launch a token', primary: true },
+  { href: '/create/nft', label: 'NFT collection', primary: true },
+  { href: '/create/dn404', label: 'DN404', primary: true },
+  { href: '/discover', label: 'Explore' },
+  { href: '/trade', label: 'Trade' },
+  { href: '/feed', label: 'Feed' },
+  { href: '/flywheel', label: 'Flywheel' },
+  { href: '/profile', label: 'Profile' },
 ];
 
 const utilityLinks = [
-  { href: '/catalog', label: '❀ modules' },
-  { href: '/docs', label: '❉ docs' },
-  { href: '/recover', label: '✿ recover eth' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/catalog', label: 'Launch options' },
+  { href: '/recover', label: 'Recover ETH' },
 ];
 
 const communityLinks = [
-  { href: 'https://studio.urufulabs.xyz/', label: '✿ chibi studio ↗' },
-  { href: 'https://www.urufu.xyz', label: '❋ urufu gemu ↗' },
-  { href: 'https://x.com/urugemu', label: '✧ twitter ↗' },
-  { href: 'https://t.me/urugemu', label: '✧ telegram ↗' },
+  { href: 'https://studio.urufulabs.xyz/', label: 'Chibi studio ↗' },
+  { href: 'https://www.urufu.xyz', label: 'urufu gemu ↗' },
+  { href: 'https://x.com/urugemu', label: 'X ↗' },
+  { href: 'https://t.me/urugemu', label: 'Telegram ↗' },
 ];
 
 export function MobileNavigation() {
@@ -121,10 +123,10 @@ export function MobileNavigation() {
           <i />
           <i />
         </span>
-        <span className={styles.menuLabel}>menu</span>
+        <span className={styles.menuLabel}>Menu</span>
       </button>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <div className={styles.drawerLayer}>
           <button
             type="button"
@@ -143,10 +145,10 @@ export function MobileNavigation() {
             <header className={styles.drawerHeader}>
               <div>
                 <span className={styles.kicker}>urufu labs</span>
-                <h2 id="mobile-navigation-title">navigation</h2>
+                <h2 id="mobile-navigation-title">Menu</h2>
               </div>
               <button type="button" className={styles.closeButton} onClick={() => closeMenu()}>
-                close <span aria-hidden="true">×</span>
+                Close <span aria-hidden="true">×</span>
               </button>
             </header>
 
@@ -166,12 +168,12 @@ export function MobileNavigation() {
             </nav>
 
             <section className={styles.controlSection} aria-labelledby="mobile-account-title">
-              <h3 id="mobile-account-title">chain</h3>
+              <h3 id="mobile-account-title">Chain</h3>
               <ChainSwitcher />
             </section>
 
             <section className={styles.controlSection} aria-labelledby="mobile-preferences-title">
-              <h3 id="mobile-preferences-title">preferences</h3>
+              <h3 id="mobile-preferences-title">Preferences</h3>
               <div className={styles.preferences}>
                 <PriceUnitToggle />
                 <ThemeToggle />
@@ -180,7 +182,7 @@ export function MobileNavigation() {
             </section>
 
             <section className={styles.linkSection} aria-labelledby="mobile-tools-title">
-              <h3 id="mobile-tools-title">tools</h3>
+              <h3 id="mobile-tools-title">More</h3>
               <nav aria-label="Mobile utility navigation">
                 {utilityLinks.map((link) => (
                   <Link
@@ -197,7 +199,7 @@ export function MobileNavigation() {
             </section>
 
             <section className={styles.linkSection} aria-labelledby="mobile-community-title">
-              <h3 id="mobile-community-title">elsewhere</h3>
+              <h3 id="mobile-community-title">Elsewhere</h3>
               <nav aria-label="Urufu community links">
                 {communityLinks.map((link) => (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
@@ -207,7 +209,8 @@ export function MobileNavigation() {
               </nav>
             </section>
           </aside>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

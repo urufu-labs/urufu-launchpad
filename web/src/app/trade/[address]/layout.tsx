@@ -8,7 +8,7 @@ import { fetchTokenMetadata } from '@/lib/socialApi';
 /// wrapper whose only job is to compute per-token OpenGraph + Twitter card tags.
 ///
 /// Without this, share previews inherit the root layout's site-wide title
-/// ("urufu labs ✿ tap tap launch") + description, so every shared token looks
+/// ("urufu labs tap tap launch") + description, so every shared token looks
 /// identical on Discord / Twitter / iMessage. With it, each share card shows
 /// the token's real ticker, name, and description.
 ///
@@ -54,13 +54,13 @@ export async function generateMetadata(
   // the heavy lifting.
   const rawDesc = meta?.description?.trim();
   const tickerPart = ticker ? `$${ticker}` : displayTitle;
-  const opener = `✿ ${tickerPart} launched on urufu labs`;
+  const opener = `${tickerPart} launched on urufu labs`;
   const midParts: string[] = [];
   if (rawDesc) midParts.push(rawDesc);
   midParts.push('tap tap trade on urufulabs.xyz ~');
   // Twitter caps descriptions around 200 chars — keep the whole thing tight
   // so the crawler doesn't truncate mid-word.
-  const description = `${opener} ~ ${midParts.join(' ~ ')}`.slice(0, 197).replace(/\s+$/, '') + ' ✿';
+  const description = `${opener} ~ ${midParts.join(' ~ ')}`.slice(0, 197).replace(/\s+$/, '');
 
   const pageUrl = `https://urufulabs.xyz/trade/${addr}`;
 

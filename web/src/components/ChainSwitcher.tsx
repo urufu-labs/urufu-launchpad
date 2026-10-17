@@ -1,6 +1,6 @@
 'use client';
 
-/// Kawaii chain switcher for the header. Reflects the connected wallet's chain when it's on
+/// Chain switcher for the header. Reflects the connected wallet's chain when it's on
 /// a supported network; when the wallet is disconnected or on an unsupported chain, falls
 /// back to DEFAULT_CHAIN (Sepolia) so the /discover feed always shows *something*.
 ///
@@ -14,6 +14,8 @@ import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 
 import { CHAINS_ENABLED, CHAINS_COMING_SOON, CHAIN_LABELS, CHAIN_META, DEFAULT_CHAIN, type ChainKey } from '@/lib/config';
 import { CHAIN_ID_TO_KEY, CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { IconChevron } from '@/components/shell/icons';
+import styles from '@/components/shell/shell.module.css';
 
 const STORAGE_KEY = 'urufu:activeChain';
 const EVENT = 'urufu:activeChainChanged';
@@ -96,138 +98,51 @@ export function ChainSwitcher() {
   const activeMeta = CHAIN_META[active];
 
   return (
-    <div style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+    <div className="ui-menu" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
-        title={mounted && isConnected ? `chain: ${CHAIN_LABELS[active]}` : 'chain (view-only until wallet connects)'}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 5,
-          padding: '4px 9px',
-          background: 'var(--cream-deep)',
-          color: 'var(--anchor)',
-          border: '1.5px solid var(--anchor)',
-          boxShadow: '2px 2px 0 var(--anchor)',
-          borderRadius: 4,
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 11,
-          fontWeight: 600,
-          cursor: isPending ? 'wait' : 'pointer',
-          lineHeight: 1.1,
-        }}
+        className={styles.pill}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={mounted && isConnected ? `Chain: ${CHAIN_LABELS[active]}` : 'Chain (view only until a wallet connects)'}
       >
-        <Image
-          src={activeMeta.iconPath}
-          alt=""
-          width={14}
-          height={14}
-          aria-hidden
-          style={{ display: 'block' }}
-          unoptimized
-        />
+        <Image src={activeMeta.iconPath} alt="" width={16} height={16} aria-hidden style={{ display: 'block', borderRadius: 4 }} unoptimized />
         <span>{CHAIN_LABELS[active]}</span>
-        <span aria-hidden style={{ fontSize: 9, marginLeft: 2, transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}>▾</span>
+        <IconChevron />
       </button>
 
       {open && (
-        <div
-          role="menu"
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            right: 0,
-            zIndex: 100,
-            display: 'grid',
-            gap: 2,
-            padding: 4,
-            minWidth: 160,
-            background: 'var(--cream)',
-            border: '1.5px solid var(--anchor)',
-            boxShadow: '3px 3px 0 var(--anchor)',
-            borderRadius: 4,
-          }}
-        >
+        <div role="menu" aria-label="Chain" className="ui-menu-panel" data-align="end" style={{ width: 210 }}>
+          <div className="ui-menu-label">Chain</div>
           {CHAINS_ENABLED.map((c) => {
-            const isActive = c === active;
             const meta = CHAIN_META[c];
             return (
               <button
                 key={c}
                 type="button"
+                role="menuitemradio"
+                aria-checked={c === active}
+                className="ui-menu-item"
+                data-active={c === active ? 'true' : undefined}
                 onClick={() => pick(c)}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr auto',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 8px',
-                  background: isActive ? 'var(--pink-warm)' : 'transparent',
-                  border: 'none',
-                  color: 'var(--anchor)',
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 11,
-                  fontWeight: isActive ? 700 : 500,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  borderRadius: 3,
-                }}
               >
-                <Image
-                  src={meta.iconPath}
-                  alt=""
-                  width={16}
-                  height={16}
-                  aria-hidden
-                  style={{ display: 'block' }}
-                  unoptimized
-                />
-                <span>{CHAIN_LABELS[c]}</span>
-                <span aria-hidden style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 10, opacity: 0.6 }}>{meta.jp}</span>
+                <Image src={meta.iconPath} alt="" width={18} height={18} aria-hidden style={{ display: 'block', borderRadius: 4 }} unoptimized />
+                {CHAIN_LABELS[c]}
+                {c === active && <span className={styles.dot} style={{ marginLeft: 'auto' }} aria-hidden />}
               </button>
             );
           })}
+          {CHAINS_COMING_SOON.length > 0 && <div className="ui-menu-sep" />}
           {CHAINS_COMING_SOON.map((c) => {
             const meta = CHAIN_META[c];
             return (
-              <button
-                key={c}
-                type="button"
-                disabled
-                title={`${CHAIN_LABELS[c]} — coming soon`}
-                aria-disabled
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr auto',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 8px',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--anchor)',
-                  fontFamily: 'var(--font-pixel), monospace',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  cursor: 'not-allowed',
-                  textAlign: 'left',
-                  borderRadius: 3,
-                  opacity: 0.4,
-                }}
-              >
-                <Image
-                  src={meta.iconPath}
-                  alt=""
-                  width={16}
-                  height={16}
-                  aria-hidden
-                  style={{ display: 'block', filter: 'grayscale(1)' }}
-                  unoptimized
-                />
-                <span>{CHAIN_LABELS[c]}</span>
-                <span aria-hidden style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, opacity: 0.8 }}>soon</span>
-              </button>
+              <span key={c} role="menuitem" aria-disabled="true" className="ui-menu-item" title={`${CHAIN_LABELS[c]} is coming soon`}>
+                <Image src={meta.iconPath} alt="" width={18} height={18} aria-hidden style={{ display: 'block', borderRadius: 4, opacity: 0.4 }} unoptimized />
+                {CHAIN_LABELS[c]}
+                <small>soon</small>
+              </span>
             );
           })}
         </div>

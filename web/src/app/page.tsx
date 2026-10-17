@@ -37,6 +37,7 @@ import { CONTRACTS, CHAIN_LABELS, NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED }
 import { formatCurveAmount, isPairLaunch } from '@/lib/dn404Feed';
 import { NftLaunchTeaser } from '@/components/NftLaunchTeaser';
 import { NftCollectionGrid } from '@/components/NftCollectionGrid';
+import nftStyles from './home-nft.module.css';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 
@@ -121,10 +122,10 @@ function getPreviewLaunches(chainId: number): MockLaunch[] {
 const HOME_PREVIEW_AVAILABLE = mockDataAvailable;
 
 const TABS: Array<{ id: Tab; label: string; jp: string }> = [
-  { id: 'trending', label: 'trending', jp: '人気' },
-  { id: 'new', label: 'new', jp: '新着' },
-  { id: 'near', label: 'near grad', jp: '卒業' },
-  { id: 'graduated', label: 'graduated', jp: '完了' },
+  { id: 'trending', label: 'Trending', jp: '' },
+  { id: 'new', label: 'New', jp: '' },
+  { id: 'near', label: 'Near graduation', jp: '' },
+  { id: 'graduated', label: 'Graduated', jp: '' },
 ];
 
 // Relative time now flows through the `useAgo` hook (returns null on SSR so live
@@ -166,6 +167,9 @@ function HomePageContent() {
   const chainMocks = feed.launches;
   const sourceLaunches = previewEnabled ? previewLaunches : chainMocks;
   const sourceLabel = previewEnabled ? PREVIEW_STATS.chain : CHAIN_LABELS[activeChain];
+  // Indexer unreachable with nothing loaded yet: say so instead of showing zeros.
+  const feedError = !previewEnabled && feed.error === true && sourceLaunches.length === 0;
+  const feedLoading = !previewEnabled && !feed.ready;
 
   useEffect(() => {
     setMockLaunchesHydrated(true);
@@ -450,7 +454,9 @@ function HomePageContent() {
         trades: String(previewLaunches.reduce((sum, l) => sum + tradeCountOf(l), 0)),
         chain: 'preview',
       }
-    : {
+    : feedError || feedLoading
+      ? { tokens: '—', graduated: '—', ethRaised: '—', trades: '—', chain: sourceLabel }
+      : {
         tokens: String(stats.total),
         graduated: String(stats.graduated),
         ethRaised: `${Number(formatEther(stats.totalEth)).toFixed(2)} Ξ`,
@@ -501,25 +507,25 @@ function HomePageContent() {
             }}
           >
             <span className="uru-home-preview-dot" aria-hidden="true" />
-            mock data: {previewEnabled ? 'on' : 'off'}
+            Mock data: {previewEnabled ? 'on' : 'off'}
           </button>
         )}
         <div className="uru-home-hero">
           <div className="uru-home-hero-copy">
-            <p className="uru-home-eyebrow">✿ urufu labs launchpad</p>
+            <p className="uru-home-eyebrow">urufu labs launchpad</p>
             <h1 id="hero-title" className="uru-home-title">
-                  The culture-first token launchpad.<span aria-hidden="true"> ✦</span>
+                  The culture-first token launchpad.<span aria-hidden="true"></span>
             </h1>
             <p className="uru-home-subtitle">
-              Artist-first ERC-20 releases with V4 hooks for permanent liquidity, creator fees, and
-              a protected opening.
+              Launch a coin for your art. Creators earn fees on every trade, launches open with
+              sniper protection, and liquidity locks forever once the curve fills.
             </p>
             <div className="uru-home-actions">
-              <Link href="/create" className="uru-btn uru-btn-primary">
-                launch a token <span className="uru-arrow">→</span>
+              <Link href="/create" className="ui-btn" data-variant="primary" data-size="lg">
+                Launch a token <span className="uru-arrow">→</span>
               </Link>
-              <Link href="/catalog" className="uru-btn uru-btn-cream">
-                modules
+              <Link href="/catalog" className="ui-btn" data-size="lg">
+                Browse modules
               </Link>
             </div>
           </div>
@@ -528,44 +534,40 @@ function HomePageContent() {
         </div>
 
         <section className="uru-home-stat-strip" aria-label="Launchpad statistics">
-          <StatTile label="tokens" jp="数" value={displayedStats.tokens} />
-          <StatTile label="graduated" jp="卒業" value={displayedStats.graduated} accent="mint" />
-          <StatTile label="total in curves" jp="貯留" value={displayedStats.ethRaised} accent="pink" />
-          <StatTile label="trades" jp="取引" value={displayedStats.trades} />
-          <StatTile label="chain" jp="鎖" value={displayedStats.chain} accent="mizuiro" />
+          <StatTile label="Tokens" jp="" value={displayedStats.tokens} />
+          <StatTile label="Graduated" jp="" value={displayedStats.graduated} accent="mint" />
+          <StatTile label="Total in curves" jp="" value={displayedStats.ethRaised} accent="pink" />
+          <StatTile label="Trades" jp="" value={displayedStats.trades} />
+          <StatTile label="Chain" jp="" value={displayedStats.chain} accent="mizuiro" />
         </section>
       </section>
 
       <div className="uru-home-gallery-layout" id="launches">
         <section className="uru-home-gallery-main" aria-label="Launches">
-          <div className="uru-home-feed-bar">
-            <div className="uru-home-tabs" role="tablist" aria-label="Launch filters">
+          <div className={nftStyles.feedBar}>
+            <div className="ui-seg" role="group" aria-label="Launch filters">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
-                  role="tab"
-                  aria-selected={tab === t.id}
-                  className="uru-chip"
-                  data-active={tab === t.id}
+                  aria-pressed={tab === t.id}
                 >
                   {t.label}
-                  <span>{t.jp}</span>
                 </button>
               ))}
             </div>
             <input
-              className="uru-input uru-home-search"
+              className={`ui-input ${nftStyles.search}`}
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="search name / ticker"
+              placeholder="Search name or ticker"
               aria-label="Search name or ticker"
             />
-            {previewEnabled && <span className="uru-home-feed-preview">preview data</span>}
-            <Link href="/discover" className="uru-home-feed-link">
-              see all »
+            {previewEnabled && <span className="ui-badge" data-tone="info">Preview data</span>}
+            <Link href="/discover" className={nftStyles.seeAll}>
+              See all →
             </Link>
           </div>
 
@@ -580,13 +582,18 @@ function HomePageContent() {
               ))}
             </div>
           ) : (
-            <div className="uru-home-empty">
-              <div>
-                <Mascot size={52} mood="confused" />
-                <p>no launches on {sourceLabel} yet ~~</p>
-                <Link href="/create">launch the first one »</Link>
+            feedError ? (
+              <FeedErrorPanel />
+            ) : feedLoading ? (
+              <div className="uru-home-empty"><div><p>Loading launches…</p></div></div>
+            ) : (
+              <div className="uru-home-empty">
+                <div>
+                  <p>No launches on {sourceLabel} yet.</p>
+                  <Link href="/create">Launch the first one →</Link>
+                </div>
               </div>
-            </div>
+            )
           )}
         </section>
 
@@ -595,9 +602,9 @@ function HomePageContent() {
             className="uru-home-sidebar-card"
             aria-label={previewEnabled ? 'Preview trades' : 'Live trades'}
           >
-            <div className="uru-home-sidebar-title">
-              <span>
-                ✦ live trades{' '}
+            <div className={nftStyles.railHead}>
+              <span className={nftStyles.railTitle}>
+                Live trades{' '}
                 <span
                   className="uru-home-live-dot"
                   aria-label={previewEnabled ? 'Preview activity' : 'Live activity'}
@@ -606,10 +613,12 @@ function HomePageContent() {
               {previewEnabled && (
                 <button
                   type="button"
-                  className="uru-home-trade-replay"
+                  className="ui-btn"
+                  data-variant="ghost"
+                  data-size="sm"
                   onClick={() => setPreviewRun((run) => run + 1)}
                 >
-                  replay ↻
+                  Replay ↻
                 </button>
               )}
             </div>
@@ -636,14 +645,14 @@ function HomePageContent() {
                   ))}
                 </ul>
               ) : (
-                <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+                <p className="uru-home-trade-empty">No trades yet.</p>
               )
             ) : liveTrades.length > 0 ? (
               <ul className="uru-home-trade-list">
                 {liveTrades.map((row) => (
                   <li key={homeTradeKey(row)} className="uru-home-trade-incoming">
                     <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
-                      {row.t.isBuy ? 'BUY' : 'SELL'}
+                      {row.t.isBuy ? 'Buy' : 'Sell'}
                     </span>
                     <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
                     <span>
@@ -658,45 +667,50 @@ function HomePageContent() {
                 ))}
               </ul>
             ) : (
-              <p className="uru-home-trade-empty">waiting on the first launch ~~</p>
+              <p className="uru-home-trade-empty">
+                {feedError ? 'Couldn’t load trades right now.' : feedLoading ? 'Loading trades…' : 'No trades yet.'}
+              </p>
             )}
           </section>
 
           <section className="uru-home-sidebar-card" aria-label="Launch fee split">
-            <div className="uru-home-sidebar-title">
-              <span>❀ launch fee split</span>
+            <div className={nftStyles.railHead}>
+              <span className={nftStyles.railTitle}>Launch fee split</span>
             </div>
-            <ul className="uru-home-flywheel-list">
+            <ul className={nftStyles.splitList}>
               <li>
-                <b>40%</b> URU buyback
+                <span>URU buyback</span><b>40%</b>
               </li>
               <li>
-                <b>35%</b> urufu gemu nft holders
+                <span>urufu gemu nft holders</span><b>35%</b>
               </li>
               <li>
-                <b>25%</b> treasury
+                <span>Treasury</span><b>25%</b>
               </li>
             </ul>
-            <p className="uru-home-flywheel-note">
-              hold URU or an urufu gemu nft → up to <b>50%</b> off launch fees
+            <p className={nftStyles.splitNote}>
+              Hold URU or an urufu gemu nft to get up to <b>50%</b> off launch fees.
             </p>
             {/* Direct-buy CTAs so first-time visitors have a one-tap path to eligibility. */}
-            <div className="uru-home-rail-actions">
+            <div className={nftStyles.railActions}>
               <a
                 href="https://app.uniswap.org/swap?chain=robinhood&outputCurrency=0x9fbe210007dDd8389f98d0253018e65CC48b9D24"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="uru-btn uru-btn-mint"
+                className="ui-btn"
+                data-variant="primary"
+                data-size="sm"
               >
-                ✿ buy URU
+                Buy URU
               </a>
               <a
                 href="https://opensea.io/collection/urufugemu"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="uru-btn uru-btn-primary"
+                className="ui-btn"
+                data-size="sm"
               >
-                ✿ buy gemu nft
+                Buy urufu gemu nft
               </a>
             </div>
           </section>
@@ -710,36 +724,29 @@ function HomePageContent() {
           id="nft-collections"
           style={{ marginTop: 28 }}
         >
-          <div className="uru-home-feed-bar">
-            <div className="uru-home-tabs" role="tablist" aria-label="NFT collection filters">
-              <button
-                type="button"
-                onClick={() => setNftTab('featured')}
-                role="tab"
-                aria-selected={nftTab === 'featured'}
-                className="uru-chip"
-                data-active={nftTab === 'featured'}
-              >
-                ❁ featured <span>編</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setNftTab('just-launched')}
-                role="tab"
-                aria-selected={nftTab === 'just-launched'}
-                className="uru-chip"
-                data-active={nftTab === 'just-launched'}
-              >
-                ✿ just launched <span>新</span>
-              </button>
+          <header className={nftStyles.head}>
+            <div>
+              <p className={nftStyles.eyebrow}>NFTs</p>
+              <h2 className={nftStyles.title}>NFT collections</h2>
+              <p className={nftStyles.lede}>
+                Art collections launched on urufu labs. Mint straight from the collection page.
+                {dn404ChainEnabled && ' DN404 collections are also tokens: hold the token, hold the NFT.'}
+              </p>
             </div>
-            <span className="uru-home-feed-preview" style={{ opacity: 0.7 }}>
-              nft collections
-            </span>
-            <Link href="/discover" className="uru-home-feed-link">
-              see all »
-            </Link>
-          </div>
+            <div className={nftStyles.controls}>
+              <div className="ui-seg" role="group" aria-label="NFT collection filters">
+                <button type="button" aria-pressed={nftTab === 'featured'} onClick={() => setNftTab('featured')}>
+                  Featured
+                </button>
+                <button type="button" aria-pressed={nftTab === 'just-launched'} onClick={() => setNftTab('just-launched')}>
+                  Just launched
+                </button>
+              </div>
+              <Link href="/discover" className={nftStyles.seeAll}>
+                See all →
+              </Link>
+            </div>
+          </header>
           {/* Real grid once collections exist; falls back to the teaser
               on an empty indexer response. Featured vs just-launched is
               a client-side sort tweak once we introduce a "featured"
@@ -766,6 +773,24 @@ function HomePageContent() {
 // small components
 // ============================================================================
 
+/// Shown when the indexer can't be reached and nothing has loaded yet. The
+/// launch feed keeps polling every 15s, so this clears by itself once the
+/// data comes back; the button just retries right away.
+function FeedErrorPanel() {
+  return (
+    <div className="uru-feed-error" role="status">
+      <b>Couldn&apos;t load live data</b>
+      <p>
+        Our data service didn&apos;t respond, so token stats and launches aren&apos;t showing. Nothing is lost.
+        We&apos;ll keep retrying automatically.
+      </p>
+      <button type="button" className="ui-btn" data-variant="primary" onClick={() => window.location.reload()}>
+        Retry now
+      </button>
+    </div>
+  );
+}
+
 function homeTradeKey(row: HomeTrade) {
   return `${row.l.address}-${row.t.trader}-${row.t.ethAmount}-${row.t.timestamp}`;
 }
@@ -787,31 +812,11 @@ function StatTile({
 }) {
   return (
     <div className="uru-home-stat" data-accent={accent}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span className="uru-eyebrow">{label}</span>
-        <span
-          style={{
-            fontFamily: 'var(--font-jp), monospace',
-            fontSize: 10,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          {jp}
-        </span>
+      <div className={nftStyles.statLabel}>
+        <span>{label}</span>
+        {jp && <span>{jp}</span>}
       </div>
-      <div
-        style={{
-          fontFamily: 'var(--font-pixel), monospace',
-          fontSize: 20,
-          fontWeight: 700,
-          color: 'var(--anchor)',
-          lineHeight: 1.05,
-          marginTop: 2,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
+      <div className={nftStyles.statValue}>
         {value}
       </div>
     </div>
@@ -854,9 +859,9 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
         >
           {!logoDataUrl && launch.logoEmoji}
         </div>
-        <span className="uru-launch-ticket-tag">{preview ? 'mock' : launch.graduated ? 'grad' : 'curve'}</span>
+        <span className="uru-launch-ticket-tag">{preview ? 'Preview' : launch.graduated ? 'Graduated' : 'Curve'}</span>
         {!preview && launch.lane === 'dn404' && (
-          <span className="uru-launch-ticket-tag" title="this token comes with NFTs">dn404</span>
+          <span className="uru-launch-ticket-tag" title="This token comes with NFTs">DN404</span>
         )}
         {/* Match the discover-page badge treatment so users see legacy /
             cliff-risk stickers wherever a token appears (home rail + discover +
@@ -865,19 +870,19 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
         {!preview && isLegacyGraduated(launch.address, launch.graduated) && (
           <span
             className="uru-launch-ticket-tag"
-            style={{ background: 'linear-gradient(135deg, var(--cream-deep) 0%, var(--pink-warm) 100%)' }}
-            title="graduated on the older MHH + Graduator (pre-V3). Pool was seeded at raw ratio."
+            style={{ background: 'var(--surface-3)' }}
+            title="Graduated on the older hook and graduator. The pool was seeded at the old raw ratio."
           >
-            ✿ legacy
+            Legacy
           </span>
         )}
         {!preview && willGraduateLegacy(launch.address, launch.graduated) && (
           <span
             className="uru-launch-ticket-tag"
-            style={{ background: 'var(--yolk)', color: 'var(--anchor)', fontWeight: 700 }}
-            title="curve is on the old graduator; expect a price cliff on Uniswap after graduation."
+            style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 700 }}
+            title="This curve uses the old graduator. Expect a price drop on Uniswap after graduation."
           >
-            ⚠ cliff
+            Cliff risk
           </span>
         )}
       </div>
@@ -890,10 +895,10 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
       <span className="uru-launch-ticket-symbol">${ticker}</span>
       <div className="uru-launch-ticket-meta">
         <span>
-          curve<b>{launch.graduated ? '100%' : `${progress.toFixed(0)}%`}</b>
+          Curve<b>{launch.graduated ? '100%' : `${progress.toFixed(0)}%`}</b>
         </span>
         <span>
-          in curve<b>{raised}</b>
+          In curve<b>{raised}</b>
         </span>
       </div>
       <div className="uru-launch-ticket-progress" aria-label={`${progress.toFixed(0)} percent of the bonding curve`}>
@@ -911,7 +916,7 @@ function LaunchTile({ launch, preview }: { launch: MockLaunch; preview?: Preview
 
 function AgoLabel({ ts }: { ts: number }) {
   const label = useAgo(ts);
-  return <>{label ?? '~'}</>;
+  return <>{label ?? '…'}</>;
 }
 
 function HeroArt() {
@@ -936,106 +941,108 @@ function CultureBulletin({
   const trades = launch ? (preview?.trades ?? tradeCountOf(launch)) : 0;
   const creator = launch
     ? (preview?.creator ?? `${launch.creator.slice(0, 6)}··${launch.creator.slice(-3)}`)
-    : 'waiting for a first token launch';
+    : 'Waiting for the first token launch';
 
   return (
-    <section className="uru-home-bulletin" aria-labelledby="bulletin-title">
-      <div className="uru-home-bulletin-topline">
-        <span id="bulletin-title">token launches</span>
-        <span>creator token launches</span>
+    <section className={nftStyles.bulletin} aria-labelledby="bulletin-title">
+      <div className={nftStyles.bTopline}>
+        <span id="bulletin-title">Featured launch</span>
+        <span>Creator token launches</span>
       </div>
 
-      <div className="uru-home-bulletin-art">
+      <div className={nftStyles.bArt}>
         {launch ? (
           <Link href={`/trade/${launch.address}`} aria-label={`Open ${launch.name} token`}>
             <div
-              className="uru-home-bulletin-artwork"
+              className={nftStyles.bArtwork}
               role="img"
               aria-label={launch.imageUrl ? `${launch.name} token artwork` : undefined}
               style={{
-                background: safeBackgroundImage(launch.imageUrl, launch.logoBg),
+                background: safeBackgroundImage(launch.imageUrl),
                 backgroundSize: 'contain',
               }}
             />
           </Link>
         ) : (
-          <div className="uru-home-bulletin-artwork uru-home-bulletin-artwork-empty" aria-hidden="true" />
+          <div className={nftStyles.bArtwork} aria-hidden="true" />
         )}
       </div>
 
-      <div className="uru-home-bulletin-note">
-        <span className="uru-home-bulletin-kicker">token details</span>
+      <div className={nftStyles.bNote}>
+        <span className={nftStyles.bKicker}>Token details</span>
         {launch ? (
           <>
-            <h2 style={isLongName(launch.name) ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
-            <p className="uru-home-bulletin-symbol">${launch.ticker}</p>
-            <p className="uru-home-bulletin-byline">by {creator}</p>
-            <Link href={`/trade/${launch.address}`} className="uru-home-bulletin-link">
-              open token <span aria-hidden="true">→</span>
+            <h2 className={nftStyles.bName} style={isLongName(launch.name) ? { fontSize: sizeForName(launch.name, 34), lineHeight: 1.02 } : undefined}>{launch.name}</h2>
+            <p className={nftStyles.bSymbol}>${launch.ticker}</p>
+            <p className={nftStyles.bByline}>by {creator}</p>
+            <Link href={`/trade/${launch.address}`} className="ui-btn" data-size="sm">
+              Open token <span aria-hidden="true">→</span>
             </Link>
           </>
         ) : (
           <>
-            <h2>no token launch yet</h2>
-            <p className="uru-home-bulletin-byline">Launch a token to show it here.</p>
-            <Link href="/create" className="uru-home-bulletin-link">
-              launch a token <span aria-hidden="true">→</span>
+            <h2 className={nftStyles.bName}>No token launches yet</h2>
+            <p className={nftStyles.bByline}>Launch a token to show it here.</p>
+            <Link href="/create" className="ui-btn" data-size="sm">
+              Launch a token <span aria-hidden="true">→</span>
             </Link>
           </>
         )}
       </div>
 
-      <div className="uru-home-bulletin-signal" aria-label="Token metrics">
-        <span className="uru-home-bulletin-kicker">token metrics</span>
-        <dl>
+      <div className={nftStyles.bSignal} aria-label="Token metrics">
+        <span className={nftStyles.bKicker}>Token metrics</span>
+        <dl className={nftStyles.bMetrics}>
           <div>
-            <dt>curve</dt>
+            <dt>Curve</dt>
             <dd>{launch ? `${progress.toFixed(0)}%` : '—'}</dd>
           </div>
           <div>
-            <dt>in curve</dt>
+            <dt>In curve</dt>
             <dd>{raised}</dd>
           </div>
           <div>
-            <dt>trades</dt>
+            <dt>Trades</dt>
             <dd>{launch ? String(trades) : '—'}</dd>
           </div>
         </dl>
-        <div className="uru-home-bulletin-collectors">
-          <span>recent traders</span>
-          {collectors.slice(0, 3).map((collector) => <b key={collector}>{collector}</b>)}
-          {collectors.length === 0 && <b>waiting for the first trader</b>}
+        <div className={nftStyles.bGroup}>
+          <span className={nftStyles.bGroupLabel}>Recent traders</span>
+          {collectors.slice(0, 3).map((collector) => <b key={collector} className={nftStyles.bTrader}>{collector}</b>)}
+          {collectors.length === 0 && <span className={nftStyles.bMuted}>Waiting for the first trader</span>}
         </div>
-        <div className="uru-home-bulletin-hooks" aria-label="Selected launch protections">
-          <span>selected hooks</span>
-          <ul>
-          <li>LP locked forever</li>
-          <li>creator fees</li>
-          <li>safe launch</li>
-        </ul>
+        <div className={nftStyles.bGroup} aria-label="Selected launch protections">
+          <span className={nftStyles.bGroupLabel}>Selected hooks</span>
+          <ul className={nftStyles.bHooks}>
+            <li>LP locked forever</li>
+            <li>Creator fees</li>
+            <li>Safe launch</li>
+          </ul>
         </div>
       </div>
 
-      <div className="uru-home-bulletin-from">
-        <span className="uru-home-bulletin-kicker">more token launches</span>
-        <div className="uru-home-bulletin-artists">
+      <div className={nftStyles.bFrom}>
+        <span className={nftStyles.bKicker}>More token launches</span>
+        <div className={nftStyles.bArtists}>
           {previewLaunches.slice(0, 3).map((item) => {
             const itemPreview = PREVIEW_TICKETS.find((ticket) => ticket.address === item.address);
             const itemCreator = itemPreview?.creator ?? `${item.creator.slice(0, 6)}··${item.creator.slice(-3)}`;
             return (
-              <Link key={item.address} href={`/trade/${item.address}`} className="uru-home-bulletin-artist">
+              <Link key={item.address} href={`/trade/${item.address}`} className={nftStyles.bArtist}>
                 <span>${item.ticker}</span>
                 <b>{itemCreator}</b>
               </Link>
             );
           })}
-          {previewLaunches.length === 0 && <span className="uru-home-bulletin-artist-empty">new token launches will appear here.</span>}
+          {previewLaunches.length === 0 && <span className={nftStyles.bMuted}>New token launches will appear here.</span>}
         </div>
       </div>
 
-      <Link href="/create" className="uru-home-bulletin-cta">
-        launch a token <span aria-hidden="true">→</span>
-      </Link>
+      <div className={nftStyles.bCta}>
+        <Link href="/create" className="ui-btn" data-variant="primary">
+          Launch a token <span aria-hidden="true">→</span>
+        </Link>
+      </div>
     </section>
   );
 }

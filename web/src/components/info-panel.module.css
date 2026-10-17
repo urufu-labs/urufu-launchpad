@@ -1,0 +1,26 @@
+/* Shared look for the trade page's Info tab blocks. Sized to match the
+   trades table and chat (14px body). v2 tokens only. */
+
+.block { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-1); }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.label { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); }
+.sub { font-size: 13px; color: var(--fg-faint); }
+.text { margin: 0; font-size: 15px; line-height: 1.6; color: var(--fg); white-space: pre-line; }
+.muted { margin: 0; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
+.links { display: flex; gap: 8px; flex-wrap: wrap; }
+.link {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); color: var(--fg);
+  font-size: 13.5px; font-weight: 600; text-decoration: none;
+  transition: background 120ms, border-color 120ms;
+}
+.link:hover { background: var(--surface-3); border-color: var(--line-strong); }
+.editBtn { border: 0; background: transparent; padding: 0; color: var(--info); font-family: var(--font-sans); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.editBtn:hover { text-decoration: underline; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.stat { display: grid; gap: 4px; padding: 12px 14px; background: var(--surface-1); }
+.statLabel { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-faint); }
+.statValue { font-family: var(--font-mono); font-size: 15px; color: var(--fg); }

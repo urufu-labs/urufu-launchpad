@@ -16,9 +16,8 @@ import { sizeForName } from '@/lib/nameSize';
 import { useLastTradeMap } from '@/lib/useTradeFlash';
 import styles from './trade-entry.module.css';
 
-/// Trade index — landing/search page. There's no real indexer yet, so the discovery pattern
-/// is: paste a launched token's address to jump into its trade page. Once Ponder is wired,
-/// this page grows a live "trending / new / graduated" feed like pump.fun's front page.
+/// Trade index: paste an address to open a market, or pick any curve token from the
+/// list (active, graduated or all; sorted by most recent trade, then launch time).
 export default function TradeIndex() {
   const [addr, setAddr] = useState('');
   const router = useRouter();
@@ -39,128 +38,110 @@ export default function TradeIndex() {
         const bTs = lastTradeMap.get(b.address.toLowerCase()) ?? 0;
         if (aTs !== bTs) return bTs - aTs;
         return b.launchedAt - a.launchedAt;
-      })
-      .slice(0, 6);
+      });
   }, [feed.launches, lastTradeMap]);
+  const [filter, setFilter] = useState<'active' | 'graduated' | 'all'>('active');
+  const shown = useMemo(
+    () =>
+      feedLaunches.filter((l) => (filter === 'all' ? true : filter === 'graduated' ? l.graduated : !l.graduated)),
+    [feedLaunches, filter],
+  );
+  const activeCount = feedLaunches.filter((l) => !l.graduated).length;
 
   return (
     <div className={styles.entryPage}>
-      <header className={styles.marketHeader}>
+      <header className={styles.pageHeader}>
         <div>
-          <div className="uru-eyebrow">trade</div>
-          <h1 className={`uru-h1 ${styles.title}`}>market lookup</h1>
-        </div>
-        <div className={styles.marketMeta}>
-          <span>{mockData.enabled ? 'demo data' : activeChain}</span>
-          <span>{feedLaunches.length} bonding curves</span>
-          <Link href="/discover">all launches »</Link>
+          <p className={styles.eyebrow}>Trade</p>
+          <h1 className={styles.title}>Find a market</h1>
+          <p className={styles.lede}>Paste a token address, or pick a coin that is trading on its bonding curve.</p>
         </div>
       </header>
 
-      <section className={`uru-shell-tight ${styles.lookupPanel}`}>
-        <div className={styles.lookupCopy}>
-          <div className={styles.lookupTitle}>open token terminal</div>
-          <p className={styles.subtitle}>
-            Paste a launched ERC-20 address, or pick a bonding curve from the market list.
-          </p>
-        </div>
-        <form
-          className={styles.lookupForm}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (valid) router.push(`/trade/${addr}`);
-          }}
-        >
-          <input
-            className={`uru-input ${styles.lookupInput}`}
-            value={addr}
-            onChange={(e) => setAddr(e.target.value.trim())}
-            placeholder="0x... paste a launched ERC-20 token address"
-            autoFocus
-          />
-          <button
-            type="submit"
-            disabled={!valid}
-            className="uru-btn uru-btn-primary"
-            style={{
-              justifyContent: 'center',
-              opacity: valid ? 1 : 0.5,
-              cursor: valid ? 'pointer' : 'not-allowed',
-              padding: '8px 18px',
-            }}
-          >
-            open terminal <span className="uru-arrow">→</span>
-          </button>
-        </form>
-      </section>
+      <form
+        className={styles.lookup}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) router.push(`/trade/${addr}`);
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className={styles.lookupIcon}>
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          className={styles.lookupInput}
+          value={addr}
+          onChange={(e) => setAddr(e.target.value.trim())}
+          placeholder="Paste a token address (0x…)"
+          aria-label="Token address"
+          autoFocus
+        />
+        <button type="submit" disabled={!valid} className="ui-btn" data-variant="primary" data-size="lg">
+          Open market
+        </button>
+      </form>
 
-      {/* ================================================================
-          PREVIEW LAUNCHES — active chain card grid
-          ================================================================ */}
-      <div className={styles.sectionHeader}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span className="uru-h1" style={{ fontSize: 18 }}>active bonding curves</span>
-          <span style={{ fontFamily: 'var(--font-jp), monospace', fontSize: 12, color: 'var(--anchor-soft)' }}>
-            新着
-          </span>
+      <section className={styles.listPanel}>
+        <div className={styles.listHead}>
+          <div>
+            <h2 className={styles.listTitle}>Bonding curves</h2>
+            <p className={styles.listSub}>
+              {mockData.enabled ? 'Demo data' : feed.error && feedLaunches.length === 0 ? 'Live data unavailable' : !feed.ready ? 'Loading…' : `${activeCount} active on ${activeChain}`}
+            </p>
+          </div>
+          <div className="ui-seg" role="group" aria-label="Filter curves">
+            {(['active', 'graduated', 'all'] as const).map((f) => (
+              <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                {f === 'active' ? 'Active' : f === 'graduated' ? 'Graduated' : 'All'}
+              </button>
+            ))}
+          </div>
         </div>
-        <Link
-          href="/discover"
-          style={{
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 11,
-            color: 'var(--link-blue)',
-            textDecoration: 'underline',
-          }}
-        >
-          all launches »
-        </Link>
-      </div>
-      <div className={styles.launchGrid}>
-        {feedLaunches.map((l) => (
+        <div className={styles.rowHead} aria-hidden>
+          <span>Token</span>
+          <span>Graduation</span>
+          <span className={styles.right}>Raised</span>
+        </div>
+        {shown.map((l) => (
           <TradeTile key={l.address} launch={l} />
         ))}
-      </div>
-      {feedLaunches.length === 0 && (
-        <div className={`uru-shell-tight ${styles.emptyState}`}>
-          No active bonding curves on this chain yet. Paste a token address above, browse all launches, or create the first ERC-20 token.
+        {shown.length === 0 && feed.error && (
+          <div className={styles.emptyState}>
+            <div className="uru-feed-error" role="status" style={{ textAlign: 'left' }}>
+              <b>Couldn&apos;t load live data</b>
+              <p>Our data service didn&apos;t respond, so curves aren&apos;t showing. Nothing is lost. We&apos;ll keep retrying automatically.</p>
+              <button type="button" className="ui-btn" data-variant="primary" onClick={() => window.location.reload()}>Retry now</button>
+            </div>
+          </div>
+        )}
+        {shown.length === 0 && !feed.error && !feed.ready && (
+          <div className={styles.emptyState}>Loading curves…</div>
+        )}
+        {shown.length === 0 && !feed.error && feed.ready && (
+          <div className={styles.emptyState}>
+            {filter === 'graduated'
+              ? 'No graduated coins on this chain yet.'
+              : 'No active bonding curves on this chain yet. Paste a token address above, or launch the first coin.'}
+          </div>
+        )}
+        <div className={styles.listFoot}>
+          <Link href="/discover">Browse all launches</Link>
         </div>
-      )}
+      </section>
 
-      {/* ================================================================
-          HOW IT WORKS — collapsed to a slim strip below the fold
-          ================================================================ */}
-      <details className={`uru-shell-tight ${styles.helpPanel}`}>
-        <summary
-          style={{
-            cursor: 'pointer',
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontWeight: 700,
-            fontSize: 13,
-            listStyle: 'none',
-          }}
-        >
-          how ERC-20 trading works
-        </summary>
-        <ol style={{ margin: '8px 0 0 0', paddingLeft: 18, fontSize: 12.5, lineHeight: 1.65 }}>
+      <details className={styles.helpPanel}>
+        <summary>How trading works</summary>
+        <ol>
           <li>
-            <b>launch an ERC-20</b> in the{' '}
-            <Link href="/create" style={{ color: 'var(--link-blue)', textDecoration: 'underline' }}>
-              token creation page
-            </Link>{' '}
-            with art, ticker, socials, and curve settings.
+            <b>Launch.</b> Anyone can launch a coin on the{' '}
+            <Link href="/create">launch page</Link> with a name, ticker and picture.
           </li>
           <li>
-            <b>create the curve:</b> once the CurveFactory is deployed, call{' '}
-            <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>curveFactory.createCurve(tokenAddress)</code>{' '}
-            — this pulls the curve supply from the launcher and initializes trading.
+            <b>Trade on the curve.</b> The coin trades right away. The price goes up as people buy and down as they sell.
           </li>
           <li>
-            <b>trade:</b> paste the token address above or open{' '}
-            <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>/trade/&lt;tokenAddress&gt;</code>.
-          </li>
-          <li>
-            <b>graduate:</b> once the curve hits its ETH target, it auto-graduates onto uniswap v4.
+            <b>Graduate.</b> When the curve reaches its target, the coin moves to a Uniswap v4 pool and its liquidity locks forever.
           </li>
         </ol>
       </details>
@@ -177,50 +158,29 @@ function TradeTile({ launch }: { launch: MockLaunch }) {
     if (m?.logoDataUrl) setLocalImage(m.logoDataUrl);
   }, [launch.imageUrl, launch.chainId, launch.address]);
   const logoDataUrl = launch.imageUrl ?? localImage;
+  const pct = mockProgressPct(launch);
   return (
-    <Link
-      href={`/trade/${launch.address}`}
-      className={`uru-shell-tight uru-launch-card ${styles.tile}`}
-    >
-      <div
-        className={styles.tileMark}
-        style={{
-          background: safeBackgroundImage(logoDataUrl, launch.logoBg),
-        }}
-      >
-        {!logoDataUrl && launch.ticker.slice(0, 3)}
-      </div>
-      <div className={styles.tileBody}>
-        <div className={styles.tileTitle}>
-          <div className="uru-h2" style={{ fontSize: sizeForName(launch.name, 13), lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {launch.name}
-          </div>
-          <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-            ${launch.ticker}
-          </div>
-        </div>
-        <div className={styles.progressTrack}>
-          <div
-            className={styles.progressFill}
-            style={{
-              width: `${mockProgressPct(launch)}%`,
-              background: launch.graduated ? 'var(--mint-hot)' : undefined,
-            }}
-          />
-        </div>
-        <div
-          style={{
-            marginTop: 3,
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          {isPairLaunch(launch)
-            ? `${formatCurveAmount(launch, launch.ethReserve)} / ${formatCurveAmount(launch, launch.graduationTargetEth)}`
-            : `${Number(formatEther(launch.ethReserve)).toFixed(3)} / ${Number(formatEther(launch.graduationTargetEth)).toFixed(1)} Ξ`}
-        </div>
-      </div>
+    <Link href={`/trade/${launch.address}`} className={styles.row}>
+      <span className={styles.token}>
+        <span className={styles.tokenImg} style={{ background: safeBackgroundImage(logoDataUrl) }}>
+          {!logoDataUrl && launch.ticker.slice(0, 3)}
+        </span>
+        <span className={styles.tokenText}>
+          <span className={styles.tokenName} style={{ fontSize: Math.min(15, sizeForName(launch.name, 15)) }}>{launch.name}</span>
+          <span className={styles.tokenSym}>${launch.ticker}</span>
+        </span>
+      </span>
+      <span className={styles.progress}>
+        <span className={styles.progressTrack}>
+          <span className={styles.progressFill} style={{ width: `${pct}%` }} data-graduated={launch.graduated ? 'true' : undefined} />
+        </span>
+        <span className={styles.progressPct}>{launch.graduated ? 'Graduated' : `${pct.toFixed(1)}%`}</span>
+      </span>
+      <span className={`${styles.raised} ${styles.right}`}>
+        {isPairLaunch(launch)
+          ? `${formatCurveAmount(launch, launch.ethReserve)} / ${formatCurveAmount(launch, launch.graduationTargetEth)}`
+          : `${Number(formatEther(launch.ethReserve)).toFixed(3)} / ${Number(formatEther(launch.graduationTargetEth)).toFixed(1)} ETH`}
+      </span>
     </Link>
   );
 }

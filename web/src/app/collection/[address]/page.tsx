@@ -118,11 +118,11 @@ function CollectionRoute({ params }: { params: Promise<{ address: string }> }) {
       <div className={styles.page}>
         <div className={styles.notFound}>
           <Mascot size={72} mood="sleepy" />
-          <div className="uru-h1" style={{ fontSize: 22 }}>
-            that&apos;s not a valid collection address ~
-          </div>
-          <p style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 13, opacity: 0.75 }}>
-            try browsing <Link href="/discover" style={{ textDecoration: 'underline', color: 'var(--pink-hot)' }}>launches</Link>.
+          <h1 className={styles.notFoundTitle}>
+            That&apos;s not a valid collection address
+          </h1>
+          <p className={styles.notFoundCopy}>
+            Try browsing <Link href="/discover" className={styles.inlineLink}>launches</Link>.
           </p>
         </div>
       </div>
@@ -619,62 +619,72 @@ function CollectionView({
     : maxSupply !== undefined && totalMinted !== undefined
       ? `${totalMinted.toString()}/${maxSupply === 0n ? '∞' : maxSupply.toString()}`
       : '—/—';
+  // Display only: minted share of a capped supply, for the progress meter.
+  const mintedPct =
+    !isDn404 && maxSupply !== undefined && maxSupply > 0n && totalMinted !== undefined
+      ? Math.min(100, Number((totalMinted * 10_000n) / maxSupply) / 100)
+      : null;
+  const chainLabel = chainKey === 'robinhood' ? 'Robinhood Chain' : chainKey;
 
   return (
     <div className={styles.page}>
       <header className={styles.hero}>
-        <Mascot size={44} mood="happy" />
+        <div className={styles.eyebrow}>{isDn404 ? 'DN404 collection' : 'NFT collection'}</div>
         <h1 className={styles.heroTitle}>
-          {name ? `❁ ${name}` : '❁ collection'}
+          {name ? `${name}` : 'Collection'}
         </h1>
-        {symbol && (
-          <span className="uru-stamp uru-stamp-cream" style={{ transform: 'rotate(-2deg)' }}>
-            {symbol}
-          </span>
+        <div className={styles.metaRow}>
+          {symbol && (
+            <span className="ui-badge" data-tone="accent">
+              {symbol}
+            </span>
+          )}
+          <a
+            className={styles.addressChip}
+            href={explorerAddressUrl(chainKey, address)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {shortAddr} ↗
+          </a>
+          {collectionOwner && collectionOwner !== zeroAddress && (
+            <span className={styles.metaItem}>
+              Launched by{' '}
+              <a
+                className={styles.metaLink}
+                href={explorerAddressUrl(chainKey, collectionOwner)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {collectionOwner.slice(0, 6)}…{collectionOwner.slice(-4)}
+              </a>
+            </span>
+          )}
+        </div>
+        {indexerRow?.description && (
+          <p className={styles.lede}>
+            {indexerRow.description}
+          </p>
         )}
-        <a
-          className={styles.addressChip}
-          href={explorerAddressUrl(chainKey, address)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {shortAddr} ↗
-        </a>
       </header>
-
-      {indexerRow?.description && (
-        <p
-          style={{
-            maxWidth: 480,
-            margin: '0 auto 16px',
-            padding: '0 12px',
-            textAlign: 'center',
-            fontSize: 13,
-            lineHeight: 1.4,
-            color: 'var(--anchor-soft)',
-          }}
-        >
-          {indexerRow.description}
-        </p>
-      )}
 
       {!chainEnabled && (
         <div className={styles.warnPane}>
-          <b>nft collections aren&apos;t live on this chain yet.</b> switch to robinhood to preview.
+          <b>NFT collections aren&apos;t live on this chain yet.</b> Switch to Robinhood Chain to preview.
         </div>
       )}
 
       {chainEnabled && minterMissing && (
         <div className={styles.warnPane}>
-          <b>collection not found.</b> either not launched via the launchpad, or the mint module
+          <b>Collection not found.</b> Either it wasn&apos;t launched here, or its mint module
           hasn&apos;t been assigned yet.
         </div>
       )}
       {chainEnabled && !hasMintModule && !minterMissing && minterReadFailed && !baseReadsPending && (
         <div className={styles.warnPane}>
-          <b>couldn&apos;t load this collection.</b> the network is busy, give it a moment.{' '}
-          <button type="button" className="uru-chip" onClick={() => void refetchBase()}>
-            try again
+          <b>Couldn&apos;t load this collection.</b> The network is busy, give it a moment.{' '}
+          <button type="button" className="ui-btn" data-size="sm" onClick={() => void refetchBase()}>
+            Try again
           </button>
         </div>
       )}
@@ -682,21 +692,18 @@ function CollectionView({
       <div className={styles.workbench}>
         <div className={styles.mainStack}>
           <section className={styles.artShell}>
-            <span className={`uru-stamp uru-stamp-pink ${styles.artStamp}`} aria-hidden="true">
-              new ✿
-            </span>
             {/* Cover art: indexer-resolved cover first, tokenURI(1) as the
-                fallback. The pastel gradient + name only shows until art loads.
+                fallback. The plain surface + name only shows until art loads.
                 `contain` so the whole image shows, never cropped. */}
             <div
               className={styles.artFrame}
               role={cover ? 'img' : undefined}
               aria-label={cover ? `${name ?? 'collection'} cover art` : undefined}
               style={cover ? {
-                background: `var(--cream-deep) center/contain no-repeat url("${encodeURI(cover).replace(/"/g, '%22')}")`,
+                background: `var(--surface-2) center/contain no-repeat url("${encodeURI(cover).replace(/"/g, '%22')}")`,
               } : undefined}
             >
-              {!cover && <span>{name ?? 'cover art pending'}</span>}
+              {!cover && <span>{name ?? 'Cover art pending'}</span>}
             </div>
           </section>
 
@@ -708,149 +715,107 @@ function CollectionView({
                   .find((o) => o.address.toLowerCase() === pairAddr.toLowerCase())?.label
                 ?? 'ERC-20';
             return (
-              <section
-                className="uru-shell-tight"
-                style={{ marginBottom: 10, background: 'var(--cream)' }}
-              >
-                <div className="uru-eyebrow" style={{ marginBottom: 4 }}>✧ dn404 pair · priced in {pairLabel}</div>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    gap: 8,
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 10.5,
-                  }}
-                >
-                  <span style={{ color: 'var(--anchor-soft)' }}>
-                    hold{' '}
-                    <b style={{ color: 'var(--anchor)' }}>
+              <section className={`ui-panel ${styles.pairPanel}`}>
+                <div className={styles.pairCopy}>
+                  <span className={styles.sectionLabel}>DN404 pair, priced in {pairLabel}</span>
+                  <span className={styles.pairLine}>
+                    Hold{' '}
+                    <b className="ui-num">
                       {indexerRow.unitWei && indexerRow.unitWei !== '0'
                         ? (BigInt(indexerRow.unitWei) / 10n ** 18n).toString()
                         : '?'}
                     </b>
                     {' '}${indexerRow.ticker || 'TICK'} to hold 1 art piece
                   </span>
-                  <Link
-                    href={`/trade/${indexerRow.pairedToken}`}
-                    className="uru-chip"
-                    style={{ padding: '2px 8px', fontSize: 10, textDecoration: 'none' }}
-                  >
-                    trade ${indexerRow.ticker || 'TICK'} →
-                  </Link>
                 </div>
+                <Link
+                  href={`/trade/${indexerRow.pairedToken}`}
+                  className="ui-btn"
+                  data-size="sm"
+                >
+                  Trade ${indexerRow.ticker || 'TICK'} →
+                </Link>
               </section>
             );
           })()}
 
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">♡ holders</span>
-              <span className={styles.sectionEye}>
-                {holders && holders.length > 0 ? `${holders.length} wallets` : `who's in the collection`}
+          <section className="ui-panel">
+            <div className="ui-panel-head">
+              <h2 className="ui-panel-title">Holders</h2>
+              <span className={styles.headAside}>
+                {holders && holders.length > 0 ? `${holders.length} wallets` : `Who's in the collection`}
               </span>
             </div>
             {holders === null ? (
-              <div className={styles.emptyRow}>loading holders…</div>
+              <div className={styles.emptyRow}>Loading holders…</div>
             ) : holders.length === 0 ? (
-              <div className={styles.emptyRow}>no holders yet ~ mint first</div>
+              <div className={styles.emptyRow}>No holders yet. Mint the first one.</div>
             ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
-                {holders.slice(0, 20).map((h) => (
-                  <li
-                    key={h.address}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr auto',
-                      gap: 10,
-                      alignItems: 'center',
-                      padding: '4px 8px',
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                    }}
-                  >
-                    <a
-                      href={explorerAddressUrl(chainKey, h.address)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        color: 'var(--anchor)',
-                        textDecoration: 'none',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {h.address.slice(0, 6)}··{h.address.slice(-4)}
-                    </a>
-                    <span style={{ color: 'var(--pink-hot)' }}>x{h.balance}</span>
-                  </li>
-                ))}
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead>
+                    <tr>
+                      <th>Wallet</th>
+                      <th data-align="right">Held</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holders.slice(0, 20).map((h) => (
+                      <tr key={h.address}>
+                        <td>
+                          <a
+                            className={styles.holderLink}
+                            href={explorerAddressUrl(chainKey, h.address)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {h.address.slice(0, 6)}…{h.address.slice(-4)}
+                          </a>
+                        </td>
+                        <td data-align="right" className="ui-num">{h.balance}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
                 {holders.length > 20 && (
-                  <li style={{ padding: '4px 8px', fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)', textAlign: 'center' }}>
+                  <div className={styles.moreRow}>
                     + {holders.length - 20} more
-                  </li>
+                  </div>
                 )}
-              </ul>
+              </div>
             )}
           </section>
 
           {/* DN404 collections have no mints: NFTs come from holding the token. */}
-          {!isDn404 && <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">❉ recent mints</span>
-              <span className={styles.sectionEye}>the live mint feed</span>
+          {!isDn404 && <section className="ui-panel">
+            <div className="ui-panel-head">
+              <h2 className="ui-panel-title">Recent mints</h2>
+              <span className={styles.headAside}>Live mint feed</span>
             </div>
             {recentMints === null ? (
-              <div className={styles.emptyRow}>loading mints…</div>
+              <div className={styles.emptyRow}>Loading mints…</div>
             ) : recentMints.length === 0 ? (
-              <div className={styles.emptyRow}>no mints yet ~ be the first</div>
+              <div className={styles.emptyRow}>No mints yet. Be the first.</div>
             ) : (
               // Tiles big enough to actually see each minted piece.
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                  gap: 10,
-                }}
-              >
+              <ul className={styles.mintGrid}>
                 {recentMints.map((m) => (
-                  <li
-                    key={m.id}
-                    style={{
-                      display: 'grid',
-                      gap: 4,
-                      minWidth: 0,
-                      fontFamily: 'var(--font-pixel), monospace',
-                      fontSize: 11,
-                    }}
-                  >
+                  <li key={m.id} className={styles.mintTile}>
                     <MintThumb baseUri={baseUri} tokenId={firstMintedId(m)} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                      <span style={{ color: 'var(--pink-hot)' }}>{mintedIdsLabel(m)}</span>
-                      <span style={{ color: 'var(--anchor-soft)', fontSize: 9 }}>
+                    <div className={styles.mintTileRow}>
+                      <span className={styles.mintTileId}>{mintedIdsLabel(m)}</span>
+                      <span className={styles.mintTileTime}>
                         {new Date(Number(m.blockTimestamp) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                       </span>
                     </div>
                     <a
+                      className={styles.mintTileMinter}
                       href={explorerAddressUrl(chainKey, m.minter)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        color: 'var(--anchor)',
-                        textDecoration: 'none',
-                        fontSize: 10,
-                      }}
                     >
-                      {m.minter.slice(0, 6)}··{m.minter.slice(-4)}
-                      {m.wlUsed ? <span style={{ color: 'var(--anchor-soft)' }}> · wl</span> : null}
+                      {m.minter.slice(0, 6)}…{m.minter.slice(-4)}
+                      {m.wlUsed ? <span className={styles.mintTileWl}> · whitelist</span> : null}
                     </a>
                   </li>
                 ))}
@@ -861,133 +826,149 @@ function CollectionView({
 
         <aside className={styles.rail}>
           {isDn404 ? (
-            <section className="uru-shell">
-              <div className={styles.sectionHead}>
-                <span className="uru-eyebrow">✦ how to get one</span>
-                <span className={styles.sectionEye}>dn404</span>
+            <section className="ui-panel">
+              <div className="ui-panel-head">
+                <h2 className="ui-panel-title">How to get one</h2>
+                <span className="ui-badge">DN404</span>
               </div>
-              <div className={styles.mintPanel}>
-                <dl className={styles.statRow}>
-                  <dt>NFTs now</dt>
-                  <dd>{supplyLabel}</dd>
-                  <dt>1 NFT per</dt>
-                  <dd>
-                    {indexerRow?.unitWei && indexerRow.unitWei !== '0'
-                      ? `${(BigInt(indexerRow.unitWei) / 10n ** 18n).toLocaleString()} $${indexerRow.ticker || 'TICK'}`
-                      : '—'}
-                  </dd>
+              <div className={`ui-panel-body ${styles.mintPanel}`}>
+                <dl className={styles.kvList}>
+                  <div className="ui-kv">
+                    <dt>NFTs now</dt>
+                    <dd className="ui-num">{supplyLabel}</dd>
+                  </div>
+                  <div className="ui-kv">
+                    <dt>1 NFT per</dt>
+                    <dd className="ui-num">
+                      {indexerRow?.unitWei && indexerRow.unitWei !== '0'
+                        ? `${(BigInt(indexerRow.unitWei) / 10n ** 18n).toLocaleString()} $${indexerRow.ticker || 'TICK'}`
+                        : '—'}
+                    </dd>
+                  </div>
                 </dl>
-                <p style={{ fontSize: 12, lineHeight: 1.45, margin: '4px 0 10px', color: 'var(--anchor-soft)' }}>
-                  there&apos;s no mint here. buy the token and every full amount you hold
-                  gives you one of these NFTs. sell below it and the NFT goes away.
+                <p className={styles.note}>
+                  There&apos;s no mint here. Buy the token and every full amount you hold
+                  gives you one of these NFTs. Sell below it and the NFT goes away.
                 </p>
                 <Link
                   href={`/trade/${dn404Base}`}
-                  className="uru-btn uru-btn-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
+                  className="ui-btn"
+                  data-variant="primary"
+                  data-block="true"
+                  data-size="lg"
                 >
-                  ❁ trade ${indexerRow?.ticker || symbol || 'token'}
+                  Trade ${indexerRow?.ticker || symbol || 'token'}
                 </Link>
               </div>
             </section>
           ) : (
-          <section className="uru-shell">
-            <div className={styles.sectionHead}>
-              <span className="uru-eyebrow">✦ mint</span>
-              <span className={styles.sectionEye}>{chainKey}</span>
+          <section className="ui-panel">
+            <div className="ui-panel-head">
+              <h2 className="ui-panel-title">Mint</h2>
+              <span className="ui-badge">{chainLabel}</span>
             </div>
 
-            <div className={styles.mintPanel}>
-              <dl className={styles.statRow}>
-                <dt>pay</dt>
-                <dd>{hasMintModule ? priceUnitLabel : <span style={{ opacity: 0.5 }}>—</span>}</dd>
-                <dt>mode</dt>
-                <dd>
-                  {mintMode === undefined ? (
-                    <span style={{ opacity: 0.5 }}>—</span>
-                  ) : mintMode === 0 ? (
-                    'fixed'
-                  ) : (
-                    'linear step'
-                  )}
-                </dd>
-                <dt>price</dt>
-                <dd>
-                  {hasMintModule && price > 0n ? (
-                    `${priceDisplay} ${priceUnitLabel}`
-                  ) : (
-                    <span style={{ opacity: 0.5 }}>pending ~</span>
-                  )}
-                </dd>
-                <dt>supply</dt>
-                <dd>{supplyLabel}</dd>
+            <div className={`ui-panel-body ${styles.mintPanel}`}>
+              <dl className={styles.kvList}>
+                <div className="ui-kv">
+                  <dt>Price</dt>
+                  <dd className={styles.priceValue}>
+                    {hasMintModule && price > 0n ? (
+                      `${priceDisplay} ${priceUnitLabel}`
+                    ) : (
+                      <span className={styles.muted}>Pending</span>
+                    )}
+                  </dd>
+                </div>
+                <div className="ui-kv">
+                  <dt>Pay with</dt>
+                  <dd className="ui-num">{hasMintModule ? priceUnitLabel : <span className={styles.muted}>—</span>}</dd>
+                </div>
+                <div className="ui-kv">
+                  <dt>Pricing</dt>
+                  <dd>
+                    {mintMode === undefined ? (
+                      <span className={styles.muted}>—</span>
+                    ) : mintMode === 0 ? (
+                      'Fixed'
+                    ) : (
+                      'Linear step'
+                    )}
+                  </dd>
+                </div>
                 {discountFloorBps !== undefined && discountFloorBps < 10_000n && (
-                  <>
-                    <dt>floor</dt>
-                    <dd>{Number(discountFloorBps) / 100}% min</dd>
-                  </>
+                  <div className="ui-kv">
+                    <dt>Discount floor</dt>
+                    <dd className="ui-num">{Number(discountFloorBps) / 100}% min</dd>
+                  </div>
                 )}
                 {claimedDiscountBps > 0n && (
-                  <>
-                    <dt>tier discount</dt>
-                    <dd>
-                      −{(Number(claimedDiscountBps) / 100).toFixed(2)}%
+                  <div className="ui-kv">
+                    <dt>Tier discount</dt>
+                    <dd className="ui-num">
+                      <span className={styles.discount}>−{(Number(claimedDiscountBps) / 100).toFixed(2)}%</span>
                       {savingsDisplay && (
-                        <span style={{ opacity: 0.75, marginLeft: 6 }}>
+                        <span className={styles.savings}>
                           (saves {savingsDisplay} {priceUnitLabel})
                         </span>
                       )}
                     </dd>
-                  </>
+                  </div>
                 )}
               </dl>
 
+              <div className={styles.supplyBlock}>
+                <div className={styles.supplyHead}>
+                  <span>Minted</span>
+                  <span className="ui-num">{supplyLabel}</span>
+                </div>
+                {mintedPct !== null && (
+                  <div className="ui-meter" data-size="lg">
+                    <span className="ui-meter-fill" style={{ transform: `scaleX(${mintedPct / 100})` }} />
+                  </div>
+                )}
+              </div>
+
               {tiers.length > 0 && (
-                <p
-                  style={{
-                    fontSize: 12,
-                    opacity: 0.8,
-                    margin: '4px 0 8px',
-                  }}
-                >
+                <p className={styles.note}>
                   {fetchingAttestations
-                    ? '~ checking your discounts ~'
+                    ? 'Checking your discounts…'
                     : externalProofs.length > 0
-                      ? `✿ discount applied for ${externalProofs.length} tier${externalProofs.length === 1 ? '' : 's'}`
+                      ? `Discount applied for ${externalProofs.length} tier${externalProofs.length === 1 ? '' : 's'}`
                       : Object.keys(attestationErrors).length > 0
-                        ? '⚠ discount check failed, so this mint is full price'
+                        ? 'Discount check failed, so this mint is full price'
                         : walletAddress
-                          ? 'no discount for this wallet'
-                          : 'connect a wallet to check for discounts'}
+                          ? 'No discount for this wallet'
+                          : 'Connect a wallet to check for discounts'}
                 </p>
               )}
 
               {wlActive && wlWindowEnd !== undefined && (
-                <p style={{ fontSize: 12, lineHeight: 1.45, margin: '4px 0 8px', color: 'var(--anchor-soft)' }}>
-                  <b style={{ color: 'var(--anchor)' }}>whitelist only</b> until{' '}
+                <p className={styles.wlNote}>
+                  <b>Whitelist only</b> until{' '}
                   {new Date(Number(wlWindowEnd) * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.{' '}
                   {!walletAddress
-                    ? 'connect a wallet to check if you are on it.'
+                    ? 'Connect a wallet to check if you are on it.'
                     : wlStatus === 'checking'
-                      ? 'checking your wallet ~'
+                      ? 'Checking your wallet…'
                       : wlStatus === 'eligible'
-                        ? "✿ you're on the whitelist."
+                        ? "You're on the whitelist."
                         : wlStatus === 'not-eligible'
                           ? wlFlavor === 1
-                            ? "this wallet doesn't hold enough of the required collection. everyone can mint after the whitelist ends."
-                            : "this wallet isn't on the whitelist. everyone can mint after it ends."
+                            ? "This wallet doesn't hold enough of the required collection. Everyone can mint after the whitelist ends."
+                            : "This wallet isn't on the whitelist. Everyone can mint after it ends."
                           : wlStatus === 'error'
-                            ? "couldn't check the whitelist right now. try again in a moment."
+                            ? "Couldn't check the whitelist right now. Try again in a moment."
                             : ''}
                 </p>
               )}
 
               <div className={styles.qtyRow}>
-                <span className={styles.qtyLabel}>qty</span>
+                <span className={styles.qtyLabel}>Quantity</span>
                 <div className={styles.qtyControls}>
                   <button
                     type="button"
-                    className={styles.qtyBtn}
+                    className="ui-icon-btn"
                     onClick={() => setMintQty(Math.max(1, mintQty - 1))}
                     aria-label="Decrease quantity"
                   >
@@ -996,7 +977,7 @@ function CollectionView({
                   <span className={styles.qtyNum}>{mintQty}</span>
                   <button
                     type="button"
-                    className={styles.qtyBtn}
+                    className="ui-icon-btn"
                     onClick={() => setMintQty(Math.min(20, mintQty + 1))}
                     aria-label="Increase quantity"
                   >
@@ -1008,48 +989,41 @@ function CollectionView({
               {needsUruApprove && !isApproved && (
                 <button
                   type="button"
-                  className="uru-btn uru-btn-mint"
+                  className="ui-btn"
+                  data-variant="ink"
+                  data-block="true"
                   disabled={isApproving || isWaitingApprove || isSwitching || !walletAddress}
                   onClick={doApprove}
-                  style={{ width: '100%', justifyContent: 'center' }}
                 >
                   {isWaitingApprove
-                    ? 'waiting for approval ~'
+                    ? 'Waiting for approval…'
                     : isApproving
-                      ? 'approving URU ~'
+                      ? 'Approving URU…'
                       : approveOnce
-                        ? '✿ approve URU (one time)'
-                        : `✿ approve ${priceDisplay} URU`}
+                        ? 'Approve URU (one time)'
+                        : `Approve ${priceDisplay} URU`}
                 </button>
               )}
               {needsUruApprove && !isApproved && (
-                <label
-                  style={{
-                    display: 'flex',
-                    gap: 6,
-                    alignItems: 'flex-start',
-                    fontSize: 11,
-                    lineHeight: 1.4,
-                    color: 'var(--anchor-soft)',
-                    cursor: 'pointer',
-                  }}
-                >
+                <label className={styles.checkRow}>
                   <input
                     type="checkbox"
                     checked={approveOnce}
                     onChange={(e) => setApproveOnce(e.target.checked)}
-                    style={{ marginTop: 2 }}
                   />
                   <span>
-                    approve once for all mints here. you&apos;re only charged the mint price when you mint.
-                    untick to approve just this mint.
+                    Approve once for all mints here. You&apos;re only charged the mint price when you mint.
+                    Untick to approve just this mint.
                   </span>
                 </label>
               )}
 
               <button
                 type="button"
-                className={`uru-btn ${hasMintModule && !needsUruApprove ? 'uru-btn-primary' : ''}`}
+                className="ui-btn"
+                data-variant={hasMintModule && !needsUruApprove ? 'primary' : undefined}
+                data-block="true"
+                data-size="lg"
                 disabled={
                   !hasMintModule ||
                   needsUruApprove ||
@@ -1060,107 +1034,96 @@ function CollectionView({
                   !walletAddress
                 }
                 onClick={doMint}
-                style={{ width: '100%', justifyContent: 'center' }}
               >
                 {isMinted
-                  ? `✿ minted ✓ · mint ${mintQty} more`
+                  ? `Minted ✓ · Mint ${mintQty} more`
                   : isWaitingMint
-                    ? 'waiting for receipt ~'
+                    ? 'Waiting for receipt…'
                     : isMinting
-                      ? 'confirming in wallet ~'
+                      ? 'Confirm in your wallet…'
                       : hasMintModule
-                        ? `❁ mint ${mintQty}`
-                        : '❁ mint (soon)'}
+                        ? `Mint ${mintQty}`
+                        : 'Mint (soon)'}
               </button>
 
               {mintError && (
-                <p style={{
-                  fontFamily: 'var(--font-round), Klee One, cursive',
-                  fontSize: 11,
-                  color: 'var(--pink-hot)',
-                  textAlign: 'center',
-                  lineHeight: 1.4,
-                }}>
+                <p className={`ui-error ${styles.centerNote}`}>
                   {mintError.message.split('\n')[0]}
                 </p>
               )}
               {isMinted && mintReceipt && (
-                <p style={{
-                  fontFamily: 'var(--font-round), Klee One, cursive',
-                  fontSize: 11,
-                  color: 'var(--anchor)',
-                  opacity: 0.75,
-                  textAlign: 'center',
-                }}>
-                  tx {mintReceipt.transactionHash.slice(0, 10)}… mined
+                <p className={styles.centerNote}>
+                  Transaction <span className="ui-num">{mintReceipt.transactionHash.slice(0, 10)}…</span> confirmed
                 </p>
               )}
-
-              {isLauncher && (
-                <div
-                  className="uru-shell-tight"
-                  style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}
-                >
-                  <div className="uru-eyebrow">❁ collection metadata (launcher only)</div>
-                  <p style={{ fontSize: 11, opacity: 0.8, margin: 0, lineHeight: 1.45 }}>
-                    {onChainContractUri
-                      ? <>set to <span className="uru-num">{onChainContractUri}</span></>
-                      : <>not set. OpenSea shows no banner or description for this collection until it is.</>}
-                  </p>
-                  <input
-                    type="text"
-                    className="uru-input"
-                    value={contractUriDraft}
-                    onChange={(e) => setContractUriDraft(e.target.value)}
-                    placeholder={suggestedContractUri || 'ipfs://.../collection.json'}
-                    aria-label="collection metadata URI"
-                  />
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {suggestedContractUri && contractUriDraft !== suggestedContractUri && (
-                      <button
-                        type="button"
-                        className="uru-chip"
-                        onClick={() => setContractUriDraft(suggestedContractUri)}
-                        title="the studio publishes collection.json next to the per-token files"
-                      >
-                        use {'<baseURI>'}collection.json
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="uru-btn"
-                      disabled={!contractUriDraftOk || isSettingContractUri || isWaitingContractUri}
-                      onClick={doSetContractUri}
-                    >
-                      {contractUriSet
-                        ? '✓ saved'
-                        : isWaitingContractUri
-                          ? 'waiting for receipt ~'
-                          : isSettingContractUri
-                            ? 'confirming in wallet ~'
-                            : 'save'}
-                    </button>
-                  </div>
-                  {contractUriError && (
-                    <p style={{ fontSize: 11, color: 'var(--pink-hot)', margin: 0 }}>
-                      {contractUriError.message.split('\n')[0]}
-                    </p>
-                  )}
-                </div>
-              )}
               {!walletAddress && (
-                <p style={{
-                  fontFamily: 'var(--font-round), Klee One, cursive',
-                  fontSize: 11,
-                  color: 'var(--anchor)',
-                  opacity: 0.7,
-                  textAlign: 'center',
-                }}>
-                  connect a wallet to mint
+                <p className={styles.centerNote}>
+                  Connect a wallet to mint
                 </p>
               )}
             </div>
           </section>
+          )}
+
+          {!isDn404 && isLauncher && (
+            <section className="ui-panel">
+              <div className="ui-panel-head">
+                <h2 className="ui-panel-title">Launcher tools</h2>
+                <span className="ui-badge" data-tone="info">Only you</span>
+              </div>
+              <div className={`ui-panel-body ${styles.launcherBody}`}>
+                <div className={styles.sectionLabel}>Collection metadata</div>
+                <p className={styles.note}>
+                  {onChainContractUri
+                    ? <>Set to <span className={`ui-num ${styles.breakAll}`}>{onChainContractUri}</span></>
+                    : <>Not set. OpenSea shows no banner or description for this collection until it is.</>}
+                </p>
+                <input
+                  type="text"
+                  className="ui-input"
+                  data-mono="true"
+                  value={contractUriDraft}
+                  onChange={(e) => setContractUriDraft(e.target.value)}
+                  placeholder={suggestedContractUri || 'ipfs://.../collection.json'}
+                  aria-label="collection metadata URI"
+                />
+                <div className={styles.launcherActions}>
+                  {suggestedContractUri && contractUriDraft !== suggestedContractUri && (
+                    <button
+                      type="button"
+                      className="ui-btn"
+                      data-size="sm"
+                      data-variant="ghost"
+                      onClick={() => setContractUriDraft(suggestedContractUri)}
+                      title="The studio publishes collection.json next to the per-token files"
+                    >
+                      Use {'<baseURI>'}collection.json
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="ui-btn"
+                    data-size="sm"
+                    data-variant="primary"
+                    disabled={!contractUriDraftOk || isSettingContractUri || isWaitingContractUri}
+                    onClick={doSetContractUri}
+                  >
+                    {contractUriSet
+                      ? 'Saved ✓'
+                      : isWaitingContractUri
+                        ? 'Waiting for receipt…'
+                        : isSettingContractUri
+                          ? 'Confirm in your wallet…'
+                          : 'Save'}
+                  </button>
+                </div>
+                {contractUriError && (
+                  <p className="ui-error">
+                    {contractUriError.message.split('\n')[0]}
+                  </p>
+                )}
+              </div>
+            </section>
           )}
         </aside>
       </div>
@@ -1199,12 +1162,12 @@ function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId:
       style={{
         width: '100%',
         aspectRatio: '1 / 1',
-        borderRadius: 8,
-        border: '1.5px solid var(--anchor)',
+        borderRadius: 'var(--r-md)',
+        border: '1px solid var(--line)',
         // Metadata is untrusted: encode so a quote in the URL can't break out of url("").
         background: src
-          ? `var(--cream-deep) center/contain no-repeat url("${encodeURI(src).replace(/"/g, '%22')}")`
-          : 'var(--cream-deep)',
+          ? `var(--surface-2) center/contain no-repeat url("${encodeURI(src).replace(/"/g, '%22')}")`
+          : 'var(--surface-2)',
         display: 'block',
       }}
     />

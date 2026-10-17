@@ -1,166 +1,79 @@
 'use client';
 
-/// Header nav dropdown for the "✿ create" link — splits into "token" (the
-/// existing /create ERC20 launchpad) and "nft" (new /create/nft route).
-///
-/// Behavior: hovering the trigger opens the menu; clicking the trigger
-/// navigates to the token launcher (existing behavior preserved for muscle
-/// memory) while a submenu offers the alternative. Menu closes on outside
-/// click, Escape, or route change. The "nft" option greys out to "soon"
-/// when NFT_LAUNCHES_ENABLED is false for the active chain.
+/// Header "Launch" menu: token (/create), NFT collection (/create/nft) and
+/// DN404 (/create/dn404). Opens on hover or click. NFT and DN404 show "soon"
+/// when their launch flags are off for the active chain.
 
-import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { Menu } from '@/components/ui/Menu';
+import { IconChevron } from '@/components/shell/icons';
+import styles from '@/components/shell/shell.module.css';
+
+const ITEMS = [
+  { href: '/create', title: 'Token', desc: 'A coin on a bonding curve', flag: null },
+  { href: '/create/nft', title: 'NFT collection', desc: 'Art people mint at your price', flag: 'nft' },
+  { href: '/create/dn404', title: 'DN404', desc: 'A coin and NFTs in one', flag: 'dn404' },
+] as const;
 
 export function CreateNavDropdown() {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
   const activeChain = useActiveChain();
-  const nftEnabled = NFT_LAUNCHES_ENABLED[activeChain] === true;
-  const dn404Enabled = DN404_LAUNCHES_ENABLED[activeChain] === true;
-
-  const openNow = () => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-    setOpen(true);
+  const enabled = {
+    nft: NFT_LAUNCHES_ENABLED[activeChain] === true,
+    dn404: DN404_LAUNCHES_ENABLED[activeChain] === true,
   };
-  // Small delay before closing so the cursor can travel from trigger
-  // to menu items without the menu vanishing mid-move.
-  const scheduleClose = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpen(false), 120);
-  };
-
-  // Close on route change so the menu doesn't linger after a nav click.
-  useEffect(() => { setOpen(false); }, [pathname]);
-
-  // Close on outside click + Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  const inCreate = pathname === '/create' || pathname.startsWith('/create/');
 
   return (
-    <div
-      ref={wrapRef}
-      className="relative"
-      onMouseEnter={openNow}
-      onMouseLeave={scheduleClose}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        onFocus={() => setOpen(true)}
-        className="hover:underline"
-        style={{
-          color: 'var(--anchor)',
-          fontFamily: 'inherit',
-          fontSize: 'inherit',
-          background: 'transparent',
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-        }}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        ✿ create ▾
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute top-full left-0 flex flex-col"
-          onMouseEnter={openNow}
-          onMouseLeave={scheduleClose}
-          style={{
-            minWidth: 140,
-            background: 'var(--cream)',
-            border: '1.5px solid var(--anchor)',
-            borderRadius: 8,
-            // Extra top padding replaces the previous `mt-1` gap so
-            // the menu is flush with the trigger — no dead zone the
-            // cursor has to cross to reach the items.
-            padding: '10px 6px 6px',
-            gap: 4,
-            zIndex: 60,
-            fontFamily: 'var(--font-round), Klee One, cursive',
-            fontSize: 13,
-            boxShadow: '2px 3px 0 rgba(0,0,0,0.08)',
-          }}
+    <Menu
+      label="Launch"
+      align="start"
+      width={250}
+      openOnHover
+      trigger={(open) => (
+        <button
+          type="button"
+          className={styles.navLink}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-current={inCreate ? 'page' : undefined}
         >
-          <Link
-            href="/create"
-            role="menuitem"
-            className="hover:underline"
-            style={{ color: 'var(--anchor)', padding: '4px 8px', borderRadius: 4 }}
-          >
-            ✦ token
-          </Link>
-          {nftEnabled ? (
-            <Link
-              href="/create/nft"
-              role="menuitem"
-              className="hover:underline"
-              style={{ color: 'var(--anchor)', padding: '4px 8px', borderRadius: 4 }}
-            >
-              ❁ nft
-            </Link>
-          ) : (
-            <span
-              role="menuitem"
-              aria-disabled="true"
-              style={{
-                color: 'var(--anchor)',
-                opacity: 0.45,
-                padding: '4px 8px',
-                cursor: 'not-allowed',
-              }}
-            >
-              ❁ nft <span style={{ fontSize: 10 }}>soon ✧</span>
-            </span>
-          )}
-          {dn404Enabled ? (
-            <Link
-              href="/create/dn404"
-              role="menuitem"
-              className="hover:underline"
-              style={{ color: 'var(--anchor)', padding: '4px 8px', borderRadius: 4 }}
-            >
-              ✧ dn404
-            </Link>
-          ) : (
-            <span
-              role="menuitem"
-              aria-disabled="true"
-              style={{
-                color: 'var(--anchor)',
-                opacity: 0.45,
-                padding: '4px 8px',
-                cursor: 'not-allowed',
-              }}
-            >
-              ✧ dn404 <span style={{ fontSize: 10 }}>soon ✧</span>
-            </span>
-          )}
-        </div>
+          Launch <IconChevron />
+        </button>
       )}
-    </div>
+    >
+      {(close) =>
+        ITEMS.map((item) => {
+          const on = item.flag === null || enabled[item.flag];
+          return on ? (
+            <Link
+              key={item.href}
+              href={item.href}
+              role="menuitem"
+              className="ui-menu-item"
+              data-active={pathname === item.href ? 'true' : undefined}
+              onClick={close}
+            >
+              <span className="ui-menu-desc">
+                {item.title}
+                <span>{item.desc}</span>
+              </span>
+            </Link>
+          ) : (
+            <span key={item.href} role="menuitem" aria-disabled="true" className="ui-menu-item">
+              <span className="ui-menu-desc">
+                {item.title}
+                <span>{item.desc}</span>
+              </span>
+              <small>soon</small>
+            </span>
+          );
+        })
+      }
+    </Menu>
   );
 }

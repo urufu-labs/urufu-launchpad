@@ -168,7 +168,7 @@ function CreatePageContent() {
     setLogoNotice(null);
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      setLogoError('pls pick an image file ~~');
+      setLogoError('Please choose an image file.');
       return;
     }
     try {
@@ -176,11 +176,11 @@ function CreatePageContent() {
       setMetadata((prev) => ({ ...prev, logoDataUrl: result.dataUrl }));
       if (result.optimized) {
         setLogoNotice(
-          `optimized ${Math.ceil(result.originalBytes / 1024)}KB → ${Math.ceil(result.outputBytes / 1024)}KB for launch ~`,
+          `Optimized from ${Math.ceil(result.originalBytes / 1024)} KB to ${Math.ceil(result.outputBytes / 1024)} KB for launch.`,
         );
       }
     } catch (err) {
-      setLogoError(err instanceof Error ? err.message : 'could not read file');
+      setLogoError(err instanceof Error ? err.message : 'Could not read that file.');
     }
   }
 
@@ -240,11 +240,11 @@ function CreatePageContent() {
     const map: Record<string, string> = {};
     const labelOf = (id: string) => moduleById(id)?.label ?? id;
     for (const mod of available) {
-      if (mod.status !== 'shipped') { map[mod.id] = 'not shipped yet ~~'; continue; }
-      if (selectedModules.includes(mod.id)) { map[mod.id] = 'already in basket ✿'; continue; }
+      if (mod.status !== 'shipped') { map[mod.id] = 'Not available yet'; continue; }
+      if (selectedModules.includes(mod.id)) { map[mod.id] = 'Already selected'; continue; }
       const blockers = conflictBlockers[mod.id] ?? [];
       if (blockers.length > 0) {
-        map[mod.id] = `blocked by ${blockers.map(labelOf).join(' + ')}`;
+        map[mod.id] = `Blocked by ${blockers.map(labelOf).join(' + ')}`;
         continue;
       }
       // Curve mechanic auto-renounces ownership (Router forces OwnershipMode.Renounce
@@ -255,14 +255,14 @@ function CreatePageContent() {
       // `useCurve` is declared further down — recompute inline to avoid TDZ.
       const curveModeOn = mechanic === 'custom' && base === 'ERC20';
       if (curveModeOn && mod.requiresOwner) {
-        map[mod.id] = 'needs an owner — bonding curve renounces at launch ~';
+        map[mod.id] = 'Needs an owner, but curve launches renounce ownership at launch';
         continue;
       }
       // Transfer-tax modules (FoT) hook into every ERC-20 transfer. Bonding curve
       // buys are ERC-20 transfers from the curve to the buyer, so a fee would drain
       // curve reserves on every trade + break graduation. Direct-launch is fine.
       if (curveModeOn && mod.taxesTransfers) {
-        map[mod.id] = 'transfer tax — would break curve trading + graduation ~';
+        map[mod.id] = 'Transfer tax would break curve trading and graduation';
         continue;
       }
       map[mod.id] = '';
@@ -717,7 +717,7 @@ function CreatePageContent() {
   const applyWhitelist = async () => {
     setWlError(null);
     if (!isAddress(wlSourceAddress)) {
-      setWlError('paste a valid contract address');
+      setWlError('Paste a valid contract address.');
       return;
     }
     if (mockData.enabled) {
@@ -747,16 +747,16 @@ function CreatePageContent() {
         });
         const retryable = res.status === 504 || res.status === 503;
         if (!retryable || attempt === MAX_ATTEMPTS) break;
-        setWlNote('this one has a lot of holders, still counting. hang tight, it can take a couple of minutes.');
+        setWlNote('This contract has a lot of holders and is still being counted. It can take a couple of minutes.');
         await new Promise((r) => setTimeout(r, 5_000));
       }
       if (!res || !res.ok) {
-        const err = res ? await res.json().catch(() => ({ message: res!.statusText })) : { message: 'snapshot failed' };
-        throw new Error(err.message || 'snapshot failed');
+        const err = res ? await res.json().catch(() => ({ message: res!.statusText })) : { message: 'Snapshot failed.' };
+        throw new Error(err.message || 'Snapshot failed.');
       }
       const data = await res.json();
       if (data.holderCount < 2) {
-        throw new Error(`only ${data.holderCount} holders found. a whitelist needs at least 2.`);
+        throw new Error(`Only ${data.holderCount} holders found. A whitelist needs at least 2.`);
       }
       setWlSnapshot({
         root: data.root,
@@ -829,7 +829,7 @@ function CreatePageContent() {
     const label = selectedModules.map((id) => moduleById(id)?.label ?? id).join(' + ');
     setRejectStamp((prev) => ({
       modLabel: label,
-      reason: 'this combo isn\'t shipped yet — try fewer modules or a different mix',
+      reason: 'This combination isn\'t available yet. Try fewer modules or a different mix.',
       key: (prev?.key ?? 0) + 1,
     }));
     if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
@@ -1035,7 +1035,7 @@ function CreatePageContent() {
 
   // Refetch URU allowance every time a tx confirms while on the URU path. Covers the
   // approve → launch handoff (approve confirms → allowance refetches → button flips
-  // from "approve URU" to "✿ launch ✿"). Without this the button stays stuck on
+  // from "approve URU" to "launch"). Without this the button stays stuck on
   // approve until wagmi's stale-time expires.
   useEffect(() => {
     if (payToken === 'URU' && receipt.data) uruAllowance.refetch();
@@ -1142,50 +1142,50 @@ function CreatePageContent() {
         ? 'sleepy'
         : 'happy';
   const launchButtonLabel = launchPending
-    ? 'confirming ~~'
+    ? 'Confirming in wallet…'
     : receipt.isLoading
-      ? 'waiting..'
+      ? 'Waiting for confirmation…'
       : mockData.enabled
         ? canLaunchMock
-          ? 'create mock launch'
+          ? 'Create demo launch'
           : !mounted
-            ? 'loading demo form'
+            ? 'Loading demo form'
             : !name.trim() || !ticker.trim()
-                ? 'name + ticker first'
+                ? 'Add a name and ticker first'
                 : ownerlessDeadModules.length > 0
-                  ? 'drop blocked modules'
+                  ? 'Remove blocked modules'
                   : !multisigValid
-                    ? 'fix owner address'
+                    ? 'Fix the owner address'
                     : !moduleParamsFilled
-                      ? 'fill module params'
-                      : 'launch blocked'
+                      ? 'Fill in module settings'
+                      : 'Launch blocked'
         : !mounted
-          ? 'checking wallet'
+          ? 'Checking wallet'
           : !isConnected
-            ? 'connect wallet to launch'
+            ? 'Connect wallet to launch'
             : !contracts
-              ? 'contracts not live'
+              ? 'Contracts not live'
               : !isOnEnabledChain
-                ? `switch to ${CHAIN_LABELS[targetChain]}`
+                ? `Switch to ${CHAIN_LABELS[targetChain]}`
                 : !name.trim() || !ticker.trim()
-                  ? 'name + ticker first'
+                  ? 'Add a name and ticker first'
                   : ownerlessDeadModules.length > 0
-                    ? 'drop blocked modules'
+                    ? 'Remove blocked modules'
                     : !multisigValid
-                      ? 'fix owner address'
+                      ? 'Fix the owner address'
                       : !moduleParamsFilled
-                        ? 'fill module params'
+                        ? 'Fill in module settings'
                         : implRegistered
-                          ? 'launch'
-                          : 'impl not registered';
+                          ? 'Launch token'
+                          : 'Module combination not registered';
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-      {/* Center-of-screen reject stamp — fires when the user taps a blocked
-          module. Rides the existing uru-pop keyframes for its entrance so it
-          matches the paper/stamp aesthetic. Auto-dismisses in 2.6s (managed
-          via rejectClearRef in addModule). Pointer-events off so the popup
-          doesn't steal clicks. */}
+      {/* Center-of-screen reject notice — fires when the user taps a blocked
+          module. Rides the existing uru-pop keyframes for its entrance.
+          Stays until the user clicks the backdrop (managed via rejectClearRef
+          in addModule). The notice itself is pointer-events off so only the
+          backdrop catches the dismiss click. */}
       {rejectStamp && (
         <>
           {/* Dim backdrop — click anywhere to dismiss. Pointer-events on so it
@@ -1197,14 +1197,7 @@ function CreatePageContent() {
               if (rejectClearRef.current) clearTimeout(rejectClearRef.current);
               setRejectStamp(null);
             }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9998,
-              background: 'rgba(58, 44, 58, 0.35)',
-              backdropFilter: 'blur(2px)',
-              cursor: 'pointer',
-            }}
+            className={styles.rejectBackdrop}
           />
           {/* Outer container handles centering — flexbox on a full-viewport
               overlay so nothing can knock it off-axis. The `uru-pop` entrance
@@ -1214,179 +1207,57 @@ function CreatePageContent() {
             key={rejectStamp.key}
             aria-live="polite"
             role="status"
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 9999,
-              pointerEvents: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className={styles.rejectLayer}
           >
-          <div
-            className="uru-pop"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 12,
-              maxWidth: '92vw',
-              width: 'min(520px, 92vw)',
-            }}
-          >
-            {/* Urufu the wolf, confused. Sized big for center-screen presence. */}
-            <div className="uru-idle-bob">
-              <Mascot size={140} mood="confused" />
+            <div className={`uru-pop ${styles.rejectCard}`}>
+              <div className={`uru-idle-bob ${styles.rejectMascot}`}>
+                <Mascot size={84} mood="confused" />
+              </div>
+              <span className="ui-badge" data-tone="sell">Can&apos;t add this module</span>
+              <div className={styles.rejectTitle}>{rejectStamp.modLabel}</div>
+              <div className={styles.rejectReason}>{rejectStamp.reason}</div>
+              <div className={styles.rejectDismiss}>Click anywhere to dismiss.</div>
             </div>
-            {/* Cream speech-bubble w/ tail pointing UP toward the wolf. Custom
-                inline styling so the tail sits on top rather than the default
-                left-side position from .uru-bubble. */}
-            <div
-              style={{
-                position: 'relative',
-                background: 'var(--cream)',
-                border: '2.5px solid var(--anchor)',
-                borderRadius: 16,
-                padding: '22px 28px',
-                boxShadow: '5px 5px 0 var(--anchor)',
-                fontFamily: 'var(--font-round), "Klee One", cursive',
-                textAlign: 'center',
-                width: '100%',
-                transform: 'rotate(-1deg)',
-              }}
-            >
-              {/* Tail pointing up */}
-              <span
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  top: -14,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: 0,
-                  height: 0,
-                  borderLeft: '12px solid transparent',
-                  borderRight: '12px solid transparent',
-                  borderBottom: '14px solid var(--anchor)',
-                }}
-              />
-              <span
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  top: -10,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: 0,
-                  height: 0,
-                  borderLeft: '9px solid transparent',
-                  borderRight: '9px solid transparent',
-                  borderBottom: '11px solid var(--cream)',
-                }}
-              />
-              {/* Corner stamp — hand-placed */}
-              <span
-                className="uru-stamp uru-stamp-pink"
-                style={{
-                  position: 'absolute',
-                  top: -18,
-                  right: -14,
-                  transform: 'rotate(11deg)',
-                  fontSize: 12,
-                  letterSpacing: 0.5,
-                }}
-              >
-                ✗ nope~
-              </span>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--anchor)', lineHeight: 1.2 }}>
-                {rejectStamp.modLabel}
-              </div>
-              <div style={{ fontSize: 14, color: 'var(--anchor-soft)', marginTop: 10, fontStyle: 'italic', lineHeight: 1.4 }}>
-                {rejectStamp.reason}
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 14, opacity: 0.6 }}>
-                (click anywhere to dismiss)
-              </div>
-            </div>
-          </div>
           </div>
         </>
       )}
-      {/* Metadata save failure modal — kawaii shell over dim backdrop. Fires
+      {/* Metadata save failure modal — dialog over dim backdrop. Fires
           when the sig / Pinata / compile-service POST fails (or the launcher
           canceled the sig). Blocking-ish: dismiss is allowed but users can
           also retry inline. Without this, metadata silently doesn't save. */}
       {metadataSaveError && launchedTokenAddress && (
-        <div
-          onClick={() => setMetadataSaveError(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(58,44,58,0.35)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'center',
-            padding: 20,
-            overflowY: 'auto',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="uru-shell"
-            style={{ width: 'min(520px, 100%)', marginTop: 32, background: 'var(--paper-base)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <Mascot size={44} mood="gasp" />
-              <div>
-                <div className="uru-h2" style={{ fontSize: 16 }}>metadata didn&apos;t save ~~</div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-pixel), monospace',
-                    fontSize: 10,
-                    color: 'var(--anchor-soft)',
-                    marginTop: 2,
-                  }}
+        <div onClick={() => setMetadataSaveError(null)} className={`ui-overlay ${styles.modalOverlay}`}>
+          <div onClick={(e) => e.stopPropagation()} className="ui-dialog" role="dialog" aria-modal="true">
+            <div className="ui-dialog-head">
+              <h2 className="ui-dialog-title">Metadata didn&apos;t save</h2>
+            </div>
+            <div className={`ui-dialog-body ${styles.modalBody}`}>
+              <p className={styles.modalLead}>
+                Your token launched, but its image, info and whitelist list are only saved in this browser.
+              </p>
+              <p className={styles.modalText}>
+                Anyone else opening the trade page will see a blank card. Retry to sign with your wallet
+                again, or dismiss this and redo it later from the edit option on the trade page.
+              </p>
+              <div className={styles.modalError}>{metadataSaveError.message.slice(0, 220)}</div>
+              <div className={styles.modalActions}>
+                <button
+                  type="button"
+                  className="ui-btn"
+                  data-variant="primary"
+                  disabled={metadataSaving}
+                  onClick={() => setMetadataRetryTick((n) => n + 1)}
                 >
-                  ur token launched fine! but the image + info + WL list stayed local.
-                </div>
+                  {metadataSaving ? 'Retrying…' : 'Retry save'}
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn"
+                  onClick={() => setMetadataSaveError(null)}
+                >
+                  Dismiss for now
+                </button>
               </div>
-            </div>
-            <p style={{ fontSize: 12, lineHeight: 1.55, marginBottom: 10 }}>
-              anyone else opening the trade page will see a blank card. hit retry to try
-              the wallet signature again ~ or dismiss and re-do it later from the trade
-              page&apos;s edit modal.
-            </p>
-            <div
-              style={{
-                padding: 8,
-                border: '1px dashed var(--anchor)',
-                background: 'var(--cream-deep)',
-                fontFamily: 'var(--font-pixel), monospace',
-                fontSize: 10,
-                marginBottom: 12,
-                wordBreak: 'break-word',
-              }}
-            >
-              {metadataSaveError.message.slice(0, 220)}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="uru-btn uru-btn-primary"
-                disabled={metadataSaving}
-                onClick={() => setMetadataRetryTick((n) => n + 1)}
-              >
-                {metadataSaving ? 'retrying ~~' : '✿ retry save'}
-              </button>
-              <button
-                type="button"
-                className="uru-btn uru-btn-cream"
-                onClick={() => setMetadataSaveError(null)}
-              >
-                dismiss for now
-              </button>
             </div>
           </div>
         </div>
@@ -1394,39 +1265,32 @@ function CreatePageContent() {
       {/* Top marquee lives in the root layout — see components/TokenTicker.tsx */}
       <div className={styles.studio}>
         {mounted && !contracts && (
-          <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--yolk)' }}>
-            <div className="flex items-start gap-3">
-              <Mascot size={40} mood="confused" />
-              <div>
-                <div className="uru-h2" style={{ fontSize: 15 }}>oh no,, contracts arent live on this chain yet ~~</div>
-                <div style={{ fontSize: 12, marginTop: 4, color: 'var(--anchor-soft)' }}>
-                  u can browse everything, but launch stays disabled til Router deploy broadcasts and addresses
-                  land in <code style={{ fontFamily: 'var(--font-pixel), monospace' }}>web/src/lib/config.ts</code>.
-                </div>
+          <div className={`${styles.banner} ${styles.bannerWarn}`}>
+            <div>
+              <div className={styles.bannerTitle}>Contracts aren&apos;t live on this chain yet</div>
+              <div className={styles.bannerText}>
+                You can browse everything, but launching stays disabled until the Router is deployed and its
+                addresses are added to <code className={styles.code}>web/src/lib/config.ts</code>.
               </div>
             </div>
           </div>
         )}
 
         {mounted && isConnected && !isOnEnabledChain && (
-          <div className="uru-shell uru-shell-tight mb-3" style={{ background: 'var(--pink-warm)' }}>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <Mascot size={40} mood="gasp" />
-                <div>
-                  <div className="uru-h2" style={{ fontSize: 15 }}>wrong network!!</div>
-                  <div style={{ fontSize: 12, marginTop: 2 }}>pls switch to {CHAIN_LABELS[targetChain]} ~~</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => switchChain({ chainId: CHAIN_KEY_TO_ID[targetChain] })}
-                disabled={switchPending}
-                className="uru-btn uru-btn-primary"
-              >
-                {switchPending ? 'switching..' : `switch >>`}
-              </button>
+          <div className={`${styles.banner} ${styles.bannerAccent}`}>
+            <div>
+              <div className={styles.bannerTitle}>Wrong network</div>
+              <div className={styles.bannerText}>Please switch to {CHAIN_LABELS[targetChain]} to launch.</div>
             </div>
+            <button
+              type="button"
+              onClick={() => switchChain({ chainId: CHAIN_KEY_TO_ID[targetChain] })}
+              disabled={switchPending}
+              className="ui-btn"
+              data-variant="primary"
+            >
+              {switchPending ? 'Switching…' : 'Switch network'}
+            </button>
           </div>
         )}
 
@@ -1434,60 +1298,62 @@ function CreatePageContent() {
             humans who'd rather let an AI walk them through it. Two buttons:
             copy the paste-ready prompt for their agent, or view the raw skill
             file. Kept small on purpose so it doesn't dominate the main flow. */}
-        <AgentLaunchStrip />
+        <header className={styles.pageHeader}>
+          <div>
+            <p className={styles.pageEyebrow}>Launch · Token</p>
+            <h1 className={styles.pageTitle}>Launch a token</h1>
+            <p className={styles.pageLede}>
+              Name it, add art, and it starts trading on a bonding curve right away. When the curve
+              fills, liquidity moves to Uniswap v4 and stays locked.
+            </p>
+          </div>
+          <AgentLaunchStrip />
+        </header>
 
         <div className={styles.workbench}>
           <nav className={styles.progressRail} aria-label="Create progress">
-            <span className={styles.railLabel}>creation steps</span>
+            <span className={styles.railLabel}>Steps</span>
             <a href="#define-coin">
               <b>01</b>
-              <span>token details</span>
+              <span>Token details</span>
             </a>
             <a href="#coin-media">
               <b>02</b>
-              <span>artwork + links</span>
+              <span>Artwork and links</span>
             </a>
             <a href="#contract-setup">
               <b>03</b>
-              <span>contract</span>
+              <span>Launch settings</span>
             </a>
             <a href="#launch-review">
               <b>04</b>
-              <span>launch</span>
+              <span>Review and launch</span>
             </a>
           </nav>
 
-          {/* MAIN — the shop counter */}
+          {/* MAIN — the form column */}
           <div className={styles.mainStack}>
             {/* CUSTOMIZE — launch mechanic */}
-            <section id="contract-setup" className={`${styles.contractPanel} uru-shell`}>
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>launch settings</div>
-              <div className="uru-shell-inner">
-                <div className="grid gap-3 sm:grid-cols-2">
+            <section id="contract-setup" className={`${styles.contractPanel} ${styles.panel}`}>
+              <PanelHead step="03" title="Launch settings" />
+              <div className={styles.panelBody}>
+                <div className={styles.choiceGrid}>
                   <button
                     type="button"
                     onClick={() => { if (base === 'ERC20') setMechanic('quick'); }}
                     title="Quick launch uses safe defaults: LP locked forever, ownership renounced, 1% fee, 4.2 ETH graduation target, 5-block sniper gate."
                     aria-label="quick launch, safe defaults"
-                    className="uru-polaroid text-left"
-                    style={{
-                      background: mechanic === 'quick' ? 'var(--pink-warm)' : 'var(--paper-white, #fff)',
-                      boxShadow: mechanic === 'quick' ? '4px 4px 0 var(--pink-hot)' : undefined,
-                      color: '#3a2c3a',
-                      cursor: 'pointer',
-                    }}
+                    className={styles.choiceCard}
+                    data-selected={mechanic === 'quick'}
                   >
-                    <div className="uru-h2" style={{ fontSize: 14, color: mechanic === 'quick' ? '#3a2c3a' : undefined }}>
-                      quick launch
-                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: mechanic === 'quick' ? '#3a2c3a' : 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>速</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: mechanic === 'quick' ? '#3a2c3a' : 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      safe defaults. name, ticker, token details, launch.
-                    </div>
+                    <span className={styles.choiceTitle}>Quick launch</span>
+                    <span className={styles.choiceDesc}>
+                      Safe defaults. Add a name, ticker and details, then launch.
+                    </span>
                     {mechanic === 'quick' && base === 'ERC20' && (
-                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
-                        800M supply · 1% fee · 4.2 ETH target · anti-sniper 60 sec
-                      </div>
+                      <span className={styles.choiceMeta}>
+                        800M supply · 1% fee · 4.2 ETH target · 60 sec anti-sniper
+                      </span>
                     )}
                   </button>
                   <button
@@ -1496,25 +1362,17 @@ function CreatePageContent() {
                     disabled={base !== 'ERC20'}
                     title="Customizable curve keeps the same curve launch but unlocks module picks, anti-sniper params, buyback-burn params, whitelist setup, and other knobs."
                     aria-label="customizable curve, modules, and hook settings"
-                    className="uru-polaroid text-left"
-                    style={{
-                      background: mechanic === 'custom' ? 'var(--mint)' : 'var(--paper-white, #fff)',
-                      boxShadow: mechanic === 'custom' ? '4px 4px 0 var(--anchor)' : undefined,
-                      color: '#3a2c3a',
-                      cursor: 'pointer',
-                    }}
+                    className={styles.choiceCard}
+                    data-selected={mechanic === 'custom'}
                   >
-                    <div className="uru-h2" style={{ fontSize: 14, color: mechanic === 'custom' ? '#3a2c3a' : undefined }}>
-                      advanced curve
-                      <span style={{ fontFamily: 'var(--font-jp), monospace', color: mechanic === 'custom' ? '#3a2c3a' : 'var(--anchor-soft)', fontSize: 12, marginLeft: 6 }}>曲線</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: mechanic === 'custom' ? '#3a2c3a' : 'var(--anchor-soft)', marginTop: 4, lineHeight: 1.4 }}>
-                      same curve, more settings. modules + hook parameters.
-                    </div>
+                    <span className={styles.choiceTitle}>Advanced curve</span>
+                    <span className={styles.choiceDesc}>
+                      The same curve with more settings: modules and hook parameters.
+                    </span>
                     {mechanic === 'custom' && (
-                      <div style={{ marginTop: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: '#3a2c3a' }}>
-                        whitelist · sniper gate · buyback-burn
-                      </div>
+                      <span className={styles.choiceMeta}>
+                        Whitelist · sniper gate · buyback and burn
+                      </span>
                     )}
                   </button>
                 </div>
@@ -1525,31 +1383,21 @@ function CreatePageContent() {
                 with no modules by design). The whitelist toggle below stays
                 visible in quick mode under a repositioned label, so the WL
                 affordance isn't lost when the shelf goes away. */}
-            <section className={`${styles.hooksPanel} uru-shell`}>
-              <span className="uru-tape uru-tape-mint" style={{ width: 82, height: 16, top: -8, right: 30, transform: 'rotate(11deg)' }} />
-              <div className="flex items-baseline justify-between mb-2">
-                <div className="uru-eyebrow">
-                  {isQuick ? 'whitelist (optional)' : 'advanced modules'}
-                </div>
-                {!isQuick && (
-                  <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
-                    drag <span className="uru-arrow">→</span> or click add
-                  </span>
-                )}
-              </div>
+            <section className={`${styles.hooksPanel} ${styles.panel}`}>
+              <PanelHead
+                title={isQuick ? 'Whitelist (optional)' : 'Advanced modules'}
+                aside={!isQuick ? 'Drag a module to the cart, or click Add' : undefined}
+              />
 
-              <div className="uru-shell-inner">
+              <div className={styles.panelBody}>
                 {!isQuick && (
                   <div className={styles.moduleShelf}>
                     {available.length === 0 && (
-                      <div style={{ padding: 20, textAlign: 'center' }}>
-                        <Mascot size={40} mood="sleepy" />
-                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--anchor-soft)' }}>
-                          no modules available for this launch yet~~
-                        </div>
+                      <div className={styles.emptyNote}>
+                        No modules are available for this launch yet.
                       </div>
                     )}
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className={styles.moduleGrid}>
                       {available.map((mod, i) => (
                         <ShelfItem
                           key={mod.id}
@@ -1568,22 +1416,13 @@ function CreatePageContent() {
                 {!isQuick && base === 'ERC20' && mechanic === 'custom' && (
                   <div
                     title="Paste a source project contract. Holders get 60% of curve reserves during a 1-hour exclusive window; unfilled supply opens to public after that, and whitelist tokens stay locked until graduation."
-                    style={{
-                      marginTop: 12,
-                      padding: 10,
-                      background: 'var(--mint)',
-                      color: '#3a2c3a',
-                      border: '1.5px dashed var(--anchor)',
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      fontFamily: 'var(--font-round), Klee One, cursive',
-                    }}
+                    className={styles.infoNote}
                   >
-                    <b>on graduation</b>, ur curve auto-installs the platform hook:{' '}
-                    <b>LP locked forever</b> on Uniswap v4 + <b>1% creator fee</b> on every
-                    swap (claim it anytime from ur profile). optional modules:{' '}
-                    <b>sniper gate</b> + <b>buy → burn</b> — get wired into the same pool at
-                    graduation using the params u picked ~
+                    <b>At graduation</b>, your curve installs the platform hook automatically:{' '}
+                    <b>LP locked forever</b> on Uniswap v4 and a <b>1% creator fee</b> on every
+                    swap (claim it anytime from your profile). The optional <b>sniper gate</b> and{' '}
+                    <b>buy and burn</b> modules are added to the same pool at graduation, using the
+                    settings you pick.
                   </div>
                 )}
 
@@ -1591,66 +1430,57 @@ function CreatePageContent() {
                     source project address, click apply, backend snapshots
                     holders + returns a Merkle root that gets attached to the launch. */}
                 {useCurve && (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: 12,
-                      background: 'var(--cream-deep)',
-                      border: '1.5px solid var(--anchor)',
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      fontFamily: 'var(--font-round), Klee One, cursive',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, marginBottom: 6, fontFamily: 'var(--font-pixel), monospace', fontSize: 11 }}>
-                      ✿ community whitelist (optional)
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--anchor-soft)', marginBottom: 8 }}>
-                      60% holder reserve · 1h exclusive window.
+                  <div className={styles.wlBox}>
+                    <div>
+                      <div className={styles.subTitle}>Community whitelist (optional)</div>
+                      <div className={styles.hint}>
+                        60% of the curve is reserved for holders of another project, with a 1-hour exclusive window.
+                      </div>
                     </div>
                     {!wlEnabled && (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <div className={styles.wlRow}>
                         <input
-                          className="uru-input"
+                          className="ui-input"
+                          data-mono="true"
                           value={wlSourceAddress}
                           onChange={(e) => setWlSourceAddress(e.target.value)}
-                          placeholder="0x… source project address"
+                          placeholder="0x… source project contract address"
                           disabled={wlApplying}
-                          style={{ flex: 1, fontFamily: 'var(--font-mono), monospace', fontSize: 11 }}
+                          aria-label="Source project contract address"
                         />
                         <button
                           type="button"
-                          className="uru-btn"
+                          className="ui-btn"
                           onClick={applyWhitelist}
                           disabled={wlApplying || wlSourceAddress.length === 0}
-                          style={{ fontSize: 11, padding: '5px 10px' }}
                         >
-                          {wlApplying ? 'snapshotting..' : 'apply'}
+                          {wlApplying ? 'Taking snapshot…' : 'Apply'}
                         </button>
                       </div>
                     )}
                     {wlApplying && wlNote && (
-                      <span style={{ fontSize: 11, opacity: 0.75 }}>{wlNote}</span>
+                      <span className={styles.hint}>{wlNote}</span>
                     )}
                     {wlEnabled && wlSnapshot && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
-                          ✓ whitelist ready: {wlSnapshot.holderCount} holders of {wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)} at block {wlSnapshot.snapshotBlock}
+                      <div className={styles.wlReady}>
+                        <span>
+                          <b>Whitelist ready:</b>{' '}
+                          <span className={styles.mono}>{wlSnapshot.holderCount}</span> holders of{' '}
+                          <span className={styles.mono}>{wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)}</span>{' '}
+                          at block <span className={styles.mono}>{wlSnapshot.snapshotBlock}</span>
                         </span>
                         <button
                           type="button"
                           onClick={clearWhitelist}
-                          className="uru-btn"
-                          style={{ fontSize: 10, padding: '3px 8px' }}
+                          className="ui-btn"
+                          data-size="sm"
                         >
-                          clear
+                          Clear
                         </button>
                       </div>
                     )}
                     {wlError && (
-                      <div style={{ marginTop: 6, color: 'var(--pink-hot)', fontSize: 11 }}>
-                        ~~ {wlError}
-                      </div>
+                      <div className="ui-error">{wlError}</div>
                     )}
                   </div>
                 )}
@@ -1658,13 +1488,13 @@ function CreatePageContent() {
             </section>
 
             {/* STEP 3 — identity */}
-            <section id="define-coin" className={`${styles.identityPanel} uru-shell`}>
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>token details · name + ticker</div>
-              <div className="uru-shell-inner space-y-3">
+            <section id="define-coin" className={`${styles.identityPanel} ${styles.panel}`}>
+              <PanelHead step="01" title="Token details" />
+              <div className={styles.panelBody}>
                 <FieldGrid>
-                  <Field label="name">
+                  <Field label="Name">
                     <input
-                      className="uru-input"
+                      className="ui-input"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="urufu labs coin"
@@ -1672,9 +1502,10 @@ function CreatePageContent() {
                     />
                     <NameStatus data={nameQuery.data} isFetching={nameQuery.isFetching} enabled={name.length > 0} />
                   </Field>
-                  <Field label="ticker">
+                  <Field label="Ticker">
                     <input
-                      className="uru-input uppercase"
+                      className="ui-input uppercase"
+                      data-mono="true"
                       value={ticker}
                       onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                       placeholder="URUFU"
@@ -1685,37 +1516,38 @@ function CreatePageContent() {
                 </FieldGrid>
 
                 {base === 'ERC20' && !useCurve && (
-                  <Field label="initial supply">
-                    <input className="uru-input" type="number" value={supplyInput} onChange={(e) => setSupplyInput(e.target.value)} />
+                  <Field label="Initial supply">
+                    <input className="ui-input" data-mono="true" type="number" value={supplyInput} onChange={(e) => setSupplyInput(e.target.value)} />
                   </Field>
                 )}
                 {base === 'ERC20' && useCurve && (
-                  <div style={{ padding: 10, background: 'var(--mint)', color: '#3a2c3a', border: '1.5px solid var(--anchor)', fontFamily: 'var(--font-pixel), monospace', fontSize: 11, lineHeight: 1.5 }}>
-                    curve mode: supply auto = <b>800,000,000</b>. all of it goes to the bonding
-                    curve, ownership auto-renounces. u can trade against it at{' '}
-                    <code>/trade/&lt;tokenAddress&gt;</code> right after launch~
+                  <div className={styles.infoNote}>
+                    Curve mode: supply is fixed at <b className={styles.mono}>800,000,000</b>. All of it goes
+                    to the bonding curve and ownership is renounced automatically. You can trade it at{' '}
+                    <code className={styles.code}>/trade/&lt;tokenAddress&gt;</code> right after launch.
                   </div>
                 )}
 
                 {base === 'ERC721A' && (
                   <FieldGrid>
-                    <Field label="base uri">
+                    <Field label="Base URI">
                       <input
-                        className="uru-input"
+                        className="ui-input"
+                        data-mono="true"
                         value={baseURI}
                         onChange={(e) => setBaseURI(e.target.value)}
-                        placeholder={selectedModules.includes('OnChainSVG') ? '(svg module handles it~)' : 'ipfs://Qm.../'}
+                        placeholder={selectedModules.includes('OnChainSVG') ? '(handled by the SVG module)' : 'ipfs://Qm.../'}
                       />
                     </Field>
-                    <Field label="max supply">
-                      <input className="uru-input" type="number" value={maxSupplyInput} onChange={(e) => setMaxSupplyInput(e.target.value)} />
+                    <Field label="Max supply">
+                      <input className="ui-input" data-mono="true" type="number" value={maxSupplyInput} onChange={(e) => setMaxSupplyInput(e.target.value)} />
                     </Field>
                   </FieldGrid>
                 )}
 
                 {base === 'ERC1155' && (
-                  <Field label="uri template">
-                    <input className="uru-input" value={uri1155} onChange={(e) => setUri1155(e.target.value)} placeholder="ipfs://Qm.../{id}.json" />
+                  <Field label="URI template">
+                    <input className="ui-input" data-mono="true" value={uri1155} onChange={(e) => setUri1155(e.target.value)} placeholder="ipfs://Qm.../{id}.json" />
                   </Field>
                 )}
               </div>
@@ -1729,59 +1561,48 @@ function CreatePageContent() {
                 picker would silently lie). Direct-launch NFT bases keep the
                 three-mode radio live. */}
             {!isQuick && (
-            <section className={`${styles.ownershipPanel} uru-shell`}>
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>contract ownership</div>
-              <div className="uru-shell-inner">
+            <section className={`${styles.ownershipPanel} ${styles.panel}`}>
+              <PanelHead title="Contract ownership" />
+              <div className={styles.panelBody}>
                 {useCurve ? (
-                  <div
-                    style={{
-                      padding: 10,
-                      background: 'var(--cream-deep)',
-                      border: '1.5px dashed var(--anchor)',
-                      fontFamily: 'var(--font-round), Klee One, cursive',
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <b>auto-renounced</b> ~ customizable-curve launches must renounce so
-                    the curve is trustless to trade. no admin, no pause switch, no
-                    owner-only knobs.
+                  <div className={styles.infoNote}>
+                    <b>Renounced automatically.</b> Customizable curve launches must renounce ownership so the
+                    curve is trustless to trade: no admin, no pause switch, no owner-only settings.
                   </div>
                 ) : (
                   <>
-                    <ul className="uru-list-flower" style={{ display: 'grid', gap: 8 }}>
+                    <div className={styles.radioList}>
                       {(
                         [
-                          ['Renounce', 'renounce ownership (recommended ~ immutable behavior)'],
-                          ['TransferToMultisig', 'transfer to a multisig u control'],
-                          ['KeepEOA', 'keep it on ur launcher wallet'],
+                          ['Renounce', 'Renounce ownership', 'Recommended. The contract’s behavior can never change.'],
+                          ['TransferToMultisig', 'Transfer to a multisig', 'Hand ownership to a multisig you control.'],
+                          ['KeepEOA', 'Keep on launcher wallet', 'Your launching wallet stays the owner.'],
                         ] as const
-                      ).map(([mode, desc]) => (
-                        <li key={mode}>
-                          <label style={{ display: 'flex', gap: 8, cursor: 'pointer', alignItems: 'flex-start' }}>
-                            <input
-                              type="radio"
-                              name="ownership"
-                              checked={ownership === mode}
-                              onChange={() => setOwnership(mode)}
-                              style={{ marginTop: 2 }}
-                            />
-                            <div>
-                              <div style={{ fontFamily: 'var(--font-round), Klee One, cursive', fontWeight: 700, fontSize: 13 }}>{mode}</div>
-                              <div style={{ fontSize: 12, color: 'var(--anchor-soft)' }}>{desc}</div>
-                            </div>
-                          </label>
-                        </li>
+                      ).map(([mode, title, desc]) => (
+                        <label key={mode} className={styles.radioItem} data-selected={ownership === mode}>
+                          <input
+                            type="radio"
+                            name="ownership"
+                            checked={ownership === mode}
+                            onChange={() => setOwnership(mode)}
+                          />
+                          <span>
+                            <span className={styles.radioTitle}>{title}</span>
+                            <span className={styles.radioDesc}>{desc}</span>
+                          </span>
+                        </label>
                       ))}
-                    </ul>
+                    </div>
                     {ownership === 'TransferToMultisig' && (
-                      <input
-                        className="uru-input mt-3"
-                        style={{ marginTop: 10 }}
-                        value={multisigTarget}
-                        onChange={(e) => setMultisigTarget(e.target.value)}
-                        placeholder="0x…"
-                      />
+                      <Field label="Multisig address">
+                        <input
+                          className="ui-input"
+                          data-mono="true"
+                          value={multisigTarget}
+                          onChange={(e) => setMultisigTarget(e.target.value)}
+                          placeholder="0x…"
+                        />
+                      </Field>
                     )}
                   </>
                 )}
@@ -1789,133 +1610,91 @@ function CreatePageContent() {
             </section>
             )}
 
-            {/* STEP 5 — metadata (tiny) */}
-            <section id="coin-media" className={`${styles.metadataPanel} uru-shell`}>
-              <div className="uru-eyebrow" style={{ marginBottom: 8 }}>token details · artwork + links</div>
-              <div className="uru-shell-inner space-y-3">
-                <div style={{ fontSize: 11, color: 'var(--anchor-soft)' }}>
-                  optional. images pin to IPFS via our pinata gateway so ur token metadata
-                  travels with it wherever it&apos;s indexed ~
-                </div>
+            {/* STEP 5 — metadata */}
+            <section id="coin-media" className={`${styles.metadataPanel} ${styles.panel}`}>
+              <PanelHead step="02" title="Artwork and links" aside="Optional" />
+              <div className={styles.panelBody}>
+                <p className={styles.hint}>
+                  Images are pinned to IPFS through our Pinata gateway, so your token&apos;s metadata travels
+                  with it wherever it&apos;s indexed.
+                </p>
 
-                <Field label={<MetadataFieldLabel icon="image" label="logo" />}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <Field label={<MetadataFieldLabel icon="image" label="Logo" />}>
+                  <div className={styles.logoRow}>
                     <div
-                      style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: 12,
-                        border: '1.5px solid var(--anchor)',
-                        boxShadow: '2px 2px 0 var(--anchor)',
-                        background: safeBackgroundImage(metadata.logoDataUrl),
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        color: 'var(--anchor-soft)',
-                        textAlign: 'center',
-                        flexShrink: 0,
-                      }}
+                      className={styles.logoThumb}
+                      style={{ background: safeBackgroundImage(metadata.logoDataUrl) }}
                     >
-                      {!metadata.logoDataUrl && <span>no<br />logo</span>}
+                      {!metadata.logoDataUrl && <span>No logo</span>}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <label
-                        className="uru-btn uru-btn-mint"
-                        style={{ cursor: 'pointer', fontSize: 12, padding: '6px 12px', display: 'inline-flex' }}
-                      >
-                        {metadata.logoDataUrl ? 'change logo' : '✿ upload logo'}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => onPickLogo(e.target.files?.[0])}
-                          style={{ display: 'none' }}
-                        />
-                      </label>
-                      {metadata.logoDataUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMetadata({ ...metadata, logoDataUrl: undefined });
-                            setLogoError(null);
-                            setLogoNotice(null);
-                          }}
-                          style={{
-                            marginLeft: 8,
-                            background: 'transparent',
-                            border: '1.5px solid var(--anchor)',
-                            fontFamily: 'var(--font-pixel), monospace',
-                            fontSize: 11,
-                            padding: '5px 10px',
-                            cursor: 'pointer',
-                            color: 'var(--anchor)',
-                          }}
-                        >
-                          remove
-                        </button>
-                      )}
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: 10,
-                          fontFamily: 'var(--font-pixel), monospace',
-                          color: 'var(--anchor-soft)',
-                        }}
-                      >
-                        png / jpg / webp / svg up to 10MB ~ larger images get resized for launch
+                    <div className={styles.logoMeta}>
+                      <div className={styles.logoActions}>
+                        <label className="ui-btn" data-size="sm">
+                          {metadata.logoDataUrl ? 'Change logo' : 'Upload logo'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => onPickLogo(e.target.files?.[0])}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                        {metadata.logoDataUrl && (
+                          <button
+                            type="button"
+                            className="ui-btn"
+                            data-variant="ghost"
+                            data-size="sm"
+                            onClick={() => {
+                              setMetadata({ ...metadata, logoDataUrl: undefined });
+                              setLogoError(null);
+                              setLogoNotice(null);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
-                      {logoNotice && (
-                        <div
-                          style={{
-                            marginTop: 4,
-                            fontSize: 10,
-                            fontFamily: 'var(--font-pixel), monospace',
-                            color: 'var(--anchor-soft)',
-                          }}
-                        >
-                          {logoNotice}
-                        </div>
-                      )}
-                      {logoError && (
-                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--pink-hot)' }}>~~ {logoError}</div>
-                      )}
+                      <div className={styles.hint}>
+                        PNG, JPG, WebP or SVG up to 10 MB. Larger images are resized for launch.
+                      </div>
+                      {logoNotice && <div className={styles.hint}>{logoNotice}</div>}
+                      {logoError && <div className="ui-error">{logoError}</div>}
                     </div>
                   </div>
                 </Field>
 
-                <Field label="description">
+                <Field label="Description">
                   <textarea
-                    className="uru-input"
-                    rows={2}
+                    className="ui-input"
+                    rows={3}
                     maxLength={500}
                     value={metadata.description ?? ''}
                     onChange={(e) => setMetadata({ ...metadata, description: e.target.value })}
-                    placeholder="what is this thing?? tell people~~"
+                    placeholder="What is this token? Tell people about it."
                   />
                 </Field>
                 <FieldGrid>
-                  <Field label={<MetadataFieldLabel icon="website" label="website" />}>
-                    <input className="uru-input" value={metadata.website ?? ''} onChange={(e) => setMetadata({ ...metadata, website: e.target.value })} placeholder="https://…" />
+                  <Field label={<MetadataFieldLabel icon="website" label="Website" />}>
+                    <input className="ui-input" value={metadata.website ?? ''} onChange={(e) => setMetadata({ ...metadata, website: e.target.value })} placeholder="https://…" />
                   </Field>
-                  <Field label={<MetadataFieldLabel icon="x" label="twitter" />}>
-                    <input className="uru-input" value={metadata.twitter ?? ''} onChange={(e) => setMetadata({ ...metadata, twitter: e.target.value })} placeholder="https://x.com/…" />
+                  <Field label={<MetadataFieldLabel icon="x" label="X (Twitter)" />}>
+                    <input className="ui-input" value={metadata.twitter ?? ''} onChange={(e) => setMetadata({ ...metadata, twitter: e.target.value })} placeholder="https://x.com/…" />
                   </Field>
-                  <Field label={<MetadataFieldLabel icon="telegram" label="telegram" />}>
-                    <input className="uru-input" value={metadata.telegram ?? ''} onChange={(e) => setMetadata({ ...metadata, telegram: e.target.value })} placeholder="https://t.me/…" />
+                  <Field label={<MetadataFieldLabel icon="telegram" label="Telegram" />}>
+                    <input className="ui-input" value={metadata.telegram ?? ''} onChange={(e) => setMetadata({ ...metadata, telegram: e.target.value })} placeholder="https://t.me/…" />
                   </Field>
-                  <Field label={<MetadataFieldLabel icon="discord" label="discord" />}>
-                    <input className="uru-input" value={metadata.discord ?? ''} onChange={(e) => setMetadata({ ...metadata, discord: e.target.value })} placeholder="https://discord.gg/…" />
+                  <Field label={<MetadataFieldLabel icon="discord" label="Discord" />}>
+                    <input className="ui-input" value={metadata.discord ?? ''} onChange={(e) => setMetadata({ ...metadata, discord: e.target.value })} placeholder="https://discord.gg/…" />
                   </Field>
-                  <Field label={<MetadataFieldLabel icon="tiktok" label="tiktok" />}>
-                    <input className="uru-input" value={metadata.tiktok ?? ''} onChange={(e) => setMetadata({ ...metadata, tiktok: e.target.value })} placeholder="https://tiktok.com/@…" />
+                  <Field label={<MetadataFieldLabel icon="tiktok" label="TikTok" />}>
+                    <input className="ui-input" value={metadata.tiktok ?? ''} onChange={(e) => setMetadata({ ...metadata, tiktok: e.target.value })} placeholder="https://tiktok.com/@…" />
                   </Field>
                 </FieldGrid>
               </div>
             </section>
           </div>
 
-          {/* SIDEBAR — cart + widgets + webring */}
+          {/* SIDEBAR — cart + preview + launch cost */}
           <aside id="launch-review" className={styles.launchRail}>
             {!isQuick && (
               <div className={styles.sidebarModuleCartDock}>
@@ -1932,13 +1711,13 @@ function CreatePageContent() {
                     module cart, where the creator can resolve it immediately. */}
                 {ownerlessDeadModules.length > 0 && (
                   <div className={styles.moduleWarning}>
-                    <div style={{ fontWeight: 700, marginBottom: 4 }}>~~ heads up ✿</div>
+                    <div className={styles.subTitle}>Heads up</div>
                     <span>
-                      selected modules:{' '}
-                      <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>
-                      {' '}— these have owner-only functions (pause, allowlist, etc). every
-                      ERC-20 curve here auto-renounces ownership so those buttons would be dead
-                      forever. remove these modules if u need the launch button back.
+                      Selected modules{' '}
+                      <b>{ownerlessDeadModules.map((m) => m.label.replace(/^✿\s*/, '')).join(', ')}</b>{' '}
+                      have owner-only functions (pause, allowlist, etc.). Every ERC-20 curve here renounces
+                      ownership automatically, so those controls would never work. Remove these modules to
+                      enable the launch button.
                     </span>
                   </div>
                 )}
@@ -1947,7 +1726,7 @@ function CreatePageContent() {
 
             <section className={styles.previewPanel} aria-label="Token preview">
               <div className={styles.previewTopline}>
-                <span>token preview</span>
+                <span>Token preview</span>
                 <b>{ticker ? `$${ticker}` : '$TICKER'}</b>
               </div>
               <div
@@ -1958,124 +1737,115 @@ function CreatePageContent() {
                 {!metadata.logoDataUrl && <span>urufu</span>}
               </div>
               <div className={styles.previewTicket}>
-                <b>{name || 'new token'}</b>
-                <p>{metadata.description || 'Token description appears here once you write it.'}</p>
+                <b>{name || 'New token'}</b>
+                <p>{metadata.description || 'Your token description appears here once you write it.'}</p>
               </div>
             </section>
 
-            {/* Shopkeeper speech bubble */}
-            <div className="flex items-start gap-2">
-              <Mascot size={44} mood={mascotMood} className="uru-idle-bob" />
-              <div className="uru-bubble">
-                {launchedTokenAddress ? (
-                  <>yayyy!! ur token is live 好き!! (づ｡◕‿‿◕｡)づ</>
-                ) : isQuick ? (
-                  <>quick launch mode · safe defaults locked in ~</>
-                ) : selectedModules.length === 0 ? (
-                  <>advanced curve open · drag modules into the selected cart above</>
-                ) : selectedModules.length === 1 ? (
-                  <>1 module selected · configure it in the selected cart above</>
-                ) : (
-                  <>{selectedModules.length} modules selected · configure them in the cart above</>
-                )}
-              </div>
+            {/* Status line (was the shopkeeper speech bubble) */}
+            <div className={styles.statusNote}>
+              {launchedTokenAddress ? (
+                <>Your token is live.</>
+              ) : isQuick ? (
+                <>Quick launch: safe defaults are locked in.</>
+              ) : selectedModules.length === 0 ? (
+                <>Advanced curve: drag modules into the cart above.</>
+              ) : selectedModules.length === 1 ? (
+                <>1 module selected. Configure it in the cart above.</>
+              ) : (
+                <>{selectedModules.length} modules selected. Configure them in the cart above.</>
+              )}
             </div>
 
             {/* Receipt + launch */}
-            <div className="uru-shell uru-shell-tight">
-              <div className="flex items-baseline justify-between">
-                <div className="uru-eyebrow">launch cost</div>
-                <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 20, fontWeight: 700, color: 'var(--anchor)' }}>
+            <div className={`${styles.panel} ${styles.costPanel}`}>
+              <div className={styles.costHead}>
+                <div className={styles.costLabel}>Launch cost</div>
+                <div className={styles.costTotal}>
                   {payToken === 'URU'
-                    ? (typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '—')
-                    : (typeof quote.data === 'bigint' ? fmtCompact(quote.data) : '—')}
-                  <span style={{ fontSize: 10, color: 'var(--anchor-soft)', marginLeft: 4 }}>{payToken}</span>
+                    ? (typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '…')
+                    : (typeof quote.data === 'bigint' ? fmtCompact(quote.data) : '…')}
+                  <span className={styles.costUnit}>{payToken}</span>
                 </div>
               </div>
 
               {/* URU / ETH pay toggle — shown only on chains where URU_PAY is populated */}
               {uruPay && (
-                <div style={{ display: 'flex', gap: 4, marginTop: 8, marginBottom: 4 }}>
+                <div className="ui-seg" data-block="true" role="group" aria-label="Pay launch fee in">
                   {(['ETH', 'URU'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
                       onClick={() => setPayToken(t)}
-                      className="uru-btn"
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        fontSize: 10,
-                        padding: '5px 8px',
-                        background: payToken === t ? 'var(--pink-hot)' : 'var(--cream-deep)',
-                        color: payToken === t ? 'var(--cream)' : 'var(--anchor)',
-                        borderColor: 'var(--anchor)',
-                      }}
+                      aria-pressed={payToken === t}
                     >
-                      pay in {t}
+                      Pay in {t}
                     </button>
                   ))}
                 </div>
               )}
 
-              <ul style={{ margin: '10px 0 12px 0', fontSize: 11, color: 'var(--anchor-soft)', listStyle: 'none', padding: 0 }}>
-                <li>launch fee: {formatEther(feeSchedule.base)} ETH</li>
-                <li>module add-on: {formatEther(feeSchedule.module)} ea × {moduleCount}</li>
+              <dl className={styles.costList}>
+                <div className="ui-kv">
+                  <dt>Launch fee</dt>
+                  <dd className="ui-num">{formatEther(feeSchedule.base)} ETH</dd>
+                </div>
+                <div className="ui-kv">
+                  <dt>Module add-on</dt>
+                  <dd className="ui-num">{formatEther(feeSchedule.module)} ETH × {moduleCount}</dd>
+                </div>
                 {loyaltyReady.ready && discountBps > 0 && grossQuote.data && (
                   <>
-                    <li style={{ marginTop: 4, color: 'var(--anchor-soft)', textDecoration: 'line-through' }}>
-                      subtotal: {formatEther(grossQuote.data as bigint)} ETH
-                    </li>
-                    <li style={{ color: 'var(--mint-hot,#2b8a3e)', fontWeight: 700 }}>
-                      loyalty discount: −{(discountBps / 100).toFixed(0)}% (holding urufu gemu nft {'&'} URU)
-                    </li>
+                    <div className="ui-kv">
+                      <dt>Subtotal</dt>
+                      <dd className={`ui-num ${styles.strike}`}>{formatEther(grossQuote.data as bigint)} ETH</dd>
+                    </div>
+                    <div className="ui-kv">
+                      <dt>Loyalty discount (holding urufu gemu nft and URU)</dt>
+                      <dd className={`ui-num ${styles.discount}`}>−{(discountBps / 100).toFixed(0)}%</dd>
+                    </div>
                   </>
                 )}
-                {payToken === 'URU' && (
-                  <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
-                    URU quoted from RH pool spot; approves + charges the shown amount
-                  </li>
-                )}
                 {initialBuyEnabled && (
-                  <li style={{ marginTop: 4, color: 'var(--anchor-soft)' }}>
-                    ✿ first buy: {initialBuyEthInput} ETH (atomic — you get the very first curve tokens)
-                  </li>
+                  <div className="ui-kv">
+                    <dt>First buy (you get the very first curve tokens)</dt>
+                    <dd className="ui-num">{initialBuyEthInput} ETH</dd>
+                  </div>
                 )}
-              </ul>
+              </dl>
+              {payToken === 'URU' && (
+                <p className={styles.hint}>
+                  The URU amount is quoted from the Robinhood Chain pool spot price. You approve and pay the amount shown.
+                </p>
+              )}
 
               {/* First-buy at launch — atomic launch+buy so no bot can front-run your
                   first trade. Only exposed on the plain ETH curve path (no URU, no WL)
                   because Router doesn't have *_AndBuy variants for those. Empty input
                   keeps the flow on plain launch. */}
               {useCurve && payToken === 'ETH' && !wlStruct && (
-                <div style={{ marginBottom: 10 }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontSize: 10,
-                      color: 'var(--anchor-soft)',
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                      marginBottom: 4,
-                    }}
-                  >
-                    first buy (optional)
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0.0"
-                    value={initialBuyEthInput}
-                    onChange={(e) => setInitialBuyEthInput(e.target.value)}
-                    disabled={launchPending || receipt.isLoading}
-                    className="uru-input"
-                    style={{ width: '100%', fontFamily: 'var(--font-pixel), monospace' }}
-                    title="ETH added to the launch tx to buy your first tokens atomically — bots can't front-run"
-                  />
-                  <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 4 }}>
-                    add ETH to buy your own token first in the same tx no one can front-run
+                <label className="ui-field">
+                  <span className="ui-field-label">
+                    First buy <span className="ui-field-aside">Optional</span>
+                  </span>
+                  <div className={styles.suffixWrap}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.0"
+                      value={initialBuyEthInput}
+                      onChange={(e) => setInitialBuyEthInput(e.target.value)}
+                      disabled={launchPending || receipt.isLoading}
+                      className="ui-input"
+                      data-mono="true"
+                      title="ETH added to the launch transaction to buy your first tokens in the same step, so bots can't front-run you"
+                    />
+                    <span className={styles.suffix}>ETH</span>
                   </div>
-                </div>
+                  <span className={styles.hint}>
+                    Buy your own token first in the same transaction, so no one can front-run you.
+                  </span>
+                </label>
               )}
 
               {/* URU approve step — shown only when URU is picked and allowance is short.
@@ -2091,11 +1861,13 @@ function CreatePageContent() {
                     receipt.isLoading ||
                     typeof uruAmount !== 'bigint'
                   }
-                  className="uru-btn uru-btn-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                  title={typeof uruAmount === 'bigint' ? `approve ${formatEther(uruAmount)} URU` : 'waiting on URU quote'}
+                  className="ui-btn"
+                  data-variant="primary"
+                  data-size="lg"
+                  data-block="true"
+                  title={typeof uruAmount === 'bigint' ? `Approve ${formatEther(uruAmount)} URU` : 'Waiting on URU quote'}
                 >
-                  {launchPending ? 'confirming ~~' : `approve URU (${typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '…'})`}
+                  {launchPending ? 'Confirming in wallet…' : `Approve URU (${typeof uruAmount === 'bigint' ? fmtCompact(uruAmount) : '…'})`}
                 </button>
               ) : (
                 <button
@@ -2108,45 +1880,48 @@ function CreatePageContent() {
                     if (simulate.data) writeContract(simulate.data.request);
                   }}
                   disabled={mockData.enabled ? !canLaunchMock : !canLaunchLive || !simulate.data || launchPending || receipt.isLoading}
-                  className="uru-btn uru-btn-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
+                  className="ui-btn"
+                  data-variant="primary"
+                  data-size="lg"
+                  data-block="true"
                 >
                   {launchButtonLabel}
                 </button>
               )}
 
               {simulate.error && (
-                <div style={{ marginTop: 8, padding: 8, background: 'var(--pink-warm)', border: '1px solid var(--anchor)', fontSize: 10, color: 'var(--anchor)' }}>
-                  sim failed: {simulate.error.message.slice(0, 120)}
+                <div className={styles.errorNote}>
+                  Simulation failed: {simulate.error.message.slice(0, 120)}
                 </div>
               )}
 
               {txHash && (
-                <div style={{ marginTop: 8, fontSize: 11 }}>
-                  tx:{' '}
-                  <Link href={activeChain ? explorerTxUrl(activeChain, txHash) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>
+                <div className={styles.txLine}>
+                  Transaction{' '}
+                  <Link href={activeChain ? explorerTxUrl(activeChain, txHash) : '#'} target="_blank" className={styles.link}>
                     {short(txHash)}
                   </Link>
                 </div>
               )}
 
               {displayedLaunchAddress && (
-                <div className="uru-pop" style={{ marginTop: 8, padding: 10, background: 'var(--mint)', color: '#3a2c3a', border: '2px double var(--anchor)' }}>
-                  <div className="uru-h2" style={{ fontSize: 13 }}>{mockLaunchedAddress ? '✿ demo token created ✿' : '✿ deployed ✿'}</div>
-                  <div style={{ fontSize: 11, marginTop: 4 }}>
+                <div className={`uru-pop ${styles.successNote}`}>
+                  <div className={styles.subTitle}>{mockLaunchedAddress ? 'Demo token created' : 'Token deployed'}</div>
+                  <div className={styles.txLine}>
                     {mockLaunchedAddress ? (
-                      <>browser-local: <code>{short(displayedLaunchAddress)}</code></>
+                      <>Saved in this browser: <code className={styles.code}>{short(displayedLaunchAddress)}</code></>
                     ) : (
-                      <>at{' '}<Link href={activeChain ? explorerAddressUrl(activeChain, displayedLaunchAddress) : '#'} target="_blank" style={{ color: 'var(--link-blue)', textDecoration: 'underline', fontFamily: 'var(--font-pixel), monospace' }}>{short(displayedLaunchAddress)}</Link></>
+                      <>Address{' '}<Link href={activeChain ? explorerAddressUrl(activeChain, displayedLaunchAddress) : '#'} target="_blank" className={styles.link}>{short(displayedLaunchAddress)}</Link></>
                     )}
                   </div>
                   {useCurve && (
                     <Link
                       href={`/trade/${displayedLaunchAddress}`}
-                      className="uru-btn uru-btn-primary"
-                      style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+                      className="ui-btn"
+                      data-variant="primary"
+                      data-block="true"
                     >
-                      ✿ trade this token →
+                      Trade this token →
                     </Link>
                   )}
                 </div>
@@ -2154,35 +1929,35 @@ function CreatePageContent() {
             </div>
 
             {/* "currently" widget — cheap author-trace signal */}
-            <div className="hidden lg:block uru-shell uru-shell-tight">
-              <div className="uru-eyebrow" style={{ marginBottom: 6 }}>launch details</div>
-              <ul className="uru-list-flower" style={{ fontSize: 11, lineHeight: 1.6 }}>
-                <li>LP locks forever after graduation</li>
-                <li>creator fee claim stays in profile</li>
-                <li>advanced modules stay opt-in</li>
-                <li>chain + wallet checks gate launch</li>
+            <div className={`hidden lg:block ${styles.panel} ${styles.sidePanel}`}>
+              <div className={styles.sectionLabel}>Launch details</div>
+              <ul className={styles.checkList}>
+                <li>LP is locked forever after graduation</li>
+                <li>Claim creator fees from your profile</li>
+                <li>Advanced modules are opt-in</li>
+                <li>Chain and wallet checks gate the launch</li>
               </ul>
             </div>
 
-            {/* 88x31 webring — reciprocal embedding signal */}
-            <div className="hidden lg:block">
-              <div className="uru-eyebrow" style={{ marginBottom: 4, color: 'var(--cream)' }}>related projects</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                <span className="uru-88 uru-88-pink"><strong>urufu</strong>labs</span>
-                <span className="uru-88 uru-88-mint">chibi-<strong>wolf</strong></span>
-                <span className="uru-88 uru-88-mizuiro">solady<strong>.gg</strong></span>
-                <span className="uru-88">forge<strong>&hearts;</strong></span>
+            {/* Related projects — reciprocal embedding signal */}
+            <div className={`hidden lg:block ${styles.sidePanelBare}`}>
+              <div className={styles.sectionLabel}>Related projects</div>
+              <div className={styles.badgeRow}>
+                <span className="ui-badge" data-tone="accent">urufu labs</span>
+                <span className="ui-badge">chibi-wolf</span>
+                <span className="ui-badge" data-tone="info">solady.gg</span>
+                <span className="ui-badge">forge</span>
               </div>
             </div>
 
-            {/* Composition info — tiny receipt strip */}
-            <div className="hidden lg:block uru-shell uru-shell-tight">
-              <div className="uru-eyebrow" style={{ marginBottom: 4 }}>technical details</div>
-              <dl style={{ fontSize: 10, fontFamily: 'var(--font-pixel), monospace', lineHeight: 1.6, color: 'var(--anchor-soft)' }}>
-                <div>token: <span style={{ color: 'var(--anchor)' }}>{base}</span></div>
-                <div>modules: <span style={{ color: 'var(--anchor)' }}>{selectedModules.length === 0 ? 'none' : selectedModules.join(', ')}</span></div>
-                <div>configHash: <span style={{ color: 'var(--anchor)' }}>{configHash.slice(0, 10)}…</span></div>
-                <div>impl: <span style={{ color: implRegistered ? 'var(--anchor)' : 'var(--pink-hot)' }}>{implRegistered ? short(implQuery.data as string) : 'not registered'}</span></div>
+            {/* Composition info — technical receipt strip */}
+            <div className={`hidden lg:block ${styles.panel} ${styles.sidePanel}`}>
+              <div className={styles.sectionLabel}>Technical details</div>
+              <dl className={styles.techList}>
+                <div><dt>Token</dt><dd>{base}</dd></div>
+                <div><dt>Modules</dt><dd>{selectedModules.length === 0 ? 'None' : selectedModules.join(', ')}</dd></div>
+                <div><dt>configHash</dt><dd>{configHash.slice(0, 10)}…</dd></div>
+                <div><dt>Implementation</dt><dd data-bad={!implRegistered}>{implRegistered ? short(implQuery.data as string) : 'Not registered'}</dd></div>
               </dl>
             </div>
           </aside>
@@ -2191,9 +1966,9 @@ function CreatePageContent() {
 
       <DragOverlay>
         {dragMod ? (
-          <div className="uru-polaroid" data-tilt="n7" style={{ boxShadow: '8px 8px 0 var(--pink-hot)', width: 240, padding: 10, cursor: 'grabbing' }}>
-            <div className="uru-h2" style={{ fontSize: 13 }}>{dragMod.label}</div>
-            <div style={{ fontSize: 10, color: 'var(--anchor-soft)', marginTop: 2 }}>adding module</div>
+          <div className={styles.dragCard}>
+            <div className={styles.moduleTitle}>{dragMod.label}</div>
+            <div className={styles.hint}>Adding module</div>
           </div>
         ) : null}
       </DragOverlay>
@@ -2204,6 +1979,18 @@ function CreatePageContent() {
 // ============================================================================
 // small subcomponents kept in-file — one-page-deep beats scattered
 // ============================================================================
+
+function PanelHead({ step, title, aside }: { step?: string; title: string; aside?: string }) {
+  return (
+    <div className={styles.panelHead}>
+      <h2 className={styles.panelTitle}>
+        {step && <span className={styles.panelStep}>{step}</span>}
+        {title}
+      </h2>
+      {aside && <span className={styles.panelAside}>{aside}</span>}
+    </div>
+  );
+}
 
 function ShelfItem({
   mod,
@@ -2241,64 +2028,52 @@ function ShelfItem({
   const dragRef = mounted ? setNodeRef : undefined;
   const dragListeners = mounted ? listeners : {};
   const dragAttributes = mounted ? attributes : {};
-  const stampClass =
-    mod.category === 'token' ? 'uru-stamp-mint'
-    : mod.category === 'nft' ? 'uru-stamp-mizuiro'
-    : mod.category === 'allocation' ? 'uru-stamp-cream'
-    : 'uru-stamp';
+  const categoryTone =
+    mod.category === 'token' ? 'accent'
+    : mod.category === 'nft' ? 'info'
+    : mod.category === 'allocation' ? 'warn'
+    : undefined;
 
   return (
     <div
       ref={dragRef}
       {...dragListeners}
       {...dragAttributes}
-      className="uru-polaroid"
+      className={styles.moduleCard}
       data-tilt={tilt}
       data-dragging={isDragging}
       data-planned={disabled}
+      data-blocked={blocked}
       title={blockedReason || undefined}
       style={{
         cursor: !draggable ? 'default' : disabled ? 'not-allowed' : 'grab',
-        opacity: blocked ? 0.42 : undefined,
-        filter: blocked ? 'grayscale(0.85)' : undefined,
         touchAction: draggable ? undefined : 'auto',
       }}
     >
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-        <span className={`uru-stamp ${stampClass}`} style={{ transform: 'rotate(-3deg)' }}>
-          {mod.category}
-        </span>
+      <div className={styles.badgeRow}>
+        <span className="ui-badge" data-tone={categoryTone}>{mod.category}</span>
         {planned ? (
-          <span className="uru-stamp" style={{ transform: 'rotate(3deg)', background: '#eee' }}>planned</span>
+          <span className="ui-badge">Planned</span>
         ) : (
-          <span className="uru-stamp uru-stamp-pink" style={{ transform: 'rotate(3deg)' }}>v{mod.version}</span>
+          <span className="ui-badge"><span className={styles.mono}>v{mod.version}</span></span>
         )}
         {blocked && !planned && (
-          <span className="uru-stamp" style={{ transform: 'rotate(-2deg)', background: 'var(--pink-warm)', border: '1.5px solid var(--pink-hot)', color: 'var(--anchor)' }}>
-            × incompatible
-          </span>
+          <span className="ui-badge" data-tone="sell">Incompatible</span>
         )}
       </div>
-      <div className="uru-h2" style={{ fontSize: 14 }}>{mod.label}</div>
-      <div style={{ fontSize: 11, lineHeight: 1.4, color: 'var(--anchor-soft)', marginTop: 4 }}>{mod.description}</div>
+      <div className={styles.moduleTitle}>{mod.label}</div>
+      <div className={styles.moduleDesc}>{mod.description}</div>
       {!blocked && !planned && bundleWith.length > 0 && (
-        <div style={{ marginTop: 4, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--pink-hot)' }}>
-          + auto-adds {bundleWith.join(', ')}
+        <div className={styles.moduleNote}>
+          Also adds {bundleWith.join(', ')}
         </div>
       )}
       {blocked && !planned && (
-        <div
-          style={{
-            marginTop: 6,
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 10,
-            color: 'var(--pink-hot)',
-          }}
-        >
-          ~~ {blockedReason}
+        <div className={styles.moduleBlock}>
+          {blockedReason}
           {blockingModuleIds.length > 0 && (
-            <div style={{ marginTop: 3, color: 'var(--anchor-soft)' }}>
-              selected blocker{blockingModuleIds.length === 1 ? '' : 's'}:{' '}
+            <div className={styles.moduleBlockSub}>
+              Selected blocker{blockingModuleIds.length === 1 ? '' : 's'}:{' '}
               {blockingModuleIds.map((id) => moduleById(id)?.label ?? id).join(' + ')}
             </div>
           )}
@@ -2306,7 +2081,7 @@ function ShelfItem({
       )}
       {!planned && (
         // Blocked tiles keep a button too — clicking it doesn't add the module
-        // but DOES fire the reject-stamp popup in addModule() so the user gets
+        // but DOES fire the reject popup in addModule() so the user gets
         // loud feedback instead of a silent dead tile. Non-draggable non-blocked
         // (draggable=false) stays hidden to keep the shelf tidy.
         !disabled ? (
@@ -2314,31 +2089,23 @@ function ShelfItem({
             type="button"
             onClick={(e) => { e.stopPropagation(); onQuickAdd(); }}
             onPointerDown={(e) => e.stopPropagation()}
-            className="uru-btn uru-btn-mint"
-            style={{ width: '100%', marginTop: 8, justifyContent: 'center', fontSize: 11, padding: '4px 8px' }}
+            className={`ui-btn ${styles.moduleAction}`}
+            data-size="sm"
+            data-block="true"
           >
-            <span className="uru-arrow">→</span> add module
+            Add module
           </button>
         ) : blocked && draggable !== false ? (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onQuickAdd(); }}
             onPointerDown={(e) => e.stopPropagation()}
-            className="uru-btn"
-            style={{
-              width: '100%',
-              marginTop: 8,
-              justifyContent: 'center',
-              fontSize: 11,
-              padding: '4px 8px',
-              background: 'var(--pink-warm)',
-              color: 'var(--anchor-soft)',
-              cursor: 'not-allowed',
-              opacity: 0.75,
-            }}
+            className={`ui-btn ${styles.moduleAction} ${styles.moduleActionBlocked}`}
+            data-size="sm"
+            data-block="true"
             title={blockedReason}
           >
-            ✗ blocked ~~
+            Blocked
           </button>
         ) : null
       )}
@@ -2359,60 +2126,48 @@ function CartDropZone({
   const { isOver, setNodeRef } = useDroppable({ id: 'cart' });
   const blockedCandidates = Object.entries(conflictBlockers).filter(([, blockers]) => blockers.length > 0);
   return (
-    <div ref={setNodeRef} className={`uru-cart ${className ?? ''}`} data-active={isOver}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="uru-eyebrow">selected modules</div>
-        <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>
+    <div ref={setNodeRef} className={`${styles.cart} ${className ?? ''}`} data-active={isOver}>
+      <div className={styles.cartHead}>
+        <div className={styles.panelTitle}>Selected modules</div>
+        <span className={styles.cartCount}>
           {selectedModules.length} module{selectedModules.length === 1 ? '' : 's'}
         </span>
       </div>
-      {blockedCandidates.length > 0 && (
-        <div
-          style={{
-            margin: '-2px 0 10px',
-            border: '1.5px solid var(--pink-hot)',
-            background: 'var(--pink-warm)',
-            padding: '6px 7px',
-            color: 'var(--anchor)',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            lineHeight: 1.45,
-          }}
-        >
-          ✿ highlighted selections block {blockedCandidates.length} shelf module{blockedCandidates.length === 1 ? '' : 's'}
-        </div>
-      )}
-      {selectedModules.length === 0 ? (
-        <div style={{ padding: 18, textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 11, color: 'var(--anchor-soft)' }}>
-            drag or click to add modules<br />
-            <span style={{ fontSize: 20 }}>(っ˘ ˘)っ ✿</span>
+      <div className={styles.cartBody}>
+        {blockedCandidates.length > 0 && (
+          <div className={styles.warnNote}>
+            Highlighted selections block {blockedCandidates.length} module{blockedCandidates.length === 1 ? '' : 's'} on the shelf.
           </div>
-        </div>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 8 }}>
-          {selectedModules.map((id, i) => {
-            const mod = moduleById(id);
-            if (!mod) return null;
-            const tilt = TILTS[(i + 4) % TILTS.length]!;
-            const blockedModuleLabels = blockedCandidates
-              .filter(([, blockers]) => blockers.includes(id))
-              .map(([blockedId]) => moduleById(blockedId)?.label ?? blockedId);
-            return (
-              <li key={id}>
-                <CartItem
-                  mod={mod}
-                  params={moduleParams[id] ?? {}}
-                  tilt={tilt}
-                  blockedModuleLabels={blockedModuleLabels}
-                  onRemove={() => onRemove(id)}
-                  onParamsChange={(v) => onParamsChange(id, v)}
-                />
-              </li>
-            );
-          })}
-        </ul>
-      )}
+        )}
+        {selectedModules.length === 0 ? (
+          <div className={styles.cartEmpty}>
+            Drag modules here, or click Add on the shelf.
+          </div>
+        ) : (
+          <ul className={styles.cartList}>
+            {selectedModules.map((id, i) => {
+              const mod = moduleById(id);
+              if (!mod) return null;
+              const tilt = TILTS[(i + 4) % TILTS.length]!;
+              const blockedModuleLabels = blockedCandidates
+                .filter(([, blockers]) => blockers.includes(id))
+                .map(([blockedId]) => moduleById(blockedId)?.label ?? blockedId);
+              return (
+                <li key={id}>
+                  <CartItem
+                    mod={mod}
+                    params={moduleParams[id] ?? {}}
+                    tilt={tilt}
+                    blockedModuleLabels={blockedModuleLabels}
+                    onRemove={() => onRemove(id)}
+                    onParamsChange={(v) => onParamsChange(id, v)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -2430,48 +2185,29 @@ function CartItem({
   const blocksShelfModules = blockedModuleLabels.length > 0;
   return (
     <div
-      className="uru-polaroid uru-pop"
+      className={`uru-pop ${styles.cartItem}`}
       data-tilt={tilt}
-      style={{
-        padding: '8px 8px 14px 8px',
-        ...(blocksShelfModules
-          ? { borderColor: 'var(--pink-hot)', boxShadow: '3px 3px 0 var(--pink-hot)' }
-          : undefined),
-      }}
+      data-blocking={blocksShelfModules}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
-        <div className="uru-h2" style={{ fontSize: 12 }}>✿ {mod.label}</div>
+      <div className={styles.cartItemHead}>
+        <div className={styles.moduleTitle}>{mod.label}</div>
         <button
           type="button"
           onClick={onRemove}
           onPointerDown={(event) => event.stopPropagation()}
-          className="uru-btn"
-          style={{
-            minHeight: 28,
-            padding: '3px 7px',
-            background: 'var(--pink-warm)',
-            color: 'var(--anchor)',
-            fontSize: 10,
-            lineHeight: 1,
-          }}
+          className="ui-btn"
+          data-variant="ghost"
+          data-size="sm"
           aria-label={`Remove ${mod.label}`}
-        >remove</button>
+        >Remove</button>
       </div>
       {blocksShelfModules && (
-        <div
-          style={{
-            marginTop: 6,
-            color: 'var(--pink-hot)',
-            fontFamily: 'var(--font-pixel), monospace',
-            fontSize: 9,
-            lineHeight: 1.4,
-          }}
-        >
-          blocks: {blockedModuleLabels.join(' + ')}
+        <div className={styles.moduleBlock}>
+          Blocks {blockedModuleLabels.join(' + ')}
         </div>
       )}
       {mod.params.length > 0 && (
-        <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
+        <div className={styles.paramList}>
           {mod.params.map((p) => {
             const v = params[p.key];
             // 'percent' → number input w/ % suffix. 'eth' → text input w/ ETH suffix (decimals ok).
@@ -2495,20 +2231,22 @@ function CartItem({
 
             const rangeHint =
               p.type === 'percent' && p.min !== undefined && p.max !== undefined
-                ? ` ${p.min}–${p.max}%`
+                ? `${p.min}–${p.max}%`
                 : p.type === 'integer' && p.min !== undefined && p.max !== undefined
-                  ? ` [${p.min}–${p.max}]`
+                  ? `${p.min}–${p.max}`
                   : '';
 
             return (
-              <label key={p.key} style={{ display: 'block' }}>
-                <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--anchor-soft)' }}>
+              <label key={p.key} className="ui-field">
+                <span className="ui-field-label">
                   {p.label}
-                  {rangeHint && <span>{rangeHint}</span>}
+                  {rangeHint && <span className={`ui-field-aside ${styles.mono}`}>{rangeHint}</span>}
                 </span>
-                <div style={{ position: 'relative' }}>
+                <div className={styles.suffixWrap}>
                   <input
-                    className="uru-input"
+                    className="ui-input"
+                    data-mono={isNumberInput || p.type === 'eth' || p.type === 'address' ? 'true' : undefined}
+                    data-missing={missing}
                     type={inputType}
                     step={p.type === 'percent' ? (p.step ?? 0.01) : p.type === 'eth' ? 'any' : undefined}
                     inputMode={p.type === 'eth' ? 'decimal' : undefined}
@@ -2520,37 +2258,15 @@ function CartItem({
                         ? (e.target.value === '' ? '' : Number(e.target.value))
                         : e.target.value,
                     })}
-                    style={{
-                      ...(missing ? { borderColor: 'var(--pink-hot)' } : undefined),
-                      ...(suffix ? { paddingRight: 34 } : undefined),
-                    }}
+                    style={suffix ? { paddingRight: 44 } : undefined}
                   />
-                  {suffix && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        right: 8,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        fontFamily: 'var(--font-pixel), monospace',
-                        fontSize: 10,
-                        color: 'var(--anchor-soft)',
-                        pointerEvents: 'none',
-                      }}
-                    >
-                      {suffix}
-                    </span>
-                  )}
+                  {suffix && <span className={styles.suffix}>{suffix}</span>}
                 </div>
                 {p.description && (
-                  <div style={{ marginTop: 2, fontFamily: 'var(--font-round), Klee One, cursive', fontSize: 10, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
-                    {p.description}
-                  </div>
+                  <span className={styles.hint}>{p.description}</span>
                 )}
                 {missing && (
-                  <div style={{ marginTop: 2, fontFamily: 'var(--font-pixel), monospace', fontSize: 9, color: 'var(--pink-hot)' }}>
-                    ~~ fill this before launch
-                  </div>
+                  <span className="ui-error">Fill this in before launch.</span>
                 )}
               </label>
             );
@@ -2562,7 +2278,7 @@ function CartItem({
 }
 
 function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>{children}</div>;
+  return <div className={styles.fieldGrid}>{children}</div>;
 }
 
 type MetadataIconName = 'image' | 'website' | 'x' | 'telegram' | 'discord' | 'tiktok';
@@ -2608,9 +2324,9 @@ function MetadataIcon({ icon }: { icon: MetadataIconName }) {
 
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'block' }}>
-      <span style={{ fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color: 'var(--anchor-soft)' }}>{label}</span>
-      <div style={{ marginTop: 3 }}>{children}</div>
+    <label className="ui-field">
+      <span className="ui-field-label">{label}</span>
+      {children}
     </label>
   );
 }
@@ -2618,12 +2334,12 @@ function Field({ label, children }: { label: React.ReactNode; children: React.Re
 function NameStatus({ data, isFetching, enabled }: { data: unknown; isFetching: boolean; enabled: boolean }) {
   if (!enabled) return null;
   let msg = '';
-  let color = 'var(--anchor-soft)';
-  if (isFetching) msg = 'checking..';
-  else if (data === true) { msg = 'available ✿'; color = 'var(--anchor)'; }
-  else if (data === false) { msg = 'taken ~~ try another'; color = 'var(--pink-hot)'; }
+  let tone: 'muted' | 'ok' | 'bad' = 'muted';
+  if (isFetching) msg = 'Checking…';
+  else if (data === true) { msg = 'Available'; tone = 'ok'; }
+  else if (data === false) { msg = 'Taken, try another'; tone = 'bad'; }
   else return null;
-  return <div style={{ marginTop: 3, fontFamily: 'var(--font-pixel), monospace', fontSize: 10, color }}>{msg}</div>;
+  return <div className={styles.nameStatus} data-tone={tone}>{msg}</div>;
 }
 
 function short(a: string): string {
@@ -2646,42 +2362,16 @@ function AgentLaunchStrip() {
     } catch { /* clipboard may not be available */ }
   };
   return (
-    <section
-      className="uru-shell-tight"
-      style={{
-        marginBottom: 10,
-        padding: 10,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        flexWrap: 'wrap',
-        background: 'var(--cream-deep, var(--cream))',
-      }}
-    >
-      <div style={{ flex: '1 1 auto', minWidth: 200 }}>
-        <div className="uru-eyebrow" style={{ marginBottom: 1 }}>❋ launch with an agent</div>
-        <div style={{ fontSize: 11, color: 'var(--anchor-soft)', lineHeight: 1.35 }}>
-          give ur ai the skill — copy the prompt into claude / cursor / chatgpt and let it walk u through
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={copyPrompt}
-          className="uru-btn uru-btn-primary"
-          style={{ padding: '6px 10px', fontSize: 11 }}
-        >
-          {copied ? '✿ copied' : 'copy prompt'}
+    <div className={styles.agentStrip}>
+      <span className={styles.agentLabel}>Prefer an AI assistant?</span>
+      <div className={styles.agentActions}>
+        <button type="button" onClick={copyPrompt} className="ui-btn" data-size="sm">
+          {copied ? 'Copied' : 'Copy agent prompt'}
         </button>
-        <Link
-          href="/agent-skill.md"
-          className="uru-btn uru-btn-cream"
-          style={{ padding: '6px 10px', fontSize: 11 }}
-          prefetch={false}
-        >
-          view skill ↗
+        <Link href="/agent-skill.md" className="ui-btn" data-variant="ghost" data-size="sm" prefetch={false}>
+          View skill ↗
         </Link>
       </div>
-    </section>
+    </div>
   );
 }
