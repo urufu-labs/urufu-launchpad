@@ -6,10 +6,10 @@
 /// launch tx (which lands on Robinhood); buyers fetch their proof from
 /// `/wl/proof?listId=…&addr=…` at buy time.
 ///
-/// Supported source chains: any chain in RPC_URLS below. Robinhood always
-/// (public RPC by default); Ethereum / Base only when ETH_RPC_URL /
-/// BASE_RPC_URL are set. The web only requests Robinhood snapshots today
-/// (create page sends the launch's own chain).
+/// Supported source chains: any chain in RPC_URLS below. Robinhood and
+/// Ethereum always (public RPCs by default); Base only when BASE_RPC_URL is
+/// set. The create page lets the launcher pick Robinhood or Ethereum as the
+/// source chain; the root works on Robinhood either way (leaves are addresses).
 ///
 /// Source priority (first success wins):
 ///   1. Blockscout `/tokens/:addr/holders` — per-chain URL, NFT + ERC-20.
@@ -29,7 +29,7 @@
 /// a stricter same-block caller never gets a permissive cached result.
 
 import { type Address, type Hex, keccak256, encodePacked } from 'viem';
-import { holdersFromState, latestBlock, raceAbort, scanHolders } from './holders-engine.ts';
+import { holdersFromState, latestBlock, raceAbort, rpcCall, scanHolders } from './holders-engine.ts';
 import { verifiedIndexerHolders } from './holders-verify.ts';
 
 /// Chains whose tokens our Ponder indexer tracks (holders table). The verified
@@ -37,29 +37,43 @@ import { verifiedIndexerHolders } from './holders-verify.ts';
 const INDEXER_CHAINS = new Set([4663]);
 
 /// Chains this snapshot service can read from. Robinhood always (public RPC
-/// unless ROBINHOOD_RPC_URL overrides). Ethereum / Base only when an RPC URL
-/// is configured; their public endpoints limit eth_getLogs ranges far more
-/// than Robinhood's, so a full-history scan there needs a capable endpoint.
+/// unless ROBINHOOD_RPC_URL overrides). Ethereum always, through the same
+/// public RPC the NFT lane uses (externalChains in routes/nft-discount-attest.ts)
+/// unless ETH_RPC_URL / MAINNET_RPC_URL overrides. Base only when BASE_RPC_URL
+/// is configured.
 const RPC_URLS: Record<number, string> = {
   4663: process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
+  1: process.env.ETH_RPC_URL || process.env.MAINNET_RPC_URL || 'https://ethereum-rpc.publicnode.com',
 };
-if (process.env.ETH_RPC_URL) RPC_URLS[1] = process.env.ETH_RPC_URL;
 if (process.env.BASE_RPC_URL) RPC_URLS[8453] = process.env.BASE_RPC_URL;
 
-/// Blockscout v2 API base URLs, keyed by chainId. Fallback source. Kept for
-/// chains where Alchemy is unavailable or fails. On chains served by both,
-/// Alchemy is tried first because it doesn't require the drift-window
-/// gymnastics blockscout does.
+/// Chains where the full-history on-chain replay is allowed as a fallback.
+/// Robinhood's RPC serves big eth_getLogs ranges. Ethereum's public RPCs do
+/// not, and a replay from block 0 there would be thousands of calls, so it is
+/// only allowed when an operator configured their own Ethereum endpoint.
+const REPLAY_CHAINS = new Set<number>([4663]);
+if (process.env.ETH_RPC_URL || process.env.MAINNET_RPC_URL) REPLAY_CHAINS.add(1);
+if (process.env.BASE_RPC_URL) REPLAY_CHAINS.add(8453);
+
+/// Human chain names for user-facing errors.
+const CHAIN_NAMES: Record<number, string> = { 4663: 'Robinhood Chain', 1: 'Ethereum', 8453: 'Base' };
+const chainName = (id: number): string => CHAIN_NAMES[id] ?? `chain ${id}`;
+
+/// Blockscout v2 API base URLs, keyed by chainId. Primary source on Ethereum
+/// (keyless, NFT + ERC-20 holders). Robinhood's sits behind a Cloudflare
+/// challenge, so there it fails fast and the on-chain replay serves.
 const EXPLORER_APIS: Record<number, string> = {
   4663: process.env.ROBINHOOD_BLOCKSCOUT_URL ?? 'https://robinhoodchain.blockscout.com/api/v2',
+  1: process.env.ETH_BLOCKSCOUT_URL ?? 'https://eth.blockscout.com/api/v2',
 };
 
 /// Blockscout `holders` endpoint page size (default 50, max 100 as of 2026).
 const BLOCKSCOUT_PAGE_SIZE = 100;
 /// Safety-cap the number of holder-page fetches so a broken pagination loop
-/// can't stall the request forever. 100 pages × 100 holders = 10k holders max
-/// per snapshot — well above any realistic launch WL.
-export const BLOCKSCOUT_MAX_PAGES = 100;
+/// can't stall the request forever. Blockscout actually returns 50 holders per
+/// page (measured 2026-10-19 on eth.blockscout.com), so 200 pages = 10k
+/// holders, ~60-180 s at 0.3-0.9 s/page, inside the 240 s route timeout.
+export const BLOCKSCOUT_MAX_PAGES = 200;
 /// Default max acceptable block delta between the "read latest at snapshot
 /// START" and "read latest at snapshot END" reads. If the chain tip moves more
 /// than this while we're fetching the holder list, the snapshot may already be
@@ -308,6 +322,36 @@ export class WlSnapshotBlockDrift extends Error {
   }
 }
 
+/// Thrown when the source address has no contract code on the chosen chain,
+/// almost always because the project lives on a different chain than the one
+/// picked. Checked up front so the launcher gets a clear message instead of
+/// an RPC error from the holder scan (seen 2026-10-19: an Ethereum collection
+/// snapshotted on Robinhood surfaced as "rpc error -32603: Internal error").
+export class WlNoContract extends Error {
+  readonly chainId: number;
+  readonly tokenAddress: Address;
+  constructor(chainId: number, tokenAddress: Address) {
+    super(
+      `No contract at this address on ${chainName(chainId)}. ` +
+        `Check the address, or pick the chain the project lives on.`,
+    );
+    this.name = 'WlNoContract';
+    this.chainId = chainId;
+    this.tokenAddress = tokenAddress;
+  }
+}
+
+/// Thrown when no holder source could serve a chain: Blockscout failed and the
+/// full on-chain replay isn't allowed there (see REPLAY_CHAINS). Retryable.
+export class WlHoldersUnavailable extends Error {
+  readonly chainId: number;
+  constructor(chainId: number) {
+    super(`Couldn't read the holder list from ${chainName(chainId)} right now. Try again in a minute.`);
+    this.name = 'WlHoldersUnavailable';
+    this.chainId = chainId;
+  }
+}
+
 /// Simple in-memory cache. Key is derived from EVERY policy input that
 /// changes the output set — see `_computeCacheKey`. Stored so the SAME
 /// snapshot can serve many proof requests without re-scanning.
@@ -381,7 +425,7 @@ function _isAbortError(err: unknown): boolean {
 export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotResult> {
   const rpc = RPC_URLS[req.chainId];
   if (!rpc) {
-    throw new Error(`unsupported chainId ${req.chainId} — snapshot service only knows: ${Object.keys(RPC_URLS).join(', ')}`);
+    throw new Error(`unsupported chainId ${req.chainId}. Snapshot service only knows: ${Object.keys(RPC_URLS).join(', ')}`);
   }
 
   const allowPartial = req.allowPartial === true;
@@ -408,6 +452,10 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // 429 backoff the scan uses, so a throttled public RPC doesn't fail the
   // snapshot outright (2026-10-02: "rpc http 429").
   const startBlock = await latestBlock(rpc, { signal });
+  // No code at the address on this chain = wrong chain or wrong address. Fail
+  // with a clear error before any holder source runs.
+  const code = await rpcCall<string>(rpc, 'eth_getCode', [req.tokenAddress, 'latest'], { signal });
+  if (!code || code === '0x') throw new WlNoContract(req.chainId, req.tokenAddress);
   // Resolve minBalance BEFORE building the cache key — it's a policy input
   // that changes the eligible holder set and therefore the returned root.
   const minBal = req.minBalance ?? 1n;
@@ -519,6 +567,9 @@ export async function snapshotHolders(req: SnapshotRequest): Promise<SnapshotRes
   // incremental per contract). Covers ERC-721 / ERC-20 / ERC-1155. Never
   // truncated, so it never sets `partial`. Balance semantics match Blockscout:
   // ERC-20 raw amount, ERC-721 token count, ERC-1155 summed amounts.
+  if (!eligible && !REPLAY_CHAINS.has(req.chainId)) {
+    throw new WlHoldersUnavailable(req.chainId);
+  }
   if (!eligible) {
     fromRpcFallback = true;
     // The scan is NOT tied to this request's signal: a cold full-history scan

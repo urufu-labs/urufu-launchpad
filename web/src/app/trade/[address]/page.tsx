@@ -129,6 +129,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     wlSourceValid,
     wlSourceName,
     wlSourceSymbol,
+    wlSourceChainKey,
     graduated,
     feeBps,
     walletBalQ,
@@ -931,9 +932,9 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                     {wlSourceValid && (wlSourceSymbol || wlSourceName) && (
                       <div className={styles.wlMeta}>
                         For holders of{' '}
-                        {activeChain ? (
+                        {(wlSourceChainKey ?? activeChain) ? (
                           <a
-                            href={explorerAddressUrl(activeChain, wlSourceToken!)}
+                            href={explorerAddressUrl((wlSourceChainKey ?? activeChain)!, wlSourceToken!)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={styles.link}
@@ -944,6 +945,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         ) : (
                           <b>${wlSourceSymbol ?? wlSourceName}</b>
                         )}
+                        {wlSourceChainKey === 'mainnet' ? ' on Ethereum' : ''}
                       </div>
                     )}
                     {wlFallbackTs && wlFallbackTs > 0n && (

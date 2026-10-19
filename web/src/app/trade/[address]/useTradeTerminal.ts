@@ -293,6 +293,7 @@ export function useTradeTerminal(tokenAddress: Address) {
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'reservedTokens', chainId: readChainId },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'wlSold', chainId: readChainId },
           { abi: bondingCurveAbi, address: curveAddress, functionName: 'sourceTokenAddress', chainId: readChainId },
+          { abi: bondingCurveAbi, address: curveAddress, functionName: 'sourceChainId', chainId: readChainId },
         ]
       : [],
     // chainId is set per contract above: wagmi ignores a top-level one here.
@@ -303,7 +304,15 @@ export function useTradeTerminal(tokenAddress: Address) {
   const wlReservedTokens = wlState.data?.[2]?.result as bigint | undefined;
   const wlSoldTokens = wlState.data?.[3]?.result as bigint | undefined;
   const wlSourceToken = wlState.data?.[4]?.result as Address | undefined;
+  const wlSourceChainIdRaw = wlState.data?.[5]?.result as number | undefined;
   const wlEnabled = !!wlRoot && wlRoot !== `0x${'0'.repeat(64)}`;
+
+  // The source project can live on another chain (Ethereum). Read its name +
+  // symbol and link the explorer on THAT chain. Older curves stored the launch
+  // chain or 0 here; anything unknown to wagmi falls back to the launch chain.
+  const wlSourceChainKey: ChainKey | undefined =
+    wlSourceChainIdRaw && CHAIN_ID_TO_KEY[wlSourceChainIdRaw] ? CHAIN_ID_TO_KEY[wlSourceChainIdRaw] : undefined;
+  const wlSourceReadChainId = wlSourceChainKey ? CHAIN_KEY_TO_ID[wlSourceChainKey] : readChainId;
 
   // Resolve the WL source token's name + symbol so the WL panel can label
   // WHICH community is eligible (e.g. "whitelist for holders of $KAWAII").
@@ -312,8 +321,8 @@ export function useTradeTerminal(tokenAddress: Address) {
   const wlSourceMeta = useReadContracts({
     contracts: wlSourceValid
       ? [
-          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'name', chainId: readChainId },
-          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'symbol', chainId: readChainId },
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'name', chainId: wlSourceReadChainId },
+          { abi: erc20TokenAbi, address: wlSourceToken!, functionName: 'symbol', chainId: wlSourceReadChainId },
         ]
       : [],
     // chainId is set per contract above: wagmi ignores a top-level one here.
@@ -1276,6 +1285,7 @@ export function useTradeTerminal(tokenAddress: Address) {
     wlSourceValid,
     wlSourceName,
     wlSourceSymbol,
+    wlSourceChainKey,
     graduated,
     feeBps,
     walletBalQ,
