@@ -1,6 +1,6 @@
 # Zero-fee NFT marketplace (spec)
 
-> **Status:** draft, decisions M1-M5 need sign-off before building
+> **Status:** approved 2026-10-19 with all defaults (M1-M5)
 > _written 2026-10-19_
 
 Buy and sell NFTs from collections launched on urufu, with **no platform

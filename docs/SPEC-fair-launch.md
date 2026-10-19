@@ -1,6 +1,6 @@
 # Fair launch lane (spec)
 
-> **Status:** draft, decisions D1-D7 need sign-off before any contract code
+> **Status:** approved 2026-10-19 with all defaults (D1-D7)
 > _written 2026-10-19_
 
 A fourth launch type next to Token, NFT and DN404. Same ERC-20 token, same
