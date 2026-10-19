@@ -39,6 +39,8 @@ import {
   WlSnapshotBlockDrift,
   WlHolderCountExceedsCap,
   WlIpfsResponseTooLarge,
+  WlNoContract,
+  WlHoldersUnavailable,
 } from './wl-snapshot.ts';
 
 // -----------------------------------------------------------
@@ -55,6 +57,12 @@ interface MockState {
   rpcBlocks: bigint[];
   blockscoutCalls: number;
   rpcCalls: Array<{ method: string; params: unknown }>;
+  /// Lowercased addresses whose eth_getCode returns '0x' (no contract).
+  noCodeTokens?: Set<string>;
+  /// When true, Blockscout holder pages answer HTTP 502.
+  blockscoutFail?: boolean;
+  /// URLs fetched, in order (Blockscout + RPC), for chain-routing asserts.
+  urls?: string[];
 }
 
 let mock: MockState;
@@ -69,10 +77,12 @@ function installMock(): void {
         : input instanceof URL
           ? input.toString()
           : (input as Request).url;
+    mock.urls?.push(url);
 
     // Blockscout GET `/api/v2/tokens/{addr}/holders[?…]`
     if (url.includes('/tokens/') && url.includes('/holders')) {
       mock.blockscoutCalls += 1;
+      if (mock.blockscoutFail) return new Response('upstream error', { status: 502 });
       const page = mock.blockscoutPages.shift() ?? {
         items: [],
         next_page_params: null,
@@ -106,6 +116,15 @@ function installMock(): void {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
+    }
+    if (rpcReq.method === 'eth_getCode') {
+      // Every test token is a contract unless listed in `noCodeTokens`.
+      const addr = String((rpcReq.params as unknown[])?.[0] ?? '').toLowerCase();
+      const result = mock.noCodeTokens?.has(addr) ? '0x' : '0x6080';
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: rpcReq.id, result }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     }
     throw new Error(`test bug: unmocked RPC method ${rpcReq.method}`);
   }) as typeof fetch;
@@ -857,4 +876,73 @@ test('snapshotFromIpfs accepts a body inside the cap and returns a valid snapsho
   } finally {
     globalThis.fetch = origFetch;
   }
+});
+
+// ================================================================
+// Source chain: Ethereum support + clear "no contract" error (2026-10-19).
+// An Ethereum collection snapshotted on Robinhood used to surface as
+// "rpc error -32603: Internal error".
+// ================================================================
+
+test('snapshotHolders rejects with WlNoContract when the address has no code on the chosen chain', async () => {
+  const token = testToken('c0de01');
+  mock.noCodeTokens = new Set([token.toLowerCase()]);
+  mock.rpcBlocks = [1000n];
+  await assert.rejects(
+    () => snapshotHolders({ chainId: 4663, tokenAddress: token }),
+    (err: unknown) => {
+      assert.ok(err instanceof WlNoContract, `expected WlNoContract, got ${err}`);
+      assert.equal(err.chainId, 4663);
+      assert.match(err.message, /No contract at this address on Robinhood Chain/);
+      return true;
+    },
+  );
+  assert.equal(mock.blockscoutCalls, 0, 'must not walk holders when there is no contract');
+});
+
+test('snapshotHolders names Ethereum in the WlNoContract message for chainId 1', async () => {
+  const token = testToken('c0de02');
+  mock.noCodeTokens = new Set([token.toLowerCase()]);
+  mock.rpcBlocks = [20_000_000n];
+  await assert.rejects(
+    () => snapshotHolders({ chainId: 1, tokenAddress: token }),
+    (err: unknown) => err instanceof WlNoContract && /on Ethereum\./.test(err.message),
+  );
+});
+
+test('snapshotHolders on chainId 1 reads holders from Ethereum Blockscout and the Ethereum RPC', async () => {
+  const token = testToken('e7401');
+  mock.urls = [];
+  mock.blockscoutPages = [
+    makePage(null, [
+      ['0x00000000000000000000000000000000000000a1', '3'],
+      ['0x00000000000000000000000000000000000000a2', '1'],
+    ]),
+  ];
+  mock.rpcBlocks = [20_000_000n, 20_000_002n];
+  const snap = await snapshotHolders({ chainId: 1, tokenAddress: token });
+  assert.equal(snap.holderCount, 2);
+  assert.equal(snap.source, 'blockscout');
+  assert.ok(
+    mock.urls.some((u) => u.startsWith('https://eth.blockscout.com/api/v2/tokens/')),
+    'expected an eth.blockscout.com holders call',
+  );
+  assert.ok(
+    !mock.urls.some((u) => u.includes('robinhood')),
+    'an Ethereum snapshot must not touch Robinhood endpoints',
+  );
+});
+
+test('snapshotHolders on chainId 1 fails with WlHoldersUnavailable (no full replay) when Blockscout is down and no ETH_RPC_URL is set', async () => {
+  const token = testToken('e7402');
+  mock.blockscoutFail = true;
+  mock.rpcBlocks = [20_000_000n];
+  await assert.rejects(
+    () => snapshotHolders({ chainId: 1, tokenAddress: token }),
+    (err: unknown) => err instanceof WlHoldersUnavailable && err.chainId === 1,
+  );
+  assert.ok(
+    !mock.rpcCalls.some((c) => c.method === 'eth_getLogs'),
+    'must not start a full-history getLogs replay on public Ethereum RPC',
+  );
 });

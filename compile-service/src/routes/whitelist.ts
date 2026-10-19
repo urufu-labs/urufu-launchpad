@@ -10,6 +10,8 @@ import {
   WlSnapshotBlockDrift,
   WlHolderCountExceedsCap,
   WlIpfsResponseTooLarge,
+  WlNoContract,
+  WlHoldersUnavailable,
 } from '../wl-snapshot.ts';
 import { Semaphore } from '../isolated-build.ts';
 
@@ -63,9 +65,12 @@ export function defaultWlQueueWaitMs(): number {
 /// FINDING 3 (HIGH): hard wall-clock ceiling on a single snapshot operation.
 /// If the Blockscout walk + Merkle build + IPFS pin exceeds this, we abort
 /// the AbortController wired to every downstream fetch and return a 504 so
-/// the semaphore slot is reclaimed for the next request.
+/// the semaphore slot is reclaimed for the next request. 240 s since Ethereum
+/// sources (2026-10-19): Blockscout serves 50 holders a page at ~0.3-0.9 s, so
+/// a 5.6k-holder collection (Milady) took ~103 s and 10k holders (the page
+/// cap) can need ~180 s.
 export function defaultWlOperationTimeoutMs(): number {
-  return envInt('WL_OPERATION_TIMEOUT_MS', 120_000);
+  return envInt('WL_OPERATION_TIMEOUT_MS', 240_000);
 }
 
 /// FINDING 3 (HIGH): body cap on POST /wl/snapshot. A legitimate body is
@@ -257,6 +262,20 @@ export async function registerWhitelistRoutes(
       // isn't trustworthy" cases so operators (and the frontend) can react
       // differently from a generic 5xx. Each error carries the actual page
       // count / drift so debugging doesn't need log-trawling.
+      if (err instanceof WlNoContract) {
+        return reply.code(422).send({
+          code: 'NO_CONTRACT',
+          message: err.message,
+          chainId: err.chainId,
+        });
+      }
+      if (err instanceof WlHoldersUnavailable) {
+        return reply.header('retry-after', '60').code(503).send({
+          code: 'HOLDERS_UNAVAILABLE',
+          message: err.message,
+          chainId: err.chainId,
+        });
+      }
       if (err instanceof WlSnapshotTruncated) {
         return reply.code(422).send({
           code: 'SNAPSHOT_TRUNCATED',

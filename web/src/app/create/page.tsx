@@ -74,6 +74,14 @@ const TILTS: Array<'n7' | 'p3' | 'n4' | 'p11' | 'p2' | 'n11' | 'p13' | 'n2'> = [
 const ALWAYS_ON_HOOKS = new Set(['LPLocked', 'FeeRedirect', 'MultiHookHost']);
 const PER_LAUNCH_HOOKS = new Set(['AntiSniper', 'BuybackBurn']);
 
+/// Chains a community whitelist can snapshot holders from. Must stay in step
+/// with RPC_URLS in compile-service/src/wl-snapshot.ts.
+const WL_SOURCE_CHAINS = [
+  { id: CHAIN_KEY_TO_ID.robinhood, label: 'Robinhood' },
+  { id: CHAIN_KEY_TO_ID.mainnet, label: 'Ethereum' },
+] as const;
+type WlSourceChainId = (typeof WL_SOURCE_CHAINS)[number]['id'];
+
 export default function CreatePage() {
   if (!LAUNCHPAD_LIVE) {
     return <NotLiveYet />;
@@ -697,6 +705,10 @@ function CreatePageContent() {
   // Hard-coded sensible defaults (25% reserved, 24h fallback, per-address cap =
   // reserved/5). Advanced knobs deferred to v2.
   const [wlSourceAddress, setWlSourceAddress] = useState<string>('');
+  // Chain the source project lives on. The Merkle root works on the launch
+  // chain either way (leaves are plain addresses); this picks where the
+  // compile-service reads holders and is stored on the curve as sourceChainId.
+  const [wlSourceChainId, setWlSourceChainId] = useState<WlSourceChainId>(CHAIN_KEY_TO_ID.robinhood);
   const [wlSnapshot, setWlSnapshot] = useState<{
     root: Hex;
     snapshotBlock: string;
@@ -734,12 +746,16 @@ function CreatePageContent() {
     }
     setWlApplying(true);
     try {
-      const chainId = CHAIN_KEY_TO_ID[targetChain];
+      const chainId = wlSourceChainId;
       // Auto-retry: a token with a long history (URU) can take ~2 min to scan
       // the first time. The service answers 504 WL_OPERATION_TIMEOUT (or 503
       // WL_BUSY) but keeps scanning in the background and caches the result,
       // so asking again shortly after succeeds. Up to 3 attempts total.
       const MAX_ATTEMPTS = 3;
+      // Ethereum holders come 50 per page from Blockscout: ~100 s for 5-6k.
+      if (chainId === CHAIN_KEY_TO_ID.mainnet) {
+        setWlNote('Counting Ethereum holders. Big collections can take a few minutes.');
+      }
       let res: Response | null = null;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         res = await fetch(`${COMPILE_SERVICE_URL}/wl/snapshot`, {
@@ -749,7 +765,13 @@ function CreatePageContent() {
         });
         const retryable = res.status === 504 || res.status === 503;
         if (!retryable || attempt === MAX_ATTEMPTS) break;
-        setWlNote('This contract has a lot of holders and is still being counted. It can take a couple of minutes.');
+        // 503 HOLDERS_UNAVAILABLE means the holder source is down, not a big list.
+        const code = await res.clone().json().then((b: { code?: string }) => b.code).catch(() => undefined);
+        setWlNote(
+          code === 'HOLDERS_UNAVAILABLE'
+            ? 'Couldn’t reach the holder list. Trying again…'
+            : 'This contract has a lot of holders and is still being counted. It can take a couple of minutes.',
+        );
         await new Promise((r) => setTimeout(r, 5_000));
       }
       if (!res || !res.ok) {
@@ -802,10 +824,10 @@ function CreatePageContent() {
       maxWlPerAddress: maxPerAddr,
       fallbackTs: wlSnapshot.fallbackTs,
       sourceTokenAddress: wlSourceAddress as Address,
-      sourceChainId: CHAIN_KEY_TO_ID[targetChain],
+      sourceChainId: wlSourceChainId,
       declaredHolderCount: wlSnapshot.holderCount,
     };
-  }, [wlSnapshot, useCurve, curveSupplyWei, wlSourceAddress, targetChain]);
+  }, [wlSnapshot, useCurve, curveSupplyWei, wlSourceAddress, wlSourceChainId]);
   // -------------------------------------------------------------------------
 
   const implRegistered = implQuery.data && implQuery.data !== zeroAddress;
@@ -1436,9 +1458,27 @@ function CreatePageContent() {
                     <div>
                       <div className={styles.subTitle}>Community whitelist (optional)</div>
                       <div className={styles.hint}>
-                        60% of the curve is reserved for holders of another project, with a 1-hour exclusive window.
+                        60% of the curve is reserved for holders of another project on Robinhood or Ethereum, with a 1-hour exclusive window.
                       </div>
                     </div>
+                    {!wlEnabled && (
+                      <div className="ui-seg" data-block="true" role="group" aria-label="Source project chain">
+                        {WL_SOURCE_CHAINS.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setWlSourceChainId(c.id);
+                              setWlError(null);
+                            }}
+                            aria-pressed={wlSourceChainId === c.id}
+                            disabled={wlApplying}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {!wlEnabled && (
                       <div className={styles.wlRow}>
                         <input
@@ -1469,6 +1509,7 @@ function CreatePageContent() {
                           <b>Whitelist ready:</b>{' '}
                           <span className={styles.mono}>{wlSnapshot.holderCount}</span> holders of{' '}
                           <span className={styles.mono}>{wlSourceAddress.slice(0, 6)}…{wlSourceAddress.slice(-4)}</span>{' '}
+                          on {WL_SOURCE_CHAINS.find((c) => c.id === wlSourceChainId)?.label ?? 'Robinhood'}{' '}
                           at block <span className={styles.mono}>{wlSnapshot.snapshotBlock}</span>
                         </span>
                         <button

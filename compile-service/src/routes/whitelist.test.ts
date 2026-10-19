@@ -42,6 +42,8 @@ interface MockState {
   /// Optional hook that runs on EVERY intercepted fetch. Tests use it to
   /// inject latency, throw synthetic errors, or observe request counts.
   onFetch?: (url: string) => Promise<void>;
+  /// Lowercased addresses whose eth_getCode returns '0x' (no contract).
+  noCodeTokens?: Set<string>;
 }
 
 let mock: MockState;
@@ -91,6 +93,14 @@ function installMock(): void {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
+    }
+    if (rpcReq.method === 'eth_getCode') {
+      const addr = String((rpcReq.params as unknown[])?.[0] ?? '').toLowerCase();
+      const result = mock.noCodeTokens?.has(addr) ? '0x' : '0x6080';
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: rpcReq.id, result }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     }
     throw new Error(`test bug: unmocked RPC method ${rpcReq.method}`);
   }) as typeof fetch;
@@ -207,6 +217,31 @@ test('POST /wl/snapshot happy path returns 200 with a Merkle root and holderCoun
     assert.ok(body.root.startsWith('0x'));
     assert.equal(body.holderCount, 2);
     assert.equal(body.partial, false);
+  } finally {
+    await app.close();
+    restoreEnv();
+  }
+});
+
+// A source address with no contract on the chosen chain returns 422
+// NO_CONTRACT with a message the create page shows as-is.
+test('POST /wl/snapshot returns 422 NO_CONTRACT when the address has no code on that chain', async () => {
+  const { register, restoreEnv } = await freshWlRoutes({ WL_SNAPSHOT_RATE_MAX: '1000' });
+  const app = await makeApp(register);
+  try {
+    const token = '0x000000000000000000000000000000000000c0de';
+    mock.noCodeTokens = new Set([token]);
+    mock.rpcBlocks = [1000n];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/wl/snapshot',
+      payload: { chainId: 4663, tokenAddress: token },
+    });
+    assert.equal(res.statusCode, 422, res.body);
+    const body = res.json() as { code: string; message: string; chainId: number };
+    assert.equal(body.code, 'NO_CONTRACT');
+    assert.equal(body.chainId, 4663);
+    assert.match(body.message, /No contract at this address on Robinhood Chain/);
   } finally {
     await app.close();
     restoreEnv();
