@@ -492,3 +492,32 @@
     padding: 12px;
   }
 }
+
+/* --- Creator tools --- */
+.toolsDivider {
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.toolsWarn {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.toolsWarn b {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.socialRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

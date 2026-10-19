@@ -133,6 +133,57 @@ export async function saveTokenMetadata(
   return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
 }
 
+// ---------------------------------------------------------------- collection page details
+
+/// Off-chain page details for an NFT or DN404 collection (keyed on the
+/// collection address, the DN404 mirror for that lane). Only the launcher
+/// can write; the server also checks they still own the contract on-chain.
+export interface RemoteCollectionMetadata {
+  chainId: number;
+  collectionAddress: Address;
+  imageUrl: string | null;
+  description: string | null;
+  website: string | null;
+  twitter: string | null;
+  telegram: string | null;
+  discord: string | null;
+  updatedAt: string;
+  owner: Address;
+}
+
+export async function fetchCollectionMetadata(
+  chainId: number,
+  collectionAddress: Address,
+): Promise<RemoteCollectionMetadata | null> {
+  return getJson<RemoteCollectionMetadata>(`/collection/${chainId}/${collectionAddress}/metadata`);
+}
+
+export async function saveCollectionMetadata(
+  address: Address,
+  payload: {
+    chainId: number;
+    collectionAddress: Address;
+    imageUrl: string | null;
+    description: string | null;
+    website: string | null;
+    twitter: string | null;
+    telegram: string | null;
+    discord: string | null;
+  },
+  sign: SignFn,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await signedPost(
+    `/collection/${payload.chainId}/${payload.collectionAddress}/metadata`,
+    'collection:save',
+    address,
+    payload,
+    sign,
+  );
+  if (res.ok) return { ok: true };
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
+}
+
 // ---------------------------------------------------------------- profile
 
 export interface RemoteProfile {
