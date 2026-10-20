@@ -182,6 +182,11 @@ export async function submitListing(order: OrderComponents, signature: Hex): Pro
   }
 }
 
+/// Current unix time in seconds (order start/end times).
+export function nowSeconds(): bigint {
+  return BigInt(Math.floor(Date.now() / 1000));
+}
+
 /// Random 256-bit salt so two listings of the same token never collide.
 export function randomSalt(): bigint {
   const b = new Uint8Array(32);

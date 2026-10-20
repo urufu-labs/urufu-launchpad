@@ -29,6 +29,7 @@ import {
   SEAPORT_ORDER_TYPES,
   buildListingOrder,
   formatEthShort,
+  nowSeconds,
   randomSalt,
   seaportDomain,
   submitListing,
@@ -146,7 +147,7 @@ export function ListForm({
         functionName: 'getCounter',
         args: [wallet],
       });
-      const now = BigInt(Math.floor(Date.now() / 1000));
+      const now = nowSeconds();
       const order = buildListingOrder({
         seller: wallet,
         collection,
