@@ -11,7 +11,7 @@ import {FairBondingCurve} from "src/fair/FairBondingCurve.sol";
 import {OpeningBatch} from "src/fair/OpeningBatch.sol";
 import {FairHookHost} from "src/fair/FairHookHost.sol";
 
-import {FairTestBase, IERC20Min, ReentrantClaimer} from "./FairTestBase.sol";
+import {FairTestBase, IERC20Min, ReentrantClaimer, LiquidityAdder} from "./FairTestBase.sol";
 
 /// Creator wallet that burns all forwarded gas when it receives ETH.
 contract GasBurnerCreator {
@@ -211,8 +211,12 @@ contract FairLaneAdversarialTest is FairTestBase {
         assertTrue(curve.graduated(), "gas-burning creator bricked graduation");
         (,,,,,, bool configured,,) = hook.pools(key.toId());
         assertTrue(configured);
-        assertFalse(batch.claimed(address(gc)), "claim should have failed inside the try");
-        token;
+        // The claim now always lands: tokens delivered, the ETH refund parked for a pull.
+        assertTrue(batch.claimed(address(gc)), "creator share not delivered");
+        assertGt(_bal(token, address(gc)), 0);
+        assertGt(batch.refundOwed(address(gc)), 0, "refund not parked");
+        (,,,,,,, bool forfeited,) = hook.pools(key.toId());
+        assertFalse(forfeited, "parked refund must not count as a dump");
     }
 
     function test_EthRejectingCreator_GraduationStillWorks() public {
@@ -224,6 +228,92 @@ contract FairLaneAdversarialTest is FairTestBase {
         OpeningBatch(payable(b)).settle();
         _graduate(FairBondingCurve(payable(c)));
         assertTrue(FairBondingCurve(payable(c)).graduated());
+        OpeningBatch batch = OpeningBatch(payable(b));
+        uint256 owed = batch.refundOwed(address(rc));
+        assertGt(owed, 0, "rejected refund not parked");
+        // The creator pulls it to a wallet that accepts ETH.
+        address payout = makeAddr("reject-payout");
+        vm.prank(address(rc));
+        batch.withdrawRefund(payout);
+        assertEq(payout.balance, owed);
+        assertEq(batch.totalRefundOwed(), 0);
+        vm.prank(address(rc));
+        vm.expectRevert(OpeningBatch.OpeningBatch__NoRefundOwed.selector);
+        batch.withdrawRefund(payout);
+    }
+
+    // ================================================================ audit fixes (2026-10-20)
+
+    /// A creator who moves tokens to an alt BEFORE graduation used to slip past the
+    /// forfeit (baseline was just the balance left). Now the pool starts forfeited.
+    function test_PreGradTransferToAlt_ForfeitsFromStart() public {
+        (address token, FairBondingCurve curve, OpeningBatch batch) = _launch("PreAlt", 0.5 ether);
+        _warpPast(batch);
+        batch.settle();
+        vm.prank(creator);
+        (uint256 share,) = batch.claim();
+        vm.deal(creator, 1 ether);
+        vm.prank(creator);
+        uint256 bought = curve.buy{value: 0.2 ether}(0);
+        assertEq(curve.creatorBought(), bought);
+        address alt = makeAddr("pre-alt");
+        uint256 moved = ((share + bought) * 11) / 100;
+        vm.prank(creator);
+        IERC20Min(token).transfer(alt, moved);
+        PoolKey memory key = _graduate(curve);
+        (,,,,,,, bool forfeited, uint256 baseline) = hook.pools(key.toId());
+        assertTrue(forfeited, "pre-grad move to alt did not forfeit");
+        assertEq(baseline, share + bought, "baseline should be what the lane gave the creator");
+    }
+
+    function test_PreGradSmallTransfer_UnderAllowance_NotForfeited() public {
+        (address token, FairBondingCurve curve, OpeningBatch batch) = _launch("PreSmall", 0.5 ether);
+        _warpPast(batch);
+        batch.settle();
+        vm.prank(creator);
+        (uint256 share,) = batch.claim();
+        address alt = makeAddr("pre-small");
+        vm.prank(creator);
+        IERC20Min(token).transfer(alt, share / 20); // 5%
+        PoolKey memory key = _graduate(curve);
+        (,,,,,,, bool forfeited,) = hook.pools(key.toId());
+        assertFalse(forfeited, "5% move must not forfeit");
+    }
+
+    /// Range orders were a way around the sniper tax: add ETH just above the price
+    /// and let buyers convert it to tokens tax free. Third-party adds are locked
+    /// until the tax ends.
+    function test_ThirdPartyLiquidityLockedDuringTax() public {
+        (, FairBondingCurve curve,) = _launch("LpLock", 0);
+        PoolKey memory key = _graduate(curve);
+        LiquidityAdder lp = new LiquidityAdder(pm);
+        vm.deal(address(lp), 10 ether);
+        vm.expectRevert();
+        lp.addEthAbovePrice(key, 1e15);
+        vm.warp(block.timestamp + 299);
+        vm.expectRevert();
+        lp.addEthAbovePrice(key, 1e15);
+        vm.warp(block.timestamp + 1);
+        lp.addEthAbovePrice(key, 1e15);
+    }
+
+    function test_SweepDustReservesParkedRefunds() public {
+        EthRejectingCreator rc = new EthRejectingCreator();
+        vm.deal(address(this), 1 ether);
+        (,, address b) = rc.launch{value: 0.5 ether}(address(factory), "ParkSweep");
+        OpeningBatch batch = OpeningBatch(payable(b));
+        _deposit(batch, honest, 3 ether);
+        _warpPast(batch);
+        batch.settle();
+        batch.claimFor(address(rc));
+        uint256 owed = batch.refundOwed(address(rc));
+        assertGt(owed, 0);
+        vm.warp(uint256(batch.closeTs()) + batch.SWEEP_DELAY());
+        batch.sweepDust();
+        vm.prank(address(rc));
+        batch.withdrawRefund(honest);
+        vm.prank(honest);
+        batch.claim();
     }
 
     // ================================================================ settle griefing

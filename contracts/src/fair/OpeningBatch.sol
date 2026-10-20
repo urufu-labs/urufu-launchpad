@@ -45,6 +45,8 @@ contract OpeningBatch is ReentrancyGuard {
     error OpeningBatch__NothingToClaim();
     error OpeningBatch__SweepTooEarly(uint256 opensAt);
     error OpeningBatch__UnexpectedEth(address from);
+    error OpeningBatch__NoRefundOwed();
+    error OpeningBatch__ZeroRecipient();
 
     // ============================================================ events
     event BatchInitialized(
@@ -54,6 +56,10 @@ contract OpeningBatch is ReentrancyGuard {
     event Settled(address indexed caller, uint256 totalEth, uint256 ethSpent, uint256 tokensBought, uint256 ethRefund);
     event Claimed(address indexed user, uint256 tokens, uint256 ethRefund);
     event DustSwept(uint256 tokens, uint256 eth);
+    /// The ETH refund could not be pushed (recipient rejected it or ran out of the gas
+    /// stipend). It is held for `withdrawRefund`, so the claim itself never fails on it.
+    event RefundDeferred(address indexed user, uint256 amount);
+    event RefundWithdrawn(address indexed user, address indexed to, uint256 amount);
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     /// Dust (rounding remainders) can be burned this long after the window closes.
@@ -79,6 +85,9 @@ contract OpeningBatch is ReentrancyGuard {
     uint256 public claimedDeposits;
     mapping(address => uint256) public deposits;
     mapping(address => bool) public claimed;
+    /// ETH refunds that could not be pushed during claim, waiting for the user to pull.
+    mapping(address => uint256) public refundOwed;
+    uint256 public totalRefundOwed;
 
     function initialize(
         address factory_,
@@ -170,8 +179,37 @@ contract OpeningBatch is ReentrancyGuard {
         claimedDeposits += dep;
         (tokens, refund) = _shareOf(dep);
         if (tokens > 0) SafeTransferLib.safeTransfer(token, user, tokens);
-        if (refund > 0) SafeTransferLib.safeTransferETH(user, refund);
+        // Never let the ETH leg block the token leg: a contract wallet that rejects ETH,
+        // or burns gas in receive(), gets its refund parked for a later pull instead.
+        // This also keeps the graduator's creator auto-claim reliable.
+        if (refund > 0 && !SafeTransferLib.trySafeTransferETH(user, refund, SafeTransferLib.GAS_STIPEND_NO_GRIEF)) {
+            refundOwed[user] += refund;
+            totalRefundOwed += refund;
+            emit RefundDeferred(user, refund);
+        }
         emit Claimed(user, tokens, refund);
+    }
+
+    /// Pull a refund that could not be pushed during claim, to any address you choose.
+    function withdrawRefund(
+        address to
+    ) external nonReentrant {
+        if (to == address(0)) revert OpeningBatch__ZeroRecipient();
+        uint256 amount = refundOwed[msg.sender];
+        if (amount == 0) revert OpeningBatch__NoRefundOwed();
+        refundOwed[msg.sender] = 0;
+        totalRefundOwed -= amount;
+        SafeTransferLib.safeTransferETH(to, amount);
+        emit RefundWithdrawn(msg.sender, to, amount);
+    }
+
+    /// Tokens `user` is entitled to from the batch once it has settled, claimed or not.
+    function entitlement(
+        address user
+    ) external view returns (uint256) {
+        uint256 dep = deposits[user];
+        if (!settled || dep == 0) return 0;
+        return FixedPointMathLib.mulDiv(tokensBought, dep, totalDeposited);
     }
 
     // ============================================================ views
@@ -219,7 +257,8 @@ contract OpeningBatch is ReentrancyGuard {
         uint256 total = totalDeposited;
         uint256 unclaimed = total - claimedDeposits;
         uint256 reservedTokens = total == 0 ? 0 : FixedPointMathLib.mulDivUp(tokensBought, unclaimed, total);
-        uint256 reservedEth = total == 0 ? 0 : FixedPointMathLib.mulDivUp(total - ethSpent, unclaimed, total);
+        uint256 reservedEth =
+            (total == 0 ? 0 : FixedPointMathLib.mulDivUp(total - ethSpent, unclaimed, total)) + totalRefundOwed;
 
         uint256 tokBal = _tokenBalance();
         uint256 ethBal = address(this).balance;

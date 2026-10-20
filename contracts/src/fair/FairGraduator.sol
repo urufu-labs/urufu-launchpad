@@ -39,6 +39,7 @@ interface IFairHookConfig {
             uint256 creatorBaseline
         );
     function initializer() external view returns (address);
+    function forfeitDropBps() external view returns (uint16);
 }
 
 interface IFairFactoryLookup {
@@ -52,6 +53,9 @@ interface IFairFactoryLookup {
 
 interface IOpeningBatchCreator {
     function tokensBought() external view returns (uint256);
+    function entitlement(
+        address user
+    ) external view returns (uint256);
     function claimFor(
         address user
     ) external returns (uint256 tokens, uint256 refund);
@@ -60,6 +64,7 @@ interface IOpeningBatchCreator {
 interface IFairCurveReserves {
     function virtualEthReserve() external view returns (uint256);
     function virtualTokenReserve() external view returns (uint256);
+    function creatorBought() external view returns (uint256);
 }
 
 /// @title  FairGraduator
@@ -69,8 +74,12 @@ interface IFairCurveReserves {
 ///         credited refunds, and URU-A12 read-back of the hook config before `initialize`
 ///         freezes it. Fair-lane additions:
 ///
-///           * Writes `creatorBaseline = token.balanceOf(creator)` and the curve's
-///             `creatorSold` flag to `FairHookHost` (spec §3).
+///           * Writes the creator baseline and a start-forfeited flag to `FairHookHost`
+///             (spec §3). The creator should hold at least what the launch wallet got
+///             from the lane: its curve buys plus its opening-batch share. Baseline =
+///             max(balance, that amount). The pool starts forfeited if the creator sold
+///             on the curve OR already holds more than the drop allowance below that
+///             amount, which catches a pre-graduation transfer to an alt wallet.
 ///           * Opening price is `max(curve marginal, raw real ratio)`. Marginal is what
 ///             GraduatorV3 uses (no cliff for the last curve buyer); taking the max means
 ///             ETH is always the limiting side of the LP add, so ETH can never strand the
@@ -103,7 +112,7 @@ contract FairGraduator is IUnlockCallback {
         uint128 liquidity,
         address creator,
         uint256 creatorBaseline,
-        bool creatorSold
+        bool forfeited
     );
     event ExcessBurned(address indexed token, uint256 amount);
     event RefundCredited(address indexed token, address indexed launcher, uint256 amount);
@@ -113,11 +122,11 @@ contract FairGraduator is IUnlockCallback {
     event FactorySet(address indexed factory);
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
-    /// beforeInitialize | beforeSwap | afterSwap | afterSwapReturnsDelta.
-    uint160 public constant REQUIRED_HOOK_FLAGS = 0x20C4;
+    /// beforeInitialize | beforeAddLiquidity | beforeSwap | afterSwap | afterSwapReturnsDelta.
+    uint160 public constant REQUIRED_HOOK_FLAGS = 0x28C4;
     uint160 internal constant FLAG_MASK = 0x3FFF;
     /// Gas budget for pushing the creator's batch share at graduation.
-    uint256 internal constant CREATOR_CLAIM_GAS = 250_000;
+    uint256 internal constant CREATOR_CLAIM_GAS = 400_000;
 
     IPoolManager public immutable poolManager;
     IHooks public immutable hook;
@@ -265,10 +274,10 @@ contract FairGraduator is IUnlockCallback {
                 try IOpeningBatchCreator(batch).claimFor{gas: CREATOR_CLAIM_GAS}(launcher) {} catch {}
             }
         }
-        uint256 baseline = launcher == address(0) ? 0 : _balanceOf(token, launcher);
+        (uint256 baseline, bool forfeited) = _creatorState(token, launcher, creatorSold);
         IFairHookConfig cfg = IFairHookConfig(address(hook));
-        cfg.setPoolConfig(poolId, launcher, baseline, creatorSold, antiSniperSeconds);
-        _verifyHookConfig(cfg, poolId, launcher, baseline, creatorSold);
+        cfg.setPoolConfig(poolId, launcher, baseline, forfeited, antiSniperSeconds);
+        _verifyHookConfig(cfg, poolId, launcher, baseline, forfeited);
 
         // v4 price = wei_token / wei_ETH = 1e18 / price; sqrtPriceX96 = 1e9 * 2^96 / sqrt(price).
         uint160 sqrtPriceX96 = uint160((uint256(1e9) << 96) / FixedPointMathLib.sqrt(price));
@@ -291,7 +300,24 @@ contract FairGraduator is IUnlockCallback {
             emit RefundCredited(token, launcher, ethResidual);
         }
 
-        emit Graduated(token, address(hook), ethAmount, tokenAmount, sqrtPriceX96, liquidity, launcher, baseline, creatorSold);
+        emit Graduated(token, address(hook), ethAmount, tokenAmount, sqrtPriceX96, liquidity, launcher, baseline, forfeited);
+    }
+
+    /// Creator baseline + start-forfeited flag. `expected` is what the launch wallet got
+    /// from this lane (curve buys to itself + its opening-batch share, claimed or not).
+    function _creatorState(
+        address token,
+        address launcher,
+        bool creatorSold
+    ) private view returns (uint256 baseline, bool forfeited) {
+        if (launcher == address(0)) return (0, creatorSold);
+        uint256 expected = IFairCurveReserves(msg.sender).creatorBought();
+        address batch = factory.batchFor(token);
+        if (batch != address(0)) expected += IOpeningBatchCreator(batch).entitlement(launcher);
+        uint256 bal = _balanceOf(token, launcher);
+        baseline = bal > expected ? bal : expected;
+        uint256 floor = (expected * (10_000 - uint256(IFairHookConfig(address(hook)).forfeitDropBps()))) / 10_000;
+        forfeited = creatorSold || bal < floor;
     }
 
     function _verifyHookConfig(
@@ -299,12 +325,12 @@ contract FairGraduator is IUnlockCallback {
         PoolId poolId,
         address launcher,
         uint256 baseline,
-        bool creatorSold
+        bool forfeitedAtStart
     ) private view {
         (,,, uint32 gate,,, bool configured, bool forfeited, uint256 storedBaseline) = cfg.pools(poolId);
         (, address storedCreator,,,,,,,) = cfg.pools(poolId);
         if (
-            !configured || storedCreator != launcher || storedBaseline != baseline || forfeited != creatorSold
+            !configured || storedCreator != launcher || storedBaseline != baseline || forfeited != forfeitedAtStart
                 || gate != antiSniperSeconds
         ) revert FairGraduator__HookConfigMismatch();
     }

@@ -10,7 +10,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 
@@ -36,18 +36,25 @@ import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
 ///              is the caller, so v4 skips the hook callbacks for that swap (no fee, no
 ///              tax, no recursion); only the pool's LP fee applies.
 ///
+///           4. Liquidity lock during the tax window. Until the sniper tax hits zero, only
+///              the FairGraduator can add liquidity. Otherwise a sniper could skip the
+///              tax by trading through a one-sided range position (adding ETH just above
+///              the price "buys" tokens as the price moves through it) instead of a swap.
+///              Third-party LPs can add freely once the tax window ends.
+///
 ///         Why burn instead of donating to the pool: the FairGraduator owns the locked
 ///         full-range position directly and has no `collect`, so donated value would
 ///         strand. Burning gives holders the same "snipers pay holders" effect.
 ///
 /// @dev    Address must carry exactly these permission bits (HookMiner):
 ///           BEFORE_INITIALIZE_FLAG        (1 << 13)
+///         | BEFORE_ADD_LIQUIDITY_FLAG     (1 << 11)
 ///         | BEFORE_SWAP_FLAG              (1 << 7)
 ///         | AFTER_SWAP_FLAG               (1 << 6)
-///         | AFTER_SWAP_RETURNS_DELTA_FLAG (1 << 2)    == 0x20C4
-///         Same bits as MultiHookHost; it is a separate contract because MHH holds no
-///         per-pool tax / baseline / bank state and its address is already allowlisted
-///         for a different behavior set. All windows use `block.timestamp` because on
+///         | AFTER_SWAP_RETURNS_DELTA_FLAG (1 << 2)    == 0x28C4
+///         MultiHookHost's bits plus beforeAddLiquidity. A separate contract because MHH
+///         holds no per-pool tax / baseline / bank state and its address is already
+///         allowlisted for a different behavior set. All windows use `block.timestamp` because on
 ///         Robinhood Chain `block.number` is the Ethereum L1 block.
 contract FairHookHost is BaseHook, IUnlockCallback, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
@@ -72,6 +79,8 @@ contract FairHookHost is BaseHook, IUnlockCallback, ReentrancyGuard {
     error FairHookHost__NothingBanked(PoolId poolId);
     error FairHookHost__PoolNotLive(PoolId poolId);
     error FairHookHost__BankSlippage(uint256 got, uint256 min);
+    /// Third-party liquidity add while the sniper tax is still running.
+    error FairHookHost__LiquidityLocked(uint256 opensAt);
 
     // ============================================================ events
     event InitializerSet(address indexed initializer);
@@ -185,7 +194,7 @@ contract FairHookHost is BaseHook, IUnlockCallback, ReentrancyGuard {
         return Permissions({
             beforeInitialize: true,
             afterInitialize: false,
-            beforeAddLiquidity: false,
+            beforeAddLiquidity: true,
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
@@ -258,6 +267,21 @@ contract FairHookHost is BaseHook, IUnlockCallback, ReentrancyGuard {
             emit CreatorFeeForfeited(id, ps.creator, _balanceOf(ps.token, ps.creator), ps.creatorBaseline);
         }
         return this.beforeInitialize.selector;
+    }
+
+    /// Only the graduator (opening the locked LP in the graduation tx) may add liquidity
+    /// before the sniper tax ends. See point 4 in the contract notes.
+    function beforeAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) external view override onlyPoolManager returns (bytes4) {
+        if (sender != initializer) {
+            uint256 opensAt = uint256(pools[key.toId()].launchTs) + taxDecaySecs;
+            if (block.timestamp < opensAt) revert FairHookHost__LiquidityLocked(opensAt);
+        }
+        return this.beforeAddLiquidity.selector;
     }
 
     // ============================================================ views

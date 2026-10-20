@@ -10,7 +10,8 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 
 import {ERC20Template} from "src/templates/ERC20Template.sol";
@@ -121,6 +122,50 @@ contract AggregatorExecutor is IUnlockCallback {
     receive() external payable {}
 }
 
+/// Third-party LP: adds a one-sided ETH position just above the current price (the
+/// range-order shape a sniper would use to buy tokens without paying the swap tax).
+contract LiquidityAdder is IUnlockCallback {
+    using StateLibrary for IPoolManager;
+    using PoolIdLibrary for PoolKey;
+
+    IPoolManager public immutable pm;
+
+    constructor(
+        IPoolManager _pm
+    ) {
+        pm = _pm;
+    }
+
+    function addEthAbovePrice(
+        PoolKey calldata key,
+        uint256 liquidity
+    ) external {
+        (, int24 tick,,) = pm.getSlot0(key.toId());
+        int24 lower = (tick / key.tickSpacing + 1) * key.tickSpacing;
+        pm.unlock(abi.encode(key, lower, lower + key.tickSpacing * 10, liquidity));
+    }
+
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
+        require(msg.sender == address(pm), "pm");
+        (PoolKey memory key, int24 lower, int24 upper, uint256 liquidity) =
+            abi.decode(data, (PoolKey, int24, int24, uint256));
+        (BalanceDelta d,) = pm.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: lower, tickUpper: upper, liquidityDelta: int256(liquidity), salt: bytes32(0)
+            }),
+            ""
+        );
+        int128 d0 = int128(int256(BalanceDelta.unwrap(d) >> 128));
+        if (d0 < 0) pm.settle{value: uint256(uint128(-d0))}();
+        return "";
+    }
+
+    receive() external payable {}
+}
+
 /// Batch depositor that tries to re-enter `claim` from its ETH refund.
 contract ReentrantClaimer {
     OpeningBatch public batch;
@@ -158,7 +203,7 @@ contract ReentrantClaimer {
 abstract contract FairTestBase is Test {
     using PoolIdLibrary for PoolKey;
 
-    uint160 internal constant HOOK_FLAGS = 0x20C4;
+    uint160 internal constant HOOK_FLAGS = 0x28C4;
     uint24 internal constant FEE = 3000;
     int24 internal constant TICK_SPACING = 60;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;

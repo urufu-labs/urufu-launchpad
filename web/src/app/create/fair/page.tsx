@@ -25,7 +25,7 @@ const RULES: Array<{ title: string; body: string }> = [
   {
     title: 'Sniper tax that burns',
     body:
-      'When the token moves to Uniswap, trades pay an extra 20% that drops to 0 over 5 minutes. That tax is burned. Nobody gets it, not the platform and not the dev.',
+      'When the token moves to Uniswap, trades pay an extra 20% that drops to 0 over 5 minutes. That tax is burned. Nobody gets it, not the platform and not the dev. For those 5 minutes nobody else can add liquidity either, so the tax cannot be dodged.',
   },
   {
     title: 'Dev sells, dev loses fees',

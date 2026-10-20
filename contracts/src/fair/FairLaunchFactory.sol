@@ -179,6 +179,9 @@ contract FairLaunchFactory is Ownable {
     ) internal {
         if (feeBps > MAX_TRADE_FEE_BPS) revert FairLaunchFactory__InvalidTradeFee(feeBps);
         if (supply == 0 || vTok == 0 || vEth == 0 || target == 0) revert FairLaunchFactory__InvalidCurve();
+        // The graduation price (ETH per whole token, 1e18 fixed point) must round to at
+        // least 1, or FairGraduator's sqrt price would divide by zero and brick graduation.
+        if (target * 1e18 < supply) revert FairLaunchFactory__InvalidCurve();
         if (windowSecs < MIN_WINDOW_SECS || windowSecs > MAX_WINDOW_SECS) revert FairLaunchFactory__InvalidWindow(windowSecs);
         if (capBps == 0 || capBps > MAX_BATCH_CAP_BPS) revert FairLaunchFactory__InvalidBatchCap(capBps);
 

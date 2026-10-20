@@ -102,6 +102,10 @@ contract FairBondingCurve is ReentrancyGuard {
     bool public graduated;
     bool public batchSettled;
     bool public creatorSold;
+    /// Tokens the launcher wallet bought on the curve for itself. The graduator compares
+    /// the creator's balance against this (plus its batch share) to catch a creator who
+    /// moved tokens to another wallet before graduation.
+    uint256 public creatorBought;
     uint8 private _initialized;
 
     struct InitParams {
@@ -298,6 +302,7 @@ contract FairBondingCurve is ReentrancyGuard {
 
         tokenReserve -= tokensOut;
         ethReserve += ethAfterFee;
+        if (recipient == launcher) creatorBought += tokensOut;
 
         if (fee > 0) SafeTransferLib.safeTransferETH(feeReceiver, fee);
         SafeTransferLib.safeTransfer(token, recipient, tokensOut);

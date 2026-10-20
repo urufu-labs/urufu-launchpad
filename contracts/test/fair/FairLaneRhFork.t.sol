@@ -18,7 +18,7 @@ import {OpeningBatch} from "src/fair/OpeningBatch.sol";
 import {FairGraduator} from "src/fair/FairGraduator.sol";
 import {FairHookHost} from "src/fair/FairHookHost.sol";
 
-import {FairTestBase, IERC20Min, AggregatorExecutor} from "./FairTestBase.sol";
+import {FairTestBase, IERC20Min, AggregatorExecutor, LiquidityAdder} from "./FairTestBase.sol";
 
 interface IPermit2 {
     function approve(
@@ -206,7 +206,7 @@ contract FairLaneRhForkTest is FairTestBase {
     // ================================================================ graduation
 
     function test_Fork_DeployScriptPreflightAndWiring() public view {
-        assertEq(uint160(address(hook)) & 0x3FFF, 0x20C4, "mined hook flags");
+        assertEq(uint160(address(hook)) & 0x3FFF, 0x28C4, "mined hook flags");
         assertEq(hook.initializer(), address(graduator));
         assertEq(address(hook.poolManager()), PM);
         assertEq(hook.taxStartBps(), 2000);
@@ -420,5 +420,15 @@ contract FairLaneRhForkTest is FairTestBase {
         uint256 owed = hook.owed(Currency.wrap(token), creator);
         _urExactIn(trader, key, true, 0.01 ether);
         assertEq(hook.owed(Currency.wrap(token), creator), owed, "creator accrued after forfeit");
+    }
+
+    function test_Fork_ThirdPartyLiquidityLockedDuringTax_LivePoolManager() public {
+        (, PoolKey memory key) = _graduatedPool("ForkLpLock");
+        LiquidityAdder lp = new LiquidityAdder(pm);
+        vm.deal(address(lp), 10 ether);
+        vm.expectRevert();
+        lp.addEthAbovePrice(key, 1e15);
+        vm.warp(block.timestamp + 300);
+        lp.addEthAbovePrice(key, 1e15);
     }
 }

@@ -60,7 +60,7 @@ interface ILiveMhh {
 ///         stack so the two lanes cannot drift.
 ///
 ///         Deploy order: ERC20Template impl, FairBondingCurve impl, OpeningBatch impl,
-///         FairHookHost (HookMiner + canonical CREATE2 deployer, flags 0x20C4),
+///         FairHookHost (HookMiner + canonical CREATE2 deployer, flags 0x28C4),
 ///         FairGraduator, FairLaunchFactory. Wiring: hook.setInitializer(graduator),
 ///         graduator.setFactory(factory), factory.setDefaults(live values). New launches
 ///         stay CLOSED (`launchesOpen = false`) until the owner opens them.
@@ -225,8 +225,8 @@ contract DeployFairLane is Script {
     function _mineAndDeployHook(
         Inputs memory i
     ) internal returns (address hook, uint256 salt) {
-        uint160 flags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
-            | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        uint160 flags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
+            | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
         bytes memory creation = type(FairHookHost).creationCode;
         bytes memory args = abi.encode(
             IPoolManager(i.poolManager),
@@ -256,7 +256,7 @@ contract DeployFairLane is Script {
         FairHookHost h = FairHookHost(payable(d.hook));
         FairGraduator g = FairGraduator(payable(d.graduator));
         FairLaunchFactory f = FairLaunchFactory(d.factory);
-        require(uint160(d.hook) & 0x3FFF == 0x20C4, "hook flags");
+        require(uint160(d.hook) & 0x3FFF == 0x28C4, "hook flags");
         require(h.initializer() == d.graduator, "hook.initializer != graduator");
         require(address(h.poolManager()) == i.poolManager, "hook.poolManager");
         require(h.platform() == i.platform, "hook.platform != FeeSplitter");
