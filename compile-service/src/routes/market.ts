@@ -185,6 +185,10 @@ export async function registerMarketRoutes(
       if (req.query.fresh === '1') states.forget(active.map((l) => l.orderHash));
       const evaluated = await withLiveness(d, active, states);
       const live = evaluated.filter((e) => e.live.kind === 'live').map((e) => e.listing);
+      // Active but not fillable right now. Still signed and public, and fillable
+      // again if the NFT comes back or approval is restored, so the seller
+      // needs to see them to cancel.
+      const paused = evaluated.filter((e) => e.live.kind === 'hidden').map((e) => listingJson(e.listing, e.live));
       const metas = await metaStore.get(collection, [tokenId]);
       if (!metas.has(tokenId.toString())) backgroundFill(collection, [tokenId]);
       const r = rarity.ranksFor(collection, info.maxSupply);
@@ -195,6 +199,7 @@ export async function registerMarketRoutes(
         pairedToken: info.pairedToken,
         unitWei: info.unitWei.toString(),
         listing: live[0] ? listingJson(live[0], { kind: 'live' }) : null,
+        paused,
         meta: metaJson(metas.get(tokenId.toString())),
         rarityRank: r?.ranks.get(tokenId.toString()) ?? null,
         rarityScanned: r?.scanned ?? 0,

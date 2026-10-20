@@ -25,6 +25,7 @@ const STATUS_LABEL: Record<MarketListing['status'], string> = {
 const HIDDEN_LABEL: Record<NonNullable<MarketListing['hiddenReason']>, string> = {
   not_owner: 'Not visible: this wallet no longer holds the NFT',
   not_approved: 'Not visible: marketplace approval was removed',
+  not_started: 'Not visible yet: starting shortly',
 };
 
 export function MyListings({ visibleFor }: { visibleFor: Address }) {

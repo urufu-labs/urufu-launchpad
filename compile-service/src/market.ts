@@ -99,15 +99,22 @@ export interface StoredListing {
   signature: Hex;
   status: ListingStatus;
   createdAt: number; // unix seconds
+  /// Last read found it not fillable (moved, burned, approval gone). Such
+  /// rows sort after live-looking ones so they can't crowd out real listings.
+  hidden?: boolean;
 }
 
+export type InsertResult = 'ok' | 'duplicate_order' | 'duplicate_token';
+
 export interface MarketStore {
-  /// false when the order hash already exists.
-  insert(l: StoredListing): Promise<boolean>;
+  /// Atomic: at most one active listing per (collection, token, seller), so
+  /// two racing submits can't both land.
+  insert(l: StoredListing): Promise<InsertResult>;
   activeByCollection(collection: Hex, limit: number): Promise<StoredListing[]>;
   activeByToken(collection: Hex, tokenId: bigint): Promise<StoredListing[]>;
   bySeller(seller: Hex, limit: number): Promise<StoredListing[]>;
   setStatus(orderHash: Hex, status: ListingStatus): Promise<void>;
+  setHidden(orderHash: Hex, hidden: boolean): Promise<void>;
 }
 
 export interface MarketDeps {
@@ -156,7 +163,9 @@ export type Liveness =
   | { kind: 'live' }
   /// Not fillable right now but could be again (NFT moved and may come back,
   /// approval revoked). Hidden from buyers, kept as active.
-  | { kind: 'hidden'; reason: 'not_owner' | 'not_approved' }
+  /// not_started: start time still ahead, or the RPC node read an older
+  /// counter than the one the order was signed at (lagging node).
+  | { kind: 'hidden'; reason: 'not_owner' | 'not_approved' | 'not_started' }
   /// Never fillable again.
   | { kind: 'dead'; status: Exclude<ListingStatus, 'active'> };
 
@@ -164,8 +173,11 @@ export function evaluateListing(l: StoredListing, s: ListingChainState, nowS: nu
   if (s.filled) return { kind: 'dead', status: 'filled' };
   if (s.cancelled) return { kind: 'dead', status: 'cancelled' };
   // incrementCounter() invalidates every order signed at an older counter.
-  if (s.counter !== l.counter) return { kind: 'dead', status: 'cancelled' };
+  // The counter only goes up, so a LOWER chain value is a lagging RPC node,
+  // never a cancel: hide for now, don't write a terminal status.
+  if (s.counter > l.counter) return { kind: 'dead', status: 'cancelled' };
   if (l.endTime <= BigInt(nowS)) return { kind: 'dead', status: 'expired' };
+  if (s.counter < l.counter || l.startTime > BigInt(nowS)) return { kind: 'hidden', reason: 'not_started' };
   if (!s.owner || s.owner.toLowerCase() !== l.seller.toLowerCase()) return { kind: 'hidden', reason: 'not_owner' };
   if (!s.approved) return { kind: 'hidden', reason: 'not_approved' };
   return { kind: 'live' };
@@ -267,7 +279,9 @@ export async function submitListing(
     status: 'active',
     createdAt: nowS,
   };
-  if (!(await deps.store.insert(listing))) return fail(409, 'DUPLICATE_ORDER', { orderHash });
+  const inserted = await deps.store.insert(listing);
+  if (inserted === 'duplicate_order') return fail(409, 'DUPLICATE_ORDER', { orderHash });
+  if (inserted === 'duplicate_token') return fail(409, 'ALREADY_LISTED');
   return { ok: true, listing };
 }
 
@@ -289,6 +303,8 @@ export async function withLiveness(
     const live = evaluateListing(listing, s, nowS);
     if (live.kind === 'dead') {
       void deps.store.setStatus(listing.orderHash, live.status).catch(() => {});
+    } else if ((live.kind === 'hidden') !== !!listing.hidden) {
+      void deps.store.setHidden(listing.orderHash, live.kind === 'hidden').catch(() => {});
     }
     out.push({ listing, live });
   }

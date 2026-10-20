@@ -453,6 +453,21 @@
   .hero {
     grid-template-columns: minmax(0, 1fr);
   }
+  .statRow {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+  .tab {
+    flex: 1;
+  }
+  .search {
+    width: 100%;
+  }
   .colHero {
     grid-template-columns: 88px minmax(0, 1fr);
     padding: 14px;

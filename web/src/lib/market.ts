@@ -94,7 +94,7 @@ export interface MarketListing {
   status: 'active' | 'filled' | 'cancelled' | 'expired';
   createdAt: number;
   live?: boolean;
-  hiddenReason?: 'not_owner' | 'not_approved' | null;
+  hiddenReason?: 'not_owner' | 'not_approved' | 'not_started' | null;
   meta?: { name: string | null; image: string | null; attributes: TokenTrait[] } | null;
   rarityRank?: number | null;
 }
@@ -118,6 +118,9 @@ export interface TokenListing {
   pairedToken: Address;
   unitWei: string;
   listing: MarketListing | null;
+  /// Active but not buyable right now (NFT moved, approval removed). Still
+  /// signed, so the seller should cancel them.
+  paused?: MarketListing[];
   meta: { name: string | null; image: string | null; attributes: TokenTrait[] } | null;
   rarityRank: number | null;
   rarityScanned: number;
@@ -166,8 +169,8 @@ const SUBMIT_ERRORS: Record<string, string> = {
   INDEXER_UNAVAILABLE: 'The marketplace is busy. Try again in a minute.',
 };
 
-export async function submitListing(order: OrderComponents, signature: Hex): Promise<{ ok: true; listing: MarketListing } | { ok: false; message: string }> {
-  if (!BASE) return { ok: false, message: 'Marketplace is not configured.' };
+export async function submitListing(order: OrderComponents, signature: Hex): Promise<{ ok: true; listing: MarketListing } | { ok: false; code: string; message: string }> {
+  if (!BASE) return { ok: false, code: 'NO_SERVICE', message: 'Marketplace is not configured.' };
   try {
     const res = await fetch(`${BASE}/market/orders`, {
       method: 'POST',
@@ -178,9 +181,9 @@ export async function submitListing(order: OrderComponents, signature: Hex): Pro
     const body = (await res.json().catch(() => ({}))) as { code?: string; listing?: MarketListing };
     if (res.ok && body.listing) return { ok: true, listing: body.listing };
     const code = body.code ?? `HTTP_${res.status}`;
-    return { ok: false, message: SUBMIT_ERRORS[code] ?? `Listing failed (${code}).` };
+    return { ok: false, code, message: SUBMIT_ERRORS[code] ?? `Listing failed (${code}).` };
   } catch {
-    return { ok: false, message: "Couldn't reach the marketplace. Try again." };
+    return { ok: false, code: 'NETWORK', message: "Couldn't reach the marketplace. Try again." };
   }
 }
 

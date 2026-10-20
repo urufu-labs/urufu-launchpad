@@ -32,12 +32,15 @@ export function MarketPanel({
   lane,
   pairedToken,
   unitWei,
+  compact = false,
 }: {
   collection: Address;
   chainKey: ChainKey;
   lane: 'nft' | 'dn404';
   pairedToken?: Address;
   unitWei?: bigint;
+  /// The page header already shows floor, listed and the fee (/market/[address]).
+  compact?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>('listed');
   const [sort, setSort] = useState<'price' | 'rarity'>('price');
@@ -80,14 +83,18 @@ export function MarketPanel({
             Activity
           </button>
         </div>
-        <span className="ui-badge" data-tone="accent">0% fee</span>
+        {!compact && <span className="ui-badge" data-tone="accent">0% fee</span>}
       </div>
 
       {tab === 'listed' ? (
         <>
           <div className={styles.statsRow}>
-            <span>Floor <b>{data?.floorWei ? `${formatEthShort(data.floorWei)} ETH` : 'none'}</b></span>
-            <span>Listed <b>{data?.count ?? 0}</b></span>
+            {!compact && (
+              <>
+                <span>Floor <b>{data?.floorWei ? `${formatEthShort(data.floorWei)} ETH` : 'None'}</b></span>
+                <span>Listed <b>{data?.count ?? 0}</b></span>
+              </>
+            )}
             {isDn404 && tokenValue.value !== null && (
               <span>Token value of 1 NFT <b>{formatEthShort(tokenValue.value)} {tokenValue.unit}</b></span>
             )}
@@ -104,7 +111,7 @@ export function MarketPanel({
               </option>
             </select>
           </div>
-          <p className={styles.noFee}>{NO_FEE_COPY}</p>
+          {!compact && <p className={styles.noFee}>{NO_FEE_COPY}</p>}
           {data === undefined ? (
             <div className={styles.empty}>Loading listings…</div>
           ) : data === null ? (

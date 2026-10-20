@@ -157,18 +157,6 @@ export function ListForm({
     if (!wallet || !client || price === null) return;
     if (!(await ensureChain())) return;
     try {
-      if (replaces) {
-        setStatus('cancelling');
-        const hash = await writeContractAsync({
-          address: SEAPORT_ADDRESS,
-          abi: SEAPORT_ABI,
-          functionName: 'cancel',
-          args: cancelArgs(replaces),
-          chainId: MARKET_CHAIN_ID,
-        });
-        const receipt = await client.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success') throw new Error('Cancelling the old listing failed.');
-      }
       setStatus('signing');
       const counter = await client.readContract({
         address: SEAPORT_ADDRESS,
@@ -177,6 +165,9 @@ export function ListForm({
         args: [wallet],
       });
       const now = nowSeconds();
+      // 10 minutes under the chosen length, so a wallet clock running a bit
+      // fast can't push a 180-day listing past the server's limit.
+      const endTime = now + BigInt(expiry) - 600n;
       const order = buildListingOrder({
         seller: wallet,
         collection,
@@ -184,7 +175,7 @@ export function ListForm({
         priceWei: price,
         royalty,
         startTime: now - 60n,
-        endTime: now + BigInt(expiry),
+        endTime,
         salt: randomSalt(),
         counter,
       });
@@ -194,8 +185,37 @@ export function ListForm({
         primaryType: 'OrderComponents',
         message: order,
       });
+      // Change price: the new price is signed first, so backing out of the
+      // signature leaves the old listing untouched. Then cancel the old one
+      // (skipped if it's already cancelled, e.g. on a retry).
+      if (replaces) {
+        const [, isCancelled] = await client.readContract({
+          address: SEAPORT_ADDRESS,
+          abi: SEAPORT_ABI,
+          functionName: 'getOrderStatus',
+          args: [replaces.orderHash],
+        });
+        if (!isCancelled) {
+          setStatus('cancelling');
+          const hash = await writeContractAsync({
+            address: SEAPORT_ADDRESS,
+            abi: SEAPORT_ABI,
+            functionName: 'cancel',
+            args: cancelArgs(replaces),
+            chainId: MARKET_CHAIN_ID,
+          });
+          const receipt = await client.waitForTransactionReceipt({ hash });
+          if (receipt.status !== 'success') throw new Error('Cancelling the old listing failed.');
+        }
+      }
       setStatus('saving');
-      const res = await submitListing(order, signature);
+      // Right after a cancel the marketplace's RPC node can still see the old
+      // listing; give it a few seconds before giving up.
+      let res = await submitListing(order, signature);
+      for (let attempt = 0; replaces && !res.ok && res.code === 'ALREADY_LISTED' && attempt < 5; attempt++) {
+        await new Promise((r) => setTimeout(r, 3_000));
+        res = await submitListing(order, signature);
+      }
       if (!res.ok) {
         setError(res.message);
         setStatus('idle');

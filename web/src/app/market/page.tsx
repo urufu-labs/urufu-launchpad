@@ -206,9 +206,9 @@ function ExploreTab({ collections, onSell }: { collections: Collection[] | null 
                   <div className={styles.colBody}>
                     <h3 className={styles.colName}>{c.name}</h3>
                     <div className={styles.metrics}>
-                      <span>Floor<b>{c.floorWei ? `${formatEthShort(c.floorWei)}` : 'n/a'}</b></span>
+                      <span>Floor<b>{c.floorWei ? `${formatEthShort(c.floorWei)}` : 'None'}</b></span>
                       <span>Listed<b>{c.count}</b></span>
-                      <span>Items<b>{c.maxSupply !== '0' ? Number(c.maxSupply).toLocaleString() : 'n/a'}</b></span>
+                      <span>Items<b>{c.maxSupply !== '0' ? Number(c.maxSupply).toLocaleString() : 'None'}</b></span>
                     </div>
                   </div>
                 </Link>
@@ -250,9 +250,11 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
     return <div className={styles.empty}><b>Connect a wallet</b>Your NFTs from urufu collections show up here, ready to list.</div>;
   }
 
+  // Any active listing counts, live or paused: a paused one is still signed
+  // and can become buyable again, so it must be cancelled or replaced.
   const liveByToken = new Map(
     listings
-      .filter((l) => l.status === 'active' && l.live !== false)
+      .filter((l) => l.status === 'active')
       .map((l) => [`${l.collection.toLowerCase()}:${l.tokenId}`, l]),
   );
   const coverOf = (addr: string) => collections?.find((c) => c.collection.toLowerCase() === addr.toLowerCase());
@@ -291,9 +293,20 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
                     {live ? (
                       <>
                         <div className={styles.priceRow}>
-                          <span className={styles.status} data-tone="live">Listed</span>
+                          {live.live === false ? (
+                            <span className={styles.status}>Paused</span>
+                          ) : (
+                            <span className={styles.status} data-tone="live">Listed</span>
+                          )}
                           <span className={styles.price}>{formatEthShort(live.priceWei)} ETH</span>
                         </div>
+                        {live.live === false && (
+                          <span className={styles.priceLabel}>
+                            {live.hiddenReason === 'not_approved'
+                              ? 'Hidden while marketplace approval is off. Approving again makes it buyable at this price.'
+                              : 'Hidden for now. Cancel it or change the price.'}
+                          </span>
+                        )}
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button type="button" className="ui-btn" data-size="sm" data-variant="primary" onClick={() => setListing({ nft: n, replaces: live })}>
                             Change price

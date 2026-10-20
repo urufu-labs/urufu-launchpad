@@ -75,9 +75,9 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
           <h1 className={styles.title}>{summary.name}</h1>
           {meta?.description && <p className={styles.lede}>{meta.description}</p>}
           <div className={styles.statRow}>
-            <span className={styles.stat}>Floor<b>{summary.floorWei ? `${formatEthShort(summary.floorWei)} ETH` : 'n/a'}</b></span>
+            <span className={styles.stat}>Floor<b>{summary.floorWei ? `${formatEthShort(summary.floorWei)} ETH` : 'None'}</b></span>
             <span className={styles.stat}>Listed<b>{summary.count}</b></span>
-            <span className={styles.stat}>Items<b>{summary.maxSupply !== '0' ? Number(summary.maxSupply).toLocaleString() : 'n/a'}</b></span>
+            <span className={styles.stat}>Items<b>{summary.maxSupply !== '0' ? Number(summary.maxSupply).toLocaleString() : 'None'}</b></span>
             <span className={styles.stat}>Marketplace fee<b>0%</b></span>
           </div>
           <div className={styles.heroLinks}>
@@ -97,6 +97,7 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
         lane={summary.lane}
         pairedToken={pairedToken}
         unitWei={summary.unitWei ? BigInt(summary.unitWei) : undefined}
+        compact
       />
     </div>
   );

@@ -9,6 +9,8 @@
 /// score is the usual statistical one: sum over a token's traits of
 /// (tokens scanned / tokens sharing that trait value). Rank 1 = rarest.
 
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import type { Hex } from 'viem';
 
 import { sql as defaultSql } from './db.ts';
@@ -26,7 +28,12 @@ export interface TokenMeta {
   name: string | null;
   image: string | null;
   attributes: TokenTrait[];
+  /// When it was fetched (ms). Rows older than META_TTL_MS get refetched, so a
+  /// collection that reveals its art after mint picks up the real traits.
+  fetchedAt?: number;
 }
+
+export const META_TTL_MS = 24 * 3600_000;
 
 export interface MetaStore {
   get(collection: Hex, ids: bigint[]): Promise<Map<string, TokenMeta>>;
@@ -39,13 +46,16 @@ export function postgresMetaStore(sql: Sql): MetaStore {
     async get(collection, ids) {
       const out = new Map<string, TokenMeta>();
       if (ids.length === 0) return out;
-      const rows = await sql<Array<{ token_id: string; name: string | null; image: string | null; attributes: TokenTrait[] }>>`
-        SELECT token_id, name, image, attributes FROM app.market_token_meta
+      const rows = await sql<Array<{ token_id: string; name: string | null; image: string | null; attributes: TokenTrait[]; fetched_at: Date }>>`
+        SELECT token_id, name, image, attributes, fetched_at FROM app.market_token_meta
         WHERE collection = ${collection.toLowerCase()} AND ok = true
           AND token_id = ANY(${ids.map((i) => i.toString())}::numeric[])
       `;
       for (const r of rows) {
-        out.set(r.token_id, { tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: r.attributes ?? [] });
+        out.set(r.token_id, {
+          tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: r.attributes ?? [],
+          fetchedAt: new Date(r.fetched_at).getTime(),
+        });
       }
       return out;
     },
@@ -82,7 +92,7 @@ export function memoryMetaStore(): MetaStore {
       return out;
     },
     async put(collection, list) {
-      for (const m of list) rows.set(k(collection, m.tokenId), m);
+      for (const m of list) rows.set(k(collection, m.tokenId), { ...m, fetchedAt: m.fetchedAt ?? Date.now() });
     },
     async all(collection) {
       const p = `${collection.toLowerCase()}:`;
@@ -120,7 +130,66 @@ export function parseTokenMeta(tokenId: bigint, json: unknown): TokenMeta {
   return { tokenId, name: str(j.name, 200), image: str(j.image ?? j.image_url, 2048), attributes };
 }
 
-export async function fetchMetadataJson(uri: string, fetchImpl: typeof fetch = fetch): Promise<unknown | null> {
+/// True for loopback, private, link-local, CGNAT and other non-public ranges.
+export function isPrivateAddress(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) {
+    const [a = 0, b = 0] = ip.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+  }
+  if (v === 6) {
+    const x = ip.toLowerCase();
+    if (x.startsWith('::ffff:')) return isPrivateAddress(x.slice(7));
+    return x === '::' || x === '::1' || x.startsWith('fc') || x.startsWith('fd') || x.startsWith('fe80');
+  }
+  return true;
+}
+
+/// Metadata URLs come from launcher-controlled token URIs, so never let them
+/// reach this service's private network (Railway *.railway.internal, Postgres,
+/// cloud metadata). https only, public hostnames, every resolved address public.
+export async function isSafePublicUrl(raw: string): Promise<boolean> {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) return false;
+  if (isIP(host)) return !isPrivateAddress(host);
+  try {
+    const addrs = await lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isPrivateAddress(a.address));
+  } catch {
+    return false;
+  }
+}
+
+/// fetch with redirects followed by hand (max 3), each hop re-checked.
+async function safeFetch(url: string, fetchImpl: typeof fetch, checkUrl: (u: string) => Promise<boolean>): Promise<Response | null> {
+  let current = url;
+  for (let hop = 0; hop < 4; hop++) {
+    if (!(await checkUrl(current))) return null;
+    const res = await fetchImpl(current, { signal: AbortSignal.timeout(8_000), redirect: 'manual' });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location');
+      if (!loc) return null;
+      current = new URL(loc, current).toString();
+      continue;
+    }
+    return res;
+  }
+  return null;
+}
+
+export async function fetchMetadataJson(
+  uri: string,
+  fetchImpl: typeof fetch = fetch,
+  checkUrl: (u: string) => Promise<boolean> = isSafePublicUrl,
+): Promise<unknown | null> {
   if (uri.startsWith('data:application/json')) {
     const comma = uri.indexOf(',');
     if (comma < 0) return null;
@@ -145,7 +214,8 @@ export async function fetchMetadataJson(uri: string, fetchImpl: typeof fetch = f
   }
   for (const url of urls) {
     try {
-      const res = await fetchImpl(url, { signal: AbortSignal.timeout(8_000), redirect: 'follow' });
+      const res = await safeFetch(url, fetchImpl, checkUrl);
+      if (!res) continue;
       if (res.status === 404) return null;
       if (!res.ok) continue;
       const len = Number(res.headers.get('content-length') ?? 0);
@@ -169,7 +239,11 @@ export async function fillMeta(
   opts: { concurrency?: number; fetchImpl?: typeof fetch; tokenUris?: (c: Hex, ids: bigint[]) => Promise<Array<string | null>> } = {},
 ): Promise<number> {
   const have = await store.get(collection, ids);
-  const missing = ids.filter((id) => !have.has(id.toString()));
+  const now = Date.now();
+  const missing = ids.filter((id) => {
+    const m = have.get(id.toString());
+    return !m || (m.fetchedAt !== undefined && now - m.fetchedAt > META_TTL_MS);
+  });
   if (missing.length === 0) return 0;
   const uris = await (opts.tokenUris ?? readTokenUris)(collection, missing);
   const concurrency = opts.concurrency ?? 6;

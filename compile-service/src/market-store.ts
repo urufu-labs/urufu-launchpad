@@ -5,7 +5,7 @@
 import type { Hex } from 'viem';
 
 import { sql as defaultSql } from './db.ts';
-import type { Lane, ListingStatus, MarketStore, StoredListing } from './market.ts';
+import type { InsertResult, Lane, ListingStatus, MarketStore, StoredListing } from './market.ts';
 import type { WireOrder } from '../../shared/seaport.ts';
 
 type Sql = NonNullable<typeof defaultSql>;
@@ -36,6 +36,13 @@ export async function migrateMarket(sql: Sql): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS market_listings_collection_idx ON app.market_listings (collection, status, price_wei)`;
   await sql`CREATE INDEX IF NOT EXISTS market_listings_token_idx ON app.market_listings (collection, token_id, status)`;
   await sql`CREATE INDEX IF NOT EXISTS market_listings_seller_idx ON app.market_listings (seller, created_at DESC)`;
+  await sql`ALTER TABLE app.market_listings ADD COLUMN IF NOT EXISTS hidden_at timestamptz`;
+  // One active listing per token per seller, enforced by the database so two
+  // racing submits can't both land (the app-level check runs first).
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS market_listings_one_active
+    ON app.market_listings (collection, token_id, seller) WHERE status = 'active'
+  `;
 
   /// Per-token metadata cache (name, image, traits) for the Listed tab and
   /// rarity. Metadata for a token id doesn't change in practice; rows are
@@ -71,6 +78,7 @@ interface Row {
   signature: string;
   status: ListingStatus;
   created_at: Date;
+  hidden_at: Date | null;
 }
 
 function fromRow(r: Row): StoredListing {
@@ -91,12 +99,13 @@ function fromRow(r: Row): StoredListing {
     signature: r.signature as Hex,
     status: r.status,
     createdAt: Math.floor(new Date(r.created_at).getTime() / 1000),
+    hidden: r.hidden_at !== null && r.hidden_at !== undefined,
   };
 }
 
 export function postgresMarketStore(sql: Sql): MarketStore {
   return {
-    async insert(l: StoredListing): Promise<boolean> {
+    async insert(l: StoredListing): Promise<InsertResult> {
       const res = await sql`
         INSERT INTO app.market_listings (
           order_hash, chain_id, collection, token_id, lane, seller, price_wei, royalty_wei,
@@ -107,16 +116,18 @@ export function postgresMarketStore(sql: Sql): MarketStore {
           ${l.startTime.toString()}, ${l.endTime.toString()}, ${l.counter.toString()},
           ${JSON.stringify(l.order)}::jsonb, ${l.signature}, ${l.status}
         )
-        ON CONFLICT (order_hash) DO NOTHING
+        ON CONFLICT DO NOTHING
       `;
-      return res.count === 1;
+      if (res.count === 1) return 'ok';
+      const same = await sql`SELECT 1 FROM app.market_listings WHERE order_hash = ${l.orderHash}`;
+      return same.length > 0 ? 'duplicate_order' : 'duplicate_token';
     },
 
     async activeByCollection(collection: Hex, limit: number): Promise<StoredListing[]> {
       const rows = await sql<Row[]>`
         SELECT * FROM app.market_listings
         WHERE collection = ${collection.toLowerCase()} AND status = 'active'
-        ORDER BY price_wei ASC, created_at ASC
+        ORDER BY (hidden_at IS NOT NULL) ASC, price_wei ASC, created_at ASC
         LIMIT ${limit}
       `;
       return rows.map(fromRow);
@@ -142,6 +153,13 @@ export function postgresMarketStore(sql: Sql): MarketStore {
       return rows.map(fromRow);
     },
 
+    async setHidden(orderHash: Hex, hidden: boolean): Promise<void> {
+      await sql`
+        UPDATE app.market_listings SET hidden_at = ${hidden ? sql`now()` : null}
+        WHERE order_hash = ${orderHash} AND status = 'active'
+      `;
+    },
+
     async setStatus(orderHash: Hex, status: ListingStatus): Promise<void> {
       await sql`
         UPDATE app.market_listings SET status = ${status}, updated_at = now()
@@ -157,15 +175,25 @@ export function memoryMarketStore(): MarketStore & { all(): StoredListing[] } {
   return {
     all: () => [...rows.values()],
     async insert(l) {
-      if (rows.has(l.orderHash)) return false;
+      if (rows.has(l.orderHash)) return 'duplicate_order';
+      const clash = [...rows.values()].some(
+        (r) => r.status === 'active' && r.collection === l.collection && r.tokenId === l.tokenId && r.seller === l.seller,
+      );
+      if (clash) return 'duplicate_token';
       rows.set(l.orderHash, { ...l });
-      return true;
+      return 'ok';
     },
     async activeByCollection(collection, limit) {
       return [...rows.values()]
         .filter((l) => l.collection === collection.toLowerCase() && l.status === 'active')
-        .sort((a, b) => (a.priceWei < b.priceWei ? -1 : a.priceWei > b.priceWei ? 1 : a.createdAt - b.createdAt))
+        .sort((a, b) =>
+          Number(!!a.hidden) - Number(!!b.hidden)
+          || (a.priceWei < b.priceWei ? -1 : a.priceWei > b.priceWei ? 1 : a.createdAt - b.createdAt))
         .slice(0, limit);
+    },
+    async setHidden(orderHash, hidden) {
+      const r = rows.get(orderHash);
+      if (r && r.status === 'active') r.hidden = hidden;
     },
     async activeByToken(collection, tokenId) {
       return [...rows.values()].filter(

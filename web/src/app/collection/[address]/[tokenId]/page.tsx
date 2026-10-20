@@ -100,6 +100,9 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
   const tokenValue = useDn404TokenValue(lane === 'dn404' ? pairedToken : undefined, unitWei, MARKET_CHAIN_ID);
   const image = useTokenImage(collection, tokenId, data?.meta?.image);
   const listing = data?.listing ?? null;
+  const myPaused = wallet
+    ? (data?.paused ?? []).find((p) => p.seller.toLowerCase() === wallet.toLowerCase()) ?? null
+    : null;
   const isOwner = !!wallet && !!owner && owner.toLowerCase() === wallet.toLowerCase();
   // Some metadata names a token just "1" or "#1"; lead with the collection then.
   const metaName = data?.meta?.name?.trim();
@@ -202,6 +205,21 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
               <span className="ui-badge" data-tone="accent">0% fee</span>
             </div>
             <div className={`ui-panel-body ${styles.mintPanel}`}>
+              {myPaused && !listing && (
+                <div className={marketStyles.warn}>
+                  You have an older listing for this NFT at {formatEthShort(myPaused.priceWei)} ETH. It
+                  isn&apos;t buyable right now
+                  {myPaused.hiddenReason === 'not_approved'
+                    ? ' because marketplace approval is off, but approving again would make it buyable at that price.'
+                    : myPaused.hiddenReason === 'not_owner'
+                      ? ' because this wallet no longer holds the NFT, but it would be buyable again if the NFT comes back.'
+                      : '.'}{' '}
+                  Cancel it to be safe.
+                  <div style={{ marginTop: 8 }}>
+                    <CancelButton listing={myPaused} onDone={refresh} />
+                  </div>
+                </div>
+              )}
               {data === undefined ? (
                 <p className={styles.note}>Loading…</p>
               ) : data === null ? (
@@ -258,7 +276,15 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
                       that if its traits are worth more than the tokens behind it.
                     </p>
                   )}
-                  <ListForm collection={collection} tokenId={tokenId} lane={lane} pairedToken={pairedToken} unitWei={unitWei} onListed={refresh} />
+                  <ListForm
+                    collection={collection}
+                    tokenId={tokenId}
+                    lane={lane}
+                    replaces={myPaused ?? undefined}
+                    pairedToken={pairedToken}
+                    unitWei={unitWei}
+                    onListed={refresh}
+                  />
                 </>
               ) : (
                 <>

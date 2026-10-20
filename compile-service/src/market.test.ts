@@ -36,7 +36,7 @@ import {
   type MarketDeps,
 } from './market.ts';
 import { memoryMarketStore } from './market-store.ts';
-import { memoryMetaStore, parseTokenMeta, rarityRanks } from './market-meta.ts';
+import { fetchMetadataJson, fillMeta, isPrivateAddress, isSafePublicUrl, memoryMetaStore, parseTokenMeta, rarityRanks } from './market-meta.ts';
 import { registerMarketRoutes } from './routes/market.ts';
 
 const NOW = 1_800_000_000;
@@ -641,4 +641,116 @@ test('GET /market/owned lists only urufu NFTs the wallet holds', async () => {
   const none = await app.inject({ method: 'GET', url: `/market/owned/${stranger.address}` });
   assert.equal((none.json() as { items: unknown[] }).items.length, 0);
   await app.close();
+});
+
+// -----------------------------------------------------------------------------
+// Review fixes (2026-10-20)
+// -----------------------------------------------------------------------------
+
+test('a lagging RPC node (lower counter) hides a listing but never cancels it', () => {
+  const l = {
+    orderHash: '0x02' as Hex, chainId: 4663, collection: NFT, tokenId: 7n, lane: 'nft' as const, seller: SELLER,
+    priceWei: 1n, royaltyWei: 0n, royaltyReceiver: null, startTime: 0n, endTime: BigInt(NOW + DAY), counter: 5n,
+    order: orderToWire(baseOrder()), signature: '0x' as Hex, status: 'active' as const, createdAt: 0,
+  };
+  const s: ListingChainState = { owner: SELLER, approved: true, counter: 4n, cancelled: false, filled: false };
+  assert.deepEqual(evaluateListing(l, s, NOW), { kind: 'hidden', reason: 'not_started' });
+  assert.deepEqual(evaluateListing(l, { ...s, counter: 6n }, NOW), { kind: 'dead', status: 'cancelled' });
+  assert.deepEqual(evaluateListing(l, { ...s, counter: 5n }, NOW), { kind: 'live' });
+});
+
+test('a listing whose start time is still ahead is not shown as buyable', () => {
+  const l = {
+    orderHash: '0x03' as Hex, chainId: 4663, collection: NFT, tokenId: 7n, lane: 'nft' as const, seller: SELLER,
+    priceWei: 1n, royaltyWei: 0n, royaltyReceiver: null, startTime: BigInt(NOW + 300), endTime: BigInt(NOW + DAY), counter: 0n,
+    order: orderToWire(baseOrder()), signature: '0x' as Hex, status: 'active' as const, createdAt: 0,
+  };
+  const s: ListingChainState = { owner: SELLER, approved: true, counter: 0n, cancelled: false, filled: false };
+  assert.deepEqual(evaluateListing(l, s, NOW), { kind: 'hidden', reason: 'not_started' });
+});
+
+test('store refuses a second active listing for the same token and seller (race)', async () => {
+  const store = memoryMarketStore();
+  const base = {
+    chainId: 4663, collection: NFT, tokenId: 7n, lane: 'nft' as const, seller: SELLER,
+    priceWei: 1n, royaltyWei: 0n, royaltyReceiver: null, startTime: 0n, endTime: 1n, counter: 0n,
+    order: orderToWire(baseOrder()), signature: '0x' as Hex, status: 'active' as const, createdAt: 0,
+  };
+  assert.equal(await store.insert({ ...base, orderHash: '0xaa' as Hex }), 'ok');
+  assert.equal(await store.insert({ ...base, orderHash: '0xbb' as Hex }), 'duplicate_token');
+  assert.equal(await store.insert({ ...base, orderHash: '0xaa' as Hex }), 'duplicate_order');
+  await store.setStatus('0xaa' as Hex, 'cancelled');
+  assert.equal(await store.insert({ ...base, orderHash: '0xbb' as Hex }), 'ok');
+});
+
+test('hidden listings sort after live ones so they cannot crowd the page', async () => {
+  const { deps, chain, store } = makeDeps();
+  const app = await makeApp(deps);
+  // Cheap listing on #7, then the NFT moves away: hidden.
+  await submitSigned(app, baseOrder({ price: 1n }));
+  chain.owners.set(`${NFT}:7`, stranger.address.toLowerCase() as Hex);
+  await app.inject({ method: 'GET', url: `/market/collections/${NFT}/listings?fresh=1` });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(store.all()[0]?.hidden, true);
+  // A pricier live listing on another token now comes first in the query.
+  const live = baseOrder({ price: 10n ** 18n });
+  live.offer[0]!.identifierOrCriteria = 8n;
+  live.salt = 99n;
+  chain.owners.set(`${NFT}:8`, SELLER);
+  assert.equal((await submitSigned(app, live)).status, 201);
+  const firstPage = await deps.store.activeByCollection(NFT, 1);
+  assert.equal(firstPage[0]?.tokenId, 8n);
+  await app.close();
+});
+
+test('token route returns paused listings so the seller can cancel them', async () => {
+  const { deps, chain } = makeDeps();
+  const app = await makeApp(deps);
+  await submitSigned(app, baseOrder());
+  chain.approved.delete(`${NFT}:${SELLER}`);
+  const res = await app.inject({ method: 'GET', url: `/market/tokens/${NFT}/7?fresh=1` });
+  const body = res.json() as { listing: unknown; paused: Array<{ hiddenReason: string; seller: string }> };
+  assert.equal(body.listing, null);
+  assert.equal(body.paused.length, 1);
+  assert.equal(body.paused[0]?.hiddenReason, 'not_approved');
+  assert.equal(body.paused[0]?.seller, SELLER);
+  await app.close();
+});
+
+test('metadata fetch never follows a redirect into a private network', async () => {
+  assert.equal(isPrivateAddress('10.1.2.3'), true);
+  assert.equal(isPrivateAddress('169.254.169.254'), true);
+  assert.equal(isPrivateAddress('100.64.0.1'), true);
+  assert.equal(isPrivateAddress('::1'), true);
+  assert.equal(isPrivateAddress('fd00::1'), true);
+  assert.equal(isPrivateAddress('::ffff:127.0.0.1'), true);
+  assert.equal(isPrivateAddress('1.1.1.1'), false);
+  assert.equal(await isSafePublicUrl('http://1.1.1.1/x'), false);
+  assert.equal(await isSafePublicUrl('https://postgres.railway.internal/x'), false);
+  assert.equal(await isSafePublicUrl('https://127.0.0.1/x'), false);
+  assert.equal(await isSafePublicUrl('https://1.1.1.1/x'), true);
+
+  const seen: string[] = [];
+  const fakeFetch = (async (url: string) => {
+    seen.push(url);
+    if (url === 'https://1.1.1.1/meta.json') {
+      return new Response(null, { status: 302, headers: { location: 'https://10.0.0.5/secret' } });
+    }
+    return new Response('{"name":"leak"}', { status: 200 });
+  }) as unknown as typeof fetch;
+  assert.equal(await fetchMetadataJson('https://1.1.1.1/meta.json', fakeFetch), null);
+  assert.deepEqual(seen, ['https://1.1.1.1/meta.json'], 'private redirect target is never requested');
+});
+
+test('stale cached metadata is refetched (art revealed after mint)', async () => {
+  const store = memoryMetaStore();
+  await store.put(NFT, [{ tokenId: 1n, name: 'Unrevealed', image: null, attributes: [], fetchedAt: Date.now() - 2 * 86_400_000 }]);
+  const n = await fillMeta(store, NFT, [1n], {
+    tokenUris: async () => ['data:application/json,{"name":"Revealed","attributes":[{"trait_type":"Hat","value":"Red"}]}'],
+  });
+  assert.equal(n, 1);
+  const got = (await store.get(NFT, [1n])).get('1');
+  assert.equal(got?.name, 'Revealed');
+  // Fresh rows are left alone.
+  assert.equal(await fillMeta(store, NFT, [1n], { tokenUris: async () => { throw new Error('should not fetch'); } }), 0);
 });
