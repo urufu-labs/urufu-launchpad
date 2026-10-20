@@ -103,7 +103,8 @@ contract AggregatorExecutor is IUnlockCallback {
         int128 d0 = int128(int256(BalanceDelta.unwrap(d) >> 128));
         int128 d1 = int128(int256(BalanceDelta.unwrap(d)));
         (int128 dIn, int128 dOut) = c.zeroForOne ? (d0, d1) : (d1, d0);
-        (Currency cin, Currency cout) = c.zeroForOne ? (c.key.currency0, c.key.currency1) : (c.key.currency1, c.key.currency0);
+        (Currency cin, Currency cout) =
+            c.zeroForOne ? (c.key.currency0, c.key.currency1) : (c.key.currency1, c.key.currency0);
         uint256 amountIn = uint256(uint128(-dIn));
         uint256 amountOut = uint256(uint128(dOut));
         if (cin.isAddressZero()) {

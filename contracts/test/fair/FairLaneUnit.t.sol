@@ -94,10 +94,14 @@ contract FairLaneUnitTest is FairTestBase {
         (address token, FairBondingCurve curve, OpeningBatch batch) = _launch("Locked", 0);
         vm.deal(trader, 1 ether);
         vm.prank(trader);
-        vm.expectRevert(abi.encodeWithSelector(FairBondingCurve.FairCurve__BatchWindowOpen.selector, uint256(batch.closeTs())));
+        vm.expectRevert(
+            abi.encodeWithSelector(FairBondingCurve.FairCurve__BatchWindowOpen.selector, uint256(batch.closeTs()))
+        );
         curve.buy{value: 0.1 ether}(0);
         vm.prank(trader);
-        vm.expectRevert(abi.encodeWithSelector(FairBondingCurve.FairCurve__BatchWindowOpen.selector, uint256(batch.closeTs())));
+        vm.expectRevert(
+            abi.encodeWithSelector(FairBondingCurve.FairCurve__BatchWindowOpen.selector, uint256(batch.closeTs()))
+        );
         curve.sell(1, 0);
         token;
     }
@@ -107,7 +111,9 @@ contract FairLaneUnitTest is FairTestBase {
         _warpPast(batch);
         vm.deal(alice, 1 ether);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(OpeningBatch.OpeningBatch__WindowClosed.selector, uint256(batch.closeTs())));
+        vm.expectRevert(
+            abi.encodeWithSelector(OpeningBatch.OpeningBatch__WindowClosed.selector, uint256(batch.closeTs()))
+        );
         batch.deposit{value: 1 ether}();
     }
 
@@ -121,7 +127,9 @@ contract FairLaneUnitTest is FairTestBase {
 
     function test_SettleBeforeWindowEndReverts() public {
         (,, OpeningBatch batch) = _launch("Early", 0);
-        vm.expectRevert(abi.encodeWithSelector(OpeningBatch.OpeningBatch__WindowStillOpen.selector, uint256(batch.closeTs())));
+        vm.expectRevert(
+            abi.encodeWithSelector(OpeningBatch.OpeningBatch__WindowStillOpen.selector, uint256(batch.closeTs()))
+        );
         batch.settle();
     }
 
@@ -633,7 +641,7 @@ contract FairLaneUnitTest is FairTestBase {
         (address token,,) = _launch("Rogue", 0);
         PoolKey memory key = _key(token);
         vm.expectRevert();
-        pm.initialize(key, 79228162514264337593543950336);
+        pm.initialize(key, 79_228_162_514_264_337_593_543_950_336);
     }
 
     function test_Hook_SetPoolConfigOnlyInitializer() public {

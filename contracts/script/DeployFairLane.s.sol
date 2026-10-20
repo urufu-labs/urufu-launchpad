@@ -150,22 +150,22 @@ contract DeployFairLane is Script {
         d.graduator = address(
             new FairGraduator(IPoolManager(i.poolManager), IHooks(d.hook), i.poolFee, i.tickSpacing, 0, i.admin)
         );
-        d.factory = address(
-            new FairLaunchFactory(i.admin, d.tokenImpl, d.curveImpl, d.batchImpl, d.graduator, i.feeReceiver)
-        );
+        d.factory =
+            address(new FairLaunchFactory(i.admin, d.tokenImpl, d.curveImpl, d.batchImpl, d.graduator, i.feeReceiver));
 
         FairHookHost(payable(d.hook)).setInitializer(d.graduator);
         FairGraduator(payable(d.graduator)).setFactory(d.factory);
-        FairLaunchFactory(d.factory).setDefaults(
-            i.curveSupply,
-            i.virtualTokenReserve,
-            i.virtualEthReserve,
-            i.graduationTargetEth,
-            i.tradeFeeBps,
-            60, // D1
-            2500, // D2
-            0
-        );
+        FairLaunchFactory(d.factory)
+            .setDefaults(
+                i.curveSupply,
+                i.virtualTokenReserve,
+                i.virtualEthReserve,
+                i.graduationTargetEth,
+                i.tradeFeeBps,
+                60, // D1
+                2500, // D2
+                0
+            );
 
         if (_isTestContext) vm.stopPrank();
         else vm.stopBroadcast();
@@ -207,7 +207,9 @@ contract DeployFairLane is Script {
         }
         _requireCode("FeeSplitter", i.platform);
         address pinnedSplitter = vm.envOr("FAIR_EXPECT_FEE_SPLITTER", i.platform);
-        if (pinnedSplitter != i.platform) revert DeployFairLane__Stale("FeeSplitter env pin", pinnedSplitter, i.platform);
+        if (pinnedSplitter != i.platform) {
+            revert DeployFairLane__Stale("FeeSplitter env pin", pinnedSplitter, i.platform);
+        }
 
         i.platformBps = ILiveMhh(mhh).platformBps();
         i.creatorBps = ILiveMhh(mhh).creatorBps();
