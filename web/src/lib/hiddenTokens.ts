@@ -122,6 +122,8 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // made this tiny graduated pool on FairHookHost 0xfa7F...E8C4 for the Uniswap
   // hook allowlist review. Real on-chain graduation, not a real launch.
   '4663:0x389a15167307c1a96e05d25270083da63e5d9b77',
+  // Fair Allowlist Rehearsal on the V2 Fair stack (hook 0xDdc9...28C4), same day.
+  '4663:0x8b470575309a3c2dada29ce34e050a0b0a276c9f',
 ]);
 
 /// Kept out of every FEED (same filters as HIDDEN_TOKENS) but NOT retired: the

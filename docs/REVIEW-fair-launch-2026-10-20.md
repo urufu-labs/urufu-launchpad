@@ -59,7 +59,7 @@ per-transaction creator check depends on it). Slither after the second pass: 102
 results, 0 High; new Mediums are the same trusted-PoolManager reentrancy and
 default-zero patterns triaged above.
 
-## Deployed (Robinhood, 2026-10-20)
+## V1 deploy (Robinhood, 2026-10-20) - SUPERSEDED by V2 below
 
 Deployed before the external audit so the Uniswap hook allowlist review can run in
 parallel. **Launches are closed on-chain** (`launchesOpen = false`); nothing can be
@@ -86,3 +86,27 @@ token FAIRAL `0x389A15167307C1A96E05D25270083dA63e5D9b77`, pool id
 `0x304b5b96...a25b1`, swap tx `0x1124b3ca...377c7`. Factory defaults and the launch
 gate were restored in the same broadcast. Pool opened at 2.5029e-9 ETH/token vs the
 curve's last price 2.5030e-9: **0.004% below, no cliff**. Hidden from feeds.
+
+## V2 deploy (Robinhood, 2026-10-20) - CURRENT
+
+Redeployed the same day to add the deploy fee (ETH or URU, same amounts and holder
+discount as the token lane). V1 above stays on chain with launches closed; nothing
+was ever launched on it except its rehearsal token.
+
+| Contract | Address |
+|---|---|
+| FairLaunchFactory | `0x986BFC6c7be4b8d613FC3d25c6633eD9af27701d` |
+| FairHookHost (flags 0x28C4, salt 9790) | `0xDdc9A293cfDd6A824DbD33C58A9e78FEE85828C4` |
+| FairGraduator | `0x9c3dc971714087DB8E05cF41cf4d4C490baCfEBC` |
+| FairBondingCurve impl | `0x43C515A8cd2BA30374b09268a46EdC26250ef2f6` |
+| OpeningBatch impl | `0xf13A5948201726CEF0F27eA3d1b81E993F15D183` |
+| ERC20Template impl | `0xeD15EB1A5Ee94e513c7C47Cf2E3a5C99b880e19D` |
+
+Blocks 93,599,948 to 93,600,192, 12 txs, all verified on Blockscout. Re-read on chain:
+same wiring as V1 plus deploy fee 0.001 ETH or 1,000 URU (copied from the live Router),
+URU to sink `0xeCD3...C8C8`, LoyaltyOracle `0xDcAd...0b52`, launches closed.
+
+Rehearsal pool: FAIRAL `0x8b470575309a3c2DaDA29ce34E050A0b0A276C9f`, pool id
+`0x098be768b820945e74a6dd09236a8aa099e641b513dc3be6b2bb062cf3e58625`, graduation tx
+`0x8e8a8e41...06fc`, swap tx `0x8f9aae44...37e0`. Opened 0.004% below the curve's last
+price. Hidden from feeds.

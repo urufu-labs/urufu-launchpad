@@ -456,8 +456,9 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
 };
 
 /// Fair launch lane (docs/SPEC-fair-launch.md): opening batch, burning sniper
-/// tax, creator fee that burns if the dev sells. Deployed on Robinhood
-/// 2026-10-20 (blocks 93559145-93559323) with launches CLOSED on-chain
+/// tax, creator fee that burns if the dev sells. V2 deployed on Robinhood
+/// 2026-10-20 (blocks 93599948-93600192, adds the ETH / URU deploy fee; V1 at
+/// 0x0aaD...fD64 is superseded and stays closed) with launches CLOSED on-chain
 /// (`FairLaunchFactory.launchesOpen = false`). The lane stays dark until the audit
 /// is done, the factory owner calls setLaunchesOpen(true), and
 /// FAIR_LAUNCHES_ENABLED flips below.
@@ -474,8 +475,8 @@ export const FAIR_LAUNCHES: Record<ChainKey, FairLaunchSet | null> = {
   base: null,
   'base-sepolia': null,
   robinhood: {
-    LaunchFactory: '0x0aaD9FC0703e7704DCAe564e53E754155da6fD64',
-    HookHost: '0xfa7FECCFB9a08E69457F876C3beBCCbB39bDE8C4',
+    LaunchFactory: '0x986BFC6c7be4b8d613FC3d25c6633eD9af27701d',
+    HookHost: '0xDdc9A293cfDd6A824DbD33C58A9e78FEE85828C4',
   },
   'robinhood-testnet': null,
 };
