@@ -1,14 +1,21 @@
 'use client';
 
-/// /create/fair: the Fair launch lane (docs/SPEC-fair-launch.md). Shown so people
-/// can read the rules, but NOT launchable: the contracts are built and fork-tested
-/// and wait for an audit + the Uniswap hook allowlist. The form stays disabled
-/// until FAIR_LAUNCHES_ENABLED and FAIR_LAUNCHES are both set for the chain.
+/// /create/fair: the Fair launch lane (docs/SPEC-fair-launch.md). Shows the rules
+/// always; the form only submits once FAIR_LAUNCHES_ENABLED and FAIR_LAUNCHES are
+/// both set for the chain (contracts await an audit + the Uniswap hook allowlist).
+/// Submit = FairLaunchFactory.launch(name, symbol) with the creator's first batch
+/// deposit attached, then a jump to the new token's trade page.
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { parseEther, type Address } from 'viem';
+import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { useActiveChain } from '@/components/ChainSwitcher';
-import { FAIR_LAUNCHES, FAIR_LAUNCHES_ENABLED } from '@/lib/config';
+import { fairLaunchFactoryAbi } from '@/lib/abis';
+import { FAIR_LAUNCHES, FAIR_LAUNCHES_ENABLED, type ChainKey } from '@/lib/config';
+import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
 import styles from '../create-studio.module.css';
 
 const RULES: Array<{ title: string; body: string }> = [
@@ -83,39 +90,123 @@ export default function FairLaunchPage() {
         </div>
       </section>
 
-      <section className={styles.panel} aria-labelledby="fair-form" style={{ opacity: live ? 1 : 0.55 }}>
-        <div className={styles.panelHead}>
-          <h2 id="fair-form" className={styles.panelTitle}>
-            Launch
-          </h2>
-          <span className={styles.panelAside}>{live ? '' : 'Not open yet'}</span>
-        </div>
-        <div className={styles.panelBody}>
-          <fieldset disabled={!live} style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 12 }}>
-            <label className="ui-field-label">
-              Name
-              <input className="ui-input" placeholder="My Token" />
-            </label>
-            <label className="ui-field-label">
-              Ticker
-              <input className="ui-input" placeholder="MYTKN" />
-            </label>
-            <label className="ui-field-label">
-              Your first deposit (ETH, optional)
-              <input className="ui-input" inputMode="decimal" placeholder="0.1" />
-            </label>
-            <p className={styles.hint}>
-              Your deposit goes into the opening batch at the same price as everyone else.
-            </p>
-            <button type="button" className="ui-btn" data-variant="primary" disabled>
-              {live ? 'Launch' : 'Coming after audit'}
-            </button>
-          </fieldset>
-          <Link href="/create" className={styles.link}>
-            Or launch a normal token now
-          </Link>
-        </div>
-      </section>
+      <LaunchForm chain={chain} live={live} />
     </div>
+  );
+}
+
+function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
+  const set = FAIR_LAUNCHES[chain];
+  const targetChainId = CHAIN_KEY_TO_ID[chain] as WagmiChainId;
+  const router = useRouter();
+  const { address: wallet, chainId: walletChainId } = useAccount();
+  const { switchChain, isPending: switching } = useSwitchChain();
+  const [name, setName] = useState('');
+  const [ticker, setTicker] = useState('');
+  const [deposit, setDeposit] = useState('');
+
+  const cleanName = name.trim();
+  const cleanTicker = ticker.trim().toUpperCase();
+  const depositWei = (() => {
+    try {
+      return deposit ? parseEther(deposit) : 0n;
+    } catch {
+      return null;
+    }
+  })();
+
+  // Predicted token address, so we can open its trade page right after the tx.
+  const predicted = useReadContract({
+    abi: fairLaunchFactoryAbi,
+    address: set?.LaunchFactory,
+    functionName: 'predictAddresses',
+    args: wallet && cleanName && cleanTicker ? [wallet, cleanName, cleanTicker] : undefined,
+    chainId: targetChainId,
+    query: { enabled: live && !!set && !!wallet && !!cleanName && !!cleanTicker },
+  });
+  const token = (predicted.data as readonly [Address, Address, Address] | undefined)?.[0];
+
+  const { writeContract, data: txHash, isPending, error, reset } = useWriteContract();
+  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash, chainId: targetChainId });
+  useEffect(() => {
+    if (isSuccess && token) router.push(`/trade/${token}`);
+  }, [isSuccess, token, router]);
+
+  const wrongChain = !!wallet && walletChainId !== targetChainId;
+  const busy = isPending || confirming;
+  const reason = !live
+    ? null
+    : !wallet
+      ? 'Connect a wallet to launch.'
+      : !cleanName
+        ? 'Give it a name.'
+        : !cleanTicker
+          ? 'Give it a ticker.'
+          : depositWei === null
+            ? 'That deposit amount is not a number.'
+            : null;
+
+  const launch = () => {
+    if (!set || depositWei === null) return;
+    reset();
+    writeContract({
+      abi: fairLaunchFactoryAbi,
+      address: set.LaunchFactory,
+      functionName: 'launch',
+      args: [cleanName, cleanTicker],
+      value: depositWei,
+      chainId: targetChainId,
+    });
+  };
+
+  return (
+    <section className={styles.panel} aria-labelledby="fair-form" style={{ opacity: live ? 1 : 0.55 }}>
+      <div className={styles.panelHead}>
+        <h2 id="fair-form" className={styles.panelTitle}>
+          Launch
+        </h2>
+        <span className={styles.panelAside}>{live ? '' : 'Not open yet'}</span>
+      </div>
+      <div className={styles.panelBody}>
+        <fieldset disabled={!live || busy} style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+          <label className="ui-field-label">
+            Name
+            <input className="ui-input" placeholder="My Token" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="ui-field-label">
+            Ticker
+            <input className="ui-input" placeholder="MYTKN" value={ticker} maxLength={12} onChange={(e) => setTicker(e.target.value)} />
+          </label>
+          <label className="ui-field-label">
+            Your first deposit (ETH)
+            <input
+              className="ui-input"
+              inputMode="decimal"
+              placeholder="0.1"
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value.replace(/[^0-9.]/g, ''))}
+            />
+          </label>
+          <p className={styles.hint}>
+            Your deposit goes into the opening batch at the same price as everyone else. You only earn
+            the 1% creator fee while you hold, so a launch with no deposit earns you nothing.
+          </p>
+          {wrongChain ? (
+            <button type="button" className="ui-btn" disabled={switching} onClick={() => switchChain({ chainId: targetChainId })}>
+              {switching ? 'Switching...' : 'Switch network'}
+            </button>
+          ) : (
+            <button type="button" className="ui-btn" data-variant="primary" disabled={!live || !!reason || busy} onClick={launch}>
+              {!live ? 'Coming after audit' : busy ? 'Launching...' : 'Launch'}
+            </button>
+          )}
+          {reason && <p className={styles.hint}>{reason}</p>}
+          {error && <p className={styles.errorNote}>{error.message.split('\n')[0]}</p>}
+        </fieldset>
+        <Link href="/create" className={styles.link}>
+          Or launch a normal token now
+        </Link>
+      </div>
+    </section>
   );
 }

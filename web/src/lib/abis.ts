@@ -189,6 +189,7 @@ export const fairLaunchFactoryAbi = parseAbi([
   `function launch(string name, string symbol) payable returns (address token, address curve, address batch)`,
   `function curveFor(address token) view returns (address)`,
   `function batchFor(address token) view returns (address)`,
+  `function predictAddresses(address launcher, string name, string symbol) view returns (address token, address curve, address batch)`,
 ] as const);
 
 /// OpeningBatch: the first minute of a Fair launch, everyone at one price.

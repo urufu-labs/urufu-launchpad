@@ -12,6 +12,7 @@ import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {IV4Router} from "v4-periphery/interfaces/IV4Router.sol";
 
 import {DeployFairLane} from "script/DeployFairLane.s.sol";
+import {AllowlistFairRehearsal} from "script/AllowlistFairRehearsal.s.sol";
 import {FairLaunchFactory} from "src/fair/FairLaunchFactory.sol";
 import {FairBondingCurve} from "src/fair/FairBondingCurve.sol";
 import {OpeningBatch} from "src/fair/OpeningBatch.sol";
@@ -456,5 +457,41 @@ contract FairLaneRhForkTest is FairTestBase {
         assertEq(_creatorEarned(token, true), 0, "dump fee reached the creator");
         assertGe(hook.bankedEth(id) - bank0, pEth, "dump fee not burned");
         _assertHookSolvent(token, creator);
+    }
+
+    /// The Uniswap allowlist rehearsal, both phases, on live Robinhood: a tiny pool on
+    /// the real deploy's FairHookHost, defaults and the launch gate restored after.
+    function test_Fork_AllowlistRehearsal_TwoPhases() public {
+        vm.prank(admin);
+        factory.setLaunchesOpen(false);
+        uint256 target0 = factory.defaultGraduationTargetEth();
+        uint32 window0 = factory.batchWindowSecs();
+        uint16 cap0 = factory.batchCapBps();
+
+        AllowlistFairRehearsal r = new AllowlistFairRehearsal();
+        vm.deal(admin, 1 ether);
+        vm.deal(address(r), 1 ether);
+        address token = r.phase1ForTest(factory, admin);
+        assertEq(factory.defaultGraduationTargetEth(), target0, "target not restored");
+        assertEq(factory.batchWindowSecs(), window0, "window not restored");
+        assertEq(factory.batchCapBps(), cap0, "cap not restored");
+        assertFalse(factory.launchesOpen(), "launch gate not restored");
+        assertEq(FairBondingCurve(payable(factory.curveFor(token))).graduationTargetEth(), 0.001 ether);
+
+        // Phase 2 before the window closes must refuse.
+        vm.expectRevert(bytes("batch window still open, wait and rerun"));
+        r.phase2ForTest(factory, token, admin);
+
+        vm.warp(vm.getBlockTimestamp() + 11);
+        PoolId id = r.phase2ForTest(factory, token, admin);
+        (uint160 sq,,,) = pm.getSlot0(id);
+        assertGt(sq, 0, "rehearsal pool not initialized on the live PoolManager");
+        assertGt(pm.getLiquidity(id), 0);
+        (address pToken,,,,,, bool configured,,) = hook.pools(id);
+        assertEq(pToken, token);
+        assertTrue(configured);
+        (uint160 refSqrt, uint64 refTs) = hook.priceRef(id);
+        assertGt(refSqrt, 0, "post-graduation swap did not reach the hook");
+        assertGt(refTs, 0);
     }
 }
