@@ -2,7 +2,7 @@
 // (Vite plugin at @ponder/core/src/build/plugin.ts). The 'ponder:registry' name is 0.8+.
 import { ponder } from '@/generated';
 import { keccak256, encodeAbiParameters } from 'viem';
-import { eq } from '@ponder/core';
+import { and, eq } from '@ponder/core';
 
 import {
   launches, curves, trades, v4Swaps, v4RouterSwaps, graduations, holders, transfers,
@@ -12,6 +12,7 @@ import {
   uruBuybacks, uruSinkDeposits, uruSinkConversions,
   nftCollections, nftMints,
   pairCurves, pairTrades, pairGraduations, pairV4Swaps,
+  marketSales, marketCancels, marketCounters,
 } from '../ponder.schema.ts';
 import { hookHostForChainId, dn404HookHostForChainId, poolManagerForChainId } from '../chains';
 import { computePairPoolId, decodePairSwap, V4_SWAP_TOPIC0 } from '../poolId';
@@ -1366,4 +1367,80 @@ ponder.on('NftMintModule:Minted', async ({ event, context }) => {
     txHash: event.transaction.hash,
   }).onConflictDoNothing();
   void discountBps; void paidInUru;
+});
+
+// ============================================================
+// Zero-fee NFT marketplace (Seaport 1.6). The SeaportFills / SeaportCancels
+// sources only deliver events carrying our marker zone (getLogs topic filter,
+// see ponder.config.ts), so every fill here is an order our site built. We
+// still check the NFT is from one of our collections: anyone can put any
+// zone on an order.
+// ============================================================
+
+const ITEM_NATIVE = 0;
+const ITEM_ERC721 = 2;
+
+ponder.on('SeaportFills:OrderFulfilled', async ({ event, context }) => {
+  const { orderHash, offerer, recipient, offer, consideration } = event.args;
+  const chainId = chainIdOf(context);
+  const nft = offer.length === 1 ? offer[0] : undefined;
+  if (!nft || nft.itemType !== ITEM_ERC721 || nft.amount !== 1n) return;
+  const rows = await context.db.sql
+    .select({ lane: nftCollections.lane })
+    .from(nftCollections)
+    .where(and(eq(nftCollections.chainId, chainId), eq(nftCollections.collectionAddress, nft.token)))
+    .limit(1);
+  const lane = rows[0]?.lane;
+  if (!lane) return; // not launched on urufu
+  let priceWei = 0n;
+  let sellerWei = 0n;
+  for (const c of consideration) {
+    if (c.itemType !== ITEM_NATIVE) continue;
+    priceWei += c.amount;
+    if (c.recipient.toLowerCase() === offerer.toLowerCase()) sellerWei += c.amount;
+  }
+  await context.db.insert(marketSales).values({
+    id: `${chainId}-${orderHash}`,
+    chainId,
+    orderHash,
+    collectionAddress: nft.token,
+    tokenId: nft.identifier,
+    lane,
+    seller: offerer,
+    buyer: recipient,
+    priceWei,
+    royaltyWei: priceWei - sellerWei,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('SeaportCancels:OrderCancelled', async ({ event, context }) => {
+  const chainId = chainIdOf(context);
+  await context.db.insert(marketCancels).values({
+    id: `${chainId}-${event.args.orderHash}`,
+    chainId,
+    orderHash: event.args.orderHash,
+    offerer: event.args.offerer,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  }).onConflictDoNothing();
+});
+
+ponder.on('SeaportCounters:CounterIncremented', async ({ event, context }) => {
+  const chainId = chainIdOf(context);
+  const row = {
+    chainId,
+    offerer: event.args.offerer,
+    counter: event.args.newCounter,
+    blockNumber: event.block.number,
+    blockTimestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  };
+  await context.db
+    .insert(marketCounters)
+    .values({ id: `${chainId}-${event.args.offerer.toLowerCase()}`, ...row })
+    .onConflictDoUpdate(row);
 });

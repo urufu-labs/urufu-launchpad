@@ -15,6 +15,7 @@
 import type { Address } from 'viem';
 
 import { isHiddenToken, notHidden } from './hiddenTokens';
+import { FAIR_LAUNCH_FIELDS, fairRowToLaunch, mergeFairLaunches, type IndexerFairLaunchRow } from './fairFeed';
 import { notHiddenNft } from './hiddenNftCollections';
 
 /// Shared fallback for chains without their own explicit per-chain URL. `undefined`
@@ -205,6 +206,23 @@ export interface IndexerLaunch {
   blockNumber: string;
   blockTimestamp: string;
   txHash: `0x${string}`;
+  /// 'fair' for rows mapped from the Fair lane's `fairLaunches` table (see
+  /// lib/fairFeed.ts). Missing on coin-lane rows.
+  lane?: 'fair';
+}
+
+/// Fair launches as `IndexerLaunch` rows, for the given filter. Its own query so an
+/// indexer build without the Fair tables only drops Fair rows, never the coin lane.
+async function fetchFairLaunchRows(where: string, vars: string, variables: Record<string, unknown>, limit: number) {
+  const data = await gqlFanout<{ fairLaunchess: { items: IndexerFairLaunchRow[] } }>(
+    `query FairLaunchRows${vars ? `(${vars})` : ''} {
+      fairLaunchess(${where} orderBy: "createdAt", orderDirection: "desc", limit: ${limit}) {
+        items { ${FAIR_LAUNCH_FIELDS} }
+      }
+    }`,
+    variables,
+  );
+  return (data?.fairLaunchess.items ?? []).map((r): IndexerLaunch => fairRowToLaunch(r));
 }
 
 export interface IndexerCurve {
@@ -266,7 +284,17 @@ export async function fetchRecentLaunches(limit = 40): Promise<IndexerLaunch[] |
 }
 
 async function _fetchRecentLaunchesRaw(limit: number): Promise<IndexerLaunch[] | null> {
-  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
+  const [data, fair] = await Promise.all([_fetchRouterLaunches(limit), fetchFairLaunchRows('', '', {}, limit)]);
+  if (!data) return null;
+  // Merged items may not be globally sorted (each service returns its own order).
+  // Sort by blockTimestamp desc + trim to the requested limit. Hidden tokens
+  // (see lib/hiddenTokens.ts) are filtered out at this layer so every consumer —
+  // marquee, discover, home rail — sees a clean list.
+  return mergeFairLaunches(data.launchess.items, fair).filter(notHidden).slice(0, limit);
+}
+
+async function _fetchRouterLaunches(limit: number) {
+  return gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query RecentLaunches($limit: Int!) {
       launchess(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
         items {
@@ -279,16 +307,6 @@ async function _fetchRecentLaunchesRaw(limit: number): Promise<IndexerLaunch[] |
     }`,
     { limit },
   );
-  if (!data) return null;
-  // Merged items may not be globally sorted (each service returns its own order).
-  // Sort by blockTimestamp desc + trim to the requested limit. Hidden tokens
-  // (see lib/hiddenTokens.ts) are filtered out at this layer so every consumer —
-  // marquee, discover, home rail — sees a clean list.
-  return data.launchess.items
-    .slice()
-    .filter(notHidden)
-    .sort((a, b) => Number(BigInt(b.blockTimestamp) - BigInt(a.blockTimestamp)))
-    .slice(0, limit);
 }
 
 /// Curve state for a token address (case-insensitive). Returns null when nothing indexed.
@@ -618,6 +636,20 @@ async function _fetchRecentTradesRaw(limit: number): Promise<IndexerTrade[] | nu
 
 /// Health probe — used by pages to decide whether to try indexer queries at all before
 /// falling back to mocks. Cheap: hits the GraphQL endpoint's introspection.
+/// Fair launch opening-batch depositors (indexer `fair_deposits`). Used by the
+/// trade page's "wallets funded by the dev" check.
+export async function fetchFairDepositors(batch: Address, limit = 500): Promise<Address[] | null> {
+  const data = await gqlFanout<{ fairDepositss: { items: { user: Address }[] } }>(
+    `query FairDepositors($batch: String!, $limit: Int!) {
+      fairDepositss(where: { batchAddress: $batch }, limit: $limit) {
+        items { user }
+      }
+    }`,
+    { batch: batch.toLowerCase(), limit },
+  );
+  return data ? data.fairDepositss.items.map((d) => d.user) : null;
+}
+
 export async function isIndexerReachable(): Promise<boolean> {
   // Introspection query — no items[] arrays to merge, use plain gql() to fallback URL.
   const data = await gql<{ __schema: unknown }>(`query { __schema { queryType { name } } }`);
@@ -638,7 +670,16 @@ export interface IndexerHolding {
 /// All launches created by a given wallet, newest first. Feeds the "creations" grid on a
 /// profile — each row is a token this address launched via Router.launch.
 export async function fetchLaunchesByCreator(creator: Address, limit = 40): Promise<IndexerLaunch[] | null> {
-  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
+  const [data, fair] = await Promise.all([
+    _fetchRouterLaunchesByCreator(creator, limit),
+    fetchFairLaunchRows('where: { launcher: $creator },', '$creator: String!', { creator: creator.toLowerCase() }, limit),
+  ]);
+  if (!data && fair.length === 0) return null;
+  return mergeFairLaunches(data?.launchess.items ?? [], fair).filter(notHidden).slice(0, limit);
+}
+
+async function _fetchRouterLaunchesByCreator(creator: Address, limit: number) {
+  return gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query LaunchesByCreator($creator: String!, $limit: Int!) {
       launchess(
         where: { launchedBy: $creator },
@@ -656,7 +697,6 @@ export async function fetchLaunchesByCreator(creator: Address, limit = 40): Prom
     }`,
     { creator: creator.toLowerCase(), limit },
   );
-  return (data?.launchess.items ?? []).filter(notHidden);
 }
 
 export interface IndexerNftCollection {
@@ -1173,7 +1213,15 @@ async function _fetchTradesByTraderInner(trader: Address, limit: number): Promis
 export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerLaunch[] | null> {
   const uniq = Array.from(new Set(tokens.map((t) => t.toLowerCase()))) as Address[];
   if (uniq.length === 0) return [];
-  const data = await gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
+  const [data, fair] = await Promise.all([
+    _fetchRouterLaunchesByTokens(uniq),
+    fetchFairLaunchRows('where: { tokenAddress_in: $tokens },', '$tokens: [String!]!', { tokens: uniq }, 1000),
+  ]);
+  return mergeFairLaunches(data?.launchess.items ?? [], fair).filter(notHidden);
+}
+
+async function _fetchRouterLaunchesByTokens(uniq: Address[]) {
+  return gqlFanout<{ launchess: { items: IndexerLaunch[] } }>(
     `query LaunchesByTokens($tokens: [String!]!) {
       launchess(where: { tokenAddress_in: $tokens }, limit: 1000) {
         items {
@@ -1186,7 +1234,6 @@ export async function fetchLaunchesByTokens(tokens: Address[]): Promise<IndexerL
     }`,
     { tokens: uniq },
   );
-  return (data?.launchess.items ?? []).filter(notHidden);
 }
 
 /// Current per-token balances for a wallet. Used for the "holdings" strip on the profile.
@@ -1286,4 +1333,57 @@ export async function fetchFlywheelTotals(
       return null;
     }
   });
+}
+
+// ---- Zero-fee NFT marketplace (Seaport fills of our listings) ----
+
+export interface IndexerMarketSale {
+  id: string;
+  chainId: number;
+  orderHash: `0x${string}`;
+  collectionAddress: Address;
+  tokenId: string;
+  lane: 'nft' | 'dn404';
+  seller: Address;
+  buyer: Address;
+  priceWei: string;
+  royaltyWei: string;
+  blockNumber: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+const MARKET_SALE_FIELDS = `id chainId orderHash collectionAddress tokenId lane seller buyer priceWei royaltyWei blockNumber blockTimestamp txHash`;
+
+/// Sales on one collection, newest first. Powers the collection Activity tab.
+export async function fetchMarketSalesByCollection(
+  collectionAddress: Address,
+  limit = 50,
+): Promise<IndexerMarketSale[] | null> {
+  const data = await gqlFanout<{ marketSaless: { items: IndexerMarketSale[] } }>(
+    `query MarketSalesByCollection($addr: String!, $limit: Int!) {
+      marketSaless(where: { collectionAddress: $addr }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { ${MARKET_SALE_FIELDS} }
+      }
+    }`,
+    { addr: collectionAddress.toLowerCase(), limit },
+  );
+  return data?.marketSaless.items ?? null;
+}
+
+/// Sales of one NFT, newest first. Powers the NFT detail page history.
+export async function fetchMarketSalesByToken(
+  collectionAddress: Address,
+  tokenId: string,
+  limit = 20,
+): Promise<IndexerMarketSale[] | null> {
+  const data = await gqlFanout<{ marketSaless: { items: IndexerMarketSale[] } }>(
+    `query MarketSalesByToken($addr: String!, $id: BigInt!, $limit: Int!) {
+      marketSaless(where: { collectionAddress: $addr, tokenId: $id }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { ${MARKET_SALE_FIELDS} }
+      }
+    }`,
+    { addr: collectionAddress.toLowerCase(), id: tokenId, limit },
+  );
+  return data?.marketSaless.items ?? null;
 }

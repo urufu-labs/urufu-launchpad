@@ -455,6 +455,51 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
   'robinhood-testnet': null,
 };
 
+/// Fair launch lane (docs/SPEC-fair-launch.md): opening batch, burning sniper
+/// tax, creator fee that burns if the dev sells. V2 deployed on Robinhood
+/// 2026-10-20 (blocks 93599948-93600192, adds the ETH / URU deploy fee; V1 at
+/// 0x0aaD...fD64 is superseded and stays closed) with launches CLOSED on-chain
+/// (`FairLaunchFactory.launchesOpen = false`). The lane stays dark until the audit
+/// is done, the factory owner calls setLaunchesOpen(true), and
+/// FAIR_LAUNCHES_ENABLED flips below.
+export interface FairLaunchSet {
+  /// `launch(name, symbol)` payable; attached ETH is the creator's first batch deposit.
+  LaunchFactory: Address;
+  /// FairHookHost: the lane's v4 hook (sniper tax, forfeit, burn bank).
+  HookHost: Address;
+}
+
+export const FAIR_LAUNCHES: Record<ChainKey, FairLaunchSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: {
+    LaunchFactory: '0x986BFC6c7be4b8d613FC3d25c6633eD9af27701d',
+    HookHost: '0xDdc9A293cfDd6A824DbD33C58A9e78FEE85828C4',
+  },
+  'robinhood-testnet': null,
+};
+
+/// Hooks whose Uniswap routing allowlist review is still pending. The trade page
+/// hides "Open on Uniswap" for pools on these hooks (Uniswap shows off-allowlist
+/// hooks as bare pools, a bait risk). Remove an address once Uniswap approves it.
+export const UNISWAP_ALLOWLIST_PENDING_HOOKS: ReadonlySet<string> = new Set<string>([
+  '0xddc9a293cfdd6a824dbd33c58a9e78fee85828c4', // FairHookHost V2, submitted 2026-10-20
+  '0xfa7feccfb9a08e69457f876c3bebccbb39bde8c4', // FairHookHost V1, retired (never approved)
+]);
+
+/// Create-page gate for the Fair lane.
+export const FAIR_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  // Live 2026-10-20 (owner choice: no external audit, no wait on the Uniswap review).
+  robinhood: true,
+  'robinhood-testnet': false,
+};
+
 /// Uniswap Universal Router + Permit2, per chain. Used ONLY for post-graduation
 /// swaps on ERC-20/ERC-20 pools (DN404 pair-currency tokens); our V4SwapRouter
 /// is native-ETH-only and stays the path for every ETH pool. Robinhood's router

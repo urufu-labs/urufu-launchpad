@@ -571,6 +571,57 @@ export const pairV4Swaps = onchainTable('pair_v4_swaps', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+// =========================================================
+// Zero-fee NFT marketplace (Seaport 1.6, docs/SPEC-marketplace.md).
+//
+// Only orders made on our site: they carry the marketplace marker zone, and
+// the Seaport sources filter getLogs by that indexed zone, so the indexer
+// never sees the rest of the chain's Seaport traffic. Fills are kept only
+// when the NFT is from a collection in nft_collections (our NFT + DN404
+// lanes). Listings themselves live in compile-service (site Postgres).
+// =========================================================
+
+/// One row per filled listing: the sales feed + floor history.
+export const marketSales = onchainTable('market_sales', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${orderHash}`
+  chainId: t.integer().notNull(),
+  orderHash: t.hex().notNull(),
+  collectionAddress: t.hex().notNull(),
+  tokenId: t.bigint().notNull(),
+  lane: t.text().notNull(),                        // 'nft' | 'dn404'
+  seller: t.hex().notNull(),                       // Seaport offerer
+  buyer: t.hex().notNull(),                        // Seaport recipient
+  priceWei: t.bigint().notNull(),                  // total ETH the buyer paid
+  royaltyWei: t.bigint().notNull(),                // part of priceWei not paid to the seller
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Seaport cancel() of one of our orders.
+export const marketCancels = onchainTable('market_cancels', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${orderHash}`
+  chainId: t.integer().notNull(),
+  orderHash: t.hex().notNull(),
+  offerer: t.hex().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Latest Seaport counter per wallet. incrementCounter() cancels every order
+/// the wallet signed at a lower counter. Not zone-scoped (the event has no
+/// zone), but the whole chain only emits a few per hour.
+export const marketCounters = onchainTable('market_counters', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${offerer}`
+  chainId: t.integer().notNull(),
+  offerer: t.hex().notNull(),
+  counter: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),
@@ -627,4 +678,72 @@ export const poolPolicyRelations = relations(poolPolicy, ({ one }) => ({
     fields: [poolPolicy.poolId],
     references: [graduations.poolId],
   }),
+}));
+
+/// Fair launch lane (docs/SPEC-fair-launch.md). One row per FairLaunched. Curve
+/// trades / graduation land in the shared `curves`, `trades` and `graduations`
+/// tables (same event shapes as the token lane); this row carries what is new:
+/// the opening batch, the sniper tax, the creator-fee forfeit and the burn bank.
+export const fairLaunches = onchainTable('fair_launches', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${tokenAddress}`
+  chainId: t.integer().notNull(),
+  tokenAddress: t.hex().notNull(),
+  curveAddress: t.hex().notNull(),
+  batchAddress: t.hex().notNull(),
+  launcher: t.hex().notNull(),
+  name: t.text().notNull(),
+  ticker: t.text().notNull(),
+  curveSupply: t.bigint().notNull(),
+  batchCapTokens: t.bigint().notNull(),
+  batchCloseTs: t.bigint().notNull(),              // unix seconds
+  creatorDeposit: t.bigint().notNull(),
+  /// Deploy fee paid at launch: ETH wei, or URU wei when feeInUru.
+  feePaid: t.bigint().notNull().default(0n),
+  feeInUru: t.boolean().notNull().default(false),
+  // Opening batch
+  totalDeposited: t.bigint().notNull(),
+  depositorCount: t.integer().notNull(),
+  settled: t.boolean().notNull(),
+  settledAt: t.bigint(),
+  tokensBought: t.bigint(),
+  ethSpent: t.bigint(),
+  ethRefund: t.bigint(),
+  // Creator
+  creatorSold: t.boolean().notNull(),              // sold on the curve before graduation
+  // Pool (set at graduation)
+  graduated: t.boolean().notNull(),
+  graduatedAt: t.bigint(),
+  poolId: t.hex(),
+  hookAddress: t.hex(),
+  poolLaunchTs: t.bigint(),                        // sniper tax decays from here
+  taxStartBps: t.integer(),
+  taxDecaySecs: t.integer(),
+  forfeitDropBps: t.integer(),
+  creatorBaseline: t.bigint(),
+  forfeited: t.boolean().notNull(),
+  forfeitedAt: t.bigint(),
+  // Burn accounting (running totals)
+  sniperTaxBurnedTokens: t.bigint().notNull(),
+  sniperTaxBankedEth: t.bigint().notNull(),
+  creatorFeeBurnedTokens: t.bigint().notNull(),
+  creatorFeeBankedEth: t.bigint().notNull(),
+  bankBurnedEth: t.bigint().notNull(),
+  bankBurnedTokens: t.bigint().notNull(),
+  createdAt: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// One row per (batch, depositor). `deposited` is the running total from the
+/// latest Deposited event; claim fields fill in on Claimed.
+export const fairDeposits = onchainTable('fair_deposits', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${batchAddress}-${user}`
+  chainId: t.integer().notNull(),
+  batchAddress: t.hex().notNull(),
+  user: t.hex().notNull(),
+  deposited: t.bigint().notNull(),
+  claimed: t.boolean().notNull(),
+  tokensClaimed: t.bigint(),
+  refundClaimed: t.bigint(),
+  updatedAt: t.bigint().notNull(),
 }));

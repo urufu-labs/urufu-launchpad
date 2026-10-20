@@ -174,6 +174,62 @@ export const dn404CurveCreatedEvent = parseAbiItem(
   'event Dn404CurveCreated(address indexed token, address indexed curve, address indexed launcher, address pairCurrency)',
 );
 
+/// Fair launch lane (contracts/src/fair/). Every string MUST match the Solidity
+/// event field-for-field: Ponder filters getLogs by topic0, so a drifted string
+/// silently drops every log (the 2026-09-16 Dn404Launched incident).
+/// test/fair-abi.test.ts recomputes each topic0 from the forge artifacts.
+export const fairLaunchFactoryAbi = parseAbi([
+  'event FairLaunched(address indexed token, address indexed curve, address indexed launcher, address batch, string name, string symbol, uint256 curveSupply, uint256 batchCapTokens, uint64 batchCloseTs, uint256 creatorDeposit, uint256 feePaid, bool feeInUru)',
+]);
+
+/// FairBondingCurve. `Trade` and `Graduated` share the token lane's signatures,
+/// so their rows land in the same `trades` / `graduations` tables the trade page
+/// already reads. `CurveInitialized` is wider (batch fields), so it gets its own.
+export const fairBondingCurveAbi = parseAbi([
+  'event CurveInitialized(address indexed token, address indexed feeReceiver, address indexed batch, uint256 curveSupply, uint256 virtualTokenReserve, uint256 virtualEthReserve, uint256 graduationTargetEth, uint16 tradeFeeBps, uint256 batchCapTokens, uint64 batchCloseTs)',
+  'event Trade(address indexed trader, bool isBuy, uint256 ethAmount, uint256 tokenAmount, uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
+  'event CreatorSold(address indexed creator, uint256 tokensIn)',
+  'event Graduated(uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
+]);
+
+export const openingBatchAbi = parseAbi([
+  'event Deposited(address indexed user, uint256 amount, uint256 userTotal, uint256 batchTotal)',
+  'event Settled(address indexed caller, uint256 totalEth, uint256 ethSpent, uint256 tokensBought, uint256 ethRefund)',
+  'event Claimed(address indexed user, uint256 tokens, uint256 ethRefund)',
+]);
+
+export const fairHookHostAbi = parseAbi([
+  'event FairPoolInitialized(bytes32 indexed poolId, address indexed token, address indexed creator, uint256 creatorBaseline, bool forfeited, uint64 launchTs, uint16 taxStartBps, uint32 taxDecaySecs, uint16 forfeitDropBps)',
+  'event FeeAccrued(bytes32 indexed poolId, address indexed currency, uint256 platformShare, uint256 creatorShare)',
+  'event FeeClaimed(address indexed currency, address indexed to, uint256 amount)',
+  'event SniperTaxBurned(bytes32 indexed poolId, uint256 tokenAmount)',
+  'event SniperTaxBanked(bytes32 indexed poolId, uint256 ethAmount)',
+  'event CreatorFeeBurned(bytes32 indexed poolId, address indexed currency, uint256 amount)',
+  'event CreatorFeeForfeited(bytes32 indexed poolId, address indexed creator, uint256 balance, uint256 baseline)',
+  'event BankBurned(bytes32 indexed poolId, address indexed caller, uint256 ethIn, uint256 tokensBurned)',
+]);
+/// Seaport 1.6 events for the zero-fee NFT marketplace. MUST match Seaport's
+/// ConsiderationEventsAndErrors field-for-field (topic0 filter, see the
+/// Dn404Launched note above); test/market-abi.test.ts pins the topic0s.
+export const seaportAbi = parseAbi([
+  'struct SpentItem { uint8 itemType; address token; uint256 identifier; uint256 amount; }',
+  'struct ReceivedItem { uint8 itemType; address token; uint256 identifier; uint256 amount; address recipient; }',
+  'event OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, SpentItem[] offer, ReceivedItem[] consideration)',
+  'event OrderCancelled(bytes32 orderHash, address indexed offerer, address indexed zone)',
+  'event CounterIncremented(uint256 newCounter, address indexed offerer)',
+]);
+
+/// Marker zone on every order our site builds. MUST equal MARKET_ZONE in
+/// shared/seaport.ts (test/market-abi.test.ts checks). Seaport never calls
+/// the zone of an open order; it only emits it, indexed, which is what lets
+/// the getLogs filter skip every other marketplace's Seaport traffic.
+export const MARKET_ZONE = '0xcbaadd982f0770cf24fbd39f598edd3f8c5e6693' as const;
+const SEAPORT_CANONICAL = '0x0000000000000068F116a894984e2DB1123eB395' as const;
+/// No order carries our zone before the marketplace shipped, so scanning
+/// from the chain-wide start block (~29M) would be ~2k empty getLogs calls
+/// per source. PONDER_START_BLOCK_ROBINHOOD_SEAPORT overrides.
+const MARKET_START_BLOCK_ROBINHOOD = 92_990_000;
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -258,6 +314,29 @@ function dn404BondingCurveNet() {
   return out;
 }
 
+/// Fair lane children: one FairBondingCurve and one OpeningBatch per
+/// `FairLaunched`, both dynamic sources rooted at FairLaunchFactory (events only,
+/// no block-interval jobs). `batch` is a non-indexed param, same as NftLaunchFactory's
+/// `mintModule`, which Ponder decodes from log data.
+const fairLaunchedEvent = fairLaunchFactoryAbi[0];
+function fairChildNet<P extends 'curve' | 'batch'>(parameter: P) {
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof fairLaunchedEvent; parameter: P }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const f = readAddress(slug, 'FAIR_LAUNCH_FACTORY');
+    if (!f) continue;
+    out[slug] = {
+      factory: { address: f, event: fairLaunchedEvent, parameter },
+      startBlock: readStartBlockFor(slug, 'FAIR_LAUNCH_FACTORY'),
+    };
+  }
+  return out;
+}
+
 /// PoolManager per-network config: filter Swap events to only those where sender is
 /// our V4SwapRouter. Uniswap v4's PoolManager fires Swap for every pool on the chain;
 /// without a filter, indexing on high-activity chains (Ethereum mainnet, Base) pulls
@@ -318,6 +397,21 @@ function nftMintModuleNet() {
       startBlock: readStartBlockFor(slug, 'NFT_LAUNCH_FACTORY'),
     };
   }
+  return out;
+}
+
+/// Seaport subscription for the marketplace. Robinhood only, at the canonical
+/// address unless ROBINHOOD_SEAPORT_ADDRESS says otherwise.
+function seaportNet(): Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> {
+  const out: Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> = {};
+  if (!ENABLED.includes('robinhood')) return out;
+  const specific = Number(process.env.PONDER_START_BLOCK_ROBINHOOD_SEAPORT ?? '');
+  out.robinhood = {
+    address: readAddress('robinhood', 'SEAPORT') ?? SEAPORT_CANONICAL,
+    startBlock: Number.isFinite(specific) && specific > 0
+      ? specific
+      : Math.max(MARKET_START_BLOCK_ROBINHOOD, readStartBlock('robinhood')),
+  };
   return out;
 }
 
@@ -527,6 +621,39 @@ const contracts = {
     network: netFor('DN404_MULTI_HOOK_HOST'),
     filter: { event: 'FeeAccrued' as const },
     includeTransactionReceipts: true,
+  },
+  // Fair launch lane. All event sources, nothing polled. FairHookHost includes
+  // receipts so FeeAccrued can pull the PoolManager Swap log of the same swap
+  // into v4_swaps (Uniswap app + aggregator swaps, not just our router), the same
+  // way Dn404HookHost does.
+  FairLaunchFactory: { abi: fairLaunchFactoryAbi, network: netFor('FAIR_LAUNCH_FACTORY') },
+  FairBondingCurve: { abi: fairBondingCurveAbi, network: fairChildNet('curve') },
+  OpeningBatch: { abi: openingBatchAbi, network: fairChildNet('batch') },
+  FairHookHost: {
+    abi: fairHookHostAbi,
+    network: netFor('FAIR_HOOK_HOST'),
+    includeTransactionReceipts: true,
+  },
+  // Zero-fee NFT marketplace. Three sources on the same Seaport address
+  // because Ponder 0.7 only takes indexed-arg filters for a single event.
+  // Fills and cancels are filtered at the RPC by our marker zone; counter
+  // bumps have no zone and are rare chain-wide, so they're taken unfiltered.
+  // Events only, no block jobs (restart replay cost, see
+  // project_indexer_disk_and_restart_cost).
+  SeaportFills: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'OrderFulfilled' as const, args: { zone: MARKET_ZONE } },
+  },
+  SeaportCancels: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'OrderCancelled' as const, args: { zone: MARKET_ZONE } },
+  },
+  SeaportCounters: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'CounterIncremented' as const },
   },
 };
 

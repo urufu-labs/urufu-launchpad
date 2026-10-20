@@ -14,6 +14,16 @@ const FILES = {
   docs: join(APP, 'docs', 'page.tsx'),
   modules: join(APP, 'catalog', 'page.tsx'),
   'dn404 create': join(APP, 'create', 'dn404', 'page.tsx'),
+  'fair create': join(APP, 'create', 'fair', 'page.tsx'),
+  'market home': join(APP, 'market', 'page.tsx'),
+  'market collection': join(APP, 'market', '[address]', 'page.tsx'),
+  'nft detail': join(APP, 'collection', '[address]', '[tokenId]', 'page.tsx'),
+  'market list form': join(APP, '..', 'components', 'market', 'ListForm.tsx'),
+  'market buy button': join(APP, '..', 'components', 'market', 'BuyButton.tsx'),
+  'market panel': join(APP, '..', 'components', 'market', 'MarketPanel.tsx'),
+  'market listings': join(APP, '..', 'components', 'market', 'MyListings.tsx'),
+  'market cancel all': join(APP, '..', 'components', 'market', 'CancelAllButton.tsx'),
+  'market client': join(APP, '..', 'lib', 'market.ts'),
 };
 const CONFIG = join(APP, '..', 'lib', 'config.ts');
 

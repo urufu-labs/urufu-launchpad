@@ -27,6 +27,9 @@
 ///
 ///  4. **uruBuybackLoop** (every 24 h) — ETH in UruBuybackVault -> URU burn.
 ///
+///  6. **fair-bank-burn** (every 10 min, src/fairBank.ts) — burns each Fair
+///     launch pool's banked ETH through FairHookHost.burnBank.
+///
 ///  5. **uruSinkBurnLoop** (every 24 h)
 ///     Burns the URU platform fees collected in UruDepositSink by sending
 ///     them to 0xdEaD through the sink's own `executeConversion`. Skips until
@@ -57,6 +60,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { activateVaultEpoch, publishEpoch, vaultSummary } from './rewards.ts';
+import { fairBankConfig, startFairBankLoop } from './fairBank.ts';
 
 /// Contract wiring — MultiHookHost + FeeSplitter for the sweep leg. The
 /// publish leg reuses `rewards.ts` which reads its own env.
@@ -710,6 +714,15 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
   // Publish + activation loops reuse env from rewards.ts (chainConfigFor)
   // and don't need a separate config here. If any required env is missing,
   // they log a skip line each cycle rather than crash.
+  // Fair launch lane: burn each pool's banked ETH (sniper tax + forfeited creator
+  // fees). Self-gating on its env; see fairBank.ts.
+  const fairBank = fairBankConfig();
+  if (fairBank) {
+    startFairBankLoop(fairBank);
+    started.push('fair-bank-burn (10min)');
+  } else {
+    skipped.push('fair-bank-burn (missing env: ROBINHOOD_FAIR_HOOK_HOST_ADDRESS / _FAIR_HOOK_START_BLOCK / ROBINHOOD_RPC_URL / KEEPER_PRIVATE_KEY)');
+  }
   startPublishLoop();
   started.push('publish-epoch (24h)');
   startActivationLoop();

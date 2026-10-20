@@ -41,6 +41,7 @@ import {
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
 import { fetchCollectionMetadata, type RemoteCollectionMetadata } from '@/lib/socialApi';
+import { MarketPanel } from '@/components/market/MarketPanel';
 import { CreatorTools, type PageDraft } from './CreatorTools';
 import { cssUrl, safeImageUrl, themeStyle, type BackgroundStyle } from './collectionTheme';
 import styles from './collection.module.css';
@@ -772,6 +773,16 @@ function CollectionView({
               </section>
             );
           })()}
+
+          {chainEnabled && indexerRow && (
+            <MarketPanel
+              collection={address}
+              chainKey={chainKey}
+              lane={indexerRow.lane === 'dn404' ? 'dn404' : 'nft'}
+              pairedToken={indexerRow.pairedToken}
+              unitWei={indexerRow.unitWei ? BigInt(indexerRow.unitWei) : undefined}
+            />
+          )}
 
           <section className="ui-panel">
             <div className="ui-panel-head">

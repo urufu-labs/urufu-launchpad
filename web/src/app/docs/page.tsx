@@ -14,6 +14,7 @@ import {
   CHAINS_ENABLED,
   DN404_LAUNCHES_ENABLED,
   DN404_TAX_MODES,
+  FAIR_LAUNCHES_ENABLED,
   NFT_LAUNCHES_ENABLED,
   type ChainKey,
 } from '@/lib/config';
@@ -24,14 +25,17 @@ type Section = { id: string; label: string; show: boolean };
 const CHAIN: ChainKey = CHAINS_ENABLED[0]!;
 const NFTS_ON = NFT_LAUNCHES_ENABLED[CHAIN] === true;
 const DN404_ON = DN404_LAUNCHES_ENABLED[CHAIN] === true;
+const FAIR_ON = FAIR_LAUNCHES_ENABLED[CHAIN] === true;
 
 const SECTIONS: Section[] = [
   { id: 'start', label: 'What you can launch', show: true },
   { id: 'coins', label: 'Coins', show: true },
+  { id: 'fair', label: 'Fair launch', show: FAIR_ON },
   { id: 'whitelist', label: 'Early access for a community', show: true },
   { id: 'graduation', label: 'Graduation', show: true },
   { id: 'nfts', label: 'NFT collections', show: NFTS_ON },
   { id: 'dn404', label: 'DN404 (coin + NFTs)', show: DN404_ON },
+  { id: 'market', label: 'Buying and selling NFTs', show: NFTS_ON || DN404_ON },
   { id: 'fees', label: 'Fees and discounts', show: true },
   { id: 'risk', label: 'Risks', show: true },
   { id: 'faq', label: 'FAQ', show: true },
@@ -67,7 +71,12 @@ const COIN_STEPS = [
 
 export default function DocsPage() {
   const sections = SECTIONS.filter((s) => s.show);
-  const launchTypes = ['coins', NFTS_ON ? 'NFT collections' : null, DN404_ON ? 'DN404 coins with NFTs' : null].filter(
+  const launchTypes = [
+    'coins',
+    FAIR_ON ? 'fair launch coins' : null,
+    NFTS_ON ? 'NFT collections' : null,
+    DN404_ON ? 'DN404 coins with NFTs' : null,
+  ].filter(
     (t): t is string => t !== null,
   );
 
@@ -101,6 +110,9 @@ export default function DocsPage() {
             <FactList
               items={[
                 'Coin: a token people trade. It starts on a price curve and moves to Uniswap once enough is bought.',
+                ...(FAIR_ON
+                  ? ['Fair launch: a coin built so snipers and bundles get no edge, and the creator only earns while they hold.']
+                  : []),
                 ...(NFTS_ON
                   ? ['NFT collection: art people mint at a price you set. You keep 90% of the mint money.']
                   : []),
@@ -135,6 +147,63 @@ export default function DocsPage() {
               />
             </div>
           </section>
+
+          {FAIR_ON && (
+            <DocSection id="fair" title="Fair launch">
+              <p className={styles.prose}>
+                A fair launch is a coin with rules that take away the usual head start. Bots,
+                insiders and people splitting money across many wallets pay the same price as
+                everyone else, and the creator only earns while they keep holding. Start from{' '}
+                <Link href="/create/fair">the fair launch page</Link>.
+              </p>
+              <h3 className={styles.groupTitle}>The first minute</h3>
+              <FactList
+                items={[
+                  'For the first 60 seconds there is no trading. Instead, anyone can put ETH into the opening batch.',
+                  'When the minute is up, all of that ETH buys at once and everyone gets the same average price. Your share of the coins matches your share of the ETH.',
+                  'The batch can buy at most 25% of the coins on the curve. If more ETH comes in than that needs, everyone gets the extra back, split the same way.',
+                  'So being first, paying more gas, or splitting across wallets earns nothing extra.',
+                  'After the minute, anyone can settle the batch, and each depositor collects their coins and any refund from the coin page.',
+                ]}
+              />
+              <h3 className={styles.groupTitle}>The coin</h3>
+              <FactList
+                items={[
+                  'Supply is fixed at 800,000,000 and all of it goes on the price curve. The creator gets no free share.',
+                  'The coin has no owner and no tax. Nobody can mint more or change it later.',
+                  'After the opening batch it trades on the curve like any other coin, with the same 1% fee.',
+                  'It graduates to a Uniswap pool once about 4.2 ETH has been bought. The pool opens at the curve price and its money is locked forever.',
+                ]}
+              />
+              <h3 className={styles.groupTitle}>After graduation</h3>
+              <FactList
+                items={[
+                  'Sniper tax: for the first 5 minutes in the pool, buys and sells pay an extra tax that starts at 20% and drops to 0%.',
+                  'The sniper tax is burned, never paid to anyone, including us. Burning coins makes everyone else\'s share a bit bigger.',
+                  'Pool trades then pay the usual fees: Uniswap\'s 0.3%, plus 1% to the platform and 1% to the creator.',
+                ]}
+              />
+              <h3 className={styles.groupTitle}>How the creator earns</h3>
+              <FactList
+                items={[
+                  'The creator earns 1% of pool trades only while they keep holding their coins.',
+                  'If the creator sells or moves more than 10% of what they held at graduation, their 1% is burned from then on. This can\'t be undone.',
+                  'If the creator holds less than 0.1% of the supply at graduation, there is no creator fee at all and it is burned instead.',
+                  'Creator fees show up as confirming first and become claimable on the next trade, so a creator can\'t sell and grab the fee in the same go.',
+                  'The creator claims their fees from the coin page.',
+                ]}
+              />
+              <Callout tone="info" label="Launch fee">
+                0.001 ETH or 1,000 URU, before holder discounts. You can also put ETH into the
+                opening batch when you launch, at the same price as everyone else.
+              </Callout>
+              <Callout tone="warn" label="What it can't catch">
+                The rules stop speed and wallet-splitting games, but they can&apos;t tell who owns
+                a wallet. A creator can still buy from other wallets. The coin page warns you when
+                a big early buyer was funded by the creator&apos;s wallet.
+              </Callout>
+            </DocSection>
+          )}
 
           <DocSection id="whitelist" title="Early access for a community">
             <p className={styles.prose}>
@@ -247,6 +316,33 @@ export default function DocsPage() {
             </DocSection>
           )}
 
+          {(NFTS_ON || DN404_ON) && (
+            <DocSection id="market" title="Buying and selling NFTs">
+              <p className={styles.prose}>
+                The NFT marketplace lists NFTs from collections launched on urufu, both NFT and
+                DN404 collections. There is no marketplace fee: the seller gets the full price.
+              </p>
+              <FactList
+                items={[
+                  'To sell, open Market, then Sell, and pick a price and how long the listing lasts (up to 180 days).',
+                  'The first time you sell from a collection, you approve the marketplace with one transaction. After that, listing is a free signature.',
+                  'Sales go through Seaport, the open trading contract OpenSea also uses. The NFT and the ETH swap in one transaction. If either side fails, nothing moves.',
+                  'Cancelling a listing or changing its price is a transaction. Cancel all listings ends every listing from your wallet at once.',
+                  'If you move or sell an NFT you listed, its listing stops showing and can no longer be bought.',
+                ]}
+              />
+              {DN404_ON && (
+                <FactList
+                  items={[
+                    'Selling a DN404 NFT also sends the coins behind it to the buyer.',
+                    'If you sell those coins first, the NFT goes away and its listing stops working.',
+                    'Each DN404 listing shows the token value of 1 NFT, so you can see how much of the price is for the art.',
+                  ]}
+                />
+              )}
+            </DocSection>
+          )}
+
           <DocSection id="fees" title="Fees and discounts">
             <div className={styles.metrics}>
               <Metric label="Curve trades" value="1%" />
@@ -299,6 +395,7 @@ export default function DocsPage() {
             </FAQ>
             <FAQ q="How do creators get paid?">
               Coin creators earn 1% of every trade in the pool after graduation.
+              {FAIR_ON ? ' On a fair launch, only while they keep holding.' : ''}
               {NFTS_ON ? ' NFT creators keep 90% of every mint and withdraw from their profile page.' : ''}
             </FAQ>
             <FAQ q="Where do I get funds back from an old, retired curve?">
