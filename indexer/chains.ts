@@ -159,6 +159,9 @@ export const ADDRESS_KEYS = [
   /// v4 pool on this host, so the pool id for `pair_graduations` is computed
   /// with it (the ERC-20 lane host is MULTI_HOOK_HOST).
   'DN404_MULTI_HOOK_HOST',
+  /// Seaport 1.6 (zero-fee NFT marketplace). Optional: on Robinhood the
+  /// canonical address is the default (see ponder.config.ts::seaportNet).
+  'SEAPORT',
 ] as const;
 export type AddressKey = (typeof ADDRESS_KEYS)[number];
 
