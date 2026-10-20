@@ -159,6 +159,13 @@ export const ADDRESS_KEYS = [
   /// v4 pool on this host, so the pool id for `pair_graduations` is computed
   /// with it (the ERC-20 lane host is MULTI_HOOK_HOST).
   'DN404_MULTI_HOOK_HOST',
+  /// FairLaunchFactory — the Fair launch lane (docs/SPEC-fair-launch.md). Each
+  /// `FairLaunched` registers a FairBondingCurve AND an OpeningBatch as dynamic
+  /// child sources. Unset until the lane is deployed, so the env stays valid.
+  'FAIR_LAUNCH_FACTORY',
+  /// The Fair lane's own v4 hook (FairHookHost). Fair graduations open their pool
+  /// here; sniper tax, creator-fee forfeit and burn-bank events come from it.
+  'FAIR_HOOK_HOST',
   /// Seaport 1.6 (zero-fee NFT marketplace). Optional: on Robinhood the
   /// canonical address is the default (see ponder.config.ts::seaportNet).
   'SEAPORT',
@@ -242,6 +249,14 @@ export function hookHostForChainId(chainId: number): `0x${string}` | undefined {
 export function poolManagerForChainId(chainId: number): `0x${string}` | undefined {
   for (const slug of ALL_SLUGS) {
     if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'POOL_MANAGER');
+  }
+  return undefined;
+}
+
+/// Fair lane hook for a chain — where Fair graduations open their v4 pool.
+export function fairHookHostForChainId(chainId: number): `0x${string}` | undefined {
+  for (const slug of ALL_SLUGS) {
+    if (CHAIN_CATALOG[slug].id === chainId) return readAddress(slug, 'FAIR_HOOK_HOST');
   }
   return undefined;
 }

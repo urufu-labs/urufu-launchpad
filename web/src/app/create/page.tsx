@@ -1334,6 +1334,15 @@ function CreatePageContent() {
           <AgentLaunchStrip />
         </header>
 
+        {/* Fair launch lane: shown so people know it is coming, not launchable
+            (FAIR_LAUNCHES_ENABLED gates the form on /create/fair). */}
+        <Link href="/create/fair" className={styles.fairTeaser} aria-label="Fair launch">
+          <span>
+            <b>Fair launch</b> <small>new</small>
+          </span>
+          <span>No sniper edge, no bundle edge, and the dev only earns while they hold.</span>
+        </Link>
+
         <div className={styles.workbench}>
           <nav className={styles.progressRail} aria-label="Create progress">
             <span className={styles.railLabel}>Steps</span>

@@ -83,3 +83,15 @@ export function decodePairSwap(log: RawLog, tokenAddress: `0x${string}`, pairCur
     pricePairPerToken,
   };
 }
+
+/// v4 PoolId for an ETH/token pool (ETH is always currency0) on a given hook.
+/// Used by the Fair lane, whose pools live on FairHookHost. Fee / tickSpacing are
+/// the launchpad's fixed graduation shape (3000 / 60).
+export function computeEthPoolId(tokenAddress: `0x${string}`, hookAddress: `0x${string}`): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' }],
+      ['0x0000000000000000000000000000000000000000', tokenAddress, 3000, 60, hookAddress],
+    ),
+  );
+}

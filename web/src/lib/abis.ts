@@ -184,6 +184,41 @@ export const dn404CurveFactoryAbi = parseAbi([
   `function curveFor(address token) view returns (address)`,
 ] as const);
 
+/// Fair launch lane (contracts/src/fair/). Factory: launch + per-token lookups.
+export const fairLaunchFactoryAbi = parseAbi([
+  `function launch(string name, string symbol) payable returns (address token, address curve, address batch)`,
+  `function curveFor(address token) view returns (address)`,
+  `function batchFor(address token) view returns (address)`,
+  `function predictAddresses(address launcher, string name, string symbol) view returns (address token, address curve, address batch)`,
+  `function launchWithURU(string name, string symbol, uint256 uruAmount) payable returns (address token, address curve, address batch)`,
+  `function ethFeeFor(address launcher) view returns (uint256)`,
+  `function minUruFeeFor(address launcher) view returns (uint256)`,
+  `function uru() view returns (address)`,
+] as const);
+
+/// OpeningBatch: the first minute of a Fair launch, everyone at one price.
+export const openingBatchAbi = parseAbi([
+  `function deposit() payable`,
+  `function settle()`,
+  `function claim() returns (uint256 tokens, uint256 refund)`,
+  `function closeTs() view returns (uint64)`,
+  `function totalDeposited() view returns (uint256)`,
+  `function deposits(address user) view returns (uint256)`,
+  `function claimed(address user) view returns (bool)`,
+  `function settled() view returns (bool)`,
+  `function pending(address user) view returns (uint256 tokens, uint256 refund)`,
+  `function creator() view returns (address)`,
+  `function refundOwed(address user) view returns (uint256)`,
+  `function withdrawRefund(address to)`,
+] as const);
+
+/// FairHookHost: sniper tax + creator-fee forfeit on graduated Fair pools.
+export const fairHookHostAbi = parseAbi([
+  `function currentTaxBps(bytes32 id) view returns (uint256)`,
+  `function taxSecondsLeft(bytes32 id) view returns (uint256)`,
+  `function isForfeited(bytes32 id) view returns (bool)`,
+] as const);
+
 /// Uniswap Permit2 — the Universal Router pulls ERC-20 input through it, so an
 /// ERC-20 → ERC-20 swap needs BOTH `token.approve(permit2)` and
 /// `permit2.approve(token, router, amount, expiration)`.

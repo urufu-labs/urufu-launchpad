@@ -1,13 +1,13 @@
 'use client';
 
 /// Header "Launch" menu: token (/create), NFT collection (/create/nft) and
-/// DN404 (/create/dn404). Opens on hover or click. NFT and DN404 show "soon"
-/// when their launch flags are off for the active chain.
+/// DN404 (/create/dn404) and Fair launch (/create/fair). Opens on hover or click.
+/// NFT, DN404 and Fair show "soon" when their launch flags are off for the active chain.
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED } from '@/lib/config';
+import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED, FAIR_LAUNCHES_ENABLED } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { Menu } from '@/components/ui/Menu';
 import { IconChevron } from '@/components/shell/icons';
@@ -17,6 +17,7 @@ const ITEMS = [
   { href: '/create', title: 'Token', desc: 'A coin on a bonding curve', flag: null },
   { href: '/create/nft', title: 'NFT collection', desc: 'Art people mint at your price', flag: 'nft' },
   { href: '/create/dn404', title: 'DN404', desc: 'A coin and NFTs in one', flag: 'dn404' },
+  { href: '/create/fair', title: 'Fair launch', desc: 'No sniper or bundle edge', flag: 'fair' },
 ] as const;
 
 export function CreateNavDropdown() {
@@ -25,6 +26,7 @@ export function CreateNavDropdown() {
   const enabled = {
     nft: NFT_LAUNCHES_ENABLED[activeChain] === true,
     dn404: DN404_LAUNCHES_ENABLED[activeChain] === true,
+    fair: FAIR_LAUNCHES_ENABLED[activeChain] === true,
   };
   const inCreate = pathname === '/create' || pathname.startsWith('/create/');
 

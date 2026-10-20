@@ -679,3 +679,71 @@ export const poolPolicyRelations = relations(poolPolicy, ({ one }) => ({
     references: [graduations.poolId],
   }),
 }));
+
+/// Fair launch lane (docs/SPEC-fair-launch.md). One row per FairLaunched. Curve
+/// trades / graduation land in the shared `curves`, `trades` and `graduations`
+/// tables (same event shapes as the token lane); this row carries what is new:
+/// the opening batch, the sniper tax, the creator-fee forfeit and the burn bank.
+export const fairLaunches = onchainTable('fair_launches', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${tokenAddress}`
+  chainId: t.integer().notNull(),
+  tokenAddress: t.hex().notNull(),
+  curveAddress: t.hex().notNull(),
+  batchAddress: t.hex().notNull(),
+  launcher: t.hex().notNull(),
+  name: t.text().notNull(),
+  ticker: t.text().notNull(),
+  curveSupply: t.bigint().notNull(),
+  batchCapTokens: t.bigint().notNull(),
+  batchCloseTs: t.bigint().notNull(),              // unix seconds
+  creatorDeposit: t.bigint().notNull(),
+  /// Deploy fee paid at launch: ETH wei, or URU wei when feeInUru.
+  feePaid: t.bigint().notNull().default(0n),
+  feeInUru: t.boolean().notNull().default(false),
+  // Opening batch
+  totalDeposited: t.bigint().notNull(),
+  depositorCount: t.integer().notNull(),
+  settled: t.boolean().notNull(),
+  settledAt: t.bigint(),
+  tokensBought: t.bigint(),
+  ethSpent: t.bigint(),
+  ethRefund: t.bigint(),
+  // Creator
+  creatorSold: t.boolean().notNull(),              // sold on the curve before graduation
+  // Pool (set at graduation)
+  graduated: t.boolean().notNull(),
+  graduatedAt: t.bigint(),
+  poolId: t.hex(),
+  hookAddress: t.hex(),
+  poolLaunchTs: t.bigint(),                        // sniper tax decays from here
+  taxStartBps: t.integer(),
+  taxDecaySecs: t.integer(),
+  forfeitDropBps: t.integer(),
+  creatorBaseline: t.bigint(),
+  forfeited: t.boolean().notNull(),
+  forfeitedAt: t.bigint(),
+  // Burn accounting (running totals)
+  sniperTaxBurnedTokens: t.bigint().notNull(),
+  sniperTaxBankedEth: t.bigint().notNull(),
+  creatorFeeBurnedTokens: t.bigint().notNull(),
+  creatorFeeBankedEth: t.bigint().notNull(),
+  bankBurnedEth: t.bigint().notNull(),
+  bankBurnedTokens: t.bigint().notNull(),
+  createdAt: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// One row per (batch, depositor). `deposited` is the running total from the
+/// latest Deposited event; claim fields fill in on Claimed.
+export const fairDeposits = onchainTable('fair_deposits', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${batchAddress}-${user}`
+  chainId: t.integer().notNull(),
+  batchAddress: t.hex().notNull(),
+  user: t.hex().notNull(),
+  deposited: t.bigint().notNull(),
+  claimed: t.boolean().notNull(),
+  tokensClaimed: t.bigint(),
+  refundClaimed: t.bigint(),
+  updatedAt: t.bigint().notNull(),
+}));

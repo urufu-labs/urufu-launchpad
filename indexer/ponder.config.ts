@@ -174,6 +174,40 @@ export const dn404CurveCreatedEvent = parseAbiItem(
   'event Dn404CurveCreated(address indexed token, address indexed curve, address indexed launcher, address pairCurrency)',
 );
 
+/// Fair launch lane (contracts/src/fair/). Every string MUST match the Solidity
+/// event field-for-field: Ponder filters getLogs by topic0, so a drifted string
+/// silently drops every log (the 2026-09-16 Dn404Launched incident).
+/// test/fair-abi.test.ts recomputes each topic0 from the forge artifacts.
+export const fairLaunchFactoryAbi = parseAbi([
+  'event FairLaunched(address indexed token, address indexed curve, address indexed launcher, address batch, string name, string symbol, uint256 curveSupply, uint256 batchCapTokens, uint64 batchCloseTs, uint256 creatorDeposit, uint256 feePaid, bool feeInUru)',
+]);
+
+/// FairBondingCurve. `Trade` and `Graduated` share the token lane's signatures,
+/// so their rows land in the same `trades` / `graduations` tables the trade page
+/// already reads. `CurveInitialized` is wider (batch fields), so it gets its own.
+export const fairBondingCurveAbi = parseAbi([
+  'event CurveInitialized(address indexed token, address indexed feeReceiver, address indexed batch, uint256 curveSupply, uint256 virtualTokenReserve, uint256 virtualEthReserve, uint256 graduationTargetEth, uint16 tradeFeeBps, uint256 batchCapTokens, uint64 batchCloseTs)',
+  'event Trade(address indexed trader, bool isBuy, uint256 ethAmount, uint256 tokenAmount, uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
+  'event CreatorSold(address indexed creator, uint256 tokensIn)',
+  'event Graduated(uint256 ethReserve, uint256 tokenReserve, uint256 timestamp)',
+]);
+
+export const openingBatchAbi = parseAbi([
+  'event Deposited(address indexed user, uint256 amount, uint256 userTotal, uint256 batchTotal)',
+  'event Settled(address indexed caller, uint256 totalEth, uint256 ethSpent, uint256 tokensBought, uint256 ethRefund)',
+  'event Claimed(address indexed user, uint256 tokens, uint256 ethRefund)',
+]);
+
+export const fairHookHostAbi = parseAbi([
+  'event FairPoolInitialized(bytes32 indexed poolId, address indexed token, address indexed creator, uint256 creatorBaseline, bool forfeited, uint64 launchTs, uint16 taxStartBps, uint32 taxDecaySecs, uint16 forfeitDropBps)',
+  'event FeeAccrued(bytes32 indexed poolId, address indexed currency, uint256 platformShare, uint256 creatorShare)',
+  'event FeeClaimed(address indexed currency, address indexed to, uint256 amount)',
+  'event SniperTaxBurned(bytes32 indexed poolId, uint256 tokenAmount)',
+  'event SniperTaxBanked(bytes32 indexed poolId, uint256 ethAmount)',
+  'event CreatorFeeBurned(bytes32 indexed poolId, address indexed currency, uint256 amount)',
+  'event CreatorFeeForfeited(bytes32 indexed poolId, address indexed creator, uint256 balance, uint256 baseline)',
+  'event BankBurned(bytes32 indexed poolId, address indexed caller, uint256 ethIn, uint256 tokensBurned)',
+]);
 /// Seaport 1.6 events for the zero-fee NFT marketplace. MUST match Seaport's
 /// ConsiderationEventsAndErrors field-for-field (topic0 filter, see the
 /// Dn404Launched note above); test/market-abi.test.ts pins the topic0s.
@@ -275,6 +309,29 @@ function dn404BondingCurveNet() {
     out[slug] = {
       factory: { address: f, event, parameter: 'curve' },
       startBlock: readStartBlockFor(slug, 'DN404_CURVE_FACTORY'),
+    };
+  }
+  return out;
+}
+
+/// Fair lane children: one FairBondingCurve and one OpeningBatch per
+/// `FairLaunched`, both dynamic sources rooted at FairLaunchFactory (events only,
+/// no block-interval jobs). `batch` is a non-indexed param, same as NftLaunchFactory's
+/// `mintModule`, which Ponder decodes from log data.
+const fairLaunchedEvent = fairLaunchFactoryAbi[0];
+function fairChildNet<P extends 'curve' | 'batch'>(parameter: P) {
+  const out: Partial<
+    Record<
+      ChainSlug,
+      { factory: { address: `0x${string}`; event: typeof fairLaunchedEvent; parameter: P }; startBlock: number }
+    >
+  > = {};
+  for (const slug of ENABLED) {
+    const f = readAddress(slug, 'FAIR_LAUNCH_FACTORY');
+    if (!f) continue;
+    out[slug] = {
+      factory: { address: f, event: fairLaunchedEvent, parameter },
+      startBlock: readStartBlockFor(slug, 'FAIR_LAUNCH_FACTORY'),
     };
   }
   return out;
@@ -563,6 +620,18 @@ const contracts = {
     abi: multiHookHostAbi,
     network: netFor('DN404_MULTI_HOOK_HOST'),
     filter: { event: 'FeeAccrued' as const },
+    includeTransactionReceipts: true,
+  },
+  // Fair launch lane. All event sources, nothing polled. FairHookHost includes
+  // receipts so FeeAccrued can pull the PoolManager Swap log of the same swap
+  // into v4_swaps (Uniswap app + aggregator swaps, not just our router), the same
+  // way Dn404HookHost does.
+  FairLaunchFactory: { abi: fairLaunchFactoryAbi, network: netFor('FAIR_LAUNCH_FACTORY') },
+  FairBondingCurve: { abi: fairBondingCurveAbi, network: fairChildNet('curve') },
+  OpeningBatch: { abi: openingBatchAbi, network: fairChildNet('batch') },
+  FairHookHost: {
+    abi: fairHookHostAbi,
+    network: netFor('FAIR_HOOK_HOST'),
     includeTransactionReceipts: true,
   },
   // Zero-fee NFT marketplace. Three sources on the same Seaport address
