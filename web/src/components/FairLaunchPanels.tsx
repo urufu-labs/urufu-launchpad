@@ -153,6 +153,8 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
             { abi: fairHookHostAbi, address: set.HookHost, functionName: 'currentTaxBps', args: [poolId], chainId },
             { abi: fairHookHostAbi, address: set.HookHost, functionName: 'taxSecondsLeft', args: [poolId], chainId },
             { abi: fairHookHostAbi, address: set.HookHost, functionName: 'isForfeited', args: [poolId], chainId },
+            { abi: fairHookHostAbi, address: set.HookHost, functionName: 'pools', args: [poolId], chainId },
+            { abi: fairHookHostAbi, address: set.HookHost, functionName: 'creatorFees', args: [poolId], chainId },
           ]
         : [],
     query: { enabled: !!poolId, refetchInterval: 10_000 },
@@ -160,6 +162,9 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
   const taxBps = hookReads.data?.[0]?.result as bigint | undefined;
   const taxLeft = hookReads.data?.[1]?.result as bigint | undefined;
   const forfeited = hookReads.data?.[2]?.result as boolean | undefined;
+  const poolCreator = (hookReads.data?.[3]?.result as readonly unknown[] | undefined)?.[1] as Address | undefined;
+  const fees = hookReads.data?.[4]?.result as readonly [bigint, bigint, bigint, bigint] | undefined;
+  const isCreator = !!wallet && !!poolCreator && wallet.toLowerCase() === poolCreator.toLowerCase();
 
   // 1 s ticker so countdowns move between refetches.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -199,6 +204,8 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
     writeContract({ abi: openingBatchAbi, address: batch, functionName: 'deposit', value: parsed, chainId });
   const claim = () => writeContract({ abi: openingBatchAbi, address: batch, functionName: 'claim', chainId });
   const settle = () => writeContract({ abi: openingBatchAbi, address: batch, functionName: 'settle', chainId });
+  const claimCreator = () =>
+    poolId && writeContract({ abi: fairHookHostAbi, address: set.HookHost, functionName: 'claimCreatorFees', args: [poolId], chainId });
   const withdrawRefund = () =>
     wallet &&
     writeContract({ abi: openingBatchAbi, address: batch, functionName: 'withdrawRefund', args: [wallet], chainId });
@@ -225,6 +232,31 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
             </span>
           )}
         </div>
+      )}
+
+      {graduated && isCreator && fees && (
+        <section className={info.block}>
+          <div className={info.head}>
+            <p className={info.label}>Your creator fees</p>
+            <span className={info.sub}>{forfeited ? 'Your new fees now burn' : 'You earn 1% of trades while you hold'}</span>
+          </div>
+          <div className={info.stats}>
+            <Stat label="Claimable" value={`${fmtEth(fees[2])} ETH + ${fmtTokens(fees[3])} tokens`} />
+            <Stat label="Confirming" value={`${fmtEth(fees[0])} ETH + ${fmtTokens(fees[1])} tokens`} />
+          </div>
+          <p className={info.muted}>
+            Fees from the latest trades confirm once a later trade shows you still hold. Claiming confirms them too.
+          </p>
+          <button
+            type="button"
+            className="ui-btn"
+            data-variant="primary"
+            disabled={busy || fees[0] + fees[1] + fees[2] + fees[3] === 0n}
+            onClick={claimCreator}
+          >
+            {busy ? 'Claiming...' : 'Claim creator fees'}
+          </button>
+        </section>
       )}
 
       {funded !== null && (funded === 'unavailable' || funded.checked > 0) && (

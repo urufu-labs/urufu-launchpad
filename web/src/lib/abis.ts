@@ -194,6 +194,8 @@ export const fairLaunchFactoryAbi = parseAbi([
   `function ethFeeFor(address launcher) view returns (uint256)`,
   `function minUruFeeFor(address launcher) view returns (uint256)`,
   `function uru() view returns (address)`,
+  `function ethLaunchFee() view returns (uint256)`,
+  `function minUruFee() view returns (uint256)`,
 ] as const);
 
 /// OpeningBatch: the first minute of a Fair launch, everyone at one price.
@@ -217,6 +219,9 @@ export const fairHookHostAbi = parseAbi([
   `function currentTaxBps(bytes32 id) view returns (uint256)`,
   `function taxSecondsLeft(bytes32 id) view returns (uint256)`,
   `function isForfeited(bytes32 id) view returns (bool)`,
+  `function pools(bytes32 id) view returns (address token, address creator, uint64 launchTs, uint32 antiSniperSeconds, uint24 fee, int24 tickSpacing, bool configured, bool forfeited, uint256 creatorBaseline)`,
+  `function creatorFees(bytes32 id) view returns (uint128 pendingEth, uint128 pendingToken, uint128 claimableEth, uint128 claimableToken)`,
+  `function claimCreatorFees(bytes32 id) returns (uint256 ethAmount, uint256 tokenAmount)`,
 ] as const);
 
 /// Uniswap Permit2 — the Universal Router pulls ERC-20 input through it, so an
