@@ -23,6 +23,7 @@ import { startKeeper } from './keeper.ts';
 import { registerWhitelistRoutes } from './routes/whitelist.ts';
 import { registerNftDiscountAttestRoutes } from './routes/nft-discount-attest.ts';
 import { registerNftWlRoutes } from './routes/nft-wl.ts';
+import { registerMarketRoutes } from './routes/market.ts';
 import {
   Semaphore,
   defaultCompileConcurrency,
@@ -189,6 +190,8 @@ await registerWhitelistRoutes(app);
 await registerNftDiscountAttestRoutes(app);
 // NFT whitelists: saved wallet lists + proofs, and holder-whitelist signing.
 await registerNftWlRoutes(app);
+// Zero-fee NFT marketplace (Seaport listings). Needs Postgres; skipped without it.
+await registerMarketRoutes(app);
 app.log.info('wl snapshot routes registered');
 
 // Flywheel rewards — public GETs for the claim UI, gated POST for publishing.

@@ -571,6 +571,57 @@ export const pairV4Swaps = onchainTable('pair_v4_swaps', (t) => ({
   txHash: t.hex().notNull(),
 }));
 
+// =========================================================
+// Zero-fee NFT marketplace (Seaport 1.6, docs/SPEC-marketplace.md).
+//
+// Only orders made on our site: they carry the marketplace marker zone, and
+// the Seaport sources filter getLogs by that indexed zone, so the indexer
+// never sees the rest of the chain's Seaport traffic. Fills are kept only
+// when the NFT is from a collection in nft_collections (our NFT + DN404
+// lanes). Listings themselves live in compile-service (site Postgres).
+// =========================================================
+
+/// One row per filled listing: the sales feed + floor history.
+export const marketSales = onchainTable('market_sales', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${orderHash}`
+  chainId: t.integer().notNull(),
+  orderHash: t.hex().notNull(),
+  collectionAddress: t.hex().notNull(),
+  tokenId: t.bigint().notNull(),
+  lane: t.text().notNull(),                        // 'nft' | 'dn404'
+  seller: t.hex().notNull(),                       // Seaport offerer
+  buyer: t.hex().notNull(),                        // Seaport recipient
+  priceWei: t.bigint().notNull(),                  // total ETH the buyer paid
+  royaltyWei: t.bigint().notNull(),                // part of priceWei not paid to the seller
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Seaport cancel() of one of our orders.
+export const marketCancels = onchainTable('market_cancels', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${orderHash}`
+  chainId: t.integer().notNull(),
+  orderHash: t.hex().notNull(),
+  offerer: t.hex().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
+/// Latest Seaport counter per wallet. incrementCounter() cancels every order
+/// the wallet signed at a lower counter. Not zone-scoped (the event has no
+/// zone), but the whole chain only emits a few per hour.
+export const marketCounters = onchainTable('market_counters', (t) => ({
+  id: t.text().primaryKey(),                       // `${chainId}-${offerer}`
+  chainId: t.integer().notNull(),
+  offerer: t.hex().notNull(),
+  counter: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  blockTimestamp: t.bigint().notNull(),
+  txHash: t.hex().notNull(),
+}));
+
 export const launchesRelations = relations(launches, ({ many, one }) => ({
   holders: many(holders),
   transfers: many(transfers),

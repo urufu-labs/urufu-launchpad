@@ -87,6 +87,25 @@ still goes to the creator."
   goes to the right address.
 - Fill through the browser with a real wallet once on a preview deploy.
 
+## Build notes (2026-10-19)
+
+- **Marker zone.** Every order the site builds carries zone
+  `0xcbaadd982f0770cf24fbd39f598edd3f8c5e6693` (keccak256("urufu.market.zone.v1"),
+  nobody holds its key). Seaport never calls the zone of a FULL_OPEN order, but
+  emits it indexed in `OrderFulfilled` / `OrderCancelled`, so the indexer asks the
+  RPC for only our orders. Unfiltered, Seaport on RH emits ~1-2k events per hour.
+  Sales of our collections made on other marketplaces don't show in Activity.
+- **Hiding moved / burned listings.** Instead of indexing every DN404 mirror
+  `Transfer` (a single DN404 buy can mint thousands of NFTs), compile-service
+  re-reads `ownerOf`, the Seaport approval, order status and the seller's counter
+  on every listings read (15 s cache) and the buy button re-reads `ownerOf`
+  before paying. A burned DN404 NFT disappears on the next read.
+- **Re-pricing** needs the old listing cancelled on-chain first (one live
+  listing per token per seller); otherwise the cheaper signed order would stay
+  fillable.
+- Order shape, hashing and validation live in `shared/seaport.ts` (web +
+  compile-service). Fork tests: `contracts/test/market/SeaportMarketFork.t.sol`.
+
 ## Decisions to sign off
 
 | # | Question | Default |

@@ -16,6 +16,7 @@ import styles from './shell.module.css';
 const NAV = [
   { href: '/discover', label: 'Explore' },
   { href: '/trade', label: 'Trade' },
+  { href: '/market', label: 'Market' },
   { href: '/feed', label: 'Feed' },
   { href: '/flywheel', label: 'Flywheel' },
 ];

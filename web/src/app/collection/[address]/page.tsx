@@ -40,6 +40,7 @@ import {
 } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
+import { MarketPanel } from '@/components/market/MarketPanel';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -738,6 +739,16 @@ function CollectionView({
               </section>
             );
           })()}
+
+          {chainEnabled && indexerRow && (
+            <MarketPanel
+              collection={address}
+              chainKey={chainKey}
+              lane={indexerRow.lane === 'dn404' ? 'dn404' : 'nft'}
+              pairedToken={indexerRow.pairedToken}
+              unitWei={indexerRow.unitWei ? BigInt(indexerRow.unitWei) : undefined}
+            />
+          )}
 
           <section className="ui-panel">
             <div className="ui-panel-head">

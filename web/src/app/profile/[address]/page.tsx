@@ -58,6 +58,7 @@ import { computePositions, type Position } from '@/lib/pnl';
 import { CreatorEarnings } from '@/components/CreatorEarnings';
 import { NftLauncherEarnings } from '@/components/NftLauncherEarnings';
 import { MyNftHoldings } from '@/components/MyNftHoldings';
+import { MyListings } from '@/components/market/MyListings';
 import { GraduatorRefund } from '@/components/GraduatorRefund';
 import { EcosystemHoldings } from '@/components/EcosystemHoldings';
 import { FlywheelRewards } from '@/components/FlywheelRewards';
@@ -613,6 +614,9 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
           {/* your NFTs (renders nothing when wallet holds none) */}
           <MyNftHoldings visibleFor={address} chain={activeChain} />
+
+          {/* marketplace listings (renders nothing when the wallet never listed) */}
+          {activeChain === 'robinhood' && <MyListings visibleFor={address} />}
 
           {/* activity */}
           <section className={styles.panel}>
