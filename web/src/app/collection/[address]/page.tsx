@@ -12,7 +12,7 @@
 /// the module's `paymentToken` field. URU-mode adds an allowance step
 /// before the mint tx.
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   useAccount,
@@ -40,7 +40,10 @@ import {
 } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
+import type { RemoteCollectionMetadata } from '@/lib/socialApi';
 import { MarketPanel } from '@/components/market/MarketPanel';
+import { CreatorTools, type PageDraft } from './CreatorTools';
+import { CreatorLinks, LookBanner, LookShell, lookFrom, lookImageUrl, useCollectionMeta } from './CollectionLook';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -168,18 +171,16 @@ function CollectionView({
       { address, abi: nftErc721Abi, functionName: 'totalMinted', chainId: targetChainId },
       { address, abi: nftErc721Abi, functionName: 'maxSupply', chainId: targetChainId },
       { address, abi: nftErc721MinterAbi, functionName: 'minter', chainId: targetChainId },
-      // Launcher-only collection-metadata control below reads these two.
       { address, abi: nftErc721Abi, functionName: 'owner', chainId: targetChainId },
-      { address, abi: nftErc721Abi, functionName: 'contractURI', chainId: targetChainId },
       // DN404 mirrors only; these fail harmlessly on plain NFT collections.
       { address, abi: dn404MirrorAbi, functionName: 'baseERC20', chainId: targetChainId },
       { address, abi: dn404MirrorAbi, functionName: 'totalSupply', chainId: targetChainId },
     ],
     query: { staleTime: 10_000 },
   });
-  const dn404Base = baseReads?.[8]?.status === 'success' ? (baseReads[8].result as Address) : undefined;
+  const dn404Base = baseReads?.[7]?.status === 'success' ? (baseReads[7].result as Address) : undefined;
   const isDn404 = !!dn404Base && dn404Base !== zeroAddress;
-  const dn404NftCount = baseReads?.[9]?.result as bigint | undefined;
+  const dn404NftCount = baseReads?.[8]?.result as bigint | undefined;
 
   const name = baseReads?.[0]?.result as string | undefined;
   const symbol = baseReads?.[1]?.result as string | undefined;
@@ -195,43 +196,18 @@ function CollectionView({
   const minterMissing = minterRead?.status === 'success' && !hasMintModule;
   const minterReadFailed = !isDn404 && (baseReadsError || minterRead?.status === 'failure');
   const collectionOwner = baseReads?.[6]?.result as Address | undefined;
-  const onChainContractUri = (baseReads?.[7]?.result as string | undefined) ?? '';
-  const isLauncher =
-    !!walletAddress && !!collectionOwner && walletAddress.toLowerCase() === collectionOwner.toLowerCase();
-
   // ------------------------------------------------------------
-  // Launcher-only: set collection-level metadata (contractURI). OpenSea
-  // reads this for the collection PAGE (banner, description) — separate
-  // from per-token tokenURI. The NFT-lane LaunchParams has no slot for
-  // it, so every collection launches with it empty; this is the only way
-  // it gets populated. The studio publishes `collection.json` next to the
-  // per-token files, so the natural value is `<baseURI>collection.json`.
+  // Page details + look the launcher saved from Customize your page (cover,
+  // banner, accent color, background, description, socials). When set, these
+  // win over the indexer copy. While the launcher edits, `previewDraft` holds
+  // their unsaved changes and only their own browser renders it.
   // ------------------------------------------------------------
-  const [contractUriDraft, setContractUriDraft] = useState('');
-  const {
-    writeContract: writeContractUri,
-    data: contractUriTxHash,
-    isPending: isSettingContractUri,
-    error: contractUriError,
-  } = useWriteContract();
-  const { isLoading: isWaitingContractUri, isSuccess: contractUriSet } =
-    useWaitForTransactionReceipt({ hash: contractUriTxHash });
-  const suggestedContractUri = baseUri ? `${baseUri}collection.json` : '';
-  const contractUriDraftOk =
-    contractUriDraft.startsWith('ipfs://') ||
-    contractUriDraft.startsWith('ar://') ||
-    contractUriDraft.startsWith('https://');
-  const doSetContractUri = async () => {
-    if (!isLauncher || !contractUriDraftOk) return;
-    if (!(await ensureChain())) return;
-    writeContractUri({
-      address,
-      abi: nftErc721Abi,
-      functionName: 'setContractURI',
-      args: [contractUriDraft.trim()],
-      chainId: targetChainId,
-    });
-  };
+  const [pageMeta, setPageMeta] = useCollectionMeta(targetChainId, address);
+  const [previewDraft, setPreviewDraft] = useState<PageDraft | null>(null);
+  const look = useMemo(() => lookFrom(pageMeta, previewDraft), [previewDraft, pageMeta]);
+  // data: URLs only ever come from the launcher's own unsaved preview.
+  const isPreview = previewDraft !== null;
+  const pageImage = lookImageUrl(look, isPreview);
 
   /// Ask the wallet to switch to the collection's chain before a write.
   async function ensureChain(): Promise<boolean> {
@@ -270,6 +246,7 @@ function CollectionView({
   // DN404 mirrors have no baseURI() getter, so use the indexer's copy.
   const artBaseUri = baseUri ?? indexerRow?.baseUri ?? undefined;
   useEffect(() => {
+    if (pageImage) { setCover(pageImage.startsWith('data:') ? pageImage : toGatewayUrl(pageImage)); return; }
     if (indexerRow?.coverImageUrl) { setCover(toGatewayUrl(indexerRow.coverImageUrl)); return; }
     if (!artBaseUri) return;
     let cancelled = false;
@@ -278,7 +255,9 @@ function CollectionView({
       if (!cancelled) setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
-  }, [indexerRow?.coverImageUrl, artBaseUri]);
+  }, [pageImage, indexerRow?.coverImageUrl, artBaseUri]);
+  const description = (previewDraft ? look.description : pageMeta?.description) || indexerRow?.description || '';
+  const socialLinks = collectionSocialLinks(look);
 
   // ------------------------------------------------------------
   // 1b'. Holders — current owners via compile-service /nft/.../holders.
@@ -628,7 +607,15 @@ function CollectionView({
   const chainLabel = chainKey === 'robinhood' ? 'Robinhood Chain' : chainKey;
 
   return (
+    <LookShell look={look} preview={isPreview}>
     <div className={styles.page}>
+      {previewDraft && (
+        <div className={styles.previewBar}>
+          <span>You&apos;re seeing unsaved changes. Visitors still see the old page.</span>
+          <a href="#customize" className="ui-btn" data-size="sm">Back to editing</a>
+        </div>
+      )}
+      <LookBanner look={look} preview={isPreview} name={name} />
       <header className={styles.hero}>
         <div className={styles.eyebrow}>{isDn404 ? 'DN404 collection' : 'NFT collection'}</div>
         <h1 className={styles.heroTitle}>
@@ -662,10 +649,26 @@ function CollectionView({
             </span>
           )}
         </div>
-        {indexerRow?.description && (
+        {description && (
           <p className={styles.lede}>
-            {indexerRow.description}
+            {description}
           </p>
+        )}
+        {socialLinks.length > 0 && (
+          <div className={styles.socialRow}>
+            {socialLinks.map((l) => (
+              <a
+                key={l.label}
+                className="ui-btn"
+                data-size="sm"
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
         )}
       </header>
 
@@ -739,6 +742,8 @@ function CollectionView({
               </section>
             );
           })()}
+
+          <CreatorLinks look={look} preview={isPreview} />
 
           {chainEnabled && indexerRow && (
             <MarketPanel
@@ -1076,69 +1081,25 @@ function CollectionView({
           </section>
           )}
 
-          {!isDn404 && isLauncher && (
-            <section className="ui-panel">
-              <div className="ui-panel-head">
-                <h2 className="ui-panel-title">Launcher tools</h2>
-                <span className="ui-badge" data-tone="info">Only you</span>
-              </div>
-              <div className={`ui-panel-body ${styles.launcherBody}`}>
-                <div className={styles.sectionLabel}>Collection metadata</div>
-                <p className={styles.note}>
-                  {onChainContractUri
-                    ? <>Set to <span className={`ui-num ${styles.breakAll}`}>{onChainContractUri}</span></>
-                    : <>Not set. OpenSea shows no banner or description for this collection until it is.</>}
-                </p>
-                <input
-                  type="text"
-                  className="ui-input"
-                  data-mono="true"
-                  value={contractUriDraft}
-                  onChange={(e) => setContractUriDraft(e.target.value)}
-                  placeholder={suggestedContractUri || 'ipfs://.../collection.json'}
-                  aria-label="collection metadata URI"
-                />
-                <div className={styles.launcherActions}>
-                  {suggestedContractUri && contractUriDraft !== suggestedContractUri && (
-                    <button
-                      type="button"
-                      className="ui-btn"
-                      data-size="sm"
-                      data-variant="ghost"
-                      onClick={() => setContractUriDraft(suggestedContractUri)}
-                      title="The studio publishes collection.json next to the per-token files"
-                    >
-                      Use {'<baseURI>'}collection.json
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="ui-btn"
-                    data-size="sm"
-                    data-variant="primary"
-                    disabled={!contractUriDraftOk || isSettingContractUri || isWaitingContractUri}
-                    onClick={doSetContractUri}
-                  >
-                    {contractUriSet
-                      ? 'Saved ✓'
-                      : isWaitingContractUri
-                        ? 'Waiting for receipt…'
-                        : isSettingContractUri
-                          ? 'Confirm in your wallet…'
-                          : 'Save'}
-                  </button>
-                </div>
-                {contractUriError && (
-                  <p className="ui-error">
-                    {contractUriError.message.split('\n')[0]}
-                  </p>
-                )}
-              </div>
-            </section>
+          {/* Creator tools: only the on-chain owner sees it (the component
+              re-checks). Wait for the lane read so a DN404 page never points
+              the setters at the mirror, which has none. */}
+          {walletAddress && baseReads && (
+            <CreatorTools
+              collection={address}
+              ownerTarget={isDn404 && dn404Base ? dn404Base : address}
+              chainId={targetChainId}
+              pageMeta={pageMeta}
+              onPageMetaSaved={setPageMeta}
+              onPreview={setPreviewDraft}
+              collectionName={name}
+              artImage={cover}
+            />
           )}
         </aside>
       </div>
     </div>
+    </LookShell>
   );
 }
 
@@ -1183,4 +1144,26 @@ function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId:
       }}
     />
   );
+}
+
+/// Socials the launcher saved, as safe http(s) links. Handles are accepted
+/// as typed ("@name" or a full link); anything that is not http(s) after
+/// expanding is dropped so a stored value can never become a script link.
+function collectionSocialLinks(meta: Pick<RemoteCollectionMetadata, 'website' | 'twitter' | 'telegram' | 'discord'> | null): { label: string; href: string }[] {
+  if (!meta) return [];
+  const handle = (v: string) => v.trim().replace(/^@/, '');
+  const asLink = (v: string | null, base: string | null): string | null => {
+    if (!v || !v.trim()) return null;
+    const t = v.trim();
+    if (/^https?:\/\/\S+$/i.test(t)) return t;
+    if (!base || !/^[A-Za-z0-9_.\-/]+$/.test(handle(t))) return null;
+    return base + handle(t);
+  };
+  const out: { label: string; href: string }[] = [];
+  const push = (label: string, href: string | null) => { if (href) out.push({ label, href }); };
+  push('Website', asLink(meta.website, null));
+  push('X', asLink(meta.twitter, 'https://x.com/'));
+  push('Telegram', asLink(meta.telegram, 'https://t.me/'));
+  push('Discord', asLink(meta.discord, 'https://discord.gg/'));
+  return out;
 }

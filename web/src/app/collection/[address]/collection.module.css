@@ -492,3 +492,444 @@
     padding: 12px;
   }
 }
+
+/* --- Creator tools --- */
+.toolsDivider {
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.toolsWarn {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.toolsWarn b {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.socialRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Full-width wrapper so a launcher's background preset covers the whole
+   viewport width, not just the centered column. */
+.themeShell {
+  position: relative;
+  /* Re-resolve fonts here: a creator's font picks override --font-sans /
+     --font-display on this element, and body's computed font would not
+     follow them otherwise. */
+  font-family: var(--font-sans);
+  color: var(--fg);
+  width: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* 'From banner' background: a heavily blurred, faded copy of the banner
+   behind the top of the page. */
+.backdrop {
+  position: absolute;
+  inset: -80px -80px auto;
+  height: 720px;
+  z-index: -1;
+  background: center / cover no-repeat;
+  filter: blur(72px) saturate(1.1);
+  opacity: 0.32;
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .backdrop {
+  opacity: 0.4;
+}
+
+.banner {
+  width: 100%;
+  aspect-ratio: 15 / 4;
+  max-height: 320px;
+  border-radius: var(--r-lg, 14px);
+  border: 1px solid var(--line);
+  background: var(--surface-2) center / cover no-repeat;
+}
+
+.previewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.swatchRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+
+.swatchCustom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.swatchCustom input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+}
+
+.linkBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.segmented button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented button[data-selected="true"] {
+  background: var(--surface-1);
+  color: var(--fg);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+
+.advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin-bottom: 10px;
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pickerThumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2) center / cover no-repeat;
+}
+
+.pickerThumb[data-wide="true"] {
+  width: 96px;
+  height: 26px;
+}
+
+/* 'Image' background: the creator's picture behind the whole page, dimmed
+   with the page background so text and panels stay readable. */
+.wallImage {
+  position: absolute;
+  inset: -60px;
+  z-index: -2;
+  background: center / cover no-repeat;
+  pointer-events: none;
+}
+
+.wallImage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+}
+
+/* --- Customize panel: tabs --- */
+.toolTabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin: -4px 0 4px;
+}
+
+.toolTabs button {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.toolTabs button[data-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--fg);
+}
+
+.segmented[data-wrap="true"] {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* --- Theme tiles --- */
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.themeTile {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* A tiny version of the page in each theme: art, title, a button. */
+.themeMini {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  gap: 4px;
+  aspect-ratio: 4 / 5;
+  padding: 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  color: var(--fg);
+  overflow: hidden;
+  text-align: left;
+}
+
+.themeMiniArt {
+  border-radius: 3px;
+  background: var(--surface-3) center / cover no-repeat;
+}
+
+.themeMiniTitle {
+  font-size: 10px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.themeMiniButton {
+  height: 6px;
+  border-radius: 2px;
+}
+
+.themeTile[data-selected="true"] .themeMini {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+
+.themeLabel {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.colorRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.colorInput {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.colorInput input {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.fontSample {
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* --- Link editor --- */
+.linkEditor {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.linkEditorHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
+
+.linkEditorTools {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.saveBar {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+/* --- Creator links on the page --- */
+.creatorLinks {
+  display: grid;
+  gap: 10px;
+}
+
+.linkButton {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 120ms var(--ease-out), transform 120ms var(--ease-out);
+}
+
+.linkButton:hover,
+.linkCard:hover {
+  border-color: var(--accent);
+}
+
+.linkButton:active,
+.linkCard:active {
+  transform: translateY(1px);
+}
+
+.linkIcon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2) center / cover no-repeat;
+}
+
+.linkTitle {
+  font-weight: 600;
+  font-size: 15px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.linkHost {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
+
+.linkCard {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface-1);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 120ms var(--ease-out), transform 120ms var(--ease-out);
+}
+
+.linkCardImage {
+  aspect-ratio: 16 / 9;
+  max-height: 280px;
+  width: 100%;
+  background: var(--accent-soft) center / cover no-repeat;
+}
+
+.linkCardText {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}

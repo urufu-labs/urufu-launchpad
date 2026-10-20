@@ -47,6 +47,14 @@ export async function migrate(): Promise<void> {
   // Additive column migrations — safe to re-run.
   await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS tiktok text`;
   await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS wl_list_cid text`;
+  // Collection page look, set by the launcher from Creator tools
+  // (routes/collection-metadata.ts). NULL = site default.
+  await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS banner_url text`;
+  await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS accent_color text`;
+  // page_design = theme / fonts / wallpaper, page_links = the creator's own
+  // link buttons (both validated JSON, see the route).
+  await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS page_design jsonb`;
+  await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS page_links jsonb`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.user_profile (

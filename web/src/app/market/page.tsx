@@ -22,6 +22,8 @@ import { MyListings } from '@/components/market/MyListings';
 import { TokenArt } from '@/components/market/TokenArt';
 import { fetchNftCollectionsByAddresses, type IndexerNftCollection } from '@/lib/indexer';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { fetchTokenMetadataBatch } from '@/lib/socialApi';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import {
   NO_FEE_COPY,
   fetchCollectionListings,
@@ -47,7 +49,8 @@ export default function MarketPage() {
   );
 }
 
-/// Visible collections + their indexer rows (cover art, description).
+/// Visible collections + their indexer rows (cover art, description). A
+/// launcher's own image + description from Customize your page win.
 function useCollections(): Collection[] | null | undefined {
   const [rows, setRows] = useState<Collection[] | null | undefined>(undefined);
   useEffect(() => {
@@ -57,10 +60,23 @@ function useCollections(): Collection[] | null | undefined {
       if (cancelled) return;
       if (!res) { setRows(null); return; }
       const visible = res.collections.filter(marketCollectionVisible);
-      const metas = visible.length > 0 ? await fetchNftCollectionsByAddresses(visible.map((c) => c.collection)) : [];
+      const addrs = visible.map((c) => c.collection);
+      const [metas, saved] = visible.length > 0
+        ? await Promise.all([fetchNftCollectionsByAddresses(addrs), fetchTokenMetadataBatch(CHAIN_KEY_TO_ID.robinhood, addrs)])
+        : [[], {}];
       if (cancelled) return;
       const byAddr = new Map((metas ?? []).map((m) => [m.collectionAddress.toLowerCase(), m]));
-      const merged = visible.map((c) => ({ ...c, meta: byAddr.get(c.collection.toLowerCase()) }));
+      const merged = visible.map((c) => {
+        const key = c.collection.toLowerCase();
+        const m = byAddr.get(key);
+        const own = (saved as Record<string, { imageUrl: string | null; description: string | null }>)[key];
+        return {
+          ...c,
+          meta: m && own
+            ? { ...m, coverImageUrl: own.imageUrl || m.coverImageUrl, description: own.description || m.description }
+            : m,
+        };
+      });
       // Collections with listings first, then by name.
       merged.sort((a, b) => (b.count > 0 ? 1 : 0) - (a.count > 0 ? 1 : 0) || a.name.localeCompare(b.name));
       setRows(merged);

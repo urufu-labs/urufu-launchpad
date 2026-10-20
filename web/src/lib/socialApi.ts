@@ -7,6 +7,11 @@
 
 import type { Address } from 'viem';
 
+import type {
+  PageDesign as CollectionPageDesign,
+  PageLink as CollectionPageLink,
+} from '@/app/collection/[address]/collectionTheme';
+
 const BASE_URL =
   process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? 'http://localhost:3001';
 
@@ -124,6 +129,68 @@ export async function saveTokenMetadata(
   const res = await signedPost(
     `/token/${payload.chainId}/${payload.tokenAddress}/metadata`,
     'metadata:save',
+    address,
+    payload,
+    sign,
+  );
+  if (res.ok) return { ok: true };
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
+}
+
+// ---------------------------------------------------------------- collection page details
+
+/// Off-chain page details for an NFT or DN404 collection (keyed on the
+/// collection address, the DN404 mirror for that lane). Only the launcher
+/// can write; the server also checks they still own the contract on-chain.
+export interface RemoteCollectionMetadata {
+  chainId: number;
+  collectionAddress: Address;
+  imageUrl: string | null;
+  description: string | null;
+  website: string | null;
+  twitter: string | null;
+  telegram: string | null;
+  discord: string | null;
+  /// Page look. Null = site default.
+  bannerUrl: string | null;
+  accentColor: string | null;
+  /// Theme, fonts, wallpaper (see app/collection/[address]/collectionTheme.ts).
+  design: CollectionPageDesign | null;
+  /// The creator's own link buttons, in display order.
+  links: CollectionPageLink[] | null;
+  updatedAt: string;
+  owner: Address;
+}
+
+export async function fetchCollectionMetadata(
+  chainId: number,
+  collectionAddress: Address,
+): Promise<RemoteCollectionMetadata | null> {
+  return getJson<RemoteCollectionMetadata>(`/collection/${chainId}/${collectionAddress}/metadata`);
+}
+
+export async function saveCollectionMetadata(
+  address: Address,
+  payload: {
+    chainId: number;
+    collectionAddress: Address;
+    imageUrl: string | null;
+    description: string | null;
+    website: string | null;
+    twitter: string | null;
+    telegram: string | null;
+    discord: string | null;
+    bannerUrl: string | null;
+    accentColor: string | null;
+    design: CollectionPageDesign | null;
+    links: CollectionPageLink[] | null;
+  },
+  sign: SignFn,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await signedPost(
+    `/collection/${payload.chainId}/${payload.collectionAddress}/metadata`,
+    'collection:save',
     address,
     payload,
     sign,

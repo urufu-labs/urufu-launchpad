@@ -3,9 +3,12 @@
 /// One collection in the marketplace: header with floor + listed count, then
 /// the full Listed / Activity panel (browse, sort, buy).
 /// URL: /market/[address]
+///
+/// Wears the creator's saved look (colors, fonts, background, banner, image,
+/// description) from Customize your page, same as /collection/[address].
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { isAddress, zeroAddress, type Address } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
@@ -13,6 +16,8 @@ import { NotLiveYet } from '@/components/NotLiveYet';
 import { MarketPanel } from '@/components/market/MarketPanel';
 import { TokenArt } from '@/components/market/TokenArt';
 import { useActiveChain } from '@/components/ChainSwitcher';
+import { LookBanner, LookShell, lookFrom, lookImageUrl, useCollectionMeta } from '@/app/collection/[address]/CollectionLook';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchNftCollectionsByAddresses, type IndexerNftCollection } from '@/lib/indexer';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import { fetchMarketCollections, formatEthShort, type MarketCollectionSummary } from '@/lib/market';
@@ -29,6 +34,8 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
   const chainKey = useActiveChain();
   const [summary, setSummary] = useState<MarketCollectionSummary | null | undefined>(undefined);
   const [meta, setMeta] = useState<IndexerNftCollection | null>(null);
+  const [pageMeta] = useCollectionMeta(CHAIN_KEY_TO_ID[chainKey], address);
+  const look = useMemo(() => lookFrom(pageMeta), [pageMeta]);
 
   useEffect(() => {
     if (!isAddress(address)) { setSummary(null); return; }
@@ -65,15 +72,19 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
   const collection = summary.collection;
   const pairedToken = summary.pairedToken && summary.pairedToken !== zeroAddress ? summary.pairedToken : undefined;
 
+  const description = look.description || meta?.description;
+
   return (
+    <LookShell look={look}>
     <div className={styles.page}>
       <Link href="/market" className={styles.backLink}>← Marketplace</Link>
+      <LookBanner look={look} name={summary.name} />
       <section className={styles.colHero}>
-        <TokenArt collection={collection} tokenId="1" image={meta?.coverImageUrl || null} className={styles.colHeroArt} />
+        <TokenArt collection={collection} tokenId="1" image={lookImageUrl(look, false) || meta?.coverImageUrl || null} className={styles.colHeroArt} />
         <div>
           <div className={styles.eyebrow}>{summary.lane === 'dn404' ? 'DN404 collection' : 'NFT collection'}</div>
           <h1 className={styles.title}>{summary.name}</h1>
-          {meta?.description && <p className={styles.lede}>{meta.description}</p>}
+          {description && <p className={styles.lede}>{description}</p>}
           <div className={styles.statRow}>
             <span className={styles.stat}>Floor<b>{summary.floorWei ? `${formatEthShort(summary.floorWei)} ETH` : 'None'}</b></span>
             <span className={styles.stat}>Listed<b>{summary.count}</b></span>
@@ -100,5 +111,6 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
         compact
       />
     </div>
+    </LookShell>
   );
 }
