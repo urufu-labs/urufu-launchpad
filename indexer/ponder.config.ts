@@ -174,6 +174,28 @@ export const dn404CurveCreatedEvent = parseAbiItem(
   'event Dn404CurveCreated(address indexed token, address indexed curve, address indexed launcher, address pairCurrency)',
 );
 
+/// Seaport 1.6 events for the zero-fee NFT marketplace. MUST match Seaport's
+/// ConsiderationEventsAndErrors field-for-field (topic0 filter, see the
+/// Dn404Launched note above); test/market-abi.test.ts pins the topic0s.
+export const seaportAbi = parseAbi([
+  'struct SpentItem { uint8 itemType; address token; uint256 identifier; uint256 amount; }',
+  'struct ReceivedItem { uint8 itemType; address token; uint256 identifier; uint256 amount; address recipient; }',
+  'event OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, SpentItem[] offer, ReceivedItem[] consideration)',
+  'event OrderCancelled(bytes32 orderHash, address indexed offerer, address indexed zone)',
+  'event CounterIncremented(uint256 newCounter, address indexed offerer)',
+]);
+
+/// Marker zone on every order our site builds. MUST equal MARKET_ZONE in
+/// shared/seaport.ts (test/market-abi.test.ts checks). Seaport never calls
+/// the zone of an open order; it only emits it, indexed, which is what lets
+/// the getLogs filter skip every other marketplace's Seaport traffic.
+export const MARKET_ZONE = '0xcbaadd982f0770cf24fbd39f598edd3f8c5e6693' as const;
+const SEAPORT_CANONICAL = '0x0000000000000068F116a894984e2DB1123eB395' as const;
+/// No order carries our zone before the marketplace shipped, so scanning
+/// from the chain-wide start block (~29M) would be ~2k empty getLogs calls
+/// per source. PONDER_START_BLOCK_ROBINHOOD_SEAPORT overrides.
+const MARKET_START_BLOCK_ROBINHOOD = 92_990_000;
+
 // ---------------------------------------------------------------- network + contract build
 
 const ENABLED = enabledChains();
@@ -318,6 +340,21 @@ function nftMintModuleNet() {
       startBlock: readStartBlockFor(slug, 'NFT_LAUNCH_FACTORY'),
     };
   }
+  return out;
+}
+
+/// Seaport subscription for the marketplace. Robinhood only, at the canonical
+/// address unless ROBINHOOD_SEAPORT_ADDRESS says otherwise.
+function seaportNet(): Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> {
+  const out: Partial<Record<ChainSlug, { address: `0x${string}`; startBlock: number }>> = {};
+  if (!ENABLED.includes('robinhood')) return out;
+  const specific = Number(process.env.PONDER_START_BLOCK_ROBINHOOD_SEAPORT ?? '');
+  out.robinhood = {
+    address: readAddress('robinhood', 'SEAPORT') ?? SEAPORT_CANONICAL,
+    startBlock: Number.isFinite(specific) && specific > 0
+      ? specific
+      : Math.max(MARKET_START_BLOCK_ROBINHOOD, readStartBlock('robinhood')),
+  };
   return out;
 }
 
@@ -527,6 +564,27 @@ const contracts = {
     network: netFor('DN404_MULTI_HOOK_HOST'),
     filter: { event: 'FeeAccrued' as const },
     includeTransactionReceipts: true,
+  },
+  // Zero-fee NFT marketplace. Three sources on the same Seaport address
+  // because Ponder 0.7 only takes indexed-arg filters for a single event.
+  // Fills and cancels are filtered at the RPC by our marker zone; counter
+  // bumps have no zone and are rare chain-wide, so they're taken unfiltered.
+  // Events only, no block jobs (restart replay cost, see
+  // project_indexer_disk_and_restart_cost).
+  SeaportFills: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'OrderFulfilled' as const, args: { zone: MARKET_ZONE } },
+  },
+  SeaportCancels: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'OrderCancelled' as const, args: { zone: MARKET_ZONE } },
+  },
+  SeaportCounters: {
+    abi: seaportAbi,
+    network: seaportNet(),
+    filter: { event: 'CounterIncremented' as const },
   },
 };
 

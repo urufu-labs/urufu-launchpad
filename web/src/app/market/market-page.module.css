@@ -1,0 +1,489 @@
+/* NFT marketplace (/market, /market/[address]). Same card language as the
+   Explore page's NFT tiles: square art wells, display-font names, a metrics
+   strip, accent border on hover. */
+
+.page {
+  width: min(1240px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 18px 0 48px;
+  display: grid;
+  gap: 22px;
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: end;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 35px;
+  font-weight: 400;
+  line-height: 0.9;
+  color: var(--fg);
+}
+
+.lede {
+  max-width: 620px;
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.stat {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.stat b {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--fg);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--r-sm, 6px);
+  cursor: pointer;
+}
+
+.tab[data-active='true'] {
+  color: var(--fg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* ---------- sections ---------- */
+
+.section {
+  display: grid;
+  gap: 12px;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.sectionTitle::before {
+  display: block;
+  margin-bottom: 3px;
+  content: attr(data-label);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sectionAside {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.search {
+  width: min(280px, 100%);
+}
+
+/* ---------- collection cards ---------- */
+
+.colGrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.colCard {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.colCard:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.colCard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.colArtWrap {
+  position: relative;
+  padding: 8px 8px 0;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+.laneBadge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.colBody {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.colName {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.metrics > span {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.metrics > span + span {
+  border-left: 1px solid var(--line);
+}
+
+.metrics b {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+
+/* ---------- NFT cards (listed now + sell) ---------- */
+
+.nftGrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.nftCard {
+  display: grid;
+  align-content: start;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  transition: border-color 160ms ease;
+}
+
+.nftCard:hover {
+  border-color: var(--fg-faint);
+}
+
+.nftArtLink {
+  display: block;
+  padding: 8px 8px 0;
+}
+
+.nftBody {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.nftCollection {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.nftName {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.priceLabel {
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.price {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.status {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.status[data-tone='live'] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  color: var(--accent);
+}
+
+/* ---------- empty / loading ---------- */
+
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+  text-align: center;
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+
+.empty b {
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--fg);
+}
+
+.skeleton {
+  aspect-ratio: 1 / 1.35;
+  border-radius: var(--r-lg);
+  background: linear-gradient(90deg, var(--surface-1) 0%, var(--surface-2) 50%, var(--surface-1) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .colCard, .colCard:hover { transform: none; }
+}
+
+/* ---------- list dialog ---------- */
+
+.dialogBody {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dialogArt {
+  display: block;
+  width: 160px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+.dialogName {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+/* ---------- collection page header ---------- */
+
+.colHero {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+
+.colHeroArt {
+  display: block;
+  width: 136px;
+  height: 136px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+.heroLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.backLink {
+  justify-self: start;
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 720px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .statRow {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+  .tab {
+    flex: 1;
+  }
+  .search {
+    width: 100%;
+  }
+  .colHero {
+    grid-template-columns: 88px minmax(0, 1fr);
+    padding: 14px;
+  }
+  .colHeroArt {
+    width: 88px;
+    height: 88px;
+  }
+  .dialogBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dialogArt {
+    width: 120px;
+  }
+  .nftGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}

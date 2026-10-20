@@ -17,6 +17,7 @@ const primaryLinks = [
   { href: '/create/dn404', label: 'DN404', primary: true },
   { href: '/discover', label: 'Explore' },
   { href: '/trade', label: 'Trade' },
+  { href: '/market', label: 'NFT market' },
   { href: '/feed', label: 'Feed' },
   { href: '/flywheel', label: 'Flywheel' },
   { href: '/profile', label: 'Profile' },

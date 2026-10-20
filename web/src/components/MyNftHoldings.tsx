@@ -8,7 +8,7 @@
 ///
 /// Click routing:
 ///   - urufu gemu / birbs / other friends → external OpenSea page (new tab)
-///   - launchpad-launched → /collection/[address] (mint page)
+///   - launchpad-launched → /collection/[address]/[tokenId] (NFT page; owner can list it)
 ///
 /// Data path:
 ///   1. Alchemy scan (`/wallet/:address/nfts`) — one HTTP call, per-token
@@ -25,7 +25,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { type Address, erc721Abi } from 'viem';
-import { useReadContracts } from 'wagmi';
+import { useAccount, useReadContracts } from 'wagmi';
 
 import type { ChainKey } from '@/lib/config';
 import { ECOSYSTEM_TOKENS, DN404_LAUNCHES_ENABLED } from '@/lib/config';
@@ -71,10 +71,15 @@ interface Tile {
   dest: Destination;
   chainId: number;
   needsLazyImage: boolean;
+  /// Launchpad NFT with a known token id: the tile opens its detail page,
+  /// where the owner can list it on the marketplace.
+  listable: boolean;
 }
 
 export function MyNftHoldings({ visibleFor, chain }: Props) {
   const targetChainId = CHAIN_KEY_TO_ID[chain];
+  const { address: connected } = useAccount();
+  const isOwnerView = !!connected && connected.toLowerCase() === visibleFor.toLowerCase();
   const [tiles, setTiles] = useState<Tile[] | null>(null);
 
   useEffect(() => {
@@ -138,9 +143,10 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           subtitle: (launchpadMeta?.ticker ? `$${launchpadMeta.ticker}` : addr.slice(0, 10) + '…')
             + (ext ? ' · OpenSea ↗' : ''),
           imageUrl: n.imageUrl || null,
-          dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}` },
+          dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}/${n.tokenId}` },
           chainId: n.chainId,
           needsLazyImage: false,
+          listable: !ext,
         });
       }
 
@@ -161,6 +167,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           dest: { kind: 'launchpad', href: `/collection/${addr}` },
           chainId: meta.chainId,
           needsLazyImage: true,
+          listable: false,
         });
       }
 
@@ -180,7 +187,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
       <div className={card.body}>
         <div className={card.tiles}>
           {tiles.map((t) => (
-            <NftTile key={t.key} tile={t} viewer={visibleFor} />
+            <NftTile key={t.key} tile={t} viewer={visibleFor} canList={isOwnerView && t.listable} />
           ))}
         </div>
       </div>
@@ -192,7 +199,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
 // Tile
 // ---------------------------------------------------------------------------
 
-function NftTile({ tile, viewer }: { tile: Tile; viewer: Address }) {
+function NftTile({ tile, viewer, canList }: { tile: Tile; viewer: Address; canList: boolean }) {
   const [lazyImage, setLazyImage] = useState<string | null>(null);
 
   // Read balanceOf + tokenURI(1) so synthesized tiles get a cover and get
@@ -247,6 +254,7 @@ function NftTile({ tile, viewer }: { tile: Tile; viewer: Address }) {
       <div className={card.tileText}>
         <div className={card.tileName}>{tile.displayName}</div>
         <div className={card.tileSub}>{tile.subtitle}</div>
+        {canList && <span className="ui-badge" data-tone="accent">List for sale</span>}
       </div>
     </Link>
   );

@@ -1287,3 +1287,56 @@ export async function fetchFlywheelTotals(
     }
   });
 }
+
+// ---- Zero-fee NFT marketplace (Seaport fills of our listings) ----
+
+export interface IndexerMarketSale {
+  id: string;
+  chainId: number;
+  orderHash: `0x${string}`;
+  collectionAddress: Address;
+  tokenId: string;
+  lane: 'nft' | 'dn404';
+  seller: Address;
+  buyer: Address;
+  priceWei: string;
+  royaltyWei: string;
+  blockNumber: string;
+  blockTimestamp: string;
+  txHash: `0x${string}`;
+}
+
+const MARKET_SALE_FIELDS = `id chainId orderHash collectionAddress tokenId lane seller buyer priceWei royaltyWei blockNumber blockTimestamp txHash`;
+
+/// Sales on one collection, newest first. Powers the collection Activity tab.
+export async function fetchMarketSalesByCollection(
+  collectionAddress: Address,
+  limit = 50,
+): Promise<IndexerMarketSale[] | null> {
+  const data = await gqlFanout<{ marketSaless: { items: IndexerMarketSale[] } }>(
+    `query MarketSalesByCollection($addr: String!, $limit: Int!) {
+      marketSaless(where: { collectionAddress: $addr }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { ${MARKET_SALE_FIELDS} }
+      }
+    }`,
+    { addr: collectionAddress.toLowerCase(), limit },
+  );
+  return data?.marketSaless.items ?? null;
+}
+
+/// Sales of one NFT, newest first. Powers the NFT detail page history.
+export async function fetchMarketSalesByToken(
+  collectionAddress: Address,
+  tokenId: string,
+  limit = 20,
+): Promise<IndexerMarketSale[] | null> {
+  const data = await gqlFanout<{ marketSaless: { items: IndexerMarketSale[] } }>(
+    `query MarketSalesByToken($addr: String!, $id: BigInt!, $limit: Int!) {
+      marketSaless(where: { collectionAddress: $addr, tokenId: $id }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items { ${MARKET_SALE_FIELDS} }
+      }
+    }`,
+    { addr: collectionAddress.toLowerCase(), id: tokenId, limit },
+  );
+  return data?.marketSaless.items ?? null;
+}
