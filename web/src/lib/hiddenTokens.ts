@@ -124,6 +124,10 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   '4663:0x389a15167307c1a96e05d25270083da63e5d9b77',
   // Fair Allowlist Rehearsal on the V2 Fair stack (hook 0xDdc9...28C4), same day.
   '4663:0x8b470575309a3c2dada29ce34e050a0b0a276c9f',
+  // Fair lane go-live checks (2026-10-20): one launch paid in ETH, one in URU,
+  // each run through deposit, settle, claim and a curve trade. Not real launches.
+  '4663:0x35c4bb5cf971bd9029d11788f5cd58e6eb1cc91e', // Fair Test ETH / FTETH
+  '4663:0xfae343cbcd6a793dbdea8d0a432148bd2e01a177', // Fair Test URU / FTURU
 ]);
 
 /// Kept out of every FEED (same filters as HIDDEN_TOKENS) but NOT retired: the
