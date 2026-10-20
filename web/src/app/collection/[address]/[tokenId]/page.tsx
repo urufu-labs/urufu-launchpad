@@ -217,10 +217,12 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
                       <dt>Seller</dt>
                       <dd><Link className={styles.metaLink} href={`/profile/${listing.seller}`}>{shortAddr(listing.seller)}</Link></dd>
                     </div>
-                    <div className="ui-kv">
-                      <dt>Creator royalty</dt>
-                      <dd className="ui-num">{BigInt(listing.royaltyWei) > 0n ? `${formatEthShort(listing.royaltyWei)} ETH` : 'None'}</dd>
-                    </div>
+                    {BigInt(listing.royaltyWei) > 0n && (
+                      <div className="ui-kv">
+                        <dt>Creator royalty</dt>
+                        <dd className="ui-num">{formatEthShort(listing.royaltyWei)} ETH</dd>
+                      </div>
+                    )}
                     <div className="ui-kv">
                       <dt>Ends</dt>
                       <dd>{new Date(Number(listing.endTime) * 1000).toLocaleDateString()}</dd>

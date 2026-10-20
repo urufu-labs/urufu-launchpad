@@ -36,7 +36,9 @@ export {
 export type { OrderComponents, Royalty, WireOrder };
 
 /// Site copy rule from the spec. Shown wherever a price is set or paid.
-export const NO_FEE_COPY = 'No marketplace fee. Creator royalty, if set, still goes to the creator.';
+/// No urufu launch template sets an ERC-2981 royalty today, so the copy only
+/// promises what's true; a royalty line shows only on listings that carry one.
+export const NO_FEE_COPY = 'No marketplace fee.';
 
 /// Listing length choices (spec M4: max 180 days).
 export const EXPIRY_CHOICES: ReadonlyArray<{ label: string; seconds: number }> = [

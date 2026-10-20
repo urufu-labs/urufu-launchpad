@@ -4,8 +4,8 @@
 ///
 /// One-time approval lets Seaport move NFTs from this collection when a buyer
 /// fills (for DN404 that's the mirror, the NFT side of the pair). Listing
-/// itself is a free signature. The order has no marketplace fee; if the
-/// collection has an ERC-2981 creator royalty, that part goes to the creator.
+/// itself is a free signature. The order has no marketplace fee; if a
+/// collection ever has an ERC-2981 royalty, that part goes to the creator.
 ///
 /// With `replaces` it changes the price of an existing listing: the old order
 /// is cancelled on Seaport first (a signed order stays fillable until then),
@@ -240,10 +240,12 @@ export function ListForm({
       {price !== null && (
         <div className={styles.split}>
           <div><span>Buyer pays</span><b>{formatEthShort(price)} ETH</b></div>
-          <div>
-            <span>Creator royalty</span>
-            <b>{royalty ? `${formatEthShort(royalty.amount)} ETH` : 'None'}</b>
-          </div>
+          {royalty && (
+            <div>
+              <span>Creator royalty</span>
+              <b>{formatEthShort(royalty.amount)} ETH</b>
+            </div>
+          )}
           <div><span>Marketplace fee</span><b>0 ETH</b></div>
           <div><span>You get</span><b>{formatEthShort(youGet ?? 0n)} ETH</b></div>
         </div>

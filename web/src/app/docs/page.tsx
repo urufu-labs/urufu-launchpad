@@ -252,8 +252,7 @@ export default function DocsPage() {
             <DocSection id="market" title="Buying and selling NFTs">
               <p className={styles.prose}>
                 The NFT marketplace lists NFTs from collections launched on urufu, both NFT and
-                DN404 collections. There is no marketplace fee. If a collection has a creator
-                royalty, that part of each sale goes to the creator.
+                DN404 collections. There is no marketplace fee: the seller gets the full price.
               </p>
               <FactList
                 items={[
