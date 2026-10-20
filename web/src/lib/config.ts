@@ -456,10 +456,11 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
 };
 
 /// Fair launch lane (docs/SPEC-fair-launch.md): opening batch, burning sniper
-/// tax, creator fee that burns if the dev sells. Contracts are built and
-/// fork-tested but NOT deployed (audit + Uniswap hook allowlist first), so every
-/// chain is null and the lane stays dark. Fill in from deployment-fair.4663.json
-/// after the broadcast, then flip FAIR_LAUNCHES_ENABLED.
+/// tax, creator fee that burns if the dev sells. Deployed on Robinhood
+/// 2026-10-20 (blocks 93559145-93559323) with launches CLOSED on-chain
+/// (`FairLaunchFactory.launchesOpen = false`). The lane stays dark until the audit
+/// is done, the factory owner calls setLaunchesOpen(true), and
+/// FAIR_LAUNCHES_ENABLED flips below.
 export interface FairLaunchSet {
   /// `launch(name, symbol)` payable; attached ETH is the creator's first batch deposit.
   LaunchFactory: Address;
@@ -472,7 +473,10 @@ export const FAIR_LAUNCHES: Record<ChainKey, FairLaunchSet | null> = {
   sepolia: null,
   base: null,
   'base-sepolia': null,
-  robinhood: null,
+  robinhood: {
+    LaunchFactory: '0x0aaD9FC0703e7704DCAe564e53E754155da6fD64',
+    HookHost: '0xfa7FECCFB9a08E69457F876C3beBCCbB39bDE8C4',
+  },
   'robinhood-testnet': null,
 };
 

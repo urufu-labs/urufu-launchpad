@@ -58,3 +58,31 @@ Foundry isolate mode so each call is its own transaction, like on chain (the
 per-transaction creator check depends on it). Slither after the second pass: 102
 results, 0 High; new Mediums are the same trusted-PoolManager reentrancy and
 default-zero patterns triaged above.
+
+## Deployed (Robinhood, 2026-10-20)
+
+Deployed before the external audit so the Uniswap hook allowlist review can run in
+parallel. **Launches are closed on-chain** (`launchesOpen = false`); nothing can be
+launched until the owner opens them.
+
+| Contract | Address |
+|---|---|
+| FairLaunchFactory | `0x0aaD9FC0703e7704DCAe564e53E754155da6fD64` |
+| FairHookHost (flags 0x28C4, CREATE2 salt 9210) | `0xfa7FECCFB9a08E69457F876C3beBCCbB39bDE8C4` |
+| FairGraduator | `0xaFBC1a4f148c59320a2052be336CE00eC6490a9B` |
+| FairBondingCurve impl | `0xf50492c6569463eC7efb9e20dfb735C598a43978` |
+| OpeningBatch impl | `0xd4fF34aa373E5F2d7a5Aa4D912b6739E872E7584` |
+| ERC20Template impl | `0xb467F639E5d2E6394Ca7885fA82aA8e87Ab37B5B` |
+
+Blocks 93,559,145 to 93,559,323. Owner `0x6d60...5Bb9`. All six verified on
+Blockscout (runs 10000, via-IR). Wiring re-read on-chain after the broadcast: hook
+initializer = graduator, graduator factory = factory, fees to FeeSplitter
+`0x20d2...0FfA`, 1% + 1%, tax 20% over 300 s, forfeit at 10%, live curve defaults
+(800M / 2 ETH / 4.2 ETH), 60 s window, 25% cap.
+
+**Allowlist rehearsal pool** (AllowlistFairRehearsal.s.sol, both phases broadcast):
+token FAIRAL `0x389A15167307C1A96E05D25270083dA63e5D9b77`, pool id
+`0x3c3e8bb36671952d259cc6a0c4c04aeb70721ad1fc3449819b33f505a66be03a`, graduation tx
+`0x304b5b96...a25b1`, swap tx `0x1124b3ca...377c7`. Factory defaults and the launch
+gate were restored in the same broadcast. Pool opened at 2.5029e-9 ETH/token vs the
+curve's last price 2.5030e-9: **0.004% below, no cliff**. Hidden from feeds.

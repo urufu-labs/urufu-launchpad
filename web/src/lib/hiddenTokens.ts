@@ -118,6 +118,10 @@ export const HIDDEN_TOKENS: ReadonlySet<string> = new Set<string>([
   // Duplicate Urufu Gemuse (GEMUSE) — the canonical one holders trade on is
   // 0xe228..bb3. This 0xf382 clone shouldn't appear in feeds.
   '4663:0xf382db5729bcbc61bc2fbc63f0b6ba93049cbb4a',
+  // Fair Allowlist Rehearsal (FAIRAL), 2026-10-20. AllowlistFairRehearsal.s.sol
+  // made this tiny graduated pool on FairHookHost 0xfa7F...E8C4 for the Uniswap
+  // hook allowlist review. Real on-chain graduation, not a real launch.
+  '4663:0x389a15167307c1a96e05d25270083da63e5d9b77',
 ]);
 
 /// Kept out of every FEED (same filters as HIDDEN_TOKENS) but NOT retired: the
