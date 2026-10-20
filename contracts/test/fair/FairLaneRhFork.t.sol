@@ -494,4 +494,57 @@ contract FairLaneRhForkTest is FairTestBase {
         assertGt(refSqrt, 0, "post-graduation swap did not reach the hook");
         assertGt(refTs, 0);
     }
+
+    // ================================================================ deploy fee (live)
+
+    address internal constant LIVE_ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
+    address internal constant LIVE_DEPLOYER = 0x6d606cc634F20f5534fba072757F2c2C7B835Bb9;
+
+    /// The deploy script copies the token lane's live fee settings from the Router.
+    function test_Fork_DeployFee_MatchesTokenLane() public view {
+        (bool ok, bytes memory ret) = LIVE_ROUTER.staticcall(abi.encodeWithSignature("fees(uint8)", uint8(0)));
+        assertTrue(ok);
+        assertEq(factory.ethLaunchFee(), abi.decode(ret, (uint256)), "ETH fee != token lane");
+        (, ret) = LIVE_ROUTER.staticcall(abi.encodeWithSignature("minUruFee()"));
+        assertEq(factory.minUruFee(), abi.decode(ret, (uint256)), "URU floor != token lane");
+        (, ret) = LIVE_ROUTER.staticcall(abi.encodeWithSignature("uruSink()"));
+        assertEq(factory.uruSink(), abi.decode(ret, (address)), "URU sink != token lane");
+        (, ret) = LIVE_ROUTER.staticcall(abi.encodeWithSignature("loyaltyOracle()"));
+        assertEq(factory.loyaltyOracle(), abi.decode(ret, (address)), "oracle != token lane");
+        assertGt(factory.ethLaunchFee(), 0);
+        assertGt(factory.minUruFee(), 0);
+    }
+
+    /// ETH path on live Robinhood: the fee reaches the live FeeSplitter, the rest is
+    /// the creator's batch deposit.
+    function test_Fork_DeployFee_EthPathToFeeSplitter() public {
+        address who = makeAddr("fork-eth-payer");
+        uint256 fee = factory.ethFeeFor(who);
+        assertEq(fee, factory.ethLaunchFee(), "fresh wallet should get no discount");
+        vm.deal(who, 1 ether);
+        uint256 splitterBefore = platform.balance;
+        vm.prank(who);
+        (,, address b) = factory.launch{value: fee + 0.05 ether}("ForkEthFee", "FEF");
+        assertEq(OpeningBatch(payable(b)).deposits(who), 0.05 ether);
+        // FeeSplitter forwards on receive, so check it did not keep or lose more than the fee.
+        assertLe(platform.balance, splitterBefore + fee);
+    }
+
+    /// URU path on live Robinhood with the live LoyaltyOracle discount: the deployer
+    /// holds URU + urufu gemu nft (50% discount today) and pays the discounted floor
+    /// into the live URU sink.
+    function test_Fork_DeployFee_UruPathWithLiveDiscount() public {
+        address uruToken = factory.uru();
+        address sinkAddr = factory.uruSink();
+        uint256 floorFor = factory.minUruFeeFor(LIVE_DEPLOYER);
+        assertLt(floorFor, factory.minUruFee(), "live holder discount not applied");
+        uint256 sink0 = IERC20Min(uruToken).balanceOf(sinkAddr);
+        vm.deal(LIVE_DEPLOYER, LIVE_DEPLOYER.balance + 1 ether);
+        vm.startPrank(LIVE_DEPLOYER);
+        IERC20Min(uruToken).approve(address(factory), floorFor);
+        (,, address b) = factory.launchWithURU{value: 0.05 ether}("ForkUruFee", "FUF", floorFor);
+        vm.stopPrank();
+        assertEq(IERC20Min(uruToken).balanceOf(sinkAddr) - sink0, floorFor, "URU not delivered to the live sink");
+        assertEq(OpeningBatch(payable(b)).deposits(LIVE_DEPLOYER), 0.05 ether);
+    }
 }

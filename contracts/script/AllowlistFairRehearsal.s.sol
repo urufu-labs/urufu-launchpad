@@ -114,7 +114,8 @@ contract AllowlistFairRehearsal is Script {
         _start();
         f.setDefaults(d.supply, d.vTok, d.vEth, TINY_TARGET, d.feeBps, TINY_WINDOW, TINY_CAP_BPS, 0);
         if (!d.open) f.setLaunchesOpen(true);
-        (token,,) = f.launch{value: CREATOR_DEPOSIT}(NAME, SYMBOL);
+        // The owner pays the normal ETH deploy fee like anyone else.
+        (token,,) = f.launch{value: CREATOR_DEPOSIT + f.ethFeeFor(_who())}(NAME, SYMBOL);
         f.setDefaults(d.supply, d.vTok, d.vEth, d.target, d.feeBps, d.window, d.capBps, d.walletCap);
         if (!d.open) f.setLaunchesOpen(false);
         _stop();

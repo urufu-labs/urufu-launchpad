@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {LibClone} from "solady/utils/LibClone.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 import {FairBondingCurve} from "./FairBondingCurve.sol";
 import {OpeningBatch} from "./OpeningBatch.sol";
@@ -18,6 +19,13 @@ interface IFairTokenInit {
     ) external view returns (uint256);
 }
 
+/// Same LoyaltyOracle the token lane (Router) and DN404 lane use for holder discounts.
+interface IFairLoyaltyOracle {
+    function discountBpsFor(
+        address holder
+    ) external view returns (uint16);
+}
+
 /// @title  FairLaunchFactory
 /// @notice Fourth launch lane (docs/SPEC-fair-launch.md). One tx deploys the token, its
 ///         `FairBondingCurve` and its `OpeningBatch`, wires them together, and (when ETH
@@ -26,6 +34,12 @@ interface IFairTokenInit {
 ///
 ///         The token is a bare `ERC20Template` clone: whole supply minted straight to the
 ///         curve, ownership renounced in the same tx, so a Fair token has no admin.
+///
+///         Deploy fee, same model as the token lane (Router): pay in ETH with `launch`, or
+///         in URU with `launchWithURU`. ETH goes to `feeReceiver` (the FeeSplitter, so it
+///         feeds the 40/35/25 flywheel), URU goes to the URU sink. Both get the same
+///         LoyaltyOracle holder discount, capped at 80% like the Router. Every amount and
+///         address is owner-settable after deploy, so fee changes never need a redeploy.
 ///
 /// @dev    Parallel to the V10 Router / CurveFactory, which stay frozen. ETH pair only
 ///         (spec D7). Owner powers: tune defaults for future launches, open / close new
@@ -46,6 +60,14 @@ contract FairLaunchFactory is Ownable {
     /// could graduate the token. Spec §1: the cap exists to stop exactly that.
     error FairLaunchFactory__BatchCapGraduates(uint256 capCostEth, uint256 target);
     error FairLaunchFactory__TokenSetupFailed();
+    /// `launch`: attached ETH does not cover the (discounted) ETH deploy fee.
+    error FairLaunchFactory__InsufficientEthFee(uint256 required, uint256 provided);
+    /// `launchWithURU`: URU amount below the (discounted) URU floor.
+    error FairLaunchFactory__InsufficientUru(uint256 required, uint256 provided);
+    /// `launchWithURU` before URU payment is configured.
+    error FairLaunchFactory__UruUnconfigured();
+    error FairLaunchFactory__ZeroUru();
+    error FairLaunchFactory__EthFeeTooHigh(uint256 fee, uint256 max);
 
     // ============================================================ events
     event FairLaunched(
@@ -58,7 +80,9 @@ contract FairLaunchFactory is Ownable {
         uint256 curveSupply,
         uint256 batchCapTokens,
         uint64 batchCloseTs,
-        uint256 creatorDeposit
+        uint256 creatorDeposit,
+        uint256 feePaid,
+        bool feeInUru
     );
     event DefaultsSet(
         uint256 curveSupply,
@@ -72,6 +96,9 @@ contract FairLaunchFactory is Ownable {
     );
     event FeeReceiverSet(address feeReceiver);
     event LaunchesOpenSet(bool open);
+    event EthLaunchFeeSet(uint256 fee);
+    event UruConfigSet(address uru, address uruSink, uint256 minUruFee);
+    event LoyaltyOracleSet(address oracle);
 
     // ============================================================ constants
     uint16 public constant MAX_TRADE_FEE_BPS = 3000;
@@ -79,6 +106,11 @@ contract FairLaunchFactory is Ownable {
     uint32 public constant MIN_WINDOW_SECS = 10;
     uint32 public constant MAX_WINDOW_SECS = 1 hours;
     uint16 public constant MAX_BATCH_CAP_BPS = 5000;
+    /// Same clamp as Router.MAX_LOYALTY_DISCOUNT_BPS: a bad oracle can never take the
+    /// fee below 20% of gross.
+    uint16 public constant MAX_LOYALTY_DISCOUNT_BPS = 8000;
+    /// Typo guard on the ETH deploy fee.
+    uint256 public constant MAX_ETH_LAUNCH_FEE = 0.1 ether;
 
     // ============================================================ wiring
     address public immutable tokenImpl;
@@ -98,6 +130,15 @@ contract FairLaunchFactory is Ownable {
     uint32 public batchWindowSecs;
     uint16 public batchCapBps;
     uint256 public walletCap;
+
+    // ============================================================ deploy fee
+    /// Gross ETH deploy fee before the holder discount. 0 = free.
+    uint256 public ethLaunchFee;
+    /// URU payment: token, sink and gross floor before discount. uru == 0 disables it.
+    address public uru;
+    address public uruSink;
+    uint256 public minUruFee;
+    address public loyaltyOracle;
 
     mapping(address token => address curve) public curveFor;
     mapping(address token => address batch) public batchFor;
@@ -167,6 +208,68 @@ contract FairLaunchFactory is Ownable {
         emit LaunchesOpenSet(open);
     }
 
+    function setEthLaunchFee(
+        uint256 fee
+    ) external onlyOwner {
+        if (fee > MAX_ETH_LAUNCH_FEE) revert FairLaunchFactory__EthFeeTooHigh(fee, MAX_ETH_LAUNCH_FEE);
+        ethLaunchFee = fee;
+        emit EthLaunchFeeSet(fee);
+    }
+
+    /// `uru_ == address(0)` turns URU payment off (sink and floor are then ignored).
+    function setUruConfig(
+        address uru_,
+        address uruSink_,
+        uint256 minUruFee_
+    ) external onlyOwner {
+        if (uru_ != address(0) && uruSink_ == address(0)) revert FairLaunchFactory__ZeroAddress();
+        uru = uru_;
+        uruSink = uruSink_;
+        minUruFee = minUruFee_;
+        emit UruConfigSet(uru_, uruSink_, minUruFee_);
+    }
+
+    /// `oracle == address(0)` turns the holder discount off.
+    function setLoyaltyOracle(
+        address oracle
+    ) external onlyOwner {
+        loyaltyOracle = oracle;
+        emit LoyaltyOracleSet(oracle);
+    }
+
+    // ============================================================ fee views
+
+    /// ETH deploy fee `launcher` pays, after their holder discount.
+    function ethFeeFor(
+        address launcher
+    ) public view returns (uint256) {
+        return _discounted(ethLaunchFee, launcher);
+    }
+
+    /// Minimum URU `launcher` pays with `launchWithURU`, after their holder discount.
+    function minUruFeeFor(
+        address launcher
+    ) public view returns (uint256) {
+        return _discounted(minUruFee, launcher);
+    }
+
+    function _discounted(
+        uint256 gross,
+        address launcher
+    ) internal view returns (uint256) {
+        if (gross == 0) return 0;
+        address oracle = loyaltyOracle;
+        if (oracle == address(0) || launcher == address(0)) return gross;
+        uint16 bps;
+        try IFairLoyaltyOracle(oracle).discountBpsFor(launcher) returns (uint16 b) {
+            bps = b;
+        } catch {
+            return gross;
+        }
+        if (bps > MAX_LOYALTY_DISCOUNT_BPS) bps = MAX_LOYALTY_DISCOUNT_BPS;
+        return gross - (gross * bps) / 10_000;
+    }
+
     function _setDefaults(
         uint256 supply,
         uint256 vTok,
@@ -210,13 +313,44 @@ contract FairLaunchFactory is Ownable {
 
     // ============================================================ launch
 
-    /// @notice Launch a Fair token. Attach ETH to make your first opening-batch deposit
-    ///         (same price as every other depositor).
+    /// @notice Launch a Fair token, paying the deploy fee in ETH. Attach the fee
+    ///         (`ethFeeFor(you)`) plus any ETH for your first opening-batch deposit; the
+    ///         part above the fee is deposited at the same price as everyone else.
     function launch(
         string calldata name,
         string calldata symbol
     ) external payable returns (address token, address curve, address batch) {
         if (!launchesOpen) revert FairLaunchFactory__LaunchesClosed();
+        uint256 fee = ethFeeFor(msg.sender);
+        if (msg.value < fee) revert FairLaunchFactory__InsufficientEthFee(fee, msg.value);
+        if (fee > 0) SafeTransferLib.safeTransferETH(feeReceiver, fee);
+        return _launch(name, symbol, msg.value - fee, fee, false);
+    }
+
+    /// @notice Launch a Fair token, paying the deploy fee in URU (approve this factory
+    ///         first). All attached ETH is your opening-batch deposit.
+    function launchWithURU(
+        string calldata name,
+        string calldata symbol,
+        uint256 uruAmount
+    ) external payable returns (address token, address curve, address batch) {
+        if (!launchesOpen) revert FairLaunchFactory__LaunchesClosed();
+        address u = uru;
+        if (u == address(0)) revert FairLaunchFactory__UruUnconfigured();
+        if (uruAmount == 0) revert FairLaunchFactory__ZeroUru();
+        uint256 required = minUruFeeFor(msg.sender);
+        if (uruAmount < required) revert FairLaunchFactory__InsufficientUru(required, uruAmount);
+        SafeTransferLib.safeTransferFrom(u, msg.sender, uruSink, uruAmount);
+        return _launch(name, symbol, msg.value, uruAmount, true);
+    }
+
+    function _launch(
+        string calldata name,
+        string calldata symbol,
+        uint256 creatorDeposit,
+        uint256 feePaid,
+        bool feeInUru
+    ) internal returns (address token, address curve, address batch) {
         if (bytes(name).length == 0) revert FairLaunchFactory__NameEmpty();
         if (bytes(symbol).length == 0) revert FairLaunchFactory__TickerEmpty();
 
@@ -260,9 +394,11 @@ contract FairLaunchFactory is Ownable {
         curveFor[token] = curve;
         batchFor[token] = batch;
 
-        if (msg.value > 0) OpeningBatch(payable(batch)).depositFor{value: msg.value}(msg.sender);
+        if (creatorDeposit > 0) OpeningBatch(payable(batch)).depositFor{value: creatorDeposit}(msg.sender);
 
-        emit FairLaunched(token, curve, msg.sender, batch, name, symbol, supply, capTokens, closeTs, msg.value);
+        emit FairLaunched(
+            token, curve, msg.sender, batch, name, symbol, supply, capTokens, closeTs, creatorDeposit, feePaid, feeInUru
+        );
     }
 
     /// Predicted addresses for a (launcher, name, symbol) triple, for the create page.

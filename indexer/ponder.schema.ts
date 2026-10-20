@@ -646,6 +646,9 @@ export const fairLaunches = onchainTable('fair_launches', (t) => ({
   batchCapTokens: t.bigint().notNull(),
   batchCloseTs: t.bigint().notNull(),              // unix seconds
   creatorDeposit: t.bigint().notNull(),
+  /// Deploy fee paid at launch: ETH wei, or URU wei when feeInUru.
+  feePaid: t.bigint().notNull().default(0n),
+  feeInUru: t.boolean().notNull().default(false),
   // Opening batch
   totalDeposited: t.bigint().notNull(),
   depositorCount: t.integer().notNull(),

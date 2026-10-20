@@ -83,7 +83,7 @@ for (const [file, contract, events] of CASES) {
 }
 
 test('indexerSig helper sees the FairLaunched string', () => {
-  assert.match(indexerSig('FairLaunched'), /^FairLaunched\(address,address,address,address,string,string,uint256,uint256,uint64,uint256\)$/);
+  assert.match(indexerSig('FairLaunched'), /^FairLaunched\(address,address,address,address,string,string,uint256,uint256,uint64,uint256,uint256,bool\)$/);
 });
 
 test('computeEthPoolId puts ETH in currency0 and is hook-specific', () => {

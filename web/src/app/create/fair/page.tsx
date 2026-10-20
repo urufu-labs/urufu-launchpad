@@ -9,11 +9,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { parseEther, type Address } from 'viem';
-import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { formatEther, parseEther, type Address } from 'viem';
+import { useAccount, useReadContract, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { useActiveChain } from '@/components/ChainSwitcher';
-import { fairLaunchFactoryAbi } from '@/lib/abis';
+import { erc20TokenAbi, fairLaunchFactoryAbi } from '@/lib/abis';
 import { FAIR_LAUNCHES, FAIR_LAUNCHES_ENABLED, type ChainKey } from '@/lib/config';
 import { CHAIN_KEY_TO_ID, type WagmiChainId } from '@/lib/wagmi';
 import styles from '../create-studio.module.css';
@@ -47,7 +47,7 @@ const RULES: Array<{ title: string; body: string }> = [
   {
     title: 'Same fees as a normal token',
     body:
-      'Normal trades pay the usual platform and creator fee, so urufu gemu nft holders and URU buybacks get their share like every other launch. ETH pairs only for now.',
+      'Launching costs the same as a normal token, paid in ETH or URU, with the same discount for URU and urufu gemu nft holders. Normal trades pay the usual platform and creator fee, so holders and URU buybacks get their share like every other launch. ETH pairs only for now.',
   },
 ];
 
@@ -95,6 +95,8 @@ export default function FairLaunchPage() {
   );
 }
 
+const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+
 function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
   const set = FAIR_LAUNCHES[chain];
   const targetChainId = CHAIN_KEY_TO_ID[chain] as WagmiChainId;
@@ -104,6 +106,7 @@ function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
   const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [deposit, setDeposit] = useState('');
+  const [payIn, setPayIn] = useState<'ETH' | 'URU'>('ETH');
 
   const cleanName = name.trim();
   const cleanTicker = ticker.trim().toUpperCase();
@@ -126,11 +129,46 @@ function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
   });
   const token = (predicted.data as readonly [Address, Address, Address] | undefined)?.[0];
 
+  // Deploy fee for this wallet (holder discount already applied on-chain).
+  const feeReads = useReadContracts({
+    allowFailure: true,
+    contracts: set
+      ? [
+          { abi: fairLaunchFactoryAbi, address: set.LaunchFactory, functionName: 'ethFeeFor', args: [wallet ?? ZERO], chainId: targetChainId },
+          { abi: fairLaunchFactoryAbi, address: set.LaunchFactory, functionName: 'minUruFeeFor', args: [wallet ?? ZERO], chainId: targetChainId },
+          { abi: fairLaunchFactoryAbi, address: set.LaunchFactory, functionName: 'uru', chainId: targetChainId },
+        ]
+      : [],
+    query: { enabled: !!set, refetchInterval: 30_000 },
+  });
+  const ethFee = feeReads.data?.[0]?.result as bigint | undefined;
+  const uruFee = feeReads.data?.[1]?.result as bigint | undefined;
+  const uruToken = feeReads.data?.[2]?.result as Address | undefined;
+  const uruEnabled = !!uruToken && uruToken !== ZERO && uruFee !== undefined && uruFee > 0n;
+
+  const allowance = useReadContract({
+    abi: erc20TokenAbi,
+    address: uruEnabled ? uruToken : undefined,
+    functionName: 'allowance',
+    args: wallet && set ? [wallet, set.LaunchFactory] : undefined,
+    chainId: targetChainId,
+    query: { enabled: live && payIn === 'URU' && uruEnabled && !!wallet },
+  });
+  const needsApprove = payIn === 'URU' && uruFee !== undefined && ((allowance.data as bigint | undefined) ?? 0n) < uruFee;
+
   const { writeContract, data: txHash, isPending, error, reset } = useWriteContract();
   const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash, chainId: targetChainId });
+  const [approving, setApproving] = useState(false);
   useEffect(() => {
-    if (isSuccess && token) router.push(`/trade/${token}`);
-  }, [isSuccess, token, router]);
+    if (!isSuccess) return;
+    if (approving) {
+      setApproving(false);
+      void allowance.refetch();
+      reset();
+      return;
+    }
+    if (token) router.push(`/trade/${token}`);
+  }, [isSuccess, token, router, approving, allowance, reset]);
 
   const wrongChain = !!wallet && walletChainId !== targetChainId;
   const busy = isPending || confirming;
@@ -149,15 +187,34 @@ function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
   const launch = () => {
     if (!set || depositWei === null) return;
     reset();
+    if (payIn === 'URU') {
+      if (!uruToken || uruFee === undefined) return;
+      if (needsApprove) {
+        setApproving(true);
+        writeContract({ abi: erc20TokenAbi, address: uruToken, functionName: 'approve', args: [set.LaunchFactory, uruFee], chainId: targetChainId });
+        return;
+      }
+      writeContract({
+        abi: fairLaunchFactoryAbi,
+        address: set.LaunchFactory,
+        functionName: 'launchWithURU',
+        args: [cleanName, cleanTicker, uruFee],
+        value: depositWei,
+        chainId: targetChainId,
+      });
+      return;
+    }
     writeContract({
       abi: fairLaunchFactoryAbi,
       address: set.LaunchFactory,
       functionName: 'launch',
       args: [cleanName, cleanTicker],
-      value: depositWei,
+      value: depositWei + (ethFee ?? 0n),
       chainId: targetChainId,
     });
   };
+  const fmt = (wei: bigint | undefined, unit: string) =>
+    wei === undefined ? '...' : `${Number(formatEther(wei)).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${unit}`;
 
   return (
     <section className={styles.panel} aria-labelledby="fair-form" style={{ opacity: live ? 1 : 0.55 }}>
@@ -191,13 +248,34 @@ function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
             Your deposit goes into the opening batch at the same price as everyone else. You only earn
             the 1% creator fee while you hold, so a launch with no deposit earns you nothing.
           </p>
+          <div className="ui-field-label">
+            Pay the launch fee in
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="ui-btn" data-variant={payIn === 'ETH' ? 'primary' : undefined} onClick={() => setPayIn('ETH')}>
+                ETH {live ? `(${fmt(ethFee, 'ETH')})` : ''}
+              </button>
+              <button
+                type="button"
+                className="ui-btn"
+                data-variant={payIn === 'URU' ? 'primary' : undefined}
+                disabled={!uruEnabled}
+                onClick={() => setPayIn('URU')}
+              >
+                URU {live && uruEnabled ? `(${fmt(uruFee, 'URU')})` : ''}
+              </button>
+            </div>
+          </div>
+          <p className={styles.hint}>
+            Same launch fee as a normal token. URU and urufu gemu nft holders get a discount, already
+            included in the price shown.
+          </p>
           {wrongChain ? (
             <button type="button" className="ui-btn" disabled={switching} onClick={() => switchChain({ chainId: targetChainId })}>
               {switching ? 'Switching...' : 'Switch network'}
             </button>
           ) : (
             <button type="button" className="ui-btn" data-variant="primary" disabled={!live || !!reason || busy} onClick={launch}>
-              {!live ? 'Coming after audit' : busy ? 'Launching...' : 'Launch'}
+              {!live ? 'Coming after audit' : busy ? (approving ? 'Approving URU...' : 'Launching...') : needsApprove ? 'Approve URU' : 'Launch'}
             </button>
           )}
           {reason && <p className={styles.hint}>{reason}</p>}

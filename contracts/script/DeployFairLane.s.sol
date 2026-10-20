@@ -33,6 +33,21 @@ interface ILiveGraduator {
     function tickSpacing() external view returns (int24);
 }
 
+/// The token lane's deploy-fee settings, copied so the Fair lane charges the same.
+interface ILiveRouter {
+    function fees(
+        uint8 base
+    ) external view returns (uint256);
+    function uru() external view returns (address);
+    function uruSink() external view returns (address);
+    function minUruFee() external view returns (uint256);
+    function loyaltyOracle() external view returns (address);
+}
+
+interface IUruSink {
+    function uru() external view returns (address);
+}
+
 interface ILiveMhh {
     function platform() external view returns (address);
     function platformBps() external view returns (uint16);
@@ -57,7 +72,9 @@ interface ILiveMhh {
 ///           * optional env pins (FAIR_EXPECT_POOL_MANAGER / FAIR_EXPECT_FEE_SPLITTER)
 ///             must match what chain says, or the script reverts
 ///         Curve defaults, fee bps, pool fee and tick spacing are copied from the live
-///         stack so the two lanes cannot drift.
+///         stack so the two lanes cannot drift. So is the deploy fee: the ERC-20 base
+///         fee, URU token, URU sink, URU floor and LoyaltyOracle come from the live Router
+///         (the sink's own `uru()` must match).
 ///
 ///         Deploy order: ERC20Template impl, FairBondingCurve impl, OpeningBatch impl,
 ///         FairHookHost (HookMiner + canonical CREATE2 deployer, flags 0x28C4),
@@ -83,6 +100,7 @@ contract DeployFairLane is Script {
     // Live token lane on Robinhood as of 2026-10-19 (V10 CF + V11 graduator / MHH pair).
     address internal constant LIVE_CURVE_FACTORY = 0xEC96D023426167e68598FF9ea946882b7f0AE91f;
     address internal constant LIVE_MHH = 0x83d6fa59BEF503112887b16277CF559fDC93E0C4;
+    address internal constant LIVE_ROUTER = 0xb41e0Bd37D4EF19A7bd2cCEacc13CbbcD8339269;
 
     // Spec defaults D3 / D4.
     uint16 internal constant TAX_START_BPS = 2000;
@@ -103,6 +121,11 @@ contract DeployFairLane is Script {
         uint256 virtualEthReserve;
         uint256 graduationTargetEth;
         uint16 tradeFeeBps;
+        uint256 ethLaunchFee;
+        address uru;
+        address uruSink;
+        uint256 minUruFee;
+        address loyaltyOracle;
     }
 
     struct Deployed {
@@ -155,6 +178,9 @@ contract DeployFairLane is Script {
 
         FairHookHost(payable(d.hook)).setInitializer(d.graduator);
         FairGraduator(payable(d.graduator)).setFactory(d.factory);
+        FairLaunchFactory(d.factory).setEthLaunchFee(i.ethLaunchFee);
+        FairLaunchFactory(d.factory).setUruConfig(i.uru, i.uruSink, i.minUruFee);
+        FairLaunchFactory(d.factory).setLoyaltyOracle(i.loyaltyOracle);
         FairLaunchFactory(d.factory)
             .setDefaults(
                 i.curveSupply,
@@ -220,6 +246,19 @@ contract DeployFairLane is Script {
         i.virtualEthReserve = ILiveCurveFactory(cf).defaultVirtualEthReserve();
         i.graduationTargetEth = ILiveCurveFactory(cf).defaultGraduationTargetEth();
         i.tradeFeeBps = ILiveCurveFactory(cf).defaultTradeFeeBps();
+
+        address router = vm.envOr("FAIR_LIVE_ROUTER", LIVE_ROUTER);
+        _requireCode("live Router", router);
+        i.ethLaunchFee = ILiveRouter(router).fees(0); // BaseType.ERC20
+        i.uru = ILiveRouter(router).uru();
+        i.uruSink = ILiveRouter(router).uruSink();
+        i.minUruFee = ILiveRouter(router).minUruFee();
+        i.loyaltyOracle = ILiveRouter(router).loyaltyOracle();
+        _requireCode("URU", i.uru);
+        _requireCode("URU sink", i.uruSink);
+        _requireCode("LoyaltyOracle", i.loyaltyOracle);
+        address sinkUru = IUruSink(i.uruSink).uru();
+        if (sinkUru != i.uru) revert DeployFairLane__Stale("uruSink.uru != Router.uru", i.uru, sinkUru);
     }
 
     function _mineAndDeployHook(
@@ -271,6 +310,10 @@ contract DeployFairLane is Script {
         require(f.defaultVirtualEthReserve() == i.virtualEthReserve, "virtual ETH drift");
         require(f.defaultGraduationTargetEth() == i.graduationTargetEth, "target drift");
         require(!f.launchesOpen(), "launches must start closed");
+        require(f.ethLaunchFee() == i.ethLaunchFee, "eth fee drift vs token lane");
+        require(f.uru() == i.uru && f.uruSink() == i.uruSink, "URU wiring");
+        require(f.minUruFee() == i.minUruFee, "URU floor drift vs token lane");
+        require(f.loyaltyOracle() == i.loyaltyOracle, "loyalty oracle");
         require(f.owner() == i.admin && g.owner() == i.admin, "owner");
     }
 

@@ -179,7 +179,7 @@ export const dn404CurveCreatedEvent = parseAbiItem(
 /// silently drops every log (the 2026-09-16 Dn404Launched incident).
 /// test/fair-abi.test.ts recomputes each topic0 from the forge artifacts.
 export const fairLaunchFactoryAbi = parseAbi([
-  'event FairLaunched(address indexed token, address indexed curve, address indexed launcher, address batch, string name, string symbol, uint256 curveSupply, uint256 batchCapTokens, uint64 batchCloseTs, uint256 creatorDeposit)',
+  'event FairLaunched(address indexed token, address indexed curve, address indexed launcher, address batch, string name, string symbol, uint256 curveSupply, uint256 batchCapTokens, uint64 batchCloseTs, uint256 creatorDeposit, uint256 feePaid, bool feeInUru)',
 ]);
 
 /// FairBondingCurve. `Trade` and `Graduated` share the token lane's signatures,

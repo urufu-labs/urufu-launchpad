@@ -257,11 +257,14 @@ abstract contract FairTestBase is Test {
         string memory name,
         uint256 creatorDeposit
     ) internal returns (address token, FairBondingCurve curve, OpeningBatch batch) {
-        vm.deal(creator, creator.balance + creatorDeposit);
+        // The ETH deploy fee (0 on the local stack, live token-lane fee on the fork) is
+        // added on top, so `creatorDeposit` is always exactly what lands in the batch.
+        uint256 fee = factory.ethFeeFor(creator);
+        vm.deal(creator, creator.balance + creatorDeposit + fee);
         vm.prank(creator);
         address c;
         address b;
-        (token, c, b) = factory.launch{value: creatorDeposit}(name, "FAIR");
+        (token, c, b) = factory.launch{value: creatorDeposit + fee}(name, "FAIR");
         curve = FairBondingCurve(payable(c));
         batch = OpeningBatch(payable(b));
     }

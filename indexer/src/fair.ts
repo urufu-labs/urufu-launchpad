@@ -75,6 +75,8 @@ ponder.on('FairLaunchFactory:FairLaunched', async ({ event, context }) => {
     batchCapTokens: a.batchCapTokens,
     batchCloseTs: a.batchCloseTs,
     creatorDeposit: a.creatorDeposit,
+    feePaid: a.feePaid,
+    feeInUru: a.feeInUru,
     // The creator's deposit (if any) is the only one that can land in the launch tx.
     totalDeposited: a.creatorDeposit,
     depositorCount: a.creatorDeposit > 0n ? 1 : 0,
