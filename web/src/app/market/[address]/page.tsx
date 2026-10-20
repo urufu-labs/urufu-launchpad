@@ -54,7 +54,8 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
       <div className={styles.page}>
         <div className={styles.empty}>
           <Mascot size={64} mood="sleepy" />
-          <p>This collection isn&apos;t on the urufu marketplace.</p>
+          <b>Not on the marketplace</b>
+          Only collections launched on urufu can be traded here.
           <Link href="/market" className="ui-btn" data-size="sm">Back to the marketplace</Link>
         </div>
       </div>
@@ -66,19 +67,19 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
 
   return (
     <div className={styles.page}>
-      <div>
-        <Link href="/market" className="ui-btn" data-size="sm" data-variant="ghost">← Marketplace</Link>
-      </div>
-      <div className={styles.hero}>
-        <TokenArt collection={collection} tokenId="1" image={meta?.coverImageUrl || null} className={styles.heroCover} />
+      <Link href="/market" className={styles.backLink}>← Marketplace</Link>
+      <section className={styles.colHero}>
+        <TokenArt collection={collection} tokenId="1" image={meta?.coverImageUrl || null} className={styles.colHeroArt} />
         <div>
+          <div className={styles.eyebrow}>{summary.lane === 'dn404' ? 'DN404 collection' : 'NFT collection'}</div>
           <h1 className={styles.title}>{summary.name}</h1>
-          <div className={styles.heroStats}>
-            <span>Floor <b>{summary.floorWei ? `${formatEthShort(summary.floorWei)} ETH` : 'none'}</b></span>
-            <span>Listed <b>{summary.count}</b></span>
-            <span>{summary.lane === 'dn404' ? 'DN404 collection' : 'NFT collection'}</span>
-          </div>
           {meta?.description && <p className={styles.lede}>{meta.description}</p>}
+          <div className={styles.statRow}>
+            <span className={styles.stat}>Floor<b>{summary.floorWei ? `${formatEthShort(summary.floorWei)} ETH` : 'n/a'}</b></span>
+            <span className={styles.stat}>Listed<b>{summary.count}</b></span>
+            <span className={styles.stat}>Items<b>{summary.maxSupply !== '0' ? Number(summary.maxSupply).toLocaleString() : 'n/a'}</b></span>
+            <span className={styles.stat}>Marketplace fee<b>0%</b></span>
+          </div>
           <div className={styles.heroLinks}>
             <Link href="/market?tab=sell" className="ui-btn" data-size="sm" data-variant="primary">Sell yours</Link>
             <Link href={`/collection/${collection}`} className="ui-btn" data-size="sm">
@@ -89,7 +90,7 @@ function MarketCollectionRoute({ params }: { params: Promise<{ address: string }
             )}
           </div>
         </div>
-      </div>
+      </section>
       <MarketPanel
         collection={collection}
         chainKey={chainKey}

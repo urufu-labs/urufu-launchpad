@@ -1,31 +1,80 @@
+/* NFT marketplace (/market, /market/[address]). Same card language as the
+   Explore page's NFT tiles: square art wells, display-font names, a metrics
+   strip, accent border on hover. */
+
 .page {
   width: min(1240px, calc(100vw - 32px));
   margin: 0 auto;
-  padding: 18px 0 40px;
+  padding: 18px 0 48px;
   display: grid;
-  gap: 18px;
+  gap: 22px;
 }
 
-.head {
-  display: flex;
-  flex-wrap: wrap;
+/* ---------- hero ---------- */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
   align-items: end;
-  justify-content: space-between;
-  gap: 12px;
+  padding: 26px 24px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 55%),
+    var(--surface-1);
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .title {
-  margin: 0;
+  margin: 6px 0 0;
   font-family: var(--font-display, inherit);
-  font-size: clamp(28px, 4vw, 40px);
-  line-height: 1.05;
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 400;
+  line-height: 1;
   color: var(--fg);
 }
 
 .lede {
-  margin: 6px 0 0;
+  max-width: 620px;
+  margin: 10px 0 0;
   font-size: 14px;
+  line-height: 1.5;
   color: var(--fg-muted);
+}
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.stat {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.stat b {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--fg);
 }
 
 .tabs {
@@ -34,7 +83,7 @@
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  background: var(--surface-1);
+  background: var(--surface-2);
 }
 
 .tab {
@@ -45,74 +94,160 @@
   font: inherit;
   font-size: 14px;
   font-weight: 600;
-  padding: 7px 14px;
+  padding: 8px 16px;
   border-radius: var(--r-sm, 6px);
   cursor: pointer;
 }
 
 .tab[data-active='true'] {
   color: var(--fg);
-  background: var(--surface-2);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--line);
 }
+
+/* ---------- sections ---------- */
+
+.section {
+  display: grid;
+  gap: 12px;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--fg);
+}
+
+.sectionAside {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.search {
+  width: min(280px, 100%);
+}
+
+/* ---------- collection cards ---------- */
 
 .colGrid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
 }
 
 .colCard {
   display: grid;
-  gap: 10px;
-  padding: 10px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--surface-1);
   color: inherit;
   text-decoration: none;
-  transition: border-color 120ms ease;
+  transition: transform 160ms ease, border-color 160ms ease;
 }
 
 .colCard:hover {
-  border-color: var(--fg-faint);
+  border-color: var(--accent);
+  transform: translateY(-2px);
 }
 
-.cover {
+.colCard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.colArtWrap {
+  position: relative;
+  padding: 8px 8px 0;
+}
+
+.art {
+  display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+.laneBadge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.colBody {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.colName {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
 
-.colName {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--fg);
-}
-
-.colStats {
+.metrics > span {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 12px;
-  font-size: 12px;
+  gap: 2px;
+  padding: 7px 9px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--fg-muted);
 }
 
-.colStats b {
-  display: block;
+.metrics > span + span {
+  border-left: 1px solid var(--line);
+}
+
+.metrics b {
   font-family: var(--font-mono);
   font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--fg);
 }
 
-.sellGrid {
+/* ---------- NFT cards (listed now + sell) ---------- */
+
+.nftGrid {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -121,34 +256,93 @@
   gap: 14px;
 }
 
-.sellCard {
+.nftCard {
   display: grid;
-  gap: 8px;
   align-content: start;
-  padding: 10px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--surface-1);
+  transition: border-color 160ms ease;
 }
 
-.sellCard[data-open='true'] {
-  grid-column: span 2;
+.nftCard:hover {
+  border-color: var(--fg-faint);
 }
 
-.sellName {
-  font-size: 14px;
+.nftArtLink {
+  display: block;
+  padding: 8px 8px 0;
+}
+
+.nftBody {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+
+.nftCollection {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.nftName {
+  overflow: hidden;
+  font-size: 15px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--fg);
   text-decoration: none;
 }
 
-.sellSub {
-  font-size: 12px;
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.priceLabel {
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.price {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.status {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--fg-muted);
 }
 
+.status[data-tone='live'] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  color: var(--accent);
+}
+
+/* ---------- empty / loading ---------- */
+
 .empty {
-  padding: 32px 16px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 16px;
   border: 1px dashed var(--line);
   border-radius: var(--r-lg);
   text-align: center;
@@ -156,53 +350,119 @@
   color: var(--fg-muted);
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 16px;
-  align-items: center;
-}
-
-.heroCover {
-  width: 120px;
-  height: 120px;
-  border-radius: var(--r-lg);
-  background: var(--surface-2);
-}
-
-.heroStats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--fg-muted);
-}
-
-.heroStats b {
-  font-family: var(--font-mono);
+.empty b {
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  font-weight: 400;
   color: var(--fg);
+}
+
+.skeleton {
+  aspect-ratio: 1 / 1.35;
+  border-radius: var(--r-lg);
+  background: linear-gradient(90deg, var(--surface-1) 0%, var(--surface-2) 50%, var(--surface-1) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .colCard, .colCard:hover { transform: none; }
+}
+
+/* ---------- list dialog ---------- */
+
+.dialogBody {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dialogArt {
+  display: block;
+  width: 160px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+.dialogName {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+/* ---------- collection page header ---------- */
+
+.colHero {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 55%),
+    var(--surface-1);
+}
+
+.colHeroArt {
+  display: block;
+  width: 136px;
+  height: 136px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
 }
 
 .heroLinks {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
-@media (max-width: 560px) {
-  .sellCard[data-open='true'] {
-    grid-column: auto;
-  }
-  .sellGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.backLink {
+  justify-self: start;
+  font-size: 13px;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--fg);
+}
+
+@media (max-width: 720px) {
   .hero {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    padding: 20px 16px;
   }
-  .heroCover {
-    width: 72px;
-    height: 72px;
+  .colHero {
+    grid-template-columns: 88px minmax(0, 1fr);
+    padding: 14px;
+  }
+  .colHeroArt {
+    width: 88px;
+    height: 88px;
+  }
+  .dialogBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dialogArt {
+    width: 120px;
+  }
+  .nftGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 }

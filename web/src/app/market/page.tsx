@@ -1,16 +1,21 @@
 'use client';
 
-/// Marketplace home: every collection launched on urufu (Collections tab),
-/// and the connected wallet's NFTs with a List button on each (Sell tab).
-/// URL: /market  (?tab=sell opens the Sell tab)
+/// Marketplace home.
+///   Explore: NFTs listed right now across every urufu collection, then the
+///            collections themselves (floor, listed, items).
+///   Sell:    the connected wallet's NFTs from urufu collections; List opens a
+///            dialog, listed ones can be cancelled.
+/// URL: /market  (?tab=sell opens Sell)
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useState } from 'react';
-import type { Address } from 'viem';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { zeroAddress, type Address } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { NotLiveYet } from '@/components/NotLiveYet';
+import { Modal } from '@/components/ui/Overlay';
+import { BuyButton } from '@/components/market/BuyButton';
 import { CancelButton } from '@/components/market/CancelButton';
 import { ListForm } from '@/components/market/ListForm';
 import { MyListings } from '@/components/market/MyListings';
@@ -19,6 +24,7 @@ import { fetchNftCollectionsByAddresses, type IndexerNftCollection } from '@/lib
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
 import {
   NO_FEE_COPY,
+  fetchCollectionListings,
   fetchMarketCollections,
   fetchOwnedNfts,
   fetchWalletListings,
@@ -30,6 +36,8 @@ import {
 import { marketCollectionVisible } from '@/lib/marketVisibility';
 import styles from './market-page.module.css';
 
+type Collection = MarketCollectionSummary & { meta?: IndexerNftCollection };
+
 export default function MarketPage() {
   if (!LAUNCHPAD_LIVE) return <NotLiveYet />;
   return (
@@ -39,34 +47,9 @@ export default function MarketPage() {
   );
 }
 
-function MarketHome() {
-  const params = useSearchParams();
-  const [tab, setTab] = useState<'collections' | 'sell'>(params.get('tab') === 'sell' ? 'sell' : 'collections');
-
-  return (
-    <div className={styles.page}>
-      <div className={styles.head}>
-        <div>
-          <h1 className={styles.title}>Marketplace</h1>
-          <p className={styles.lede}>Buy and sell NFTs from collections launched on urufu. {NO_FEE_COPY}</p>
-        </div>
-        <div className={styles.tabs} role="tablist">
-          <button type="button" role="tab" className={styles.tab} data-active={tab === 'collections'} onClick={() => setTab('collections')}>
-            Collections
-          </button>
-          <button type="button" role="tab" className={styles.tab} data-active={tab === 'sell'} onClick={() => setTab('sell')}>
-            Sell
-          </button>
-        </div>
-      </div>
-      {tab === 'collections' ? <CollectionsTab /> : <SellTab />}
-    </div>
-  );
-}
-
-function CollectionsTab() {
-  const [rows, setRows] = useState<Array<MarketCollectionSummary & { meta?: IndexerNftCollection }> | null | undefined>(undefined);
-
+/// Visible collections + their indexer rows (cover art, description).
+function useCollections(): Collection[] | null | undefined {
+  const [rows, setRows] = useState<Collection[] | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -74,55 +57,189 @@ function CollectionsTab() {
       if (cancelled) return;
       if (!res) { setRows(null); return; }
       const visible = res.collections.filter(marketCollectionVisible);
-      const metas = await fetchNftCollectionsByAddresses(visible.map((c) => c.collection));
+      const metas = visible.length > 0 ? await fetchNftCollectionsByAddresses(visible.map((c) => c.collection)) : [];
       if (cancelled) return;
       const byAddr = new Map((metas ?? []).map((m) => [m.collectionAddress.toLowerCase(), m]));
-      // Listed collections first (cheapest floor first), then the rest.
       const merged = visible.map((c) => ({ ...c, meta: byAddr.get(c.collection.toLowerCase()) }));
-      merged.sort((a, b) => (b.count > 0 ? 1 : 0) - (a.count > 0 ? 1 : 0));
+      // Collections with listings first, then by name.
+      merged.sort((a, b) => (b.count > 0 ? 1 : 0) - (a.count > 0 ? 1 : 0) || a.name.localeCompare(b.name));
       setRows(merged);
     })();
     return () => { cancelled = true; };
   }, []);
+  return rows;
+}
 
-  if (rows === undefined) return <div className={styles.empty}>Loading collections…</div>;
-  if (rows === null) return <div className={styles.empty}>Couldn&apos;t load the marketplace right now. Try again in a minute.</div>;
-  if (rows.length === 0) return <div className={styles.empty}>No collections yet.</div>;
+function MarketHome() {
+  const params = useSearchParams();
+  const [tab, setTab] = useState<'explore' | 'sell'>(params.get('tab') === 'sell' ? 'sell' : 'explore');
+  const collections = useCollections();
+  const listedTotal = (collections ?? []).reduce((s, c) => s + c.count, 0);
 
   return (
-    <ul className={styles.colGrid}>
-      {rows.map((c) => (
-        <li key={c.collection}>
-          <Link href={`/market/${c.collection}`} className={styles.colCard}>
-            {/* No indexer cover yet: token #1's art (ids start at 1 on both lanes). */}
-            <TokenArt collection={c.collection} tokenId="1" image={c.meta?.coverImageUrl || null} className={styles.cover} />
-            <div className={styles.colName}>
-              <span>{c.name}</span>
-              <span className="ui-badge">{c.lane === 'dn404' ? 'DN404' : 'NFT'}</span>
-            </div>
-            <div className={styles.colStats}>
-              <span>Floor<b>{c.floorWei ? `${formatEthShort(c.floorWei)} ETH` : 'none'}</b></span>
-              <span>Listed<b>{c.count}</b></span>
-            </div>
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <div className={styles.page}>
+      <section className={styles.hero}>
+        <div>
+          <div className={styles.eyebrow}>NFT marketplace</div>
+          <h1 className={styles.title}>Buy and sell urufu NFTs</h1>
+          <p className={styles.lede}>
+            Every collection launched on urufu, NFT and DN404. {NO_FEE_COPY}
+          </p>
+          <div className={styles.statRow}>
+            <span className={styles.stat}>Collections<b>{collections ? collections.length : '…'}</b></span>
+            <span className={styles.stat}>Listed now<b>{collections ? listedTotal : '…'}</b></span>
+            <span className={styles.stat}>Marketplace fee<b>0%</b></span>
+          </div>
+        </div>
+        <div className={styles.tabs} role="tablist">
+          <button type="button" role="tab" className={styles.tab} data-active={tab === 'explore'} onClick={() => setTab('explore')}>
+            Explore
+          </button>
+          <button type="button" role="tab" className={styles.tab} data-active={tab === 'sell'} onClick={() => setTab('sell')}>
+            Sell
+          </button>
+        </div>
+      </section>
+      {tab === 'explore'
+        ? <ExploreTab collections={collections} onSell={() => setTab('sell')} />
+        : <SellTab collections={collections} />}
+    </div>
   );
 }
 
-function SellTab() {
-  const { address } = useAccount();
-  const [owned, setOwned] = useState<OwnedNft[] | null | undefined>(undefined);
-  const [listings, setListings] = useState<MarketListing[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
+// ---------------------------------------------------------------------------
+// Explore
+// ---------------------------------------------------------------------------
+
+function ExploreTab({ collections, onSell }: { collections: Collection[] | null | undefined; onSell: () => void }) {
+  const [query, setQuery] = useState('');
+  const [listed, setListed] = useState<MarketListing[] | undefined>(undefined);
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
+  // Newest listings across collections that have any.
   useEffect(() => {
-    if (!address) { setOwned(undefined); return; }
+    if (!collections) return;
     let cancelled = false;
-    setOwned(undefined);
+    (async () => {
+      const withListings = collections.filter((c) => c.count > 0);
+      const results = await Promise.all(withListings.map((c) => fetchCollectionListings(c.collection, { fresh: nonce > 0 })));
+      if (cancelled) return;
+      const all = results.flatMap((r) => r?.listings ?? []);
+      all.sort((a, b) => b.createdAt - a.createdAt);
+      setListed(all.slice(0, 12));
+    })();
+    return () => { cancelled = true; };
+  }, [collections, nonce]);
+
+  const byAddr = useMemo(() => new Map((collections ?? []).map((c) => [c.collection.toLowerCase(), c])), [collections]);
+  const shown = (collections ?? []).filter((c) => !query.trim() || c.name.toLowerCase().includes(query.trim().toLowerCase()));
+
+  if (collections === null) {
+    return <div className={styles.empty}><b>Marketplace is busy</b>Couldn&apos;t load collections. Try again in a minute.</div>;
+  }
+
+  return (
+    <>
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionTitle}>Listed now</h2>
+          <span className={styles.sectionAside}>Newest listings across all collections</span>
+        </div>
+        {listed === undefined ? (
+          <ul className={styles.nftGrid}>{[0, 1, 2, 3].map((i) => <li key={i} className={styles.skeleton} />)}</ul>
+        ) : listed.length === 0 ? (
+          <div className={styles.empty}>
+            <b>Nothing listed yet</b>
+            Be the first. Listing is a free signature, and there&apos;s no marketplace fee.
+            <button type="button" className="ui-btn" data-variant="primary" onClick={onSell}>List an NFT</button>
+          </div>
+        ) : (
+          <ul className={styles.nftGrid}>
+            {listed.map((l) => {
+              const c = byAddr.get(l.collection.toLowerCase());
+              const pairedToken = c?.pairedToken && c.pairedToken !== zeroAddress ? c.pairedToken : undefined;
+              const href = `/collection/${l.collection}/${l.tokenId}`;
+              return (
+                <li key={l.orderHash} className={styles.nftCard}>
+                  <Link href={href} className={styles.nftArtLink} aria-label={`${c?.name ?? 'NFT'} #${l.tokenId}`}>
+                    <TokenArt collection={l.collection} tokenId={l.tokenId} image={l.meta?.image} className={styles.art} />
+                  </Link>
+                  <div className={styles.nftBody}>
+                    <Link href={`/market/${l.collection}`} className={styles.nftCollection}>{c?.name ?? 'Collection'}</Link>
+                    <Link href={href} className={styles.nftName}>#{l.tokenId}</Link>
+                    <div className={styles.priceRow}>
+                      <span className={styles.priceLabel}>Price</span>
+                      <span className={styles.price}>{formatEthShort(l.priceWei)} ETH</span>
+                    </div>
+                    <BuyButton listing={l} pairedToken={pairedToken} onDone={refresh} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionTitle}>Collections</h2>
+          <input
+            className={`ui-input ${styles.search}`}
+            placeholder="Search collections"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search collections"
+          />
+        </div>
+        {collections === undefined ? (
+          <ul className={styles.colGrid}>{[0, 1, 2].map((i) => <li key={i} className={styles.skeleton} />)}</ul>
+        ) : shown.length === 0 ? (
+          <div className={styles.empty}><b>No collections found</b></div>
+        ) : (
+          <ul className={styles.colGrid}>
+            {shown.map((c) => (
+              <li key={c.collection}>
+                <Link href={`/market/${c.collection}`} className={styles.colCard}>
+                  <div className={styles.colArtWrap}>
+                    {/* No indexer cover yet: token #1's art (ids start at 1 on both lanes). */}
+                    <TokenArt collection={c.collection} tokenId="1" image={c.meta?.coverImageUrl || null} className={styles.art} />
+                    <span className={styles.laneBadge}>{c.lane === 'dn404' ? 'DN404' : 'NFT'}</span>
+                  </div>
+                  <div className={styles.colBody}>
+                    <h3 className={styles.colName}>{c.name}</h3>
+                    <div className={styles.metrics}>
+                      <span>Floor<b>{c.floorWei ? `${formatEthShort(c.floorWei)}` : 'n/a'}</b></span>
+                      <span>Listed<b>{c.count}</b></span>
+                      <span>Items<b>{c.maxSupply !== '0' ? Number(c.maxSupply).toLocaleString() : 'n/a'}</b></span>
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sell
+// ---------------------------------------------------------------------------
+
+function SellTab({ collections }: { collections: Collection[] | null | undefined }) {
+  const { address } = useAccount();
+  const [owned, setOwned] = useState<OwnedNft[] | null | undefined>(undefined);
+  const [listings, setListings] = useState<MarketListing[]>([]);
+  const [listing, setListing] = useState<OwnedNft | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  const closeDialog = useCallback(() => setListing(null), []);
+
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
     (async () => {
       const [o, l] = await Promise.all([fetchOwnedNfts(address, nonce > 0), fetchWalletListings(address, nonce > 0)]);
       if (cancelled) return;
@@ -132,65 +249,90 @@ function SellTab() {
     return () => { cancelled = true; };
   }, [address, nonce]);
 
-  if (!address) return <div className={styles.empty}>Connect a wallet to see the NFTs you can sell.</div>;
-  if (owned === undefined) return <div className={styles.empty}>Finding your NFTs…</div>;
-  if (owned === null) return <div className={styles.empty}>Couldn&apos;t load your NFTs right now. Try again in a minute.</div>;
+  if (!address) {
+    return <div className={styles.empty}><b>Connect a wallet</b>Your NFTs from urufu collections show up here, ready to list.</div>;
+  }
 
   const liveByToken = new Map(
     listings
       .filter((l) => l.status === 'active' && l.live !== false)
       .map((l) => [`${l.collection.toLowerCase()}:${l.tokenId}`, l]),
   );
+  const coverOf = (addr: string) => collections?.find((c) => c.collection.toLowerCase() === addr.toLowerCase());
 
   return (
     <>
-      {owned.length === 0 ? (
-        <div className={styles.empty}>
-          This wallet doesn&apos;t hold any NFTs from urufu collections.{' '}
-          <Link href="/market" onClick={() => setOpen(null)}>Browse collections</Link>
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <h2 className={styles.sectionTitle}>Your NFTs</h2>
+          <span className={styles.sectionAside}>Listing is a free signature. You only pay gas once to approve a collection.</span>
         </div>
-      ) : (
-        <ul className={styles.sellGrid}>
-          {owned.map((n) => {
-            const key = `${n.collection.toLowerCase()}:${n.tokenId}`;
-            const listed = liveByToken.get(key);
-            const isOpen = open === key;
-            return (
-              <li key={key} className={styles.sellCard} data-open={isOpen}>
-                <Link href={`/collection/${n.collection}/${n.tokenId}`}>
-                  <TokenArt collection={n.collection as Address} tokenId={n.tokenId} className={styles.cover} />
-                </Link>
-                <Link href={`/collection/${n.collection}/${n.tokenId}`} className={styles.sellName}>
-                  {n.name} #{n.tokenId}
-                </Link>
-                {listed ? (
-                  <>
-                    <span className={styles.sellSub}>Listed for {formatEthShort(listed.priceWei)} ETH</span>
-                    <CancelButton listing={listed} onDone={refresh} />
-                  </>
-                ) : isOpen ? (
-                  <>
-                    <ListForm
-                      collection={n.collection as Address}
-                      tokenId={n.tokenId}
-                      lane={n.lane}
-                      onListed={() => { setOpen(null); refresh(); }}
-                    />
-                    <button type="button" className="ui-btn" data-size="sm" data-variant="ghost" onClick={() => setOpen(null)}>
-                      Close
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="ui-btn" data-variant="primary" data-block="true" onClick={() => setOpen(key)}>
-                    List for sale
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+        {owned === undefined ? (
+          <ul className={styles.nftGrid}>{[0, 1, 2, 3].map((i) => <li key={i} className={styles.skeleton} />)}</ul>
+        ) : owned === null ? (
+          <div className={styles.empty}><b>Couldn&apos;t load your NFTs</b>Try again in a minute.</div>
+        ) : owned.length === 0 ? (
+          <div className={styles.empty}>
+            <b>No urufu NFTs in this wallet</b>
+            Mint one or buy one, then list it here.
+            <Link href="/market" className="ui-btn">Explore collections</Link>
+          </div>
+        ) : (
+          <ul className={styles.nftGrid}>
+            {owned.map((n) => {
+              const key = `${n.collection.toLowerCase()}:${n.tokenId}`;
+              const live = liveByToken.get(key);
+              const href = `/collection/${n.collection}/${n.tokenId}`;
+              return (
+                <li key={key} className={styles.nftCard}>
+                  <Link href={href} className={styles.nftArtLink} aria-label={`${n.name} #${n.tokenId}`}>
+                    <TokenArt collection={n.collection as Address} tokenId={n.tokenId} className={styles.art} />
+                  </Link>
+                  <div className={styles.nftBody}>
+                    <Link href={`/market/${n.collection}`} className={styles.nftCollection}>{coverOf(n.collection)?.name ?? n.name}</Link>
+                    <Link href={href} className={styles.nftName}>#{n.tokenId}</Link>
+                    {live ? (
+                      <>
+                        <div className={styles.priceRow}>
+                          <span className={styles.status} data-tone="live">Listed</span>
+                          <span className={styles.price}>{formatEthShort(live.priceWei)} ETH</span>
+                        </div>
+                        <CancelButton listing={live} onDone={refresh} />
+                      </>
+                    ) : (
+                      <>
+                        <span className={styles.status}>Not listed</span>
+                        <button type="button" className="ui-btn" data-variant="primary" data-block="true" onClick={() => setListing(n)}>
+                          List for sale
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
       <MyListings visibleFor={address} />
+
+      <Modal open={listing !== null} onClose={closeDialog} title="List for sale" width={560}>
+        {listing && (
+          <div className={styles.dialogBody}>
+            <TokenArt collection={listing.collection as Address} tokenId={listing.tokenId} className={styles.dialogArt} />
+            <div>
+              <p className={styles.dialogName}>{listing.name} #{listing.tokenId}</p>
+              <ListForm
+                collection={listing.collection as Address}
+                tokenId={listing.tokenId}
+                lane={listing.lane}
+                onListed={() => { setListing(null); refresh(); }}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </>
   );
 }

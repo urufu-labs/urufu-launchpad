@@ -50,7 +50,7 @@ export function TokenArt({
     <span
       aria-hidden="true"
       className={className}
-      style={{ background: safeBackgroundImage(src, undefined, 'contain') }}
+      style={{ display: 'block', background: safeBackgroundImage(src, undefined, 'contain') }}
     />
   );
 }
