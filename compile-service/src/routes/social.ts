@@ -69,22 +69,43 @@ const INDEXER_URL = process.env.INDEXER_URL ?? process.env.NEXT_PUBLIC_INDEXER_U
 ///   - null if the indexer has no row for this token yet (fresh launch,
 ///     not-yet-indexed) OR indexer is unreachable — either case is treated
 ///     as `INDEXER_PENDING` upstream and blocks the write.
+/// Launcher field from one indexer GraphQL answer (`launches.launchedBy` or
+/// `fairLaunches.launcher`). Lowercased; null when the row is missing or the
+/// query errored (e.g. an indexer build that predates the Fair tables).
+export function pickLauncher(json: unknown, table: 'launches' | 'fairLaunches'): string | null {
+  const row = (json as { data?: Record<string, Record<string, unknown> | null> | null })?.data?.[table];
+  const raw = table === 'launches' ? row?.launchedBy : row?.launcher;
+  return typeof raw === 'string' ? raw.toLowerCase() : null;
+}
+
+async function queryIndexer(query: string, id: string): Promise<unknown> {
+  const res = await fetch(`${INDEXER_URL.replace(/\/$/, '')}/graphql`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables: { id } }),
+    // 5s cap — the indexer's realtime layer should answer well under this;
+    // a stall here would otherwise hang the write endpoint indefinitely.
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 async function launcherForToken(chainId: number, tokenAddress: string): Promise<string | null> {
   const id = `${chainId}-${tokenAddress.toLowerCase()}`;
-  const query = `query LauncherByToken($id: String!) { launches(id: $id) { launchedBy } }`;
   try {
-    const res = await fetch(`${INDEXER_URL.replace(/\/$/, '')}/graphql`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query, variables: { id } }),
-      // 5s cap — the indexer's realtime layer should answer well under this;
-      // a stall here would otherwise hang the write endpoint indefinitely.
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data?: { launches?: { launchedBy?: string } | null } };
-    const raw = json.data?.launches?.launchedBy;
-    return typeof raw === 'string' ? raw.toLowerCase() : null;
+    // Token lane first (the common case). Fair-lane launches live in a separate
+    // table with the same id; asked in a second query so an indexer build that
+    // lacks the Fair tables can never break token-lane lookups.
+    const tokenLane = pickLauncher(
+      await queryIndexer(`query LauncherByToken($id: String!) { launches(id: $id) { launchedBy } }`, id),
+      'launches',
+    );
+    if (tokenLane) return tokenLane;
+    return pickLauncher(
+      await queryIndexer(`query FairLauncherByToken($id: String!) { fairLaunches(id: $id) { launcher } }`, id),
+      'fairLaunches',
+    );
   } catch {
     return null;
   }
