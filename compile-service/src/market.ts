@@ -34,6 +34,8 @@ export interface CollectionInfo {
   pairedToken: Hex;
   unitWei: bigint;
   maxSupply: bigint;
+  /// Block the collection was launched at (scan start for ownership).
+  launchBlock: bigint;
 }
 
 /// On-chain state a listing's liveness depends on.
@@ -68,7 +70,15 @@ export interface MarketChain {
 
 export interface MarketCollections {
   lookup(collection: Hex): Promise<CollectionInfo | null>;
+  /// Every collection launched through our NFT + DN404 lanes.
+  list(): Promise<CollectionInfo[]>;
 }
+
+/// Token ids `wallet` holds in each of `collections` (verified owners only).
+export type OwnedScanner = (
+  wallet: Hex,
+  collections: CollectionInfo[],
+) => Promise<Array<{ collection: Hex; tokenId: bigint }>>;
 
 export type ListingStatus = 'active' | 'filled' | 'cancelled' | 'expired';
 

@@ -220,3 +220,31 @@ export function fulfillArgs(l: MarketListing) {
 export function cancelArgs(l: MarketListing) {
   return [[orderFromWire(l.order)]] as const;
 }
+
+export interface MarketCollectionSummary {
+  collection: Address;
+  lane: 'nft' | 'dn404';
+  name: string;
+  ticker: string;
+  pairedToken: Address;
+  unitWei: string;
+  maxSupply: string;
+  floorWei: string | null;
+  count: number;
+}
+
+export function fetchMarketCollections() {
+  return getJson<{ collections: MarketCollectionSummary[] }>('/market/collections');
+}
+
+export interface OwnedNft {
+  collection: Address;
+  tokenId: string;
+  lane: 'nft' | 'dn404';
+  name: string;
+  ticker: string;
+}
+
+export function fetchOwnedNfts(wallet: Address, fresh = false) {
+  return getJson<{ wallet: Address; items: OwnedNft[] }>(`/market/owned/${wallet}${fresh ? '?fresh=1' : ''}`);
+}

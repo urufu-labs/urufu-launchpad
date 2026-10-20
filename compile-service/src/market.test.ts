@@ -104,6 +104,7 @@ function info(collection: Hex, lane: 'nft' | 'dn404'): CollectionInfo {
     pairedToken: lane === 'dn404' ? ('0x9000000000000000000000000000000000000009' as Hex) : ZERO_ADDRESS,
     unitWei: lane === 'dn404' ? 10_000n * 10n ** 18n : 0n,
     maxSupply: 100n,
+    launchBlock: 1n,
   };
 }
 
@@ -118,7 +119,7 @@ function makeDeps() {
   const deps: MarketDeps = {
     chain,
     store,
-    collections: { lookup: async (a) => ours.get(a.toLowerCase()) ?? null },
+    collections: { lookup: async (a) => ours.get(a.toLowerCase()) ?? null, list: async () => [...ours.values()] },
     now: () => NOW,
   };
   // Seller owns token 7 of each collection and approved Seaport everywhere.
@@ -129,10 +130,22 @@ function makeDeps() {
   return { deps, chain, store };
 }
 
+/// Owned scanner over the fake chain's owner map.
+function fakeOwned(chain: FakeChain) {
+  return async (wallet: Hex, cols: CollectionInfo[]) => {
+    const out: Array<{ collection: Hex; tokenId: bigint }> = [];
+    for (const [key, owner] of chain.owners) {
+      const [c, id] = key.split(':');
+      if (owner === wallet.toLowerCase() && cols.some((x) => x.collection === c)) out.push({ collection: c as Hex, tokenId: BigInt(id!) });
+    }
+    return out;
+  };
+}
+
 async function makeApp(deps: MarketDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(rateLimit, { max: 10_000, timeWindow: '1 minute' });
-  await registerMarketRoutes(app, { deps, meta: memoryMetaStore() });
+  await registerMarketRoutes(app, { deps, meta: memoryMetaStore(), owned: fakeOwned(deps.chain as FakeChain) });
   return app;
 }
 
@@ -565,7 +578,7 @@ test('POST /market/orders is rate limited per IP', async () => {
   const { deps } = makeDeps();
   const app = Fastify({ logger: false });
   await app.register(rateLimit, { max: 10_000, timeWindow: '1 minute' });
-  await registerMarketRoutes(app, { deps, meta: memoryMetaStore() });
+  await registerMarketRoutes(app, { deps, meta: memoryMetaStore(), owned: async () => [] });
   let last = 0;
   for (let i = 0; i < 21; i++) {
     const r = await app.inject({ method: 'POST', url: '/market/orders', payload: {} });
@@ -595,4 +608,37 @@ test('rarityRanks puts the token with the rarest traits first', () => {
   assert.equal(ranks.get('4'), 1);
   assert.equal(ranks.get('1'), 2);
   assert.equal(ranks.get('3'), 2);
+});
+
+// -----------------------------------------------------------------------------
+// Marketplace index + Sell tab
+// -----------------------------------------------------------------------------
+
+test('GET /market/collections lists every urufu collection with live floor + count', async () => {
+  const { deps } = makeDeps();
+  const app = await makeApp(deps);
+  await submitSigned(app, baseOrder({ collection: DN404_MIRROR, price: 3n * 10n ** 17n }));
+  const res = await app.inject({ method: 'GET', url: '/market/collections' });
+  const cols = (res.json() as { collections: Array<{ collection: string; floorWei: string | null; count: number; lane: string }> }).collections;
+  assert.equal(cols.length, 3);
+  const dn = cols.find((c) => c.collection === DN404_MIRROR)!;
+  assert.equal(dn.lane, 'dn404');
+  assert.equal(dn.count, 1);
+  assert.equal(dn.floorWei, (3n * 10n ** 17n).toString());
+  const nft = cols.find((c) => c.collection === NFT)!;
+  assert.equal(nft.count, 0);
+  assert.equal(nft.floorWei, null);
+  await app.close();
+});
+
+test('GET /market/owned lists only urufu NFTs the wallet holds', async () => {
+  const { deps } = makeDeps(); // seller owns #7 in NFT, DN404_MIRROR, ROYALTY_NFT and OUTSIDE
+  const app = await makeApp(deps);
+  const res = await app.inject({ method: 'GET', url: `/market/owned/${SELLER}` });
+  const items = (res.json() as { items: Array<{ collection: string; tokenId: string }> }).items;
+  assert.deepEqual(items.map((i) => i.collection).sort(), [NFT, DN404_MIRROR, ROYALTY_NFT].sort());
+  assert.ok(items.every((i) => i.tokenId === '7'));
+  const none = await app.inject({ method: 'GET', url: `/market/owned/${stranger.address}` });
+  assert.equal((none.json() as { items: unknown[] }).items.length, 0);
+  await app.close();
 });

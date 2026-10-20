@@ -4,6 +4,8 @@
 ///   GET  /market/collections/:addr/listings   live listings, cheapest first, with traits
 ///   GET  /market/tokens/:addr/:id             live listing for one NFT, if any
 ///   GET  /market/wallet/:addr                 a wallet's listings (incl. hidden / ended)
+///   GET  /market/collections                  every urufu collection with floor + listed count
+///   GET  /market/owned/:addr                  NFTs a wallet holds in urufu collections (Sell tab)
 ///
 /// Listings are only accepted for collections launched through our NFT and
 /// DN404 lanes, priced in ETH, with no platform fee item. Cancels happen on
@@ -25,9 +27,10 @@ import {
   submitListing,
   withLiveness,
   type MarketDeps,
+  type OwnedScanner,
   type StoredListing,
 } from '../market.ts';
-import { indexerMarketCollections, viemMarketChain } from '../market-chain.ts';
+import { holdersOwnedScanner, indexerMarketCollections, viemMarketChain } from '../market-chain.ts';
 import { memoryMarketStore, migrateMarket, postgresMarketStore } from '../market-store.ts';
 import {
   RarityIndex,
@@ -46,8 +49,9 @@ const META_FILL_PER_REQUEST = 60;
 
 export async function registerMarketRoutes(
   app: FastifyInstance,
-  opts: { deps?: MarketDeps; meta?: MetaStore } = {},
+  opts: { deps?: MarketDeps; meta?: MetaStore; owned?: OwnedScanner } = {},
 ): Promise<void> {
+  const owned = opts.owned ?? holdersOwnedScanner();
   let deps = opts.deps;
   let meta = opts.meta;
   if (!deps || !meta) {
@@ -195,6 +199,81 @@ export async function registerMarketRoutes(
         rarityRank: r?.ranks.get(tokenId.toString()) ?? null,
         rarityScanned: r?.scanned ?? 0,
       });
+    },
+  );
+
+  /// Collection index for the /market page. Floor + count come from live
+  /// listings only (same liveness check as the per-collection route).
+  let summaryCache: { at: number; body: unknown } | null = null;
+  app.get(
+    '/market/collections',
+    { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } },
+    async (_req, reply) => {
+      if (summaryCache && Date.now() - summaryCache.at < 15_000) return reply.send(summaryCache.body);
+      let cols;
+      try {
+        cols = await d.collections.list();
+      } catch {
+        return reply.header('retry-after', '30').code(503).send({ code: 'INDEXER_UNAVAILABLE' });
+      }
+      const out = [];
+      for (const c of cols) {
+        const active = await d.store.activeByCollection(c.collection, MAX_COLLECTION_LISTINGS);
+        const live = (await withLiveness(d, active, states)).filter((e) => e.live.kind === 'live');
+        const tokens = new Set(live.map((e) => e.listing.tokenId.toString()));
+        out.push({
+          collection: c.collection,
+          lane: c.lane,
+          name: c.name,
+          ticker: c.ticker,
+          pairedToken: c.pairedToken,
+          unitWei: c.unitWei.toString(),
+          maxSupply: c.maxSupply.toString(),
+          floorWei: live[0] ? live[0].listing.priceWei.toString() : null,
+          count: tokens.size,
+        });
+      }
+      const body = { collections: out };
+      summaryCache = { at: Date.now(), body };
+      return reply.send(body);
+    },
+  );
+
+  /// The Sell tab: what a wallet can list. Scans each collection's transfer
+  /// logs (cached, incremental) and confirms with ownerOf.
+  const ownedCache = new Map<string, { at: number; body: unknown }>();
+  app.get<{ Params: { addr: string }; Querystring: { fresh?: string } }>(
+    '/market/owned/:addr',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      if (!isAddress(req.params.addr)) return reply.code(400).send({ code: 'BAD_ADDRESS' });
+      const wallet = req.params.addr.toLowerCase() as Hex;
+      const hit = ownedCache.get(wallet);
+      if (hit && req.query.fresh !== '1' && Date.now() - hit.at < 20_000) return reply.send(hit.body);
+      let cols;
+      try {
+        cols = await d.collections.list();
+      } catch {
+        return reply.header('retry-after', '30').code(503).send({ code: 'INDEXER_UNAVAILABLE' });
+      }
+      let tokens;
+      try {
+        tokens = await owned(wallet, cols);
+      } catch (err) {
+        req.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'market: owned scan failed');
+        return reply.code(502).send({ code: 'SCAN_FAILED' });
+      }
+      const byAddr = new Map(cols.map((c) => [c.collection, c]));
+      const items = [];
+      for (const t of tokens.slice(0, 500)) {
+        const c = byAddr.get(t.collection);
+        if (!c) continue;
+        items.push({ collection: t.collection, tokenId: t.tokenId.toString(), lane: c.lane, name: c.name, ticker: c.ticker });
+      }
+      const body = { wallet, items };
+      ownedCache.set(wallet, { at: Date.now(), body });
+      if (ownedCache.size > 2_000) ownedCache.clear();
+      return reply.send(body);
     },
   );
 

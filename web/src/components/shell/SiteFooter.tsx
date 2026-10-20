@@ -9,6 +9,7 @@ const COLUMNS: Array<{ title: string; links: Array<{ href: string; label: string
     links: [
       { href: '/discover', label: 'Explore' },
       { href: '/trade', label: 'Trade' },
+      { href: '/market', label: 'NFT market' },
       { href: '/create', label: 'Launch a token' },
       { href: '/flywheel', label: 'Flywheel' },
     ],

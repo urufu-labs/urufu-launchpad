@@ -110,7 +110,9 @@ export function MarketPanel({
           ) : data === null ? (
             <div className={styles.empty}>Couldn&apos;t load listings right now.</div>
           ) : data.listings.length === 0 ? (
-            <div className={styles.empty}>Nothing listed yet. Owners can list from their profile or an NFT&apos;s page.</div>
+            <div className={styles.empty}>
+              Nothing listed yet. Own one? <Link className={styles.link} href="/market?tab=sell">List it on the Sell page</Link>.
+            </div>
           ) : (
             <ul className={styles.grid}>
               {data.listings.map((l) => (
