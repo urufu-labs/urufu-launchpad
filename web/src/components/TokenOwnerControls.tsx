@@ -78,7 +78,8 @@ export function TokenOwnerControls({ visibleFor, chain }: Props) {
       // in launchpad scope right now, so this filter is effectively a no-op
       // today; kept explicit so if NFTs ship later the shelf doesn't start
       // rendering rows for tokens it has no controls for.
-      setLaunches((rows ?? []).filter((r) => r.chainId === targetChainId && r.base === 0));
+      // Fair tokens have no owner, so they never have controls here.
+      setLaunches((rows ?? []).filter((r) => r.chainId === targetChainId && r.base === 0 && r.lane !== 'fair'));
       setLaunchesReady(true);
     })();
     return () => { cancelled = true; };

@@ -544,6 +544,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                       ${l.ticker} · {BASE_LABEL[l.base] ?? '?'}
                     </div>
                     <div className={styles.badgeRow}>
+                      {l.lane === 'fair' && <MiniBadge label="Fair" tint="info" />}
                       {l.installedBondingCurve && <MiniBadge label="Curve" />}
                       {l.installedHook && <MiniBadge label="Hook" tint="info" />}
                     </div>
