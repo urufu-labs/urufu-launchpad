@@ -14,6 +14,7 @@ const FILES = {
   docs: join(APP, 'docs', 'page.tsx'),
   modules: join(APP, 'catalog', 'page.tsx'),
   'dn404 create': join(APP, 'create', 'dn404', 'page.tsx'),
+  'fair create': join(APP, 'create', 'fair', 'page.tsx'),
   'market home': join(APP, 'market', 'page.tsx'),
   'market collection': join(APP, 'market', '[address]', 'page.tsx'),
   'nft detail': join(APP, 'collection', '[address]', '[tokenId]', 'page.tsx'),
