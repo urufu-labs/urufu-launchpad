@@ -19,6 +19,8 @@ import { useAccount, useReadContract, useReadContracts, useWaitForTransactionRec
 
 import { fairHookHostAbi, fairLaunchFactoryAbi, openingBatchAbi } from '@/lib/abis';
 import { FAIR_LAUNCHES, type ChainKey } from '@/lib/config';
+import { findDevFundedWallets } from '@/lib/devFunded';
+import { fetchFairDepositors, fetchTradesForCurve } from '@/lib/indexer';
 import type { WagmiChainId } from '@/lib/wagmi';
 import info from './info-panel.module.css';
 import styles from './FairLaunchPanels.module.css';
@@ -84,6 +86,8 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
           { abi: openingBatchAbi, address: batch, functionName: 'deposits', args: [user], chainId },
           { abi: openingBatchAbi, address: batch, functionName: 'claimed', args: [user], chainId },
           { abi: openingBatchAbi, address: batch, functionName: 'pending', args: [user], chainId },
+          { abi: openingBatchAbi, address: batch, functionName: 'refundOwed', args: [user], chainId },
+          { abi: openingBatchAbi, address: batch, functionName: 'creator', chainId },
         ]
       : [],
     query: { enabled: !!batch, refetchInterval: 5_000 },
@@ -95,6 +99,50 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
   const myDeposit = r?.[3]?.result as bigint | undefined;
   const myClaimed = r?.[4]?.result as boolean | undefined;
   const myPending = r?.[5]?.result as readonly [bigint, bigint] | undefined;
+  const myRefundOwed = r?.[6]?.result as bigint | undefined;
+  const creator = r?.[7]?.result as Address | undefined;
+
+  const curveQ = useReadContract({
+    abi: fairLaunchFactoryAbi,
+    address: set?.LaunchFactory,
+    functionName: 'curveFor',
+    args: [token],
+    chainId,
+    query: { enabled: !!batch, staleTime: Infinity },
+  });
+  const curve = curveQ.data && curveQ.data !== ZERO ? (curveQ.data as Address) : null;
+
+  // Wallets the dev funded (limit 1): batch depositors + early curve buyers that the
+  // creator wallet sent ETH or this token to. Browser-side Blockscout read, warning only.
+  const [funded, setFunded] = useState<{ flagged: string[]; checked: number } | null | 'unavailable'>(null);
+  useEffect(() => {
+    if (!batch || !creator || closeTs === undefined) return;
+    let cancelled = false;
+    (async () => {
+      const [deps, trades] = await Promise.all([
+        fetchFairDepositors(batch),
+        curve ? fetchTradesForCurve(curve, 200) : Promise.resolve([]),
+      ]);
+      const early = (trades ?? []).filter((t) => t.isBuy).slice(0, 100).map((t) => t.trader);
+      const candidates = [...new Set([...(deps ?? []), ...early].map((a) => a.toLowerCase()))];
+      if (candidates.length === 0) {
+        if (!cancelled) setFunded({ flagged: [], checked: 0 });
+        return;
+      }
+      const flagged = await findDevFundedWallets({
+        creator,
+        token,
+        launchTs: Number(closeTs),
+        candidates,
+        ignore: [batch, ...(curve ? [curve] : [])],
+      });
+      if (cancelled) return;
+      setFunded(flagged === null ? 'unavailable' : { flagged, checked: candidates.length });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [batch, creator, closeTs, curve, token]);
 
   const poolId = useMemo(() => (set && graduated ? fairPoolId(token, set.HookHost) : null), [set, graduated, token]);
   const hookReads = useReadContracts({
@@ -151,6 +199,9 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
     writeContract({ abi: openingBatchAbi, address: batch, functionName: 'deposit', value: parsed, chainId });
   const claim = () => writeContract({ abi: openingBatchAbi, address: batch, functionName: 'claim', chainId });
   const settle = () => writeContract({ abi: openingBatchAbi, address: batch, functionName: 'settle', chainId });
+  const withdrawRefund = () =>
+    wallet &&
+    writeContract({ abi: openingBatchAbi, address: batch, functionName: 'withdrawRefund', args: [wallet], chainId });
 
   const taxSecs = taxAnchor ? Math.max(0, taxAnchor.left - (now - taxAnchor.at)) : 0;
   const taxPct = taxBps !== undefined ? Number(taxBps) / 100 : 0;
@@ -174,6 +225,40 @@ export function FairLaunchPanels({ token, chainKey, chainId, graduated }: Props)
             </span>
           )}
         </div>
+      )}
+
+      {funded !== null && (funded === 'unavailable' || funded.checked > 0) && (
+        <p className={styles.fundedNote} data-tone={funded !== 'unavailable' && funded.flagged.length > 0 ? 'bad' : undefined}>
+          {funded === 'unavailable'
+            ? 'Dev-funded wallet check is unavailable right now.'
+            : funded.flagged.length > 0
+              ? `Heads up: ${funded.flagged.length} of ${funded.checked} early buyers got ETH or tokens from the dev wallet.`
+              : funded.checked > 0
+                ? `No early buyers got ETH or tokens from the dev wallet (${funded.checked} checked).`
+                : null}
+          {funded !== 'unavailable' && funded.flagged.length > 0 && (
+            <span className={styles.fundedList}>
+              {funded.flagged.slice(0, 8).map((a) => (
+                <a key={a} href={`https://robinhoodchain.blockscout.com/address/${a}`} target="_blank" rel="noreferrer">
+                  {a.slice(0, 6)}...{a.slice(-4)}
+                </a>
+              ))}
+            </span>
+          )}
+          <small>Only catches direct sends from the launch wallet, not exchanges or hops.</small>
+        </p>
+      )}
+
+      {myRefundOwed !== undefined && myRefundOwed > 0n && (
+        <section className={info.block}>
+          <p className={info.muted}>
+            {fmtEth(myRefundOwed)} ETH from your batch refund could not be sent automatically. Withdraw it to
+            your connected wallet.
+          </p>
+          <button type="button" className="ui-btn" disabled={!wallet || busy} onClick={withdrawRefund}>
+            {busy ? 'Withdrawing...' : 'Withdraw refund'}
+          </button>
+        </section>
       )}
 
       {!graduated && (windowOpen || !settled || (myDeposit !== undefined && myDeposit > 0n && !myClaimed)) && (

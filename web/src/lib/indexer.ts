@@ -618,6 +618,20 @@ async function _fetchRecentTradesRaw(limit: number): Promise<IndexerTrade[] | nu
 
 /// Health probe — used by pages to decide whether to try indexer queries at all before
 /// falling back to mocks. Cheap: hits the GraphQL endpoint's introspection.
+/// Fair launch opening-batch depositors (indexer `fair_deposits`). Used by the
+/// trade page's "wallets funded by the dev" check.
+export async function fetchFairDepositors(batch: Address, limit = 500): Promise<Address[] | null> {
+  const data = await gqlFanout<{ fairDepositss: { items: { user: Address }[] } }>(
+    `query FairDepositors($batch: String!, $limit: Int!) {
+      fairDepositss(where: { batchAddress: $batch }, limit: $limit) {
+        items { user }
+      }
+    }`,
+    { batch: batch.toLowerCase(), limit },
+  );
+  return data ? data.fairDepositss.items.map((d) => d.user) : null;
+}
+
 export async function isIndexerReachable(): Promise<boolean> {
   // Introspection query — no items[] arrays to merge, use plain gql() to fallback URL.
   const data = await gql<{ __schema: unknown }>(`query { __schema { queryType { name } } }`);

@@ -30,7 +30,7 @@ const RULES: Array<{ title: string; body: string }> = [
   {
     title: 'Dev sells, dev loses fees',
     body:
-      'The dev earns 1% of trades only while they hold. If the launch wallet sells, or moves more than 10% of its tokens away, its fee switches to buy and burn for good.',
+      'The dev earns 1% of trades only while they hold. A dev who holds nothing at graduation earns nothing. If the launch wallet sells, or moves more than 10% of its tokens away, its fee switches to buy and burn for good, including the fee from the selling trade itself.',
   },
   {
     title: 'No token tax',
@@ -75,8 +75,10 @@ export default function FairLaunchPage() {
             </div>
           ))}
           <p className={styles.infoNote}>
-            <b>What it can&apos;t catch:</b> only the launch wallet is tracked. A dev who also buys
-            from other wallets from the start can&apos;t be spotted on-chain.
+            <b>What it can&apos;t catch:</b> the rules only track the launch wallet. A dev who also buys
+            from other wallets can&apos;t be stopped on-chain, so the trade page flags early buyers
+            that got ETH or tokens straight from the dev wallet. Funding through an exchange or a
+            second wallet still gets past that check.
           </p>
         </div>
       </section>

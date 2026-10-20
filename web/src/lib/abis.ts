@@ -202,6 +202,9 @@ export const openingBatchAbi = parseAbi([
   `function claimed(address user) view returns (bool)`,
   `function settled() view returns (bool)`,
   `function pending(address user) view returns (uint256 tokens, uint256 refund)`,
+  `function creator() view returns (address)`,
+  `function refundOwed(address user) view returns (uint256)`,
+  `function withdrawRefund(address to)`,
 ] as const);
 
 /// FairHookHost: sniper tax + creator-fee forfeit on graduated Fair pools.
