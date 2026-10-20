@@ -1023,3 +1023,31 @@
   .pageHeader { grid-template-columns: minmax(0, 1fr); }
   .agentStrip { justify-items: start; }
 }
+
+/* Fair launch teaser: grayed out until the lane is audited and enabled. */
+.fairTeaser {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--fg-muted);
+  font-size: 14px;
+  text-decoration: none;
+  opacity: 0.75;
+}
+.fairTeaser:hover { opacity: 1; }
+.fairTeaser b { color: var(--fg); font-weight: 650; }
+.fairTeaser small {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

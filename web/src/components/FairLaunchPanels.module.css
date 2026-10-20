@@ -1,0 +1,24 @@
+/* Fair launch trade-page panels. Layout comes from info-panel.module.css. */
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.chip[data-tone="warn"] { border-color: var(--warn, var(--line-strong)); background: var(--warn-soft, var(--surface-2)); }
+.chip[data-tone="ok"] { color: var(--buy); }
+.chip[data-tone="bad"] { color: var(--sell); }
+
+.row { display: flex; gap: 8px; }
+.row :global(.ui-input) { flex: 1; min-width: 0; }
+
+.error { margin: 0; font-size: 13px; color: var(--sell); overflow-wrap: anywhere; }

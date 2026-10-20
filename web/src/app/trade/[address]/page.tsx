@@ -43,6 +43,7 @@ import { Mascot } from '@/components/Mascot';
 import { TradeChart } from '@/components/TradeChart';
 import { TokenHolderModules } from '@/components/TokenHolderModules';
 import { PoolPolicyCard } from '@/components/PoolPolicyCard';
+import { FairLaunchPanels } from '@/components/FairLaunchPanels';
 import infoStyles from '@/components/info-panel.module.css';
 import type { WagmiChainId } from '@/lib/wagmi';
 import { TradeTicker, QuickAmounts, CopyCA, FlashCell, ChatDrawer } from '@/components/TradeEffects';
@@ -612,6 +613,16 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
               is all zeros). poolId + hookAddr are computed above from the
               indexer's graduation row (or derived from the wired hook for
               pre-graduation launches — those get filtered out server-side). */}
+          {/* Fair launch tokens only: opening batch (deposit / claim), sniper-tax
+              chip and dev badge. Renders nothing for other lanes or while the
+              Fair lane has no factory configured for this chain. */}
+          <FairLaunchPanels
+            token={tokenAddress}
+            chainKey={activeChain ?? null}
+            chainId={(readChainId ?? chainId) as WagmiChainId}
+            graduated={!!graduated}
+          />
+
           <PoolPolicyCard
             poolId={poolId as Hex | null}
             hookAddress={hookAddr as Address | null}

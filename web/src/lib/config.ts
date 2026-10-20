@@ -455,6 +455,37 @@ export const DN404_LAUNCHES: Record<ChainKey, Dn404LaunchSet | null> = {
   'robinhood-testnet': null,
 };
 
+/// Fair launch lane (docs/SPEC-fair-launch.md): opening batch, burning sniper
+/// tax, creator fee that burns if the dev sells. Contracts are built and
+/// fork-tested but NOT deployed (audit + Uniswap hook allowlist first), so every
+/// chain is null and the lane stays dark. Fill in from deployment-fair.4663.json
+/// after the broadcast, then flip FAIR_LAUNCHES_ENABLED.
+export interface FairLaunchSet {
+  /// `launch(name, symbol)` payable; attached ETH is the creator's first batch deposit.
+  LaunchFactory: Address;
+  /// FairHookHost: the lane's v4 hook (sniper tax, forfeit, burn bank).
+  HookHost: Address;
+}
+
+export const FAIR_LAUNCHES: Record<ChainKey, FairLaunchSet | null> = {
+  mainnet: null,
+  sepolia: null,
+  base: null,
+  'base-sepolia': null,
+  robinhood: null,
+  'robinhood-testnet': null,
+};
+
+/// Create-page gate for the Fair lane. Off everywhere until audit.
+export const FAIR_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  robinhood: false,
+  'robinhood-testnet': false,
+};
+
 /// Uniswap Universal Router + Permit2, per chain. Used ONLY for post-graduation
 /// swaps on ERC-20/ERC-20 pools (DN404 pair-currency tokens); our V4SwapRouter
 /// is native-ETH-only and stays the path for every ETH pool. Robinhood's router
