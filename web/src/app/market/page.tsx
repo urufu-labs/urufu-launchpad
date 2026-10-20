@@ -80,7 +80,8 @@ function MarketHome() {
     <div className={styles.page}>
       <section className={styles.hero}>
         <div>
-          <h1 className={styles.title}>urufulabs NFT marketplace</h1>
+          <div className={styles.eyebrow}>urufulabs · Robinhood Chain</div>
+          <h1 className={styles.title}>NFT marketplace</h1>
           <div className={styles.statRow}>
             <span className={styles.stat}>Collections<b>{collections ? collections.length : '…'}</b></span>
             <span className={styles.stat}>Listed now<b>{collections ? listedTotal : '…'}</b></span>
@@ -139,7 +140,7 @@ function ExploreTab({ collections, onSell }: { collections: Collection[] | null 
     <>
       <section className={styles.section}>
         <div className={styles.sectionHead}>
-          <h2 className={styles.sectionTitle}>Listed now</h2>
+          <h2 className={styles.sectionTitle} data-label="For sale">Listed now</h2>
           <span className={styles.sectionAside}>{NO_FEE_COPY}</span>
         </div>
         {listed === undefined ? (
@@ -179,7 +180,7 @@ function ExploreTab({ collections, onSell }: { collections: Collection[] | null 
 
       <section className={styles.section}>
         <div className={styles.sectionHead}>
-          <h2 className={styles.sectionTitle}>Collections</h2>
+          <h2 className={styles.sectionTitle} data-label="Browse">Collections</h2>
           <input
             className={`ui-input ${styles.search}`}
             placeholder="Search collections"
@@ -260,7 +261,7 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
     <>
       <section className={styles.section}>
         <div className={styles.sectionHead}>
-          <h2 className={styles.sectionTitle}>Your NFTs</h2>
+          <h2 className={styles.sectionTitle} data-label="Sell">Your NFTs</h2>
           <span className={styles.sectionAside}>Listing is a free signature. You only pay gas once to approve a collection.</span>
         </div>
         {owned === undefined ? (

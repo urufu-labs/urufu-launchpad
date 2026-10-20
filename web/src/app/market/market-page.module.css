@@ -19,28 +19,26 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 20px;
   align-items: end;
-  padding: 26px 24px 22px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 55%),
-    var(--surface-1);
+  background: var(--surface-1);
 }
 
 .eyebrow {
-  font-size: 11px;
-  font-weight: 700;
+  margin: 0 0 5px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
 }
 
 .title {
-  margin: 6px 0 0;
-  font-family: var(--font-display, inherit);
-  font-size: clamp(32px, 5vw, 52px);
+  margin: 0;
+  font-family: var(--font-display), "Yusei Magic", cursive;
+  font-size: 35px;
   font-weight: 400;
-  line-height: 1;
+  line-height: 0.9;
   color: var(--fg);
 }
 
@@ -122,10 +120,21 @@
 
 .sectionTitle {
   margin: 0;
-  font-family: var(--font-display, inherit);
-  font-size: 24px;
-  font-weight: 400;
+  font-family: var(--font-sans), "Pixelify Sans", monospace;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--fg);
+}
+
+.sectionTitle::before {
+  display: block;
+  margin-bottom: 3px;
+  content: attr(data-label);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .sectionAside {
@@ -407,12 +416,10 @@
   grid-template-columns: 136px minmax(0, 1fr);
   gap: 20px;
   align-items: center;
-  padding: 20px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  background:
-    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 55%),
-    var(--surface-1);
+  background: var(--surface-1);
 }
 
 .colHeroArt {
@@ -445,7 +452,6 @@
 @media (max-width: 720px) {
   .hero {
     grid-template-columns: minmax(0, 1fr);
-    padding: 20px 16px;
   }
   .colHero {
     grid-template-columns: 88px minmax(0, 1fr);
