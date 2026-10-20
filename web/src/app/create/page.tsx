@@ -1335,10 +1335,10 @@ function CreatePageContent() {
         </header>
 
         {/* Fair launch lane: shown so people know it is coming, not launchable
-            until the contracts are audited (FAIR_LAUNCHES_ENABLED). */}
-        <Link href="/create/fair" className={styles.fairTeaser} aria-label="Fair launch, coming after audit">
+            (FAIR_LAUNCHES_ENABLED gates the form on /create/fair). */}
+        <Link href="/create/fair" className={styles.fairTeaser} aria-label="Fair launch">
           <span>
-            <b>Fair launch</b> <small>soon</small>
+            <b>Fair launch</b> <small>new</small>
           </span>
           <span>No sniper edge, no bundle edge, and the dev only earns while they hold.</span>
         </Link>

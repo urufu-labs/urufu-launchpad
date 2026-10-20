@@ -20,6 +20,7 @@ import {
   DN404_PAIR_CURRENCIES,
   UNIVERSAL_ROUTERS,
   PERMIT2,
+  UNISWAP_ALLOWLIST_PENDING_HOOKS,
   type ChainKey,
 } from '@/lib/config';
 import { buildErc20PoolKey, encodeV4ExactInSingle, encodeV4ExactInSingleSettleFirst } from '@/lib/v4Erc20Swap';
@@ -1526,7 +1527,9 @@ function GraduatedPanel({
     robinhood: true,
     'robinhood-testnet': false,
   };
-  const uniswapLinkSafe = chain ? HOOK_UNISWAP_ALLOWLISTED[chain] ?? false : false;
+  // Per-hook override: a pool on a hook still under Uniswap review stays off.
+  const hookPendingReview = !!hookAddr && UNISWAP_ALLOWLIST_PENDING_HOOKS.has(hookAddr.toLowerCase());
+  const uniswapLinkSafe = chain ? (HOOK_UNISWAP_ALLOWLISTED[chain] ?? false) && !hookPendingReview : false;
 
   if (!v4Router) {
     return (

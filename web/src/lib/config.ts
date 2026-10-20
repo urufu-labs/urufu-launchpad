@@ -481,13 +481,22 @@ export const FAIR_LAUNCHES: Record<ChainKey, FairLaunchSet | null> = {
   'robinhood-testnet': null,
 };
 
-/// Create-page gate for the Fair lane. Off everywhere until audit.
+/// Hooks whose Uniswap routing allowlist review is still pending. The trade page
+/// hides "Open on Uniswap" for pools on these hooks (Uniswap shows off-allowlist
+/// hooks as bare pools, a bait risk). Remove an address once Uniswap approves it.
+export const UNISWAP_ALLOWLIST_PENDING_HOOKS: ReadonlySet<string> = new Set<string>([
+  '0xddc9a293cfdd6a824dbd33c58a9e78fee85828c4', // FairHookHost V2, submitted 2026-10-20
+  '0xfa7feccfb9a08e69457f876c3bebccbb39bde8c4', // FairHookHost V1, retired (never approved)
+]);
+
+/// Create-page gate for the Fair lane.
 export const FAIR_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   mainnet: false,
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: false,
+  // Live 2026-10-20 (owner choice: no external audit, no wait on the Uniswap review).
+  robinhood: true,
   'robinhood-testnet': false,
 };
 

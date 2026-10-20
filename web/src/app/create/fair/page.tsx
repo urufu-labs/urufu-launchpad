@@ -2,7 +2,7 @@
 
 /// /create/fair: the Fair launch lane (docs/SPEC-fair-launch.md). Shows the rules
 /// always; the form only submits once FAIR_LAUNCHES_ENABLED and FAIR_LAUNCHES are
-/// both set for the chain (contracts await an audit + the Uniswap hook allowlist).
+/// both set for the chain (Robinhood live 2026-10-20).
 /// Submit = FairLaunchFactory.launch(name, symbol) with the creator's first batch
 /// deposit attached, then a jump to the new token's trade page.
 
@@ -72,7 +72,7 @@ export default function FairLaunchPage() {
           <h2 id="fair-rules" className={styles.panelTitle}>
             How it works
           </h2>
-          <span className={styles.panelAside}>Built and tested, waiting on an audit</span>
+          <span className={styles.panelAside}>{live ? 'Live on Robinhood' : 'Not open yet'}</span>
         </div>
         <div className={styles.panelBody}>
           {RULES.map((r) => (
@@ -275,7 +275,7 @@ function LaunchForm({ chain, live }: { chain: ChainKey; live: boolean }) {
             </button>
           ) : (
             <button type="button" className="ui-btn" data-variant="primary" disabled={!live || !!reason || busy} onClick={launch}>
-              {!live ? 'Coming after audit' : busy ? (approving ? 'Approving URU...' : 'Launching...') : needsApprove ? 'Approve URU' : 'Launch'}
+              {!live ? 'Not open yet' : busy ? (approving ? 'Approving URU...' : 'Launching...') : needsApprove ? 'Approve URU' : 'Launch'}
             </button>
           )}
           {reason && <p className={styles.hint}>{reason}</p>}
