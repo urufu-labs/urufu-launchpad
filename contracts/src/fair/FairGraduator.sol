@@ -79,7 +79,9 @@ interface IFairCurveReserves {
 ///             from the lane: its curve buys plus its opening-batch share. Baseline =
 ///             max(balance, that amount). The pool starts forfeited if the creator sold
 ///             on the curve OR already holds more than the drop allowance below that
-///             amount, which catches a pre-graduation transfer to an alt wallet.
+///             amount, which catches a pre-graduation transfer to an alt wallet. It also
+///             starts forfeited if the creator holds under 0.1% of supply: no holdings,
+///             no fee.
 ///           * Opening price is `max(curve marginal, raw real ratio)`. Marginal is what
 ///             GraduatorV3 uses (no cliff for the last curve buyer); taking the max means
 ///             ETH is always the limiting side of the LP add, so ETH can never strand the
@@ -125,6 +127,9 @@ contract FairGraduator is IUnlockCallback {
     /// beforeInitialize | beforeAddLiquidity | beforeSwap | afterSwap | afterSwapReturnsDelta.
     uint160 public constant REQUIRED_HOOK_FLAGS = 0x28C4;
     uint160 internal constant FLAG_MASK = 0x3FFF;
+    /// "No holdings, no fee": a creator holding less than 0.1% of supply at graduation
+    /// starts forfeited. Zero or dust balances never earn creator fees.
+    uint16 public constant MIN_CREATOR_HOLD_BPS = 10;
     /// Gas budget for pushing the creator's batch share at graduation.
     uint256 internal constant CREATOR_CLAIM_GAS = 400_000;
 
@@ -317,7 +322,8 @@ contract FairGraduator is IUnlockCallback {
         uint256 bal = _balanceOf(token, launcher);
         baseline = bal > expected ? bal : expected;
         uint256 floor = (expected * (10_000 - uint256(IFairHookConfig(address(hook)).forfeitDropBps()))) / 10_000;
-        forfeited = creatorSold || bal < floor;
+        uint256 minHold = (_totalSupply(token) * MIN_CREATOR_HOLD_BPS) / 10_000;
+        forfeited = creatorSold || bal < floor || bal < minHold;
     }
 
     function _verifyHookConfig(
@@ -365,6 +371,14 @@ contract FairGraduator is IUnlockCallback {
             poolManager.take(key.currency1, address(this), uint256(uint128(delta1)));
         }
         return "";
+    }
+
+    function _totalSupply(
+        address token
+    ) private view returns (uint256) {
+        (bool ok, bytes memory ret) = token.staticcall(abi.encodeWithSignature("totalSupply()"));
+        if (!ok || ret.length < 32) return 0;
+        return abi.decode(ret, (uint256));
     }
 
     function _balanceOf(

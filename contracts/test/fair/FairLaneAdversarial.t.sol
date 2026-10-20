@@ -44,6 +44,7 @@ contract EthRejectingCreator {
 }
 
 /// Adversarial tests for the Fair launch lane (spec "Tests" section).
+/// forge-config: default.isolate = true
 contract FairLaneAdversarialTest is FairTestBase {
     using PoolIdLibrary for PoolKey;
 
@@ -177,7 +178,7 @@ contract FairLaneAdversarialTest is FairTestBase {
         vm.stopPrank();
         (,,,,,,, bool forfeited,) = hook.pools(id);
         assertTrue(forfeited, "transfer to alt did not forfeit");
-        assertEq(hook.owed(Currency.wrap(address(0)), creator), 0, "creator earned on the dump");
+        assertEq(_creatorEarned(token, true), 0, "creator earned on the dump");
         assertGt(hook.bankedEth(id), 0, "forfeited ETH share not banked");
         _assertHookSolvent(token, creator);
     }
@@ -413,7 +414,7 @@ contract FairLaneAdversarialTest is FairTestBase {
     /// Exact-in and exact-out, both directions, through an aggregator-style executor,
     /// during the tax window: every combo succeeds and the hook stays solvent.
     function test_AllSwapShapesDuringTax_HookSolvent() public {
-        (address token, FairBondingCurve curve,) = _launch("Shapes", 0);
+        (address token, FairBondingCurve curve,) = _launch("Shapes", 0.2 ether);
         PoolKey memory key = _graduate(curve);
         PoolId id = key.toId();
         address t = makeAddr("shape-trader");
@@ -446,7 +447,15 @@ contract FairLaneAdversarialTest is FairTestBase {
         assertGt(_bal(token, DEAD), dead1, "exact-out sell tax not burned");
 
         _assertHookSolvent(token, creator);
+        // Same second as the swaps above: the sandwich guard refuses...
+        vm.expectRevert();
         hook.burnBank(id, 0);
+        // ...one second later it runs, capped at ~1% price impact per call.
+        vm.warp(block.timestamp + 1);
+        while (hook.bankedEth(id) > 0) {
+            vm.warp(block.timestamp + 1);
+            hook.burnBank(id, 0);
+        }
         assertEq(hook.totalBanked(), 0);
         _assertHookSolvent(token, creator);
     }
@@ -454,7 +463,7 @@ contract FairLaneAdversarialTest is FairTestBase {
     function testFuzz_HookSolventAcrossRandomSwaps(
         uint256 seed
     ) public {
-        (address token, FairBondingCurve curve,) = _launch("FuzzSolv", 0);
+        (address token, FairBondingCurve curve,) = _launch("FuzzSolv", 0.2 ether);
         PoolKey memory key = _graduate(curve);
         address t = makeAddr("fuzz-trader");
         vm.deal(t, 100 ether);

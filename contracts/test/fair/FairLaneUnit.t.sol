@@ -20,6 +20,7 @@ import {FairHookHost} from "src/fair/FairHookHost.sol";
 import {FairTestBase, IERC20Min} from "./FairTestBase.sol";
 
 /// Unit tests for the Fair launch lane on a local v4 PoolManager.
+/// forge-config: default.isolate = true
 contract FairLaneUnitTest is FairTestBase {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -401,7 +402,7 @@ contract FairLaneUnitTest is FairTestBase {
     }
 
     function test_BuyTax_BurnedInTokens() public {
-        (address token, FairBondingCurve curve,) = _launch("BuyTax", 0);
+        (address token, FairBondingCurve curve,) = _launch("BuyTax", 0.2 ether);
         PoolKey memory key = _graduate(curve);
         vm.warp(block.timestamp + 150); // 10% tax
         uint256 deadBefore = _bal(token, DEAD);
@@ -427,7 +428,7 @@ contract FairLaneUnitTest is FairTestBase {
         assertEq(hook.bankedEth(id), 0, "no tax after window");
 
         // A fresh pool to sell into during its tax window.
-        (address token2, FairBondingCurve curve2,) = _launch("SellTax2", 0);
+        (address token2, FairBondingCurve curve2,) = _launch("SellTax2", 0.2 ether);
         PoolKey memory key2 = _graduate(curve2);
         PoolId id2 = key2.toId();
         address seller = makeAddr("fair-grad-whale"); // whale holds curve2 tokens
@@ -443,10 +444,15 @@ contract FairLaneUnitTest is FairTestBase {
         assertEq(hook.totalBanked(), banked);
         _assertHookSolvent(token2, creator);
 
+        vm.warp(block.timestamp + 1); // the guard refuses in the same second as the sell
         uint256 supplyDeadBefore = _bal(token2, DEAD);
         address keeper = makeAddr("keeper");
-        vm.prank(keeper);
-        uint256 burned = hook.burnBank(id2, 1);
+        uint256 burned;
+        while (hook.bankedEth(id2) > 0) {
+            vm.warp(block.timestamp + 1);
+            vm.prank(keeper);
+            burned += hook.burnBank(id2, 1);
+        }
         assertGt(burned, 0);
         assertEq(_bal(token2, DEAD) - supplyDeadBefore, burned, "bank tokens not sent to dead");
         assertEq(hook.bankedEth(id2), 0);
@@ -460,7 +466,7 @@ contract FairLaneUnitTest is FairTestBase {
     }
 
     function test_BurnBank_SlippageGuard() public {
-        (address token, FairBondingCurve curve,) = _launch("BankSlip", 0);
+        (address token, FairBondingCurve curve,) = _launch("BankSlip", 0.2 ether);
         PoolKey memory key = _graduate(curve);
         PoolId id = key.toId();
         address seller = makeAddr("fair-grad-whale");
@@ -476,7 +482,7 @@ contract FairLaneUnitTest is FairTestBase {
     }
 
     function test_AfterWindow_NoTax_NormalFees() public {
-        (address token, FairBondingCurve curve,) = _launch("NoTax", 0);
+        (address token, FairBondingCurve curve,) = _launch("NoTax", 0.2 ether);
         PoolKey memory key = _graduate(curve);
         vm.warp(block.timestamp + 300);
         uint256 deadBefore = _bal(token, DEAD);
@@ -486,7 +492,7 @@ contract FairLaneUnitTest is FairTestBase {
         assertEq(_bal(token, DEAD), deadBefore, "tax after window");
         uint256 gross = (out * 10_000) / 9800;
         assertApproxEqAbs(hook.owed(Currency.wrap(token), platform), gross / 100, gross / 1e12 + 2);
-        assertApproxEqAbs(hook.owed(Currency.wrap(token), creator), gross / 100, gross / 1e12 + 2);
+        assertApproxEqAbs(_creatorEarned(token, false), gross / 100, gross / 1e12 + 2);
     }
 
     // ================================================================ forfeit
@@ -517,7 +523,9 @@ contract FairLaneUnitTest is FairTestBase {
         PoolId id = key.toId();
         Currency tok = Currency.wrap(token);
         _buy(key, 0.1 ether);
-        uint256 owedBefore = hook.owed(tok, creator);
+        // A later check confirms the pending fee while the creator still holds.
+        hook.pokeForfeit(id);
+        uint256 owedBefore = _creatorClaimable(token, false);
         assertGt(owedBefore, 0, "creator earned nothing while holding");
         assertFalse(hook.isForfeited(id));
 
@@ -534,7 +542,7 @@ contract FairLaneUnitTest is FairTestBase {
         uint256 out = _buy(key, 0.1 ether);
         (,,,,,,, bool forfeited,) = hook.pools(id);
         assertTrue(forfeited);
-        assertEq(hook.owed(tok, creator), owedBefore, "creator still accruing after forfeit");
+        assertEq(_creatorEarned(token, false), owedBefore, "creator still accruing after forfeit");
         uint256 gross = (out * 10_000) / 9800;
         assertApproxEqAbs(_bal(token, DEAD) - deadBefore, gross / 100, gross / 1e12 + 2, "creator share not burned");
 
@@ -542,11 +550,13 @@ contract FairLaneUnitTest is FairTestBase {
         vm.prank(fresh);
         IERC20Min(token).transfer(creator, (bal * 11) / 100);
         _buy(key, 0.1 ether);
-        assertEq(hook.owed(tok, creator), owedBefore, "forfeit was not permanent");
-        // Fees earned before the forfeit stay claimable.
-        vm.prank(creator);
-        hook.claim(tok);
-        assertEq(hook.owed(tok, creator), 0);
+        assertEq(_creatorEarned(token, false), owedBefore, "forfeit was not permanent");
+        // Fees confirmed before the forfeit stay claimable.
+        uint256 before = _bal(token, creator);
+        hook.claimCreatorFees(id);
+        assertEq(_bal(token, creator) - before, owedBefore);
+        assertEq(_creatorEarned(token, false), 0);
+        tok;
         _assertHookSolvent(token, creator);
     }
 
@@ -586,7 +596,7 @@ contract FairLaneUnitTest is FairTestBase {
         vm.stopPrank();
         uint256 gross = (ethOut * 10_000) / 9800;
         assertApproxEqAbs(hook.bankedEth(id), gross / 100, gross / 1e12 + 2, "ETH creator share not banked");
-        assertEq(hook.owed(Currency.wrap(address(0)), creator), 0);
+        assertEq(_creatorEarned(token, true), 0);
         _assertHookSolvent(token, creator);
     }
 
@@ -606,7 +616,7 @@ contract FairLaneUnitTest is FairTestBase {
         assertTrue(forfeited, "pre-grad dump did not forfeit");
         vm.warp(block.timestamp + 300);
         _buy(key, 0.1 ether);
-        assertEq(hook.owed(Currency.wrap(token), creator), 0, "forfeited creator accrued");
+        assertEq(_creatorEarned(token, false), 0, "forfeited creator accrued");
     }
 
     function test_Forfeit_NonCreatorSellDoesNotFlag() public {

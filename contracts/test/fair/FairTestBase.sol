@@ -318,15 +318,33 @@ abstract contract FairTestBase is Test {
         return IERC20Min(token).balanceOf(who);
     }
 
-    /// Hook holds enough of each currency to pay every owed balance plus the bank.
+    /// Creator fees earned on `token`'s pool: pending + claimable, in ETH or tokens.
+    function _creatorEarned(
+        address token,
+        bool eth
+    ) internal view returns (uint256) {
+        (uint128 pEth, uint128 pTok, uint128 cEth, uint128 cTok) = hook.creatorFees(_key(token).toId());
+        return eth ? uint256(pEth) + cEth : uint256(pTok) + cTok;
+    }
+
+    function _creatorClaimable(
+        address token,
+        bool eth
+    ) internal view returns (uint256) {
+        (,, uint128 cEth, uint128 cTok) = hook.creatorFees(_key(token).toId());
+        return eth ? cEth : cTok;
+    }
+
+    /// Hook holds enough of each currency to pay every platform balance, every creator
+    /// fee (pending + claimable) and the bank. Single-pool tests only.
     function _assertHookSolvent(
         address token,
-        address creatorAddr
+        address
     ) internal view {
         Currency eth = Currency.wrap(address(0));
         Currency tok = Currency.wrap(token);
-        uint256 owedEth = hook.owed(eth, platform) + hook.owed(eth, creatorAddr);
-        uint256 owedTok = hook.owed(tok, platform) + hook.owed(tok, creatorAddr);
+        uint256 owedEth = hook.owed(eth, platform) + _creatorEarned(token, true);
+        uint256 owedTok = hook.owed(tok, platform) + _creatorEarned(token, false);
         assertGe(address(hook).balance, owedEth + hook.totalBanked(), "hook ETH insolvent");
         assertGe(_bal(token, address(hook)), owedTok, "hook token insolvent");
     }

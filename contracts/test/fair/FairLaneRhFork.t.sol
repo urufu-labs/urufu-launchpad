@@ -65,6 +65,7 @@ interface IV4SwapRouterLive {
 ///             Exact-in and exact-out, buy and sell.
 ///           * The site's own live V4SwapRouter.
 ///         Robinhood caps a tx at 32M gas; every user-facing call asserts under it.
+/// forge-config: default.isolate = true
 contract FairLaneRhForkTest is FairTestBase {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -332,7 +333,7 @@ contract FairLaneRhForkTest is FairTestBase {
         uint256 got = _bal(token, trader);
         uint256 gross = (got * 10_000) / 9800;
         assertApproxEqRel(hook.owed(Currency.wrap(token), platform), gross / 100, 1e15, "platform fee != 1%");
-        assertApproxEqRel(hook.owed(Currency.wrap(token), creator), gross / 100, 1e15, "creator fee != 1%");
+        assertApproxEqRel(_creatorEarned(token, false), gross / 100, 1e15, "creator fee != 1%");
         // FeeSplitter (no claim fn) gets its share via the permissionless push.
         uint256 p0 = _bal(token, platform);
         hook.pushOwed(Currency.wrap(token), platform);
@@ -394,6 +395,7 @@ contract FairLaneRhForkTest is FairTestBase {
         uint256 banked = hook.bankedEth(id);
         assertGt(banked, 0, "site sell during tax banked nothing");
 
+        vm.warp(block.timestamp + 1); // burnBank refuses in the same second as a big move
         uint256 dead0 = _bal(token, DEAD);
         address keeper = makeAddr("fork-keeper");
         vm.prank(keeper);
@@ -417,9 +419,9 @@ contract FairLaneRhForkTest is FairTestBase {
         _urExactIn(trader, key, true, 0.01 ether);
         (,,,,,,, bool forfeited,) = hook.pools(id);
         assertTrue(forfeited, "UR swap after creator transfer did not forfeit");
-        uint256 owed = hook.owed(Currency.wrap(token), creator);
+        uint256 owed = _creatorEarned(token, false);
         _urExactIn(trader, key, true, 0.01 ether);
-        assertEq(hook.owed(Currency.wrap(token), creator), owed, "creator accrued after forfeit");
+        assertEq(_creatorEarned(token, false), owed, "creator accrued after forfeit");
     }
 
     function test_Fork_ThirdPartyLiquidityLockedDuringTax_LivePoolManager() public {
@@ -430,5 +432,29 @@ contract FairLaneRhForkTest is FairTestBase {
         lp.addEthAbovePrice(key, 1e15);
         vm.warp(block.timestamp + 300);
         lp.addEthAbovePrice(key, 1e15);
+    }
+
+    /// The Uniswap app pays the pool AFTER the swap (Permit2 in SETTLE_ALL), so the hook
+    /// sees the creator's full balance during the dump. The dump's fee must sit pending
+    /// and be burned by the next transaction's check, never paid to the creator.
+    function test_Fork_CreatorDumpViaUniswapApp_FeeClawedBack() public {
+        (address token, PoolKey memory key) = _graduatedPool("ForkClawback");
+        PoolId id = key.toId();
+        vm.warp(vm.getBlockTimestamp() + 301);
+        _approveUr(creator, token);
+        _urExactIn(creator, key, false, _bal(token, creator) / 2);
+        (uint128 pEth,,,) = hook.creatorFees(id);
+        assertGt(pEth, 0, "dump fee should be pending");
+        (,,,,,,, bool forfeitedYet,) = hook.pools(id);
+        assertFalse(forfeitedYet);
+
+        uint256 bank0 = hook.bankedEth(id);
+        vm.deal(trader, 1 ether);
+        _urExactIn(trader, key, true, 0.01 ether);
+        (,,,,,,, bool forfeited,) = hook.pools(id);
+        assertTrue(forfeited, "dump via Uniswap app not caught");
+        assertEq(_creatorEarned(token, true), 0, "dump fee reached the creator");
+        assertGe(hook.bankedEth(id) - bank0, pEth, "dump fee not burned");
+        _assertHookSolvent(token, creator);
     }
 }
