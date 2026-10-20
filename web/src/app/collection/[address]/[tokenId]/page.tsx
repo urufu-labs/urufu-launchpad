@@ -228,7 +228,21 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
                   </dl>
                   {lane === 'dn404' && <TokenValueLine value={tokenValue} priceWei={BigInt(listing.priceWei)} />}
                   {isOwner ? (
-                    <CancelButton listing={listing} onDone={refresh} />
+                    <>
+                      <details>
+                        <summary className={styles.note}>Change price</summary>
+                        <ListForm
+                          collection={collection}
+                          tokenId={tokenId}
+                          lane={lane}
+                          replaces={listing}
+                          pairedToken={pairedToken}
+                          unitWei={unitWei}
+                          onListed={refresh}
+                        />
+                      </details>
+                      <CancelButton listing={listing} onDone={refresh} />
+                    </>
                   ) : (
                     <BuyButton listing={listing} pairedToken={pairedToken} onDone={refresh} size="lg" />
                   )}
@@ -242,7 +256,7 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
                       that if its traits are worth more than the tokens behind it.
                     </p>
                   )}
-                  <ListForm collection={collection} tokenId={tokenId} lane={lane} onListed={refresh} />
+                  <ListForm collection={collection} tokenId={tokenId} lane={lane} pairedToken={pairedToken} unitWei={unitWei} onListed={refresh} />
                 </>
               ) : (
                 <>

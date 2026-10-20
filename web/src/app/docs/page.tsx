@@ -32,6 +32,7 @@ const SECTIONS: Section[] = [
   { id: 'graduation', label: 'Graduation', show: true },
   { id: 'nfts', label: 'NFT collections', show: NFTS_ON },
   { id: 'dn404', label: 'DN404 (coin + NFTs)', show: DN404_ON },
+  { id: 'market', label: 'Buying and selling NFTs', show: NFTS_ON || DN404_ON },
   { id: 'fees', label: 'Fees and discounts', show: true },
   { id: 'risk', label: 'Risks', show: true },
   { id: 'faq', label: 'FAQ', show: true },
@@ -244,6 +245,34 @@ export default function DocsPage() {
                   'Some trading apps that route through their own contracts may fail to sell taxed coins. Selling on this site and in the Uniswap app works.',
                 ]}
               />
+            </DocSection>
+          )}
+
+          {(NFTS_ON || DN404_ON) && (
+            <DocSection id="market" title="Buying and selling NFTs">
+              <p className={styles.prose}>
+                The NFT marketplace lists NFTs from collections launched on urufu, both NFT and
+                DN404 collections. There is no marketplace fee. If a collection has a creator
+                royalty, that part of each sale goes to the creator.
+              </p>
+              <FactList
+                items={[
+                  'To sell, open Market, then Sell, and pick a price and how long the listing lasts (up to 180 days).',
+                  'The first time you sell from a collection, you approve the marketplace with one transaction. After that, listing is a free signature.',
+                  'Sales go through Seaport, the open trading contract OpenSea also uses. The NFT and the ETH swap in one transaction. If either side fails, nothing moves.',
+                  'Cancelling a listing or changing its price is a transaction. Cancel all listings ends every listing from your wallet at once.',
+                  'If you move or sell an NFT you listed, its listing stops showing and can no longer be bought.',
+                ]}
+              />
+              {DN404_ON && (
+                <FactList
+                  items={[
+                    'Selling a DN404 NFT also sends the coins behind it to the buyer.',
+                    'If you sell those coins first, the NFT goes away and its listing stops working.',
+                    'Each DN404 listing shows the token value of 1 NFT, so you can see how much of the price is for the art.',
+                  ]}
+                />
+              )}
             </DocSection>
           )}
 

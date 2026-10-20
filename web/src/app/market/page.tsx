@@ -228,7 +228,7 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
   const { address } = useAccount();
   const [owned, setOwned] = useState<OwnedNft[] | null | undefined>(undefined);
   const [listings, setListings] = useState<MarketListing[]>([]);
-  const [listing, setListing] = useState<OwnedNft | null>(null);
+  const [listing, setListing] = useState<{ nft: OwnedNft; replaces?: MarketListing } | null>(null);
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
   const closeDialog = useCallback(() => setListing(null), []);
@@ -293,12 +293,17 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
                           <span className={styles.status} data-tone="live">Listed</span>
                           <span className={styles.price}>{formatEthShort(live.priceWei)} ETH</span>
                         </div>
-                        <CancelButton listing={live} onDone={refresh} />
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button type="button" className="ui-btn" data-size="sm" data-variant="primary" onClick={() => setListing({ nft: n, replaces: live })}>
+                            Change price
+                          </button>
+                          <CancelButton listing={live} onDone={refresh} />
+                        </div>
                       </>
                     ) : (
                       <>
                         <span className={styles.status}>Not listed</span>
-                        <button type="button" className="ui-btn" data-variant="primary" data-block="true" onClick={() => setListing(n)}>
+                        <button type="button" className="ui-btn" data-variant="primary" data-block="true" onClick={() => setListing({ nft: n })}>
                           List for sale
                         </button>
                       </>
@@ -313,16 +318,25 @@ function SellTab({ collections }: { collections: Collection[] | null | undefined
 
       <MyListings visibleFor={address} />
 
-      <Modal open={listing !== null} onClose={closeDialog} title="List for sale" width={560}>
+      <Modal open={listing !== null} onClose={closeDialog} title={listing?.replaces ? 'Change price' : 'List for sale'} width={560}>
         {listing && (
           <div className={styles.dialogBody}>
-            <TokenArt collection={listing.collection as Address} tokenId={listing.tokenId} className={styles.dialogArt} />
+            <TokenArt collection={listing.nft.collection as Address} tokenId={listing.nft.tokenId} className={styles.dialogArt} />
             <div>
-              <p className={styles.dialogName}>{listing.name} #{listing.tokenId}</p>
+              <p className={styles.dialogName}>{listing.nft.name} #{listing.nft.tokenId}</p>
               <ListForm
-                collection={listing.collection as Address}
-                tokenId={listing.tokenId}
-                lane={listing.lane}
+                collection={listing.nft.collection as Address}
+                tokenId={listing.nft.tokenId}
+                lane={listing.nft.lane}
+                replaces={listing.replaces}
+                pairedToken={(() => {
+                  const c = coverOf(listing.nft.collection);
+                  return c?.pairedToken && c.pairedToken !== zeroAddress ? c.pairedToken : undefined;
+                })()}
+                unitWei={(() => {
+                  const u = coverOf(listing.nft.collection)?.unitWei;
+                  return u ? BigInt(u) : undefined;
+                })()}
                 onListed={() => { setListing(null); refresh(); }}
               />
             </div>

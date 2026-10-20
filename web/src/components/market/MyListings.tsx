@@ -9,6 +9,7 @@ import type { Address } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { fetchWalletListings, formatEthShort, type MarketListing } from '@/lib/market';
+import { CancelAllButton } from './CancelAllButton';
 import { CancelButton } from './CancelButton';
 import { TokenArt } from './TokenArt';
 import card from '../profile-card.module.css';
@@ -52,6 +53,7 @@ export function MyListings({ visibleFor }: { visibleFor: Address }) {
     <section className={card.card}>
       <div className={card.head}>
         <h2 className={card.title}>{isOwner ? 'Your listings' : 'Listings'}</h2>
+        {isOwner && rows.some((l) => l.status === 'active') && <CancelAllButton onDone={refresh} />}
       </div>
       <div>
         {shown.map((l) => (

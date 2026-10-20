@@ -6,6 +6,10 @@
 /// fills (for DN404 that's the mirror, the NFT side of the pair). Listing
 /// itself is a free signature. The order has no marketplace fee; if the
 /// collection has an ERC-2981 creator royalty, that part goes to the creator.
+///
+/// With `replaces` it changes the price of an existing listing: the old order
+/// is cancelled on Seaport first (a signed order stays fillable until then),
+/// then the new one is signed.
 
 import { useEffect, useMemo, useState } from 'react';
 import { parseEther, type Address } from 'viem';
@@ -28,6 +32,7 @@ import {
   SEAPORT_ADDRESS,
   SEAPORT_ORDER_TYPES,
   buildListingOrder,
+  cancelArgs,
   formatEthShort,
   nowSeconds,
   randomSalt,
@@ -35,6 +40,7 @@ import {
   submitListing,
   type MarketListing,
 } from '@/lib/market';
+import { useDn404TokenValue } from '@/lib/useDn404TokenValue';
 import styles from './market.module.css';
 
 function parsePrice(raw: string): bigint | null {
@@ -53,11 +59,19 @@ export function ListForm({
   tokenId,
   lane,
   onListed,
+  replaces,
+  pairedToken,
+  unitWei,
 }: {
   collection: Address;
   tokenId: string;
   lane: 'nft' | 'dn404';
   onListed?: (l: MarketListing) => void;
+  /// Existing live listing of this token to cancel before relisting.
+  replaces?: MarketListing;
+  /// DN404 only, for the "below token value" warning.
+  pairedToken?: Address;
+  unitWei?: bigint;
 }) {
   const { address: wallet, chainId: walletChainId } = useAccount();
   const client = usePublicClient({ chainId: MARKET_CHAIN_ID });
@@ -65,7 +79,10 @@ export function ListForm({
   const [priceRaw, setPriceRaw] = useState('');
   const [expiry, setExpiry] = useState(EXPIRY_CHOICES[2]!.seconds);
   const price = useMemo(() => parsePrice(priceRaw), [priceRaw]);
-  const [status, setStatus] = useState<'idle' | 'signing' | 'saving' | 'done'>('idle');
+  const [status, setStatus] = useState<'idle' | 'cancelling' | 'signing' | 'saving' | 'done'>('idle');
+  const tokenValue = useDn404TokenValue(lane === 'dn404' ? pairedToken : undefined, unitWei, MARKET_CHAIN_ID);
+  const belowTokenValue =
+    lane === 'dn404' && price !== null && tokenValue.unit === 'ETH' && tokenValue.value !== null && price < tokenValue.value;
   const [error, setError] = useState<string | null>(null);
 
   const { data: owner } = useReadContract({
@@ -140,6 +157,18 @@ export function ListForm({
     if (!wallet || !client || price === null) return;
     if (!(await ensureChain())) return;
     try {
+      if (replaces) {
+        setStatus('cancelling');
+        const hash = await writeContractAsync({
+          address: SEAPORT_ADDRESS,
+          abi: SEAPORT_ABI,
+          functionName: 'cancel',
+          args: cancelArgs(replaces),
+          chainId: MARKET_CHAIN_ID,
+        });
+        const receipt = await client.waitForTransactionReceipt({ hash });
+        if (receipt.status !== 'success') throw new Error('Cancelling the old listing failed.');
+      }
       setStatus('signing');
       const counter = await client.readContract({
         address: SEAPORT_ADDRESS,
@@ -220,6 +249,18 @@ export function ListForm({
         </div>
       )}
       <p className={styles.note}>{NO_FEE_COPY}</p>
+      {belowTokenValue && tokenValue.value !== null && (
+        <p className={styles.warn}>
+          That&apos;s below the value of the tokens behind this NFT ({formatEthShort(tokenValue.value)} ETH).
+          A buyer gets the NFT and those tokens, so you&apos;d sell for less than selling the tokens.
+        </p>
+      )}
+      {replaces && (
+        <p className={styles.note}>
+          Now listed at {formatEthShort(replaces.priceWei)} ETH. Changing the price first cancels that
+          listing (one transaction), then you sign the new one.
+        </p>
+      )}
       {lane === 'dn404' && (
         <p className={styles.note}>
           Selling this NFT also sends the tokens behind it to the buyer. If you sell or move
@@ -244,16 +285,20 @@ export function ListForm({
           className="ui-btn"
           data-variant="primary"
           data-block="true"
-          disabled={price === null || status === 'signing' || status === 'saving' || status === 'done'}
+          disabled={price === null || status !== 'idle'}
           onClick={list}
         >
           {status === 'done'
             ? 'Listed ✓'
-            : status === 'signing'
+            : status === 'cancelling'
+              ? 'Cancelling old listing…'
+              : status === 'signing'
               ? 'Sign in your wallet…'
               : status === 'saving'
                 ? 'Saving listing…'
-                : 'List for sale'}
+                : replaces
+                  ? 'Change price'
+                  : 'List for sale'}
         </button>
       )}
       {!approved && (
