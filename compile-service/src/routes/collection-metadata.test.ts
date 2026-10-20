@@ -231,7 +231,20 @@ test('non-Robinhood chain is refused', async () => {
   }
 });
 
-test('page look (banner, accent color, background) is saved with the row', async () => {
+const DESIGN = {
+  // Key order deliberately differs from the zod schema order: the signature
+  // must still verify (it is checked against the payload as sent).
+  wallpaper: { blur: 12, type: 'gradient', color2: '#FFC46B', color: '#ff7a59' },
+  bodyFont: 'default',
+  titleFont: 'caslon',
+  theme: 'paper',
+};
+const LINKS = [
+  { title: 'Roadmap', url: 'https://example.com/roadmap', style: 'featured', id: 'a1', thumbnailUrl: 'https://example.com/r.png' },
+  { id: 'b2', title: 'Merch', url: 'https://shop.example.com', style: 'classic' },
+];
+
+test('page look (banner, accent, theme, fonts, wallpaper) and links are saved with the row', async () => {
   const launcher = privateKeyToAccount(generatePrivateKey());
   const me = launcher.address.toLowerCase();
   const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
@@ -240,7 +253,8 @@ test('page look (banner, accent color, background) is saved with the row', async
       ...basePayload,
       bannerUrl: 'https://example.com/banner.png',
       accentColor: '#3A7BFF',
-      backgroundStyle: 'banner',
+      design: DESIGN,
+      links: LINKS,
     };
     const res = await post(app, await signed(launcher, payload));
     assert.equal(res.statusCode, 200, res.body);
@@ -248,30 +262,63 @@ test('page look (banner, accent color, background) is saved with the row', async
     assert.ok(ins.values.includes('https://example.com/banner.png'));
     // Stored lower-cased so reads are uniform.
     assert.ok(ins.values.includes('#3a7bff'));
-    assert.ok(ins.values.includes('banner'));
+    const json = ins.values.filter((v): v is string => typeof v === 'string' && v.startsWith('{') || typeof v === 'string' && v.startsWith('['));
+    const design = JSON.parse(json.find((v) => v.startsWith('{'))!);
+    const links = JSON.parse(json.find((v) => v.startsWith('['))!);
+    assert.equal(design.titleFont, 'caslon');
+    assert.equal(design.wallpaper.type, 'gradient');
+    assert.equal(links.length, 2);
+    assert.equal(links[0].title, 'Roadmap');
     const text = ins.strings.join('?');
     assert.match(text, /accent_color = EXCLUDED\.accent_color/);
-    assert.match(text, /background_style = EXCLUDED\.background_style/);
+    assert.match(text, /page_design = EXCLUDED\.page_design/);
+    assert.match(text, /page_links = EXCLUDED\.page_links/);
     assert.match(text, /banner_url = EXCLUDED\.banner_url/);
   } finally {
     await app.close();
   }
 });
 
-test('accent color must be #RRGGBB and background must be a known preset', async () => {
+test('signature covers design + links: changing a link after signing is rejected', async () => {
+  const launcher = privateKeyToAccount(generatePrivateKey());
+  const me = launcher.address.toLowerCase();
+  const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
+  try {
+    const body = await signed(launcher, { ...basePayload, links: LINKS });
+    const tampered = {
+      ...body,
+      payload: { ...body.payload, links: [{ ...LINKS[0], url: 'https://phish.example' }, LINKS[1]] },
+    };
+    const res = await post(app, tampered);
+    assert.equal(res.statusCode, 401, res.body);
+    assert.equal(inserts(calls).length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('style values that could inject CSS or scripts are refused', async () => {
   const launcher = privateKeyToAccount(generatePrivateKey());
   const me = launcher.address.toLowerCase();
   const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
   try {
     for (const bad of [
-      // CSS injection attempts through the color field.
       { accentColor: 'red;background:url(https://evil.example)' },
       { accentColor: '#fff' },
-      { backgroundStyle: 'url(https://evil.example)' },
       { bannerUrl: 'javascript:alert(1)' },
+      { design: { titleFont: 'Comic Sans; } body { display:none' } },
+      { design: { wallpaper: { type: 'color', color: 'red' } } },
+      { design: { wallpaper: { type: 'image', imageUrl: 'data:image/png;base64,AAAA' } } },
+      { design: { wallpaper: { type: 'image', blur: 999 } } },
+      { design: { wallpaper: { type: 'video' } } },
+      { design: { extra: 'nope' } },
+      { links: [{ id: 'x', title: 'Hi', url: 'javascript:alert(1)', style: 'classic' }] },
+      { links: [{ id: 'x', title: '', url: 'https://ok.example', style: 'classic' }] },
+      { links: [{ id: 'x', title: 'Hi', url: 'https://ok.example', style: 'huge' }] },
+      { links: Array.from({ length: 13 }, (_, i) => ({ id: `l${i}`, title: 'Hi', url: 'https://ok.example', style: 'classic' })) },
     ]) {
       const res = await post(app, await signed(launcher, { ...basePayload, ...bad }));
-      assert.equal(res.statusCode, 400, `${JSON.stringify(bad)} -> ${res.body}`);
+      assert.equal(res.statusCode, 400, `${JSON.stringify(bad).slice(0, 80)} -> ${res.body}`);
     }
     assert.equal(inserts(calls).length, 0);
   } finally {

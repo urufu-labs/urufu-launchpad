@@ -4,7 +4,10 @@
    Tokens are named by ROLE. New code uses these names only.
    ============================================================================ */
 
-:root {
+/* [data-force-theme] lets a block (a creator-styled collection page with a
+   dark or light wallpaper) pin one theme for everyone inside it. */
+:root,
+[data-force-theme="light"] {
   --bg: #F3F3F0;
   --surface-1: #FFFFFF;
   --surface-2: #F8F8F6;
@@ -43,7 +46,8 @@
   color-scheme: light;
 }
 
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+[data-force-theme="dark"] {
   --bg: #0B0B0C;
   --surface-1: #131315;
   --surface-2: #19191C;

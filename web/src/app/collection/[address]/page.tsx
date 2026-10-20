@@ -12,7 +12,7 @@
 /// the module's `paymentToken` field. URU-mode adds an allowance step
 /// before the mint tx.
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   useAccount,
@@ -40,10 +40,10 @@ import {
 } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
-import { fetchCollectionMetadata, type RemoteCollectionMetadata } from '@/lib/socialApi';
+import type { RemoteCollectionMetadata } from '@/lib/socialApi';
 import { MarketPanel } from '@/components/market/MarketPanel';
 import { CreatorTools, type PageDraft } from './CreatorTools';
-import { cssUrl, safeImageUrl, themeStyle, type BackgroundStyle } from './collectionTheme';
+import { CreatorLinks, LookBanner, LookShell, lookFrom, lookImageUrl, useCollectionMeta } from './CollectionLook';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -202,33 +202,12 @@ function CollectionView({
   // win over the indexer copy. While the launcher edits, `previewDraft` holds
   // their unsaved changes and only their own browser renders it.
   // ------------------------------------------------------------
-  const [pageMeta, setPageMeta] = useState<RemoteCollectionMetadata | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const row = await fetchCollectionMetadata(targetChainId, address);
-      if (!cancelled) setPageMeta(row);
-    })();
-    return () => { cancelled = true; };
-  }, [address, targetChainId]);
+  const [pageMeta, setPageMeta] = useCollectionMeta(targetChainId, address);
   const [previewDraft, setPreviewDraft] = useState<PageDraft | null>(null);
-  const look = previewDraft ?? {
-    imageUrl: pageMeta?.imageUrl ?? null,
-    bannerUrl: pageMeta?.bannerUrl ?? null,
-    accentColor: pageMeta?.accentColor ?? null,
-    backgroundStyle: (pageMeta?.backgroundStyle ?? null) as BackgroundStyle | null,
-    description: pageMeta?.description ?? null,
-    website: pageMeta?.website ?? null,
-    twitter: pageMeta?.twitter ?? null,
-    telegram: pageMeta?.telegram ?? null,
-    discord: pageMeta?.discord ?? null,
-  };
+  const look = useMemo(() => lookFrom(pageMeta, previewDraft), [previewDraft, pageMeta]);
   // data: URLs only ever come from the launcher's own unsaved preview.
-  const pageImage = safeImageUrl(look.imageUrl, previewDraft !== null);
-  const bannerImage = safeImageUrl(look.bannerUrl, previewDraft !== null);
-  const bannerCss = bannerImage
-    ? cssUrl(bannerImage.startsWith('data:') ? bannerImage : (toGatewayUrl(bannerImage) ?? bannerImage))
-    : null;
+  const isPreview = previewDraft !== null;
+  const pageImage = lookImageUrl(look, isPreview);
 
   /// Ask the wallet to switch to the collection's chain before a write.
   async function ensureChain(): Promise<boolean> {
@@ -628,10 +607,7 @@ function CollectionView({
   const chainLabel = chainKey === 'robinhood' ? 'Robinhood Chain' : chainKey;
 
   return (
-    <div className={styles.themeShell} style={themeStyle(look)}>
-    {bannerCss && look.backgroundStyle === 'banner' && (
-      <div className={styles.backdrop} style={{ backgroundImage: bannerCss }} aria-hidden="true" />
-    )}
+    <LookShell look={look} preview={isPreview}>
     <div className={styles.page}>
       {previewDraft && (
         <div className={styles.previewBar}>
@@ -639,14 +615,7 @@ function CollectionView({
           <a href="#customize" className="ui-btn" data-size="sm">Back to editing</a>
         </div>
       )}
-      {bannerCss && (
-        <div
-          className={styles.banner}
-          role="img"
-          aria-label={`${name ?? 'collection'} banner`}
-          style={{ backgroundImage: bannerCss }}
-        />
-      )}
+      <LookBanner look={look} preview={isPreview} name={name} />
       <header className={styles.hero}>
         <div className={styles.eyebrow}>{isDn404 ? 'DN404 collection' : 'NFT collection'}</div>
         <h1 className={styles.heroTitle}>
@@ -696,7 +665,7 @@ function CollectionView({
                 target="_blank"
                 rel="noopener noreferrer nofollow"
               >
-                {l.label} ↗
+                {l.label}
               </a>
             ))}
           </div>
@@ -773,6 +742,8 @@ function CollectionView({
               </section>
             );
           })()}
+
+          <CreatorLinks look={look} preview={isPreview} />
 
           {chainEnabled && indexerRow && (
             <MarketPanel
@@ -1121,12 +1092,14 @@ function CollectionView({
               pageMeta={pageMeta}
               onPageMetaSaved={setPageMeta}
               onPreview={setPreviewDraft}
+              collectionName={name}
+              artImage={cover}
             />
           )}
         </aside>
       </div>
     </div>
-    </div>
+    </LookShell>
   );
 }
 

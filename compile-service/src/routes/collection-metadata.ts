@@ -7,8 +7,8 @@ import { verifyEnvelope, type AuthEnvelope } from '../auth.ts';
 import type { SqlLike } from './social.ts';
 
 /// Off-chain page details for NFT-lane and DN404-lane collections: cover
-/// image, description, socials, and the page look (banner, accent color,
-/// background preset). Same storage + signed-write pattern as the
+/// image, description, socials, the page look (banner, accent color, theme,
+/// fonts, wallpaper) and the creator's own link buttons. Same storage + signed-write pattern as the
 /// ERC-20 `/token/:chainId/:address/metadata` route in social.ts, keyed on the
 /// collection address (the ERC-721; for DN404 that is the mirror, which is the
 /// address the /collection page lives at). Rows share `app.token_metadata`:
@@ -87,10 +87,44 @@ function _safeHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u);
 }
 
-/// Page background presets. 'default' = the site's own background, 'tint' =
-/// a light wash of the accent color, 'banner' = a blurred copy of the banner
-/// behind the top of the page.
-export const BACKGROUND_STYLES = ['default', 'tint', 'banner'] as const;
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const safeUrl = (max: number) => z.string().url().max(max).refine(_safeHttpUrl, { message: 'http(s) only' });
+
+/// Ids only; the web app maps each to a font it loads itself, so a stored
+/// value can never pull in an arbitrary font URL.
+export const FONT_IDS = ['default', 'caslon', 'bodoni', 'anton', 'plex-mono', 'silkscreen', 'marker'] as const;
+/// Which one-click theme the launcher started from ('custom' once edited).
+/// Cosmetic: every value a theme sets is also stored explicitly.
+export const THEME_IDS = ['custom', 'site', 'night', 'paper', 'pixel', 'poster', 'sketch', 'mono'] as const;
+/// Page background. 'default' = site background, 'tint' = light wash of the
+/// accent, 'banner' = blurred copy of the banner, 'color' / 'gradient' = the
+/// launcher's colors, 'image' = the launcher's image (optionally blurred).
+export const WALLPAPER_TYPES = ['default', 'tint', 'banner', 'color', 'gradient', 'image'] as const;
+export const LINK_STYLES = ['classic', 'featured'] as const;
+export const MAX_LINKS = 12;
+
+const Wallpaper = z.object({
+  type: z.enum(WALLPAPER_TYPES),
+  color: z.string().regex(HEX).nullable().optional(),
+  color2: z.string().regex(HEX).nullable().optional(),
+  imageUrl: safeUrl(500).nullable().optional(),
+  blur: z.number().int().min(0).max(40).optional(),
+}).strict();
+
+export const PageDesign = z.object({
+  theme: z.enum(THEME_IDS).optional(),
+  titleFont: z.enum(FONT_IDS).optional(),
+  bodyFont: z.enum(FONT_IDS).optional(),
+  wallpaper: Wallpaper.optional(),
+}).strict();
+
+export const PageLink = z.object({
+  id: z.string().regex(/^[a-z0-9-]{1,24}$/),
+  title: z.string().trim().min(1).max(60),
+  url: safeUrl(500),
+  style: z.enum(LINK_STYLES),
+  thumbnailUrl: safeUrl(500).nullable().optional(),
+}).strict();
 
 export const CollectionMetadataSaveBody = z.object({
   address: z.string(),
@@ -108,8 +142,12 @@ export const CollectionMetadataSaveBody = z.object({
     /// Page look. Wide image above the header.
     bannerUrl: z.string().url().max(500).refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
     /// #RRGGBB only, so the value can go straight into a CSS variable.
-    accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
-    backgroundStyle: z.enum(BACKGROUND_STYLES).nullable().optional(),
+    accentColor: z.string().regex(HEX).nullable().optional(),
+    /// Theme, fonts, wallpaper. Every field is an enum, hex color, bounded
+    /// number or http(s) URL, so nothing stored can inject CSS.
+    design: PageDesign.nullable().optional(),
+    /// The creator's own link buttons, in display order.
+    links: z.array(PageLink).max(MAX_LINKS).nullable().optional(),
   }),
 });
 
@@ -138,7 +176,8 @@ export async function registerCollectionMetadataRoutes(
       const rows = await sql`
         SELECT chain_id AS "chainId", token_address AS "collectionAddress", image_url AS "imageUrl",
                description, website, twitter, telegram, discord,
-               banner_url AS "bannerUrl", accent_color AS "accentColor", background_style AS "backgroundStyle",
+               banner_url AS "bannerUrl", accent_color AS "accentColor",
+               page_design AS "design", page_links AS "links",
                updated_at AS "updatedAt", owner
         FROM app.token_metadata
         WHERE chain_id = ${chainId} AND token_address = ${addr}
@@ -165,7 +204,12 @@ export async function registerCollectionMetadataRoutes(
         return reply.code(400).send({ code: 'UNSUPPORTED_CHAIN' });
       }
       const envelope: AuthEnvelope = { address, signature: signature as `0x${string}`, timestamp };
-      const auth = await verifyEnvelope('collection:save', payload, envelope);
+      // Verify against the payload exactly as the client sent it. zod rebuilds
+      // nested objects in schema key order, which would change the canonical
+      // JSON of `design` / `links` and break the signature. The parsed copy
+      // (validated, unknown keys rejected) is what gets stored.
+      const rawPayload = (req.body as { payload: Record<string, unknown> }).payload;
+      const auth = await verifyEnvelope('collection:save', rawPayload, envelope);
       if (!auth.ok) return reply.code(401).send({ code: 'UNAUTHORIZED', reason: auth.reason });
 
       const collection = payload.collectionAddress.toLowerCase() as Address;
@@ -189,9 +233,11 @@ export async function registerCollectionMetadataRoutes(
         return reply.code(403).send({ code: 'NOT_OWNER', owner: onChainOwner, signer: auth.address });
       }
 
+      const design = payload.design ? JSON.stringify(payload.design) : null;
+      const links = payload.links && payload.links.length > 0 ? JSON.stringify(payload.links) : null;
       await sql`
-        INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, banner_url, accent_color, background_style, owner, updated_at)
-        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.bannerUrl ?? null}, ${payload.accentColor?.toLowerCase() ?? null}, ${payload.backgroundStyle ?? null}, ${auth.address}, now())
+        INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, banner_url, accent_color, page_design, page_links, owner, updated_at)
+        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.bannerUrl ?? null}, ${payload.accentColor?.toLowerCase() ?? null}, ${design}::jsonb, ${links}::jsonb, ${auth.address}, now())
         ON CONFLICT (chain_id, token_address) DO UPDATE SET
           image_url = EXCLUDED.image_url,
           description = EXCLUDED.description,
@@ -201,7 +247,8 @@ export async function registerCollectionMetadataRoutes(
           discord = EXCLUDED.discord,
           banner_url = EXCLUDED.banner_url,
           accent_color = EXCLUDED.accent_color,
-          background_style = EXCLUDED.background_style,
+          page_design = EXCLUDED.page_design,
+          page_links = EXCLUDED.page_links,
           owner = EXCLUDED.owner,
           updated_at = now()
       `;

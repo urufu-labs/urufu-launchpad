@@ -7,6 +7,11 @@
 
 import type { Address } from 'viem';
 
+import type {
+  PageDesign as CollectionPageDesign,
+  PageLink as CollectionPageLink,
+} from '@/app/collection/[address]/collectionTheme';
+
 const BASE_URL =
   process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? 'http://localhost:3001';
 
@@ -150,7 +155,10 @@ export interface RemoteCollectionMetadata {
   /// Page look. Null = site default.
   bannerUrl: string | null;
   accentColor: string | null;
-  backgroundStyle: 'default' | 'tint' | 'banner' | null;
+  /// Theme, fonts, wallpaper (see app/collection/[address]/collectionTheme.ts).
+  design: CollectionPageDesign | null;
+  /// The creator's own link buttons, in display order.
+  links: CollectionPageLink[] | null;
   updatedAt: string;
   owner: Address;
 }
@@ -175,7 +183,8 @@ export async function saveCollectionMetadata(
     discord: string | null;
     bannerUrl: string | null;
     accentColor: string | null;
-    backgroundStyle: 'default' | 'tint' | 'banner' | null;
+    design: CollectionPageDesign | null;
+    links: CollectionPageLink[] | null;
   },
   sign: SignFn,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
