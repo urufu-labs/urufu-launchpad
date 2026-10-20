@@ -73,7 +73,9 @@ export function CreatorEarnings({ visibleFor, chain }: Props) {
     (async () => {
       const launches = await fetchLaunchesByCreator(visibleFor, 100);
       if (cancelled) return;
-      const forChain = (launches ?? []).filter((l) => l.chainId === targetChainId);
+      // Fair launch fees live on FairHookHost and are claimed from the token's trade
+      // page (FairLaunchPanels), not through the MultiHookHost reads below.
+      const forChain = (launches ?? []).filter((l) => l.chainId === targetChainId && l.lane !== 'fair');
       // Resolve each launched token's graduation → hookAddress. Ungraduated tokens
       // return null and are dropped. Fan out in parallel so a wallet with lots of
       // launches doesn't wait N * indexer-round-trip.
