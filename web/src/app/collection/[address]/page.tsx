@@ -41,7 +41,8 @@ import {
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { fetchNftHolders, type NftHolder } from '@/lib/nftHoldersApi';
 import { fetchCollectionMetadata, type RemoteCollectionMetadata } from '@/lib/socialApi';
-import { CreatorTools } from './CreatorTools';
+import { CreatorTools, type PageDraft } from './CreatorTools';
+import { cssUrl, safeImageUrl, themeStyle, type BackgroundStyle } from './collectionTheme';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -195,8 +196,10 @@ function CollectionView({
   const minterReadFailed = !isDn404 && (baseReadsError || minterRead?.status === 'failure');
   const collectionOwner = baseReads?.[6]?.result as Address | undefined;
   // ------------------------------------------------------------
-  // Page details the launcher saved from Creator tools (cover image,
-  // description, socials). When set, these win over the indexer copy.
+  // Page details + look the launcher saved from Customize your page (cover,
+  // banner, accent color, background, description, socials). When set, these
+  // win over the indexer copy. While the launcher edits, `previewDraft` holds
+  // their unsaved changes and only their own browser renders it.
   // ------------------------------------------------------------
   const [pageMeta, setPageMeta] = useState<RemoteCollectionMetadata | null>(null);
   useEffect(() => {
@@ -207,6 +210,24 @@ function CollectionView({
     })();
     return () => { cancelled = true; };
   }, [address, targetChainId]);
+  const [previewDraft, setPreviewDraft] = useState<PageDraft | null>(null);
+  const look = previewDraft ?? {
+    imageUrl: pageMeta?.imageUrl ?? null,
+    bannerUrl: pageMeta?.bannerUrl ?? null,
+    accentColor: pageMeta?.accentColor ?? null,
+    backgroundStyle: (pageMeta?.backgroundStyle ?? null) as BackgroundStyle | null,
+    description: pageMeta?.description ?? null,
+    website: pageMeta?.website ?? null,
+    twitter: pageMeta?.twitter ?? null,
+    telegram: pageMeta?.telegram ?? null,
+    discord: pageMeta?.discord ?? null,
+  };
+  // data: URLs only ever come from the launcher's own unsaved preview.
+  const pageImage = safeImageUrl(look.imageUrl, previewDraft !== null);
+  const bannerImage = safeImageUrl(look.bannerUrl, previewDraft !== null);
+  const bannerCss = bannerImage
+    ? cssUrl(bannerImage.startsWith('data:') ? bannerImage : (toGatewayUrl(bannerImage) ?? bannerImage))
+    : null;
 
   /// Ask the wallet to switch to the collection's chain before a write.
   async function ensureChain(): Promise<boolean> {
@@ -245,7 +266,7 @@ function CollectionView({
   // DN404 mirrors have no baseURI() getter, so use the indexer's copy.
   const artBaseUri = baseUri ?? indexerRow?.baseUri ?? undefined;
   useEffect(() => {
-    if (pageMeta?.imageUrl) { setCover(toGatewayUrl(pageMeta.imageUrl)); return; }
+    if (pageImage) { setCover(pageImage.startsWith('data:') ? pageImage : toGatewayUrl(pageImage)); return; }
     if (indexerRow?.coverImageUrl) { setCover(toGatewayUrl(indexerRow.coverImageUrl)); return; }
     if (!artBaseUri) return;
     let cancelled = false;
@@ -254,9 +275,9 @@ function CollectionView({
       if (!cancelled) setCover(toGatewayUrl(meta?.image));
     })();
     return () => { cancelled = true; };
-  }, [pageMeta?.imageUrl, indexerRow?.coverImageUrl, artBaseUri]);
-  const description = pageMeta?.description || indexerRow?.description || '';
-  const socialLinks = collectionSocialLinks(pageMeta);
+  }, [pageImage, indexerRow?.coverImageUrl, artBaseUri]);
+  const description = (previewDraft ? look.description : pageMeta?.description) || indexerRow?.description || '';
+  const socialLinks = collectionSocialLinks(look);
 
   // ------------------------------------------------------------
   // 1b'. Holders — current owners via compile-service /nft/.../holders.
@@ -606,7 +627,25 @@ function CollectionView({
   const chainLabel = chainKey === 'robinhood' ? 'Robinhood Chain' : chainKey;
 
   return (
+    <div className={styles.themeShell} style={themeStyle(look)}>
+    {bannerCss && look.backgroundStyle === 'banner' && (
+      <div className={styles.backdrop} style={{ backgroundImage: bannerCss }} aria-hidden="true" />
+    )}
     <div className={styles.page}>
+      {previewDraft && (
+        <div className={styles.previewBar}>
+          <span>You&apos;re seeing unsaved changes. Visitors still see the old page.</span>
+          <a href="#customize" className="ui-btn" data-size="sm">Back to editing</a>
+        </div>
+      )}
+      {bannerCss && (
+        <div
+          className={styles.banner}
+          role="img"
+          aria-label={`${name ?? 'collection'} banner`}
+          style={{ backgroundImage: bannerCss }}
+        />
+      )}
       <header className={styles.hero}>
         <div className={styles.eyebrow}>{isDn404 ? 'DN404 collection' : 'NFT collection'}</div>
         <h1 className={styles.heroTitle}>
@@ -1070,10 +1109,12 @@ function CollectionView({
               chainId={targetChainId}
               pageMeta={pageMeta}
               onPageMetaSaved={setPageMeta}
+              onPreview={setPreviewDraft}
             />
           )}
         </aside>
       </div>
+    </div>
     </div>
   );
 }
@@ -1124,7 +1165,7 @@ function MintThumb({ baseUri, tokenId }: { baseUri: string | undefined; tokenId:
 /// Socials the launcher saved, as safe http(s) links. Handles are accepted
 /// as typed ("@name" or a full link); anything that is not http(s) after
 /// expanding is dropped so a stored value can never become a script link.
-function collectionSocialLinks(meta: RemoteCollectionMetadata | null): { label: string; href: string }[] {
+function collectionSocialLinks(meta: Pick<RemoteCollectionMetadata, 'website' | 'twitter' | 'telegram' | 'discord'> | null): { label: string; href: string }[] {
   if (!meta) return [];
   const handle = (v: string) => v.trim().replace(/^@/, '');
   const asLink = (v: string | null, base: string | null): string | null => {

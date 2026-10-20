@@ -521,3 +521,164 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Full-width wrapper so a launcher's background preset covers the whole
+   viewport width, not just the centered column. */
+.themeShell {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* 'From banner' background: a heavily blurred, faded copy of the banner
+   behind the top of the page. */
+.backdrop {
+  position: absolute;
+  inset: -80px -80px auto;
+  height: 720px;
+  z-index: -1;
+  background: center / cover no-repeat;
+  filter: blur(72px) saturate(1.1);
+  opacity: 0.32;
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  pointer-events: none;
+}
+
+:root[data-theme="dark"] .backdrop {
+  opacity: 0.4;
+}
+
+.banner {
+  width: 100%;
+  aspect-ratio: 15 / 4;
+  max-height: 320px;
+  border-radius: var(--r-lg, 14px);
+  border: 1px solid var(--line);
+  background: var(--surface-2) center / cover no-repeat;
+}
+
+.previewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.swatchRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+
+.swatchCustom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.swatchCustom input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+}
+
+.linkBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.segmented button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented button[data-selected="true"] {
+  background: var(--surface-1);
+  color: var(--fg);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+
+.advanced summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin-bottom: 10px;
+}
+
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pickerThumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2) center / cover no-repeat;
+}
+
+.pickerThumb[data-wide="true"] {
+  width: 96px;
+  height: 26px;
+}

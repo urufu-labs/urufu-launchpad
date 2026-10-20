@@ -230,3 +230,51 @@ test('non-Robinhood chain is refused', async () => {
     await app.close();
   }
 });
+
+test('page look (banner, accent color, background) is saved with the row', async () => {
+  const launcher = privateKeyToAccount(generatePrivateKey());
+  const me = launcher.address.toLowerCase();
+  const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
+  try {
+    const payload = {
+      ...basePayload,
+      bannerUrl: 'https://example.com/banner.png',
+      accentColor: '#3A7BFF',
+      backgroundStyle: 'banner',
+    };
+    const res = await post(app, await signed(launcher, payload));
+    assert.equal(res.statusCode, 200, res.body);
+    const ins = inserts(calls)[0]!;
+    assert.ok(ins.values.includes('https://example.com/banner.png'));
+    // Stored lower-cased so reads are uniform.
+    assert.ok(ins.values.includes('#3a7bff'));
+    assert.ok(ins.values.includes('banner'));
+    const text = ins.strings.join('?');
+    assert.match(text, /accent_color = EXCLUDED\.accent_color/);
+    assert.match(text, /background_style = EXCLUDED\.background_style/);
+    assert.match(text, /banner_url = EXCLUDED\.banner_url/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('accent color must be #RRGGBB and background must be a known preset', async () => {
+  const launcher = privateKeyToAccount(generatePrivateKey());
+  const me = launcher.address.toLowerCase();
+  const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
+  try {
+    for (const bad of [
+      // CSS injection attempts through the color field.
+      { accentColor: 'red;background:url(https://evil.example)' },
+      { accentColor: '#fff' },
+      { backgroundStyle: 'url(https://evil.example)' },
+      { bannerUrl: 'javascript:alert(1)' },
+    ]) {
+      const res = await post(app, await signed(launcher, { ...basePayload, ...bad }));
+      assert.equal(res.statusCode, 400, `${JSON.stringify(bad)} -> ${res.body}`);
+    }
+    assert.equal(inserts(calls).length, 0);
+  } finally {
+    await app.close();
+  }
+});

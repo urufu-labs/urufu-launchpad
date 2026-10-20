@@ -7,7 +7,8 @@ import { verifyEnvelope, type AuthEnvelope } from '../auth.ts';
 import type { SqlLike } from './social.ts';
 
 /// Off-chain page details for NFT-lane and DN404-lane collections: cover
-/// image, description, socials. Same storage + signed-write pattern as the
+/// image, description, socials, and the page look (banner, accent color,
+/// background preset). Same storage + signed-write pattern as the
 /// ERC-20 `/token/:chainId/:address/metadata` route in social.ts, keyed on the
 /// collection address (the ERC-721; for DN404 that is the mirror, which is the
 /// address the /collection page lives at). Rows share `app.token_metadata`:
@@ -86,6 +87,11 @@ function _safeHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u);
 }
 
+/// Page background presets. 'default' = the site's own background, 'tint' =
+/// a light wash of the accent color, 'banner' = a blurred copy of the banner
+/// behind the top of the page.
+export const BACKGROUND_STYLES = ['default', 'tint', 'banner'] as const;
+
 export const CollectionMetadataSaveBody = z.object({
   address: z.string(),
   signature: z.string(),
@@ -99,6 +105,11 @@ export const CollectionMetadataSaveBody = z.object({
     twitter: z.string().max(80).nullable().optional(),
     telegram: z.string().max(80).nullable().optional(),
     discord: z.string().max(80).nullable().optional(),
+    /// Page look. Wide image above the header.
+    bannerUrl: z.string().url().max(500).refine(_safeHttpUrl, { message: 'http(s) only' }).nullable().optional(),
+    /// #RRGGBB only, so the value can go straight into a CSS variable.
+    accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+    backgroundStyle: z.enum(BACKGROUND_STYLES).nullable().optional(),
   }),
 });
 
@@ -126,7 +137,9 @@ export async function registerCollectionMetadataRoutes(
       }
       const rows = await sql`
         SELECT chain_id AS "chainId", token_address AS "collectionAddress", image_url AS "imageUrl",
-               description, website, twitter, telegram, discord, updated_at AS "updatedAt", owner
+               description, website, twitter, telegram, discord,
+               banner_url AS "bannerUrl", accent_color AS "accentColor", background_style AS "backgroundStyle",
+               updated_at AS "updatedAt", owner
         FROM app.token_metadata
         WHERE chain_id = ${chainId} AND token_address = ${addr}
         LIMIT 1
@@ -177,8 +190,8 @@ export async function registerCollectionMetadataRoutes(
       }
 
       await sql`
-        INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, owner, updated_at)
-        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${auth.address}, now())
+        INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, banner_url, accent_color, background_style, owner, updated_at)
+        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.bannerUrl ?? null}, ${payload.accentColor?.toLowerCase() ?? null}, ${payload.backgroundStyle ?? null}, ${auth.address}, now())
         ON CONFLICT (chain_id, token_address) DO UPDATE SET
           image_url = EXCLUDED.image_url,
           description = EXCLUDED.description,
@@ -186,6 +199,9 @@ export async function registerCollectionMetadataRoutes(
           twitter = EXCLUDED.twitter,
           telegram = EXCLUDED.telegram,
           discord = EXCLUDED.discord,
+          banner_url = EXCLUDED.banner_url,
+          accent_color = EXCLUDED.accent_color,
+          background_style = EXCLUDED.background_style,
           owner = EXCLUDED.owner,
           updated_at = now()
       `;

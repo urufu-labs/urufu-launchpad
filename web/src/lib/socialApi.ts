@@ -147,6 +147,10 @@ export interface RemoteCollectionMetadata {
   twitter: string | null;
   telegram: string | null;
   discord: string | null;
+  /// Page look. Null = site default.
+  bannerUrl: string | null;
+  accentColor: string | null;
+  backgroundStyle: 'default' | 'tint' | 'banner' | null;
   updatedAt: string;
   owner: Address;
 }
@@ -169,6 +173,9 @@ export async function saveCollectionMetadata(
     twitter: string | null;
     telegram: string | null;
     discord: string | null;
+    bannerUrl: string | null;
+    accentColor: string | null;
+    backgroundStyle: 'default' | 'tint' | 'banner' | null;
   },
   sign: SignFn,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
