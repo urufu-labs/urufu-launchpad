@@ -80,11 +80,7 @@ function MarketHome() {
     <div className={styles.page}>
       <section className={styles.hero}>
         <div>
-          <div className={styles.eyebrow}>NFT marketplace</div>
-          <h1 className={styles.title}>Buy and sell urufu NFTs</h1>
-          <p className={styles.lede}>
-            Every collection launched on urufu, NFT and DN404. {NO_FEE_COPY}
-          </p>
+          <h1 className={styles.title}>urufulabs NFT marketplace</h1>
           <div className={styles.statRow}>
             <span className={styles.stat}>Collections<b>{collections ? collections.length : '…'}</b></span>
             <span className={styles.stat}>Listed now<b>{collections ? listedTotal : '…'}</b></span>
@@ -144,14 +140,14 @@ function ExploreTab({ collections, onSell }: { collections: Collection[] | null 
       <section className={styles.section}>
         <div className={styles.sectionHead}>
           <h2 className={styles.sectionTitle}>Listed now</h2>
-          <span className={styles.sectionAside}>Newest listings across all collections</span>
+          <span className={styles.sectionAside}>{NO_FEE_COPY}</span>
         </div>
         {listed === undefined ? (
           <ul className={styles.nftGrid}>{[0, 1, 2, 3].map((i) => <li key={i} className={styles.skeleton} />)}</ul>
         ) : listed.length === 0 ? (
           <div className={styles.empty}>
             <b>Nothing listed yet</b>
-            Be the first. Listing is a free signature, and there&apos;s no marketplace fee.
+            Be the first to list one.
             <button type="button" className="ui-btn" data-variant="primary" onClick={onSell}>List an NFT</button>
           </div>
         ) : (
