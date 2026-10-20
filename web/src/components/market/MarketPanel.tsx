@@ -174,7 +174,8 @@ function ListingCard({
   tokenValue: Dn404TokenValue | null;
   onDone: () => void;
 }) {
-  const name = listing.meta?.name || `#${listing.tokenId}`;
+  const metaName = listing.meta?.name?.trim();
+  const name = metaName && !/^#?\d+$/.test(metaName) ? metaName : `#${listing.tokenId}`;
   const href = `/collection/${listing.collection}/${listing.tokenId}`;
   return (
     <li className={styles.card}>

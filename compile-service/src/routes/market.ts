@@ -28,10 +28,11 @@ import {
   type StoredListing,
 } from '../market.ts';
 import { indexerMarketCollections, viemMarketChain } from '../market-chain.ts';
-import { migrateMarket, postgresMarketStore } from '../market-store.ts';
+import { memoryMarketStore, migrateMarket, postgresMarketStore } from '../market-store.ts';
 import {
   RarityIndex,
   fillMeta,
+  memoryMetaStore,
   postgresMetaStore,
   type MetaStore,
   type TokenMeta,
@@ -52,16 +53,24 @@ export async function registerMarketRoutes(
   if (!deps || !meta) {
     const sql = defaultSql;
     if (!sql) {
-      app.log.warn('market: DATABASE_URL not set, /market/* disabled');
-      return;
+      // Local demo only: listings live in process memory and vanish on restart.
+      if (process.env.MARKET_DEV_MEMORY === '1' && process.env.NODE_ENV !== 'production') {
+        app.log.warn('market: no DATABASE_URL, using in-memory listings (MARKET_DEV_MEMORY=1)');
+        deps ??= { chain: viemMarketChain(), collections: indexerMarketCollections(), store: memoryMarketStore() };
+        meta ??= memoryMetaStore();
+      } else {
+        app.log.warn('market: DATABASE_URL not set, /market/* disabled');
+        return;
+      }
+    } else {
+      await migrateMarket(sql);
+      deps ??= {
+        chain: viemMarketChain(),
+        collections: indexerMarketCollections(),
+        store: postgresMarketStore(sql),
+      };
+      meta ??= postgresMetaStore(sql);
     }
-    await migrateMarket(sql);
-    deps ??= {
-      chain: viemMarketChain(),
-      collections: indexerMarketCollections(),
-      store: postgresMarketStore(sql),
-    };
-    meta ??= postgresMetaStore(sql);
   }
   const d = deps;
   const metaStore = meta;

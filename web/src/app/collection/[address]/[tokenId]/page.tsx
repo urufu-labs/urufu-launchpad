@@ -101,7 +101,11 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
   const image = useTokenImage(collection, tokenId, data?.meta?.image);
   const listing = data?.listing ?? null;
   const isOwner = !!wallet && !!owner && owner.toLowerCase() === wallet.toLowerCase();
-  const title = data?.meta?.name || `${(name as string | undefined) ?? 'NFT'} #${tokenId}`;
+  // Some metadata names a token just "1" or "#1"; lead with the collection then.
+  const metaName = data?.meta?.name?.trim();
+  const title = metaName && !/^#?\d+$/.test(metaName)
+    ? metaName
+    : `${(name as string | undefined) ?? 'NFT'} #${tokenId}`;
 
   return (
     <div className={styles.page}>
