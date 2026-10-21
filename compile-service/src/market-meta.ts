@@ -35,6 +35,24 @@ export interface TokenMeta {
 
 export const META_TTL_MS = 24 * 3600_000;
 
+/// A jsonb column read back through postgres.js. `${JSON.stringify(x)}::jsonb`
+/// with `prepare: false` stores a jsonb STRING ("[]"), not the array, so rows
+/// written that way come back as text. Parse those; pass real values through.
+export function jsonColumn<T>(raw: unknown, fallback: T): T {
+  if (typeof raw !== 'string') return (raw ?? fallback) as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/// Traits from a stored row, always an array of {trait_type, value}.
+export function storedTraits(raw: unknown): TokenTrait[] {
+  const v = jsonColumn<unknown>(raw, []);
+  return Array.isArray(v) ? parseTokenMeta(0n, { attributes: v }).attributes : [];
+}
+
 export interface MetaStore {
   get(collection: Hex, ids: bigint[]): Promise<Map<string, TokenMeta>>;
   put(collection: Hex, rows: TokenMeta[]): Promise<void>;
@@ -53,7 +71,7 @@ export function postgresMetaStore(sql: Sql): MetaStore {
       `;
       for (const r of rows) {
         out.set(r.token_id, {
-          tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: r.attributes ?? [],
+          tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: storedTraits(r.attributes),
           fetchedAt: new Date(r.fetched_at).getTime(),
         });
       }
@@ -74,7 +92,7 @@ export function postgresMetaStore(sql: Sql): MetaStore {
         SELECT token_id, name, image, attributes FROM app.market_token_meta
         WHERE collection = ${collection.toLowerCase()} AND ok = true
       `;
-      return rows.map((r) => ({ tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: r.attributes ?? [] }));
+      return rows.map((r) => ({ tokenId: BigInt(r.token_id), name: r.name, image: r.image, attributes: storedTraits(r.attributes) }));
     },
   };
 }

@@ -5,6 +5,7 @@
 import type { Hex } from 'viem';
 
 import { sql as defaultSql } from './db.ts';
+import { jsonColumn } from './market-meta.ts';
 import type { InsertResult, Lane, ListingStatus, MarketStore, StoredListing } from './market.ts';
 import type { WireOrder } from '../../shared/seaport.ts';
 
@@ -95,7 +96,7 @@ function fromRow(r: Row): StoredListing {
     startTime: BigInt(r.start_time),
     endTime: BigInt(r.end_time),
     counter: BigInt(r.counter),
-    order: r.order_json,
+    order: jsonColumn<WireOrder>(r.order_json, r.order_json),
     signature: r.signature as Hex,
     status: r.status,
     createdAt: Math.floor(new Date(r.created_at).getTime() / 1000),
