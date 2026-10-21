@@ -754,3 +754,15 @@ test('stale cached metadata is refetched (art revealed after mint)', async () =>
   // Fresh rows are left alone.
   assert.equal(await fillMeta(store, NFT, [1n], { tokenUris: async () => { throw new Error('should not fetch'); } }), 0);
 });
+
+test('jsonb columns stored as JSON strings read back as real values', async () => {
+  const { jsonColumn, storedTraits } = await import('./market-meta.ts');
+  assert.deepEqual(storedTraits('[]'), []);
+  assert.deepEqual(storedTraits('[{"trait_type":"Eyes","value":"Blue"}]'), [{ trait_type: 'Eyes', value: 'Blue' }]);
+  assert.deepEqual(storedTraits([{ trait_type: 'Hat', value: 3 }]), [{ trait_type: 'Hat', value: '3' }]);
+  assert.deepEqual(storedTraits('{"not":"a list"}'), []);
+  assert.deepEqual(storedTraits(null), []);
+  assert.deepEqual(jsonColumn('{"a":1}', null), { a: 1 });
+  assert.deepEqual(jsonColumn({ a: 1 }, null), { a: 1 });
+  assert.equal(jsonColumn('not json', 'fb'), 'fb');
+});

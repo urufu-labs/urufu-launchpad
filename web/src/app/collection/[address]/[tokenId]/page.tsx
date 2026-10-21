@@ -150,7 +150,8 @@ function NftDetail({ collection, tokenId }: { collection: Address; tokenId: stri
             </div>
           </section>
 
-          {data?.meta?.attributes && data.meta.attributes.length > 0 && (
+          {/* Array check: older compile-service builds sent traits as a JSON string. */}
+          {Array.isArray(data?.meta?.attributes) && data.meta.attributes.length > 0 && (
             <section className="ui-panel">
               <div className="ui-panel-head">
                 <h2 className="ui-panel-title">Traits</h2>
