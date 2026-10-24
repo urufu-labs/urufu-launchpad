@@ -18,9 +18,11 @@ const FETCH_TIMEOUT_MS = 30_000;
 const GATEWAY_LINK_RE = /^https?:\/\/[^/]+\/ipfs\/(.+)$/;
 
 /// Convert ipfs://<cid>/<path> (or an old gateway link) to our /api/ipfs route.
-/// Passes through other http(s):// URLs unchanged, returns null on anything else.
+/// Passes through other http(s):// URLs and already-converted /api/ipfs/ paths
+/// unchanged (callers sometimes convert twice), returns null on anything else.
 export function toGatewayUrl(uri: string | undefined | null): string | null {
   if (!uri) return null;
+  if (uri.startsWith(IPFS_PROXY)) return uri;
   if (uri.startsWith('ipfs://')) {
     return `${IPFS_PROXY}${uri.slice('ipfs://'.length).replace(/^ipfs\//, '')}`;
   }

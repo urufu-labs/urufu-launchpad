@@ -129,8 +129,20 @@ function normWallpaper(w: Wallpaper | undefined | null): Wallpaper {
   }
 }
 
+/// Rows saved before 2026-10-24 have design / links stored as a JSON string
+/// inside the jsonb column, so the API hands them back as text. Accept both.
+function parseJsonField<T>(v: T | string | null | undefined): T | null {
+  if (typeof v !== 'string') return v ?? null;
+  try {
+    return JSON.parse(v) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function draftFromMeta(meta: RemoteCollectionMetadata | null): PageDraft {
-  const d = meta?.design ?? null;
+  const d = parseJsonField(meta?.design);
+  const savedLinks = parseJsonField(meta?.links);
   return {
     imageUrl: meta?.imageUrl ?? null,
     bannerUrl: meta?.bannerUrl ?? null,
@@ -146,7 +158,7 @@ export function draftFromMeta(meta: RemoteCollectionMetadata | null): PageDraft 
     twitter: meta?.twitter ?? null,
     telegram: meta?.telegram ?? null,
     discord: meta?.discord ?? null,
-    links: (meta?.links ?? []).map((l) => ({
+    links: (Array.isArray(savedLinks) ? savedLinks : []).map((l) => ({
       id: l.id, title: l.title, url: l.url, style: l.style, thumbnailUrl: l.thumbnailUrl ?? null,
     })),
   };

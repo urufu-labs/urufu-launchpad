@@ -23,3 +23,12 @@ test('other links pass through, junk returns null', () => {
   assert.equal(toGatewayUrl(''), null);
   assert.equal(toGatewayUrl(undefined), null);
 });
+
+test('an already-converted /api/ipfs path passes through (converting twice is safe)', () => {
+  // The market page hero went blank on 2026-10-24: a launcher's Pinata link
+  // was converted once by the page and again by TokenArt, and the second
+  // pass returned null.
+  const once = toGatewayUrl(`https://blush-selective-urial-386.mypinata.cloud/ipfs/${CID}`);
+  assert.equal(once, `/api/ipfs/${CID}`);
+  assert.equal(toGatewayUrl(once), once);
+});

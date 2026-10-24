@@ -87,6 +87,16 @@ function _safeHttpUrl(u: string): boolean {
   return /^https?:\/\//i.test(u);
 }
 
+/// A jsonb value as the driver hands it back; parses a stringified object.
+function parseJsonb(v: unknown): unknown {
+  if (typeof v !== 'string') return v ?? null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const safeUrl = (max: number) => z.string().url().max(max).refine(_safeHttpUrl, { message: 'http(s) only' });
 
@@ -183,7 +193,11 @@ export async function registerCollectionMetadataRoutes(
         WHERE chain_id = ${chainId} AND token_address = ${addr}
         LIMIT 1
       `;
-      return reply.send(rows[0] ?? null);
+      const row = rows[0] as Record<string, unknown> | undefined;
+      if (!row) return reply.send(null);
+      // Rows saved before the ::text::jsonb fix hold a jsonb string; db.ts
+      // repairs them on boot, this covers anything in between.
+      return reply.send({ ...row, design: parseJsonb(row.design), links: parseJsonb(row.links) });
     },
   );
 
@@ -233,11 +247,14 @@ export async function registerCollectionMetadataRoutes(
         return reply.code(403).send({ code: 'NOT_OWNER', owner: onChainOwner, signer: auth.address });
       }
 
+      // Sent as text and cast ::text::jsonb. A bare ${json}::jsonb makes
+      // postgres.js see a jsonb param and JSON-encode the string a second
+      // time, which stored a jsonb *string* (the 2026-10-24 Lambro bug).
       const design = payload.design ? JSON.stringify(payload.design) : null;
       const links = payload.links && payload.links.length > 0 ? JSON.stringify(payload.links) : null;
       await sql`
         INSERT INTO app.token_metadata (chain_id, token_address, image_url, description, website, twitter, telegram, discord, banner_url, accent_color, page_design, page_links, owner, updated_at)
-        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.bannerUrl ?? null}, ${payload.accentColor?.toLowerCase() ?? null}, ${design}::jsonb, ${links}::jsonb, ${auth.address}, now())
+        VALUES (${payload.chainId}, ${collection}, ${payload.imageUrl ?? null}, ${payload.description ?? null}, ${payload.website ?? null}, ${payload.twitter ?? null}, ${payload.telegram ?? null}, ${payload.discord ?? null}, ${payload.bannerUrl ?? null}, ${payload.accentColor?.toLowerCase() ?? null}, ${design}::text::jsonb, ${links}::text::jsonb, ${auth.address}, now())
         ON CONFLICT (chain_id, token_address) DO UPDATE SET
           image_url = EXCLUDED.image_url,
           description = EXCLUDED.description,
