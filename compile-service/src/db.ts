@@ -55,6 +55,18 @@ export async function migrate(): Promise<void> {
   // link buttons (both validated JSON, see the route).
   await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS page_design jsonb`;
   await sql`ALTER TABLE app.token_metadata ADD COLUMN IF NOT EXISTS page_links jsonb`;
+  // Repair rows saved before 2026-10-24, when the route double-encoded these
+  // into a jsonb string. Idempotent: only touches string-typed values.
+  await sql`
+    UPDATE app.token_metadata
+    SET page_design = (page_design #>> '{}')::jsonb
+    WHERE jsonb_typeof(page_design) = 'string'
+  `;
+  await sql`
+    UPDATE app.token_metadata
+    SET page_links = (page_links #>> '{}')::jsonb
+    WHERE jsonb_typeof(page_links) = 'string'
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS app.user_profile (

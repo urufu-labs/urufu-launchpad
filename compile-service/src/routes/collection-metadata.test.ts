@@ -325,3 +325,44 @@ test('style values that could inject CSS or scripts are refused', async () => {
     await app.close();
   }
 });
+
+test('design + links are sent as text and cast ::text::jsonb (never a bare ::jsonb)', async () => {
+  // A bare ${json}::jsonb made postgres.js JSON-encode the string again and
+  // store a jsonb *string*; the page then ignored the whole design
+  // (Visions of Lambro, 2026-10-24).
+  const launcher = privateKeyToAccount(generatePrivateKey());
+  const me = launcher.address.toLowerCase();
+  const { app, calls } = await makeApp({ record: { launchedBy: me, lane: 'nft', pairedToken: null }, owner: me });
+  try {
+    const res = await post(app, await signed(launcher, { ...basePayload, design: DESIGN, links: LINKS }));
+    assert.equal(res.statusCode, 200, res.body);
+    const text = inserts(calls)[0]!.strings.join('?').replace(/\s+/g, ' ');
+    assert.match(text, /\?::text::jsonb, \?::text::jsonb/);
+    assert.doesNotMatch(text, /\?::jsonb/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET parses a design / links value the database hands back as a JSON string', async () => {
+  const { sql } = makeFakeSql();
+  const stored = {
+    chainId: CHAIN,
+    collectionAddress: COLLECTION,
+    imageUrl: null,
+    design: JSON.stringify(DESIGN),
+    links: JSON.stringify(LINKS),
+  };
+  const fake = ((..._a: unknown[]) => [stored]) as unknown as typeof sql;
+  const app = Fastify({ logger: false });
+  await registerCollectionMetadataRoutes(app, { sqlOverride: fake, lookupCollection: async () => null, lookupOwner: async () => null });
+  try {
+    const res = await app.inject({ method: 'GET', url: `/collection/${CHAIN}/${COLLECTION}/metadata` });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json() as { design: { wallpaper: { type: string } }; links: { title: string }[] };
+    assert.equal(body.design.wallpaper.type, 'gradient');
+    assert.equal(body.links[0]!.title, 'Roadmap');
+  } finally {
+    await app.close();
+  }
+});
