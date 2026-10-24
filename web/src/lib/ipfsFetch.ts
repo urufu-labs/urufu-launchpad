@@ -32,6 +32,15 @@ export function toGatewayUrl(uri: string | undefined | null): string | null {
   return null;
 }
 
+/// Absolute https URL of an image for link previews (crawlers can't use our
+/// relative /api/ipfs path). data:, http: and junk return null.
+export function toAbsoluteImageUrl(uri: string | undefined | null, site = 'https://urufulabs.xyz'): string | null {
+  const g = toGatewayUrl(uri);
+  if (!g) return null;
+  if (g.startsWith('/')) return `${site}${g}`;
+  return /^https:\/\/\S+$/i.test(g) ? g : null;
+}
+
 /// Fetch JSON from an ipfs:// URI (or plain http URL). Tries the raw path AND
 /// a `.json`-suffixed path, since some pinners (Pinata via studio.urufulabs.xyz)
 /// write files with `.json` extensions while ERC721A's tokenURI concatenates

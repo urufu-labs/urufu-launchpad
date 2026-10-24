@@ -2,7 +2,7 @@
 // old gateway links the indexer stored (nftstorage.link etc. died in 2026-10).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toGatewayUrl } from './ipfsFetch.ts';
+import { toAbsoluteImageUrl, toGatewayUrl } from './ipfsFetch.ts';
 
 const CID = 'bafybeidpcettthsvgogrxmxsaceasbpyhhxq5p5esl6iflmi4ta6udg6ka';
 
@@ -31,4 +31,15 @@ test('an already-converted /api/ipfs path passes through (converting twice is sa
   const once = toGatewayUrl(`https://blush-selective-urial-386.mypinata.cloud/ipfs/${CID}`);
   assert.equal(once, `/api/ipfs/${CID}`);
   assert.equal(toGatewayUrl(once), once);
+});
+
+test('link-preview images are absolute https; data:, http: and junk are refused', () => {
+  const PIN = 'QmdeVU3K99mi33YNtWB7vr2NhHdFixXhNz4vJbMQqYKp2N';
+  assert.equal(toAbsoluteImageUrl(`ipfs://${PIN}`), `https://urufulabs.xyz/api/ipfs/${PIN}`);
+  assert.equal(toAbsoluteImageUrl(`https://blush-selective-urial-386.mypinata.cloud/ipfs/${PIN}`), `https://urufulabs.xyz/api/ipfs/${PIN}`);
+  assert.equal(toAbsoluteImageUrl(`/api/ipfs/${PIN}`), `https://urufulabs.xyz/api/ipfs/${PIN}`);
+  assert.equal(toAbsoluteImageUrl('https://example.com/a.png'), 'https://example.com/a.png');
+  assert.equal(toAbsoluteImageUrl('http://example.com/a.png'), null);
+  assert.equal(toAbsoluteImageUrl('data:image/png;base64,xx'), null);
+  assert.equal(toAbsoluteImageUrl(null), null);
 });
