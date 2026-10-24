@@ -31,15 +31,27 @@ export function absoluteImage(u: string | null | undefined): string | null {
   return toAbsoluteImageUrl(u, SITE);
 }
 
+/// A token's metadata file that /api/ipfs hasn't cached yet takes 4-5s
+/// (measured 2026-10-24), so a single NFT's preview waits a bit longer.
+const NFT_META_TIMEOUT_MS = 6_000;
+
+/// One NFT's metadata: <baseURI><tokenId>.json, or null if missing or slow.
+async function nftMetadata(
+  baseUri: string | undefined,
+  tokenId: string,
+  ms = TIMEOUT_MS,
+): Promise<{ image?: string; name?: string } | null> {
+  if (!baseUri) return null;
+  const metaUrl = absoluteImage(`${baseUri}${tokenId}.json`);
+  if (!metaUrl) return null;
+  const res = await withTimeout(fetch(metaUrl, { signal: AbortSignal.timeout(ms) }), ms);
+  if (!res || !res.ok) return null;
+  return withTimeout(res.json() as Promise<{ image?: string; name?: string }>);
+}
+
 /// Art of the collection's first NFT: <baseURI>1.json -> image.
 async function firstNftImage(baseUri: string | undefined): Promise<string | null> {
-  if (!baseUri) return null;
-  const metaUrl = absoluteImage(`${baseUri}1.json`);
-  if (!metaUrl) return null;
-  const res = await withTimeout(fetch(metaUrl, { signal: AbortSignal.timeout(TIMEOUT_MS) }));
-  if (!res || !res.ok) return null;
-  const json = (await withTimeout(res.json() as Promise<{ image?: string }>)) ?? null;
-  return absoluteImage(json?.image);
+  return absoluteImage((await nftMetadata(baseUri, '1'))?.image);
 }
 
 function trimDescription(s: string): string {
@@ -82,6 +94,38 @@ export async function collectionPreview(
     description,
     alternates: { canonical: url },
     openGraph: { title, description, url, type: 'website', images: [{ url: image, alt: name }] },
+    twitter: { card: 'summary_large_image', title, description, images: [image] },
+  };
+}
+
+/// Preview for /collection/[address]/[tokenId]: that NFT's own art and name.
+/// Anything missing or slow falls back to the collection preview.
+export async function nftPreview(address: string, tokenId: string): Promise<Metadata> {
+  const addr = address.toLowerCase() as `0x${string}`;
+  if (!/^0x[0-9a-f]{40}$/.test(addr) || !/^\d{1,78}$/.test(tokenId)) {
+    return collectionPreview(address, 'collection');
+  }
+  const rows = await withTimeout(fetchNftCollectionsByAddresses([addr]));
+  const row = rows?.find((r) => r.collectionAddress.toLowerCase() === addr);
+  const meta = await nftMetadata(row?.baseUri, tokenId, NFT_META_TIMEOUT_MS);
+  const image = absoluteImage(meta?.image);
+  if (!row || !image) return collectionPreview(address, 'collection');
+
+  const collectionName = row.name || 'NFT collection';
+  // Many collections name tokens just "1", "2": show those as "#1".
+  const ownName = typeof meta?.name === 'string' ? meta.name.trim() : '';
+  const nftName = ownName && !/^\d+$/.test(ownName) ? ownName : `#${ownName || tokenId}`;
+  const title = `${nftName} | ${collectionName}`;
+  const description = trimDescription(
+    `${nftName} from ${collectionName}. See it and trade it on urufulabs.xyz. 0% marketplace fee.`,
+  );
+  const url = `${SITE}/collection/${addr}/${tokenId}`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: { title, description, url, type: 'website', images: [{ url: image, alt: nftName }] },
     twitter: { card: 'summary_large_image', title, description, images: [image] },
   };
 }
