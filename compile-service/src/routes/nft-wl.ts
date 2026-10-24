@@ -127,6 +127,14 @@ export async function registerNftWlRoutes(app: FastifyInstance): Promise<void> {
         created_at timestamptz NOT NULL DEFAULT now()
       )
     `;
+    // Repair lists written before 2026-10-24 as a jsonb string (bare
+    // ${json}::jsonb double-encodes). Read back as text, normalizeWallets
+    // split it on commas and found no valid addresses. Idempotent.
+    await sql`
+      UPDATE app.nft_wallet_lists
+      SET wallets = (wallets #>> '{}')::jsonb
+      WHERE jsonb_typeof(wallets) = 'string'
+    `;
   }
 
   const rawKey = process.env.KEEPER_PRIVATE_KEY;
@@ -154,7 +162,7 @@ export async function registerNftWlRoutes(app: FastifyInstance): Promise<void> {
     const root = tree.root.toLowerCase();
     await sql`
       INSERT INTO app.nft_wallet_lists (root, wallets, count)
-      VALUES (${root}, ${JSON.stringify(tree.wallets)}::jsonb, ${tree.wallets.length})
+      VALUES (${root}, ${JSON.stringify(tree.wallets)}::text::jsonb, ${tree.wallets.length})
       ON CONFLICT (root) DO NOTHING
     `;
     treeCache.set(root, tree);

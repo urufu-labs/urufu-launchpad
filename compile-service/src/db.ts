@@ -148,6 +148,14 @@ export async function migrate(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS rewards_leaves_holder_idx ON app.rewards_leaves (chain_id, holder, epoch_id DESC)`;
+  // Repair proofs written before 2026-10-24, when a bare ${json}::jsonb made
+  // postgres.js double-encode them into a jsonb string. Idempotent: only
+  // touches string-typed values.
+  await sql`
+    UPDATE app.rewards_leaves
+    SET proof_json = (proof_json #>> '{}')::jsonb
+    WHERE jsonb_typeof(proof_json) = 'string'
+  `;
 
   // URU-A06: durable publication journal. Tree + leaves are committed here
   // BEFORE the on-chain transaction is broadcast so startup reconciliation can
@@ -359,18 +367,17 @@ async function _seedShippedEpochs(): Promise<void> {
                     ON CONFLICT (chain_id, epoch_id) DO NOTHING
                 `;
                 for (const l of j.leaves) {
-                    // JSON.stringify + ::jsonb cast: postgres receives a text
-                    // param whose value happens to be valid JSON, then the cast
-                    // parses it into a real jsonb array (not a jsonb string).
-                    // Round-trip on read → real JS array via postgres.js default
-                    // jsonb parsing. The client also normalizes defensively —
-                    // see web/src/lib/rewardsApi.ts::normalizeProof.
+                    // Sent as text and cast ::text::jsonb. A bare ${json}::jsonb
+                    // makes postgres.js see a jsonb param and JSON-encode the
+                    // string again, storing a jsonb *string* instead of the
+                    // array. The client still normalizes defensively, see
+                    // web/src/lib/rewardsApi.ts::normalizeProof.
                     const proofText = JSON.stringify(l.proof);
                     await tx`
                         INSERT INTO app.rewards_leaves (chain_id, epoch_id, holder, amount, proof_json)
                         VALUES (
                           ${j.chainId}, ${j.epochId}, ${l.holder.toLowerCase()},
-                          ${l.amount}, ${proofText}::jsonb
+                          ${l.amount}, ${proofText}::text::jsonb
                         )
                         ON CONFLICT (chain_id, epoch_id, holder) DO NOTHING
                     `;

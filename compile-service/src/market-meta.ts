@@ -81,7 +81,7 @@ export function postgresMetaStore(sql: Sql): MetaStore {
       for (const m of rows) {
         await sql`
           INSERT INTO app.market_token_meta (collection, token_id, name, image, attributes, ok)
-          VALUES (${collection.toLowerCase()}, ${m.tokenId.toString()}, ${m.name}, ${m.image}, ${JSON.stringify(m.attributes)}::jsonb, true)
+          VALUES (${collection.toLowerCase()}, ${m.tokenId.toString()}, ${m.name}, ${m.image}, ${JSON.stringify(m.attributes)}::text::jsonb, true)
           ON CONFLICT (collection, token_id) DO UPDATE
             SET name = EXCLUDED.name, image = EXCLUDED.image, attributes = EXCLUDED.attributes, ok = true, fetched_at = now()
         `;
