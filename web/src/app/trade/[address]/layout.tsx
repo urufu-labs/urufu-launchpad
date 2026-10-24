@@ -2,6 +2,7 @@ import type { Metadata, ResolvingMetadata } from 'next';
 
 import { fetchLaunchesByTokens } from '@/lib/indexer';
 import { fetchTokenMetadata } from '@/lib/socialApi';
+import { absoluteImage, STATIC_OG } from '@/lib/sharePreview';
 
 /// Server-side metadata for /trade/:address. The page itself is `'use client'`
 /// so we can't put `generateMetadata` there — this layout is the tiniest server
@@ -12,9 +13,8 @@ import { fetchTokenMetadata } from '@/lib/socialApi';
 /// identical on Discord / Twitter / iMessage. With it, each share card shows
 /// the token's real ticker, name, and description.
 ///
-/// The corresponding /trade/[address]/opengraph-image.tsx already generates a
-/// dynamic image with the token's logo. Both signals together give the crawler
-/// a full preview: image + title + description.
+/// The preview image is the token logo (or the static urufu image), set
+/// below, so the crawler gets a full preview: image + title + description.
 
 // Same short timeout as the OG image — social crawlers give up fast and we
 // prefer a partially-correct card over none. Failures fall through to the
@@ -49,9 +49,7 @@ export async function generateMetadata(
   const displayTitle = ticker ? `$${ticker} ~ ${name}` : name;
 
   // Description: wrap the launcher's own description (or a friendly default)
-  // in a cute urufu-labs frame so every share card reads playfully. The
-  // static OG image doesn't carry per-token art anymore, so the copy does
-  // the heavy lifting.
+  // in a cute urufu-labs frame so every share card reads playfully.
   const rawDesc = meta?.description?.trim();
   const tickerPart = ticker ? `$${ticker}` : displayTitle;
   const opener = `${tickerPart} launched on urufu labs`;
@@ -64,14 +62,12 @@ export async function generateMetadata(
 
   const pageUrl = `https://urufulabs.xyz/trade/${addr}`;
 
-  // Force the static /og-1200x630.jpg for BOTH the OG and Twitter image.
-  // The colocated opengraph-image.tsx (dynamic satori) has been unreliable
-  // — HTTP 500 for tokens with any real-world uploaded image, and Vercel
-  // hard-caches those 500s at the edge. Home page works because it uses
-  // the static JPG; matching that pattern unbreaks share cards for every
-  // trade page immediately. Per-token image customization can come back
-  // later via a build-time bake if we want it.
-  const STATIC_OG = 'https://urufulabs.xyz/og-1200x630.jpg';
+  // The token's own logo, linked directly (our /api/ipfs route or the
+  // launcher's https link), else the static urufu image. Nothing is drawn:
+  // the old colocated opengraph-image.tsx (satori) 500'd on real uploads and
+  // Vercel cached the failures, and as a file convention it also overrode
+  // these tags. It was removed 2026-10-24 (lib/sharePreview.ts).
+  const image = absoluteImage(meta?.imageUrl) ?? STATIC_OG;
 
   return {
     title: displayTitle,
@@ -85,13 +81,13 @@ export async function generateMetadata(
       description,
       url: pageUrl,
       type: 'website',
-      images: [{ url: STATIC_OG, width: 1200, height: 630 }],
+      images: [{ url: image, alt: displayTitle }],
     },
     twitter: {
       card: 'summary_large_image',
       title: displayTitle,
       description,
-      images: [STATIC_OG],
+      images: [image],
     },
   };
 }
