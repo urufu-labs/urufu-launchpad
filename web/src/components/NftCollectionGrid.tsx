@@ -24,6 +24,7 @@ import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { fetchRecentNftCollections, type IndexerNftCollection } from '@/lib/indexer';
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { safeBackgroundImage } from '@/lib/metadata';
+import { withCreatorDetails } from '@/lib/collectionDetails';
 import { collectionVisible } from '@/lib/dn404Feed';
 import { NftLaunchTeaser } from './NftLaunchTeaser';
 import styles from './NftCollectionGrid.module.css';
@@ -49,11 +50,10 @@ export function NftCollectionGrid({ chain, chainEnabled, dn404Enabled = false, v
     (async () => {
       const rows = await fetchRecentNftCollections(limit);
       if (cancelled) return;
-      setItems(
-        (rows ?? [])
-          .filter((r) => r.chainId === targetChainId)
-          .filter((r) => collectionVisible(r, { nftEnabled: chainEnabled, dn404Enabled })),
-      );
+      const visible = (rows ?? [])
+        .filter((r) => r.chainId === targetChainId)
+        .filter((r) => collectionVisible(r, { nftEnabled: chainEnabled, dn404Enabled }));
+      setItems(await withCreatorDetails(visible, targetChainId));
     })();
     return () => { cancelled = true; };
   }, [chainEnabled, dn404Enabled, targetChainId, limit]);

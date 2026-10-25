@@ -35,8 +35,13 @@ import {
 import { fetchIpfsJson, toGatewayUrl } from '@/lib/ipfsFetch';
 import { getFollowing, onFollowsChange } from '@/lib/follows';
 import { fetchFollowing } from '@/lib/socialApi';
+import { withCreatorDetails } from '@/lib/collectionDetails';
+import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { displayNameFor, loadProfile, type UserProfile } from '@/lib/profile';
 import styles from './feed.module.css';
+
+/// NFT + DN404 lanes are Robinhood-only; launchers' saved images live there.
+const ROBINHOOD_ID = CHAIN_KEY_TO_ID.robinhood;
 
 /// `trade` and `launch` are the ERC-20 rows and render exactly as before.
 /// The other three come from the NFT and DN404 lanes.
@@ -125,7 +130,7 @@ export default function FeedPage() {
         const [trades, launches, nftLaunches, pairTrades] = await Promise.all([
           fetchRecentTrades(60),
           fetchRecentLaunches(20),
-          nftOn || dn404On ? fetchRecentNftCollections(20) : Promise.resolve([]),
+          nftOn || dn404On ? fetchRecentNftCollections(20).then((r) => withCreatorDetails(r ?? [], ROBINHOOD_ID)) : Promise.resolve([]),
           dn404On ? fetchRecentPairTrades(40) : Promise.resolve([]),
         ]);
         if (cancelled) return;
@@ -186,7 +191,7 @@ export default function FeedPage() {
       // followed wallet (3 requests total, not 3 per wallet).
       const wallets = following as Address[];
       const [nftLaunches, nftMints, pairTrades] = await Promise.all([
-        nftOn || dn404On ? fetchNftCollectionsByLaunchers(wallets, 50) : Promise.resolve([]),
+        nftOn || dn404On ? fetchNftCollectionsByLaunchers(wallets, 50).then((r) => withCreatorDetails(r ?? [], ROBINHOOD_ID)) : Promise.resolve([]),
         nftOn ? fetchNftMintsByMinters(wallets, 100) : Promise.resolve([]),
         dn404On ? fetchPairTradesByTraders(wallets, 100) : Promise.resolve([]),
       ]);
@@ -237,7 +242,9 @@ export default function FeedPage() {
         // DN404 tokens have no Router launch row; name them from the indexer's
         // DN404 collection rows (covers ETH-paired DN404 trades too).
         tradeTokens.size && dn404On ? fetchDn404ByPairedTokens(Array.from(tradeTokens) as Address[]) : Promise.resolve([]),
-        mintedCollections.size ? fetchNftCollectionsByAddresses(Array.from(mintedCollections) as Address[]) : Promise.resolve([]),
+        mintedCollections.size
+          ? fetchNftCollectionsByAddresses(Array.from(mintedCollections) as Address[]).then((r) => withCreatorDetails(r ?? [], ROBINHOOD_ID))
+          : Promise.resolve([]),
       ]);
       if (cancelled) return;
       const meta: Record<string, TokenMeta> = {};
