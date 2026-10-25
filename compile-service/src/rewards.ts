@@ -961,7 +961,7 @@ export async function publishEpoch(opts: {
           INSERT INTO app.rewards_leaves (chain_id, epoch_id, holder, amount, proof_json)
           VALUES (
             ${cfg.chainId}, ${Number(nextEpochId)}, ${l.holder.toLowerCase()},
-            ${l.amount.toString()}, ${JSON.stringify(l.proof)}::jsonb
+            ${l.amount.toString()}, ${JSON.stringify(l.proof)}::text::jsonb
           )
           ON CONFLICT (chain_id, epoch_id, holder) DO UPDATE SET
             amount = EXCLUDED.amount,

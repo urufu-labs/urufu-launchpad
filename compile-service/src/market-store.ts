@@ -60,6 +60,19 @@ export async function migrateMarket(sql: Sql): Promise<void> {
       PRIMARY KEY (collection, token_id)
     )
   `;
+  // Repair rows written before 2026-10-24 as a jsonb string (bare
+  // ${json}::jsonb double-encodes). jsonColumn still parses either shape on
+  // read. Idempotent: only touches string-typed values.
+  await sql`
+    UPDATE app.market_listings
+    SET order_json = (order_json #>> '{}')::jsonb
+    WHERE jsonb_typeof(order_json) = 'string'
+  `;
+  await sql`
+    UPDATE app.market_token_meta
+    SET attributes = (attributes #>> '{}')::jsonb
+    WHERE jsonb_typeof(attributes) = 'string'
+  `;
 }
 
 interface Row {
@@ -115,7 +128,7 @@ export function postgresMarketStore(sql: Sql): MarketStore {
           ${l.orderHash}, ${l.chainId}, ${l.collection}, ${l.tokenId.toString()}, ${l.lane}, ${l.seller},
           ${l.priceWei.toString()}, ${l.royaltyWei.toString()}, ${l.royaltyReceiver},
           ${l.startTime.toString()}, ${l.endTime.toString()}, ${l.counter.toString()},
-          ${JSON.stringify(l.order)}::jsonb, ${l.signature}, ${l.status}
+          ${JSON.stringify(l.order)}::text::jsonb, ${l.signature}, ${l.status}
         )
         ON CONFLICT DO NOTHING
       `;
