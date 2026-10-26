@@ -1,6 +1,6 @@
 # Agents and swarms on urufu (plan)
 
-> **Status:** draft for review, nothing built. Decisions A1-A10 need sign-off.
+> **Status:** approved 2026-10-26 with recommended A1-A10. Section 7 gaps closed the same day.
 > _written 2026-10-26_
 
 Three phases, each one built on the last:
@@ -27,9 +27,11 @@ Three phases, each one built on the last:
 | Safe 1.4.1 singleton + proxy factory | Code present on RH | Agent smart accounts (option) |
 | Permit2 | Code present on RH | Not needed v1 |
 | Seaport 1.6 | Live, used by marketplace | Agents can list/buy NFTs in phase 1b |
+| Safe 1.4.1 L2, SafeModuleSetup, MultiSend 1.4.1, Safe4337Module v0.3.0, Safe AllowanceModule v0.1.1 | Code present on RH | Agent account |
+| Zodiac Roles Modifier v2 `0x9646fDAD06d3e24444381f44362a3B0eB343D337` + ModuleProxyFactory `0x000000000000aDdB49795b0f9bA5BC298cDda236` | Code present on RH | Agent policy: allowed contracts, functions, ETH allowances |
+| ArbOS version | 61 (EIP-7702 arrived in ArbOS 40) | Not needed v1 |
 
-Not checked yet (gaps, see section 7): Safe AllowanceModule on RH, EIP-7702
-support on RH, a 4337 bundler + paymaster serving chain 4663.
+Section 7 lists how each open question was answered.
 
 ---
 
@@ -97,12 +99,20 @@ Every response separates **data we computed** from **text users wrote**
 
 ### 2.4 Autonomous mode (needs on-chain caps)
 
-- The agent trades from a smart account (Safe + allowance module, or a 4337
-  account with session keys, decision A3).
-- The owner sets the policy on-chain: daily ETH cap, max per trade, allowed
-  contracts (Router, curves, OpeningBatch, FairLaunchFactory, Universal
-  Router, Seaport), and allowed functions.
-- The owner can pause or revoke the agent key at any time.
+- The agent's funds live in a **Safe owned by the owner wallet**. The agent
+  key is not a Safe owner; it is a member of a **Zodiac Roles v2** role
+  attached to the Safe (decision A3).
+- The role is the policy, enforced on-chain: allowed contracts (Router,
+  curves, OpeningBatch, FairLaunchFactory, Universal Router, Seaport), allowed
+  functions on each, recipient pinned to the Safe itself for swaps and claims,
+  and Roles v2 **allowances** for ETH value (0.05 ETH per call, 0.25 ETH
+  refilled daily, decision A4).
+- The agent calls `execTransactionWithRole` from its own key and pays its own
+  small gas. No bundler or paymaster needed (none is confirmed for chain 4663).
+- The owner can pause or revoke the agent at any time by removing the role
+  member, from the Safe.
+- **Why not AllowanceModule alone:** it caps transfers, but can't restrict
+  which contracts the agent calls, so it can't keep the agent on urufu.
 - The skill file's old ban on "agent-decides" stays for assistant mode. It is
   lifted only for agents with a registered smart account and policy.
 
@@ -268,7 +278,7 @@ creator, so no factory change is needed.
 | T10c | Creator never launches, or keeper is late | Launch deadline + window check; members get full ETH back | Missed-window test |
 | T11 | Swarm creator rugs | Creator named before joining, Fair forfeit applies, trade page shows creator history | Fork forfeit test |
 | T12 | SSRF via `upload_image` URL | Existing fetch guard; re-test against private IPs, redirects, DNS rebinding | SSRF tests |
-| T13 | Smart-account module bug | Use audited Safe modules or a well-audited 4337 account; no custom account code | Fork tests only on the chosen audited module |
+| T13 | Smart-account module bug or loose role config | Only audited Safe + Zodiac Roles v2, no custom account code; role config generated from one reviewed template, recipient pinned to the Safe | Fork tests: every non-allowlisted target, function and recipient reverts |
 | T14 | Agent drains the platform via fee claims | Claims are permissionless pushes to the rightful owner only (existing pattern) | Claim-for-others test |
 
 ### 6.2 Prompt-injection eval suite
@@ -289,16 +299,18 @@ exceeds its policy. Run on every skill file change.
 
 ## 7. Gaps to resolve before building
 
-| Gap | How we close it |
+All checked 2026-10-26.
+
+| Gap | Answer |
 |---|---|
-| ERC-8004 registry on RH: exact version + ABI | Read the proxy's implementation, match to the official repo before using it |
-| Safe AllowanceModule deployed on RH? | `eth_getCode` at its canonical address; if missing, choose the 4337 route |
-| EIP-7702 on RH? | Test a type-4 tx on a fork; only matters if we want EOAs to become smart accounts |
-| 4337 bundler + paymaster for chain 4663 | Check Pimlico / Alchemy / Biconomy support; without one, agents pay their own gas through a Safe |
-| Skill file is stale (token lane only, Aug 2026) | Rewrite as v2 with lanes, Fair, URU fee, trading |
-| Agent API has no trading or Fair tools | Phase 1 adds them |
-| Home rail misses graduated v4 swaps (known gap) | Fix in phase 1, since agent trades on graduated tokens would also be missing |
-| Hosted agents (cost, key security) | Deferred to 2b, decision A6 |
+| ERC-8004 registry on RH | **Closed.** The official erc-8004-contracts repo lists Robinhood Chain at `0x8004A169…a432`. Proxy implementation `0x7274e874ca62410a93bd8bf61c69d8045e399c02`, an ERC-721 named "AgentIdentity" / "AGENT". Deployed code has `register()` (3 variants), `setAgentURI`, `setAgentWallet` (EIP-712 / ERC-1271 proof), `unsetAgentWallet`, `getMetadata`, `setMetadata`, `ownerOf`, `tokenURI`. No `getAgentWallet` selector: read the wallet through `getMetadata(agentId, "agentWallet")` and confirm in a fork test. The registry is upgradeable by its maintainers, so our owner EIP-712 link stays a second, independent check (T4). |
+| Agent policy module | **Closed.** Safe AllowanceModule v0.1.1 is deployed but only caps transfers. Zodiac Roles v2 + ModuleProxyFactory are deployed and give contract/function/recipient scoping plus ETH allowances. A3 = Safe + Roles v2. |
+| EIP-7702 on RH | **Closed (not needed).** ArbOS 61, so 7702 should work; v1 doesn't use it. |
+| 4337 bundler + paymaster for 4663 | **Closed (not needed).** No provider confirms chain 4663. Roles v2 lets the agent key pay its own gas, so no bundler. Safe4337Module is deployed if one appears later. |
+| Skill file is stale (token lane only, Aug 2026) | Phase 1a rewrites it as v2 (lanes, Fair, URU fee, trading, two modes). |
+| Agent API has no trading or Fair tools | Phase 1a (read tools) and 1b (tx builders). |
+| Home rail misses graduated v4 swaps | Phase 1a fixes it: fill missing `tokenAddress` from a poolId → token map (graduations + legacyGraduations) instead of dropping rows. |
+| Hosted agents (cost, key security) | Deferred to 2b, decision A6. |
 
 ---
 
@@ -345,7 +357,7 @@ indexer changes merge at a quiet time.
 |---|---|---|
 | A1 | Build order | Phase 1 → 2 → 3, as in section 8 |
 | A2 | Agent identity | ERC-8004 registry on RH, if its ABI checks out; otherwise our own records + owner signature |
-| A3 | Agent smart account | Safe + AllowanceModule if deployed on RH, else a well-audited 4337 account |
+| A3 | Agent smart account | Safe owned by the owner + Zodiac Roles v2 role for the agent key (both deployed on RH) |
 | A4 | Default autonomous caps | 0.05 ETH per trade, 0.25 ETH per day, owner-adjustable |
 | A5 | Agent tokens lane | Fair lane only |
 | A6 | Hosting agents for users | Not in v1 (bring your own) |
