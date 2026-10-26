@@ -815,11 +815,11 @@ function CollectionView({
             ) : (
               // Tiles big enough to actually see each minted piece.
               <ul className={styles.mintGrid}>
-                {recentMints.map((m) => (
-                  <li key={m.id} className={styles.mintTile}>
-                    <MintThumb baseUri={baseUri} tokenId={firstMintedId(m)} />
+                {recentMintTiles(recentMints).map(({ m, tokenId }) => (
+                  <li key={`${m.id}-${tokenId}`} className={styles.mintTile}>
+                    <MintThumb baseUri={baseUri} tokenId={tokenId} />
                     <div className={styles.mintTileRow}>
-                      <span className={styles.mintTileId}>{mintedIdsLabel(m)}</span>
+                      <span className={styles.mintTileId}>#{tokenId.toString()}</span>
                       <span className={styles.mintTileTime}>
                         {new Date(Number(m.blockTimestamp) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                       </span>
@@ -1110,9 +1110,20 @@ function firstMintedId(m: IndexerNftMint): bigint {
   return BigInt(m.tokenId) + 1n;
 }
 
-function mintedIdsLabel(m: IndexerNftMint): string {
-  const first = firstMintedId(m);
-  return m.quantity > 1 ? `#${first}-${first + BigInt(m.quantity - 1)}` : `#${first}`;
+const MAX_MINT_TILES = 20;
+
+/// One tile per minted NFT (newest first), so a 2-NFT mint shows both pieces.
+/// Capped so one big batch mint can't flood the feed.
+function recentMintTiles(mints: IndexerNftMint[]): { m: IndexerNftMint; tokenId: bigint }[] {
+  const tiles: { m: IndexerNftMint; tokenId: bigint }[] = [];
+  for (const m of mints) {
+    const first = firstMintedId(m);
+    for (let i = m.quantity - 1; i >= 0 && tiles.length < MAX_MINT_TILES; i--) {
+      tiles.push({ m, tokenId: first + BigInt(i) });
+    }
+    if (tiles.length >= MAX_MINT_TILES) break;
+  }
+  return tiles;
 }
 
 /// Square tile of a minted NFT that fills its grid cell: tokenURI JSON ->
