@@ -57,6 +57,7 @@ import { Mascot } from '@/components/Mascot';
 import { NotLiveYet } from '@/components/NotLiveYet';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { LAUNCHPAD_LIVE } from '@/lib/launchpadStatus';
+import { uruAmountForEthFee } from '@/lib/launchTx';
 import { useLoyaltyDiscountReady } from '@/hooks/useLoyaltyDiscountReady';
 import styles from './create-studio.module.css';
 
@@ -659,18 +660,14 @@ function CreatePageContent() {
     if (typeof fee !== 'bigint' || fee === 0n) return undefined;
     const sqrtPriceX96 = (slot0.data as readonly [bigint, number, number, number])[0];
     if (!sqrtPriceX96 || sqrtPriceX96 === 0n) return undefined;
-    const Q192 = 1n << 192n;
-    const priceX192 = sqrtPriceX96 * sqrtPriceX96; // URU / WETH scaled by 2¹⁹²
-    const spotAmount = uruPay.uruIsCurrency1
-      ? (fee * priceX192) / Q192
-      : (fee * Q192) / priceX192;
-    // Bump to the on-chain floor if the spot quote falls below it. Users paying
-    // in URU get either the discounted floor (loyalty applied by minUruFeeFor)
-    // or the spot-quoted amount, whichever is HIGHER. This mirrors the router's
-    // `uruAmount < required` gate.
-    const floor = minUruFeeForUser.data as bigint | undefined;
-    if (typeof floor === 'bigint' && floor > spotAmount) return floor;
-    return spotAmount;
+    // Spot quote bumped to the on-chain floor (loyalty applied by minUruFeeFor),
+    // whichever is HIGHER. Shared with the agent API (lib/launchTx.ts).
+    return uruAmountForEthFee({
+      ethFee: fee,
+      sqrtPriceX96,
+      uruIsCurrency1: uruPay.uruIsCurrency1,
+      floor: minUruFeeForUser.data as bigint | undefined,
+    });
   }, [uruPay, slot0.data, quote.data, minUruFeeForUser.data]);
 
   // URU amounts run to 18 decimals — full string overflows the receipt box.
