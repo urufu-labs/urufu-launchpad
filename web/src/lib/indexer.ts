@@ -1017,6 +1017,24 @@ export async function fetchNftMintsByMinters(
   return data.nftMintss.items.filter(notHiddenNft);
 }
 
+/// Latest NFT mints across every collection, newest first, hidden
+/// collections dropped. Feeds the Feed's "Everyone" view.
+export async function fetchRecentNftMints(limit = 40): Promise<IndexerNftMint[] | null> {
+  const data = await gqlFanout<{ nftMintss: { items: IndexerNftMint[] } }>(
+    `query RecentNftMints($limit: Int!) {
+      nftMintss(orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId collectionAddress minter tokenId quantity
+          pricePaidWei wlUsed blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { limit },
+  );
+  if (!data) return null;
+  return data.nftMintss.items.filter(notHiddenNft);
+}
+
 /// A trade on an ERC-20-paired DN404 curve (URU today). Amounts are in the
 /// PAIR token's units (`pairCurrency`), never ETH.
 export interface IndexerPairTrade {

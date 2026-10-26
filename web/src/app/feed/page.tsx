@@ -23,6 +23,7 @@ import {
   fetchPairTradesByTraders,
   fetchRecentLaunches,
   fetchRecentNftCollections,
+  fetchRecentNftMints,
   fetchRecentPairTrades,
   fetchRecentTrades,
   fetchTradesByTrader,
@@ -127,11 +128,14 @@ export default function FeedPage() {
     setLoading(true);
     if (scope === 'everyone') {
       (async () => {
-        const [trades, launches, nftLaunches, pairTrades] = await Promise.all([
+        const [trades, launches, nftLaunches, pairTrades, nftMints] = await Promise.all([
           fetchRecentTrades(60),
           fetchRecentLaunches(20),
           nftOn || dn404On ? fetchRecentNftCollections(20).then((r) => withCreatorDetails(r ?? [], ROBINHOOD_ID)) : Promise.resolve([]),
           dn404On ? fetchRecentPairTrades(40) : Promise.resolve([]),
+          // Mints used to load only in "Following", so everyone else's mints
+          // never reached this view (Visions of Lambro, 2026-10-25).
+          nftOn ? fetchRecentNftMints(40) : Promise.resolve([]),
         ]);
         if (cancelled) return;
         const merged: FeedItem[] = [];
@@ -143,6 +147,7 @@ export default function FeedPage() {
           merged.push({ kind: 'nftLaunch', ts: Number(c.blockTimestamp), who: c.launchedBy, data: c });
         }
         for (const p of pairTrades ?? []) merged.push({ kind: 'pairTrade', ts: Number(p.blockTimestamp), who: p.trader, data: p });
+        for (const m of nftMints ?? []) merged.push({ kind: 'nftMint', ts: Number(m.blockTimestamp), who: m.minter, data: m });
         merged.sort((a, b) => b.ts - a.ts);
         const capped = merged.slice(0, 100);
         const profileMap: Record<string, UserProfile> = {};
@@ -152,12 +157,18 @@ export default function FeedPage() {
         setLoading(false);
 
         const tradeTokens = new Set<string>();
+        const mintedCollections = new Set<string>();
         for (const it of capped) {
           if (it.kind === 'trade' || it.kind === 'pairTrade') tradeTokens.add(it.data.tokenAddress.toLowerCase());
+          if (it.kind === 'nftMint') mintedCollections.add(it.data.collectionAddress.toLowerCase());
         }
-        const [tokLaunches, dn404Rows] = await Promise.all([
+        const [tokLaunches, dn404Rows, mintCollections] = await Promise.all([
           tradeTokens.size ? fetchLaunchesByTokens(Array.from(tradeTokens) as Address[]) : Promise.resolve([]),
           tradeTokens.size && dn404On ? fetchDn404ByPairedTokens(Array.from(tradeTokens) as Address[]) : Promise.resolve([]),
+          // Mint rows show the collection's name + art from this map.
+          mintedCollections.size
+            ? fetchNftCollectionsByAddresses(Array.from(mintedCollections) as Address[]).then((r) => withCreatorDetails(r ?? [], ROBINHOOD_ID))
+            : Promise.resolve([]),
         ]);
         if (cancelled) return;
         const meta: Record<string, TokenMeta> = {};
@@ -166,6 +177,9 @@ export default function FeedPage() {
         }
         for (const l of tokLaunches ?? []) meta[l.tokenAddress.toLowerCase()] = { name: l.name, ticker: l.ticker };
         setTokenMeta(meta);
+        const cmeta: Record<string, IndexerNftCollection> = {};
+        for (const c of mintCollections ?? []) cmeta[c.collectionAddress.toLowerCase()] = c;
+        setCollectionMeta(cmeta);
       })();
       return () => { cancelled = true; };
     }
@@ -320,7 +334,7 @@ export default function FeedPage() {
           <div>
             <p className={styles.railLabel}>Show</p>
             <div className={styles.filterGroup} aria-label="activity filters">
-              {KINDS.filter((k) => (k.id !== 'mints' || nftOn) && (k.id !== 'mints' || scope === 'following')).map((k) => (
+              {KINDS.filter((k) => k.id !== 'mints' || nftOn).map((k) => (
                 <button
                   key={k.id}
                   type="button"
