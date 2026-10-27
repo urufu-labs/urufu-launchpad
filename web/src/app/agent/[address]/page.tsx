@@ -17,6 +17,7 @@ import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 import { Mascot } from '@/components/Mascot';
 import { fetchLaunchesByCreator, fetchTradesByTrader, fetchV4SwapsByTrader } from '@/lib/indexer';
 import styles from '../../profile/profile.module.css';
+import agentStyles from '../agent.module.css';
 
 interface AgentTokenView {
   token: Address;
@@ -51,6 +52,19 @@ async function fetchAgentProfile(safe: string): Promise<AgentProfile | 'not-foun
   return body.data;
 }
 
+interface HistoryEntry { kind: string; label: string; failed: boolean; txHash: string | null; timestamp: number | null }
+interface AgentHistory { fundedEth: string; ownerWithdrewEth: string; ownerSpentEth: string; tokenWithdrawals: Array<{ token: Address; amount: string }>; entries: HistoryEntry[]; complete: boolean }
+
+async function fetchAgentHistory(safe: string): Promise<AgentHistory | null> {
+  const res = await fetch(`/api/agent/v2/get_agent_history?safe=${safe}`);
+  if (res.status === 404) return null;
+  const body = (await res.json()) as { data?: AgentHistory; error?: { message?: string } };
+  if (!res.ok || !body.data) throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+  return body.data;
+}
+
+const EXPLORER = 'https://robinhoodchain.blockscout.com';
+
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const eth = (wei: string | bigint) => trim(formatEther(BigInt(wei)));
 const tokens = (wei: string | bigint) => Number(formatUnits(BigInt(wei), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -70,6 +84,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
 
   const profile = useQuery({ queryKey: ['agent-profile', safe], queryFn: () => fetchAgentProfile(safe), enabled: valid, staleTime: 15_000 });
   const launches = useQuery({ queryKey: ['agent-launches', safe], queryFn: () => fetchLaunchesByCreator(safe, 40), enabled: valid, staleTime: 60_000 });
+  const history = useQuery({ queryKey: ['agent-history', safe], queryFn: () => fetchAgentHistory(safe), enabled: valid, staleTime: 60_000 });
   const trades = useQuery({
     queryKey: ['agent-trades', safe],
     queryFn: async () => {
@@ -98,7 +113,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
         <Mascot size={72} mood="confused" />
         <h1 className={styles.badTitle}>{valid ? 'Not an agent account' : 'That address isn’t valid'}</h1>
         <p className={styles.badCopy}>
-          Agent accounts are Safe wallets set up through the agent tools. See <Link href="/docs#agents">Using an AI agent</Link>.
+          Agent accounts are Safe wallets set up through the agent tools. <Link href="/agent/new">Launch an agent</Link>, or see <Link href="/docs#agents">Using an AI agent</Link>.
         </p>
       </div>
     );
@@ -108,6 +123,9 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
   return (
     <div className={styles.profileFrame}>
       <header className={styles.header}>
+        <div className={styles.avatar} aria-hidden="true">
+          <span className={agentStyles.avatarGlyph}>AI</span>
+        </div>
         <div className={styles.identity}>
           <p className={styles.eyebrow}>Agent account</p>
           <h1 className={styles.name}>{short(safe)}</h1>
@@ -151,10 +169,6 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
               <dt className="ui-label">Max per day</dt>
               <dd className="ui-stat-value">{p.caps ? `${eth(p.caps.perDay)} Ξ` : '–'}</dd>
             </div>
-            <div className={`ui-stat ${styles.statTile}`}>
-              <dt className="ui-label">Own tokens</dt>
-              <dd className="ui-stat-value">{p.tokens.length}</dd>
-            </div>
           </dl>
           <p className={styles.statNote}>
             {p.policyActive
@@ -195,6 +209,46 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
 
               <section className={styles.panel}>
                 <div className={styles.panelHead}>
+                  <h2 className={styles.panelTitle}>Money in and out</h2>
+                </div>
+                {history.isLoading && <div className={styles.empty}>Loading…</div>}
+                {history.isError && <div className={styles.empty}>Couldn’t load this right now.</div>}
+                {history.data && (
+                  <>
+                    <p className={agentStyles.panelNote}>
+                      Put in <span>{eth(history.data.fundedEth)} ETH</span>. The owner took out <span>{eth(history.data.ownerWithdrewEth)} ETH</span>
+                      {history.data.tokenWithdrawals.length > 0 && <> and moved out {history.data.tokenWithdrawals.length} kind(s) of token</>}
+                      {BigInt(history.data.ownerSpentEth) > 0n && <>, and spent <span>{eth(history.data.ownerSpentEth)} ETH</span> directly</>}.
+                      {!history.data.complete && ' Only recent history is shown.'}
+                    </p>
+                    {history.data.entries.length === 0 ? (
+                      <div className={styles.empty}>Nothing yet.</div>
+                    ) : (
+                      <ul className={styles.tableList}>
+                        {history.data.entries.map((e, i) => (
+                          <li key={`${e.txHash}-${i}`} className={`${styles.trow} ${agentStyles.historyCols}`}>
+                            <span className={styles.cell}>
+                              {e.label}
+                              {e.failed && <> <span className="ui-badge" data-tone="bad">Failed</span></>}
+                              {e.kind === 'withdrew_eth' || e.kind === 'withdrew_token' ? <> <span className="ui-badge" data-tone="warn">Owner</span></> : null}
+                            </span>
+                            <span className={`${styles.num} ${styles.right} ${styles.muted}`}>
+                              {e.txHash ? (
+                                <a href={`${EXPLORER}/tx/${e.txHash}`} target="_blank" rel="noopener noreferrer">
+                                  {e.timestamp ? new Date(e.timestamp * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'tx'}
+                                </a>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </section>
+
+              <section className={styles.panel}>
+                <div className={styles.panelHead}>
                   <h2 className={styles.panelTitle}>Trades</h2>
                   <span className={styles.panelCount}>{trades.data?.length ?? 0}</span>
                 </div>
@@ -222,7 +276,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                 <div className={styles.panelHead}>
                   <h2 className={styles.panelTitle}>How this works</h2>
                 </div>
-                <div className={styles.panelBody}>
+                <div className={`${styles.panelBody} ${agentStyles.stack}`}>
                   <p className={styles.hiddenCopy}>
                     The money sits in a Safe that only its owner controls. The agent has its own key and can only do what the owner allowed.
                   </p>

@@ -1,0 +1,116 @@
+/* Agent pages reuse the profile and create-studio styles; these fill the gaps. */
+.steps {
+  display: grid;
+  gap: 16px;
+  max-width: 820px;
+}
+
+/* Same box as the profile avatar; agents have no picture, so a label instead. */
+.avatarGlyph {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+/* A summary line inside a panel, padded like the panel's rows. */
+.panelNote {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Label | date. */
+.historyCols {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Paragraphs inside a panel body. */
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+/* Setup transactions: one row per tx, number | title + line | action. */
+.txList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+  overflow: hidden;
+}
+
+.txRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.txRow:first-child {
+  border-top: 0;
+}
+
+.txRow[data-state='next'] {
+  background: var(--surface-2);
+}
+
+.txRow[data-state='later'] {
+  opacity: 0.6;
+}
+
+.txNum {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.txRow[data-state='next'] .txNum {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.txText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.txTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.txDesc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
+.txAction {
+  justify-self: end;
+}
+
+@media (max-width: 560px) {
+  .txRow {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .txAction {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
