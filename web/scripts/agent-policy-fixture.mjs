@@ -19,7 +19,7 @@ import { createPublicClient, decodeFunctionResult, encodeAbiParameters, encodeEr
 import { bondingCurveAbi, curveFactoryAbi, erc20TokenAbi, fairLaunchFactoryAbi, openingBatchAbi, v4SwapRouterAbi } from '../src/lib/abis.ts';
 import {
   AGENT_ROLE_KEY, agentExecTx, configureCalls, createSafeTx, deployRolesTx, moduleProxyFactoryAbi, rolesAbi,
-  safeBatchTx, safeProxyFactoryAbi, tokenPermissionCalls,
+  removeTokenCalls, routerPermissionCalls, safeBatchTx, safeProxyFactoryAbi, tokenPermissionCalls,
 } from '../src/lib/agentV2/agentPolicy.ts';
 import { BOOK } from '../src/lib/agentV2/testFixtures.mjs';
 
@@ -143,6 +143,15 @@ step('batch deposit 0.02', 'agent', asAgent({ to: fBatch, value: parseEther('0.0
 step('withdrawRefund to the agent', 'agent', asAgent({ to: fBatch, value: 0n, data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'withdrawRefund', args: [AGENT] }) }), PARAM);
 step('settle the batch', 'agent', asAgent({ to: fBatch, value: 0n, data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'settle' }) }), true, 120);
 step('claim batch tokens to the Safe', 'agent', asAgent({ to: fBatch, value: 0n, data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'claim' }) }), true);
+
+// ---- owner drops a token: all its grants go, the rest keep working
+step('owner removes the curve token from the list', 'owner', safeBatchTx(safe, OWNER, [
+  ...removeTokenCalls(roles, curveToken),
+  ...routerPermissionCalls(roles, { ...policy, tokens: [poolToken] }),
+]), true);
+step('buy the removed token', 'agent', asAgent(buy(curveToken.curve, parseEther('0.001'))), TARGET, 2);
+step('approve the removed token', 'agent', asAgent({ to: CURVE_TOKEN, value: 0n, data: encodeFunctionData({ abi: erc20TokenAbi, functionName: 'approve', args: [curveToken.curve, 1n] }) }), TARGET);
+step('the remaining token still trades', 'agent', asAgent(swap(swapKey(), safe)), true, 2);
 
 // ---- revoke
 step('owner revokes the agent', 'owner', safeBatchTx(safe, OWNER, [{ to: roles, value: 0n, data: encodeFunctionData({ abi: rolesAbi, functionName: 'assignRoles', args: [AGENT, [AGENT_ROLE_KEY], [false]] }) }]), true);

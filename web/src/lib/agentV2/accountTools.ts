@@ -198,10 +198,11 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
     return {
       data: {
         owner, agent, safe, roles, salt: salt.toString(),
+        tokenList: tokens.map((t) => t.token).join(','),
         policy: policySummary(deps, tokens, daily, perTrade, input.allowFairLaunch),
         transactions,
         summary: `Set up an agent account: Safe ${safe} owned by ${owner}; agent ${agent} may trade ${tokens.length} listed token(s) on urufu, spending at most ${fmt(perTrade)} per tx and ${fmt(daily)} per day, with daily sell caps per token; everything it buys lands in the Safe. ${transactions.length} owner txs.`,
-        next: 'The OWNER sends these in order, each after the previous confirms. Then the agent uses quote_buy / quote_sell / quote_batch_deposit with the Safe as buyer/seller/depositor, and wraps each tx with agent_exec.',
+        next: 'The OWNER sends these in order, each after the previous confirms. Keep `tokenList`, `safe` and `roles`: update_agent_account needs them. Then the agent uses quote_buy / quote_sell / quote_batch_deposit with the Safe as buyer/seller/depositor, and wraps each tx with agent_exec.',
       },
     };
   },
@@ -236,20 +237,20 @@ function policySummary(deps: AgentDeps, tokens: PolicyTokens[], daily: bigint, p
 
 // ---------------------------------------------------------------- update / revoke
 
-interface UpdateInput { owner: string; safe: string; roles: string; tokens?: string; removeTokens?: string; dailyEth?: string; perTradeEth?: string; allowFairLaunch?: boolean; allowSells: boolean; dailySellTokens?: string }
+interface UpdateInput { owner: string; safe: string; roles: string; tokens?: string; previousTokens?: string; dailyEth?: string; perTradeEth?: string; allowFairLaunch?: boolean; allowSells: boolean; dailySellTokens?: string }
 
 export const updateAgentAccountTool: ToolDef<UpdateInput> = {
   name: 'update_agent_account',
   title: 'Change an agent account\'s policy',
-  description: 'Owner-only: set the full list of tokens the agent may trade (and their sell caps), remove tokens, change the ETH caps, or allow Fair launches. Returns one unsigned Safe tx for the owner.',
+  description: 'Owner-only: change which tokens the agent may trade (pass the new full list and the previous one; every dropped token loses all its permissions), change the ETH caps or sell caps, or allow Fair launches. Returns one unsigned Safe tx for the owner.',
   inputSchema: {
     type: 'object',
     properties: {
       owner: addressField('Safe owner (sends the tx)'),
       safe: addressField('The agent account Safe'),
       roles: addressField('Its Roles policy module'),
-      tokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'The COMPLETE list of tokens the agent may trade after this change (comma-separated). v4 swap permissions are rebuilt from it.' },
-      removeTokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'Tokens to take off the list (comma-separated)' },
+      tokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'The COMPLETE list of tokens the agent may trade after this change (comma-separated).' },
+      previousTokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'The list before this change (the `tokenList` setup or the last update returned). Required with `tokens`: every token on it but not on `tokens` loses all its permissions.' },
       ...sellFields,
       dailyEth: { ...commonCaps.dailyEth, default: undefined },
       perTradeEth: { ...commonCaps.perTradeEth, default: undefined },
@@ -285,13 +286,12 @@ export const updateAgentAccountTool: ToolDef<UpdateInput> = {
     const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: dailyForSells });
     const policy: PolicyInput = { ...policyBase(deps), tokens };
     if (input.tokens !== undefined) {
-      for (const t of tokens) calls.push(...tokenPermissionCalls(roles, policy, t));
-      calls.push(...routerPermissionCalls(roles, policy));
-      changes.push(`token list set to ${tokens.length} token(s)`);
-    }
-    if (input.removeTokens) {
-      for (const raw of [...new Set(input.removeTokens.split(',').map((t) => getAddress(t.trim())))]) {
-        if (tokens.some((t) => t.token === raw)) throw new ToolError('INVALID_INPUT', `${raw} is in both tokens and removeTokens`);
+      if (input.previousTokens === undefined) {
+        throw new ToolError('INVALID_INPUT', 'pass `previousTokens` (the current list) with `tokens`, so every dropped token is fully revoked');
+      }
+      const keep = new Set(tokens.map((t) => t.token));
+      for (const raw of [...new Set(input.previousTokens.split(',').map((t) => getAddress(t.trim())))]) {
+        if (keep.has(raw)) continue;
         const [cf, ff, bf] = (await Promise.allSettled([
           deps.client.readContract({ address: deps.book.CurveFactory, abi: fairLaunchFactoryAbi, functionName: 'curveFor', args: [raw] }),
           deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'curveFor', args: [raw] }),
@@ -300,11 +300,13 @@ export const updateAgentAccountTool: ToolDef<UpdateInput> = {
         const curve = ff !== ZERO ? ff : cf;
         if (curve === ZERO) throw new ToolError('BAD_TOKEN', `${raw}: no urufu curve`, 400);
         calls.push(...removeTokenCalls(roles, { token: raw, curve, batch: bf !== ZERO ? bf : null }));
+        changes.push(`remove ${raw}`);
       }
-      changes.push('remove tokens');
-      if (input.tokens === undefined) {
-        throw new ToolError('INVALID_INPUT', 'pass `tokens` (the list that remains) with removeTokens, so v4 swap permissions are rebuilt without the removed ones');
-      }
+      for (const t of tokens) calls.push(...tokenPermissionCalls(roles, policy, t));
+      calls.push(...routerPermissionCalls(roles, policy));
+      changes.push(`token list set to ${tokens.length} token(s)`);
+    } else if (input.previousTokens !== undefined) {
+      throw new ToolError('INVALID_INPUT', '`previousTokens` only makes sense with `tokens`');
     }
     if (input.allowFairLaunch) {
       calls.push(...basePermissionCalls(roles, policy, true).slice(-2));
@@ -313,7 +315,8 @@ export const updateAgentAccountTool: ToolDef<UpdateInput> = {
     if (calls.length === 0) throw new ToolError('INVALID_INPUT', 'nothing to change');
     const tx = safeBatchTx(safe, owner, calls);
     const summary = `Update agent account ${safe}: ${changes.join('; ')}.`;
-    return { data: { owner, safe, roles, changes, transactions: [txOut(tx, 1, 'updatePolicy', summary)], summary, next: 'The OWNER sends this tx.' } };
+    const tokenList = input.tokens !== undefined ? tokens.map((t) => t.token).join(',') : undefined;
+    return { data: { owner, safe, roles, changes, tokenList, transactions: [txOut(tx, 1, 'updatePolicy', summary)], summary, next: 'The OWNER sends this tx. Keep `tokenList`: the next update needs it as previousTokens.' } };
   },
 };
 

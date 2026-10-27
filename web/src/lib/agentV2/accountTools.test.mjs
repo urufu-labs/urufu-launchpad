@@ -130,19 +130,33 @@ describe('setup_agent_account', () => {
 
 describe('update / revoke', () => {
   it('update: one Safe tx with new caps and tokens', async () => {
-    const r = await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, dailyEth: '0.5', perTradeEth: '0.1' });
+    const r = await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, previousTokens: TOKEN, dailyEth: '0.5', perTradeEth: '0.1' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.data.transactions.length, 1);
     assert.deepEqual(r.body.data.changes, ['caps: 0.1 ETH per tx, 0.5 ETH per day', 'token list set to 1 token(s)']);
   });
-  it('update: removeTokens needs the remaining list, and the two lists cannot overlap', async () => {
-    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, removeTokens: TOKEN })).status, 400);
-    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, removeTokens: TOKEN })).status, 400);
+  it('update: dropping a token from the list revokes its curve, token and batch targets', async () => {
+    const OLD = '0x7777777777777777777777777777777777777777';
+    const s = setup();
+    const orig = s.deps.client.readContract;
+    s.deps.client.readContract = async (a) => (a.functionName === 'curveFor' && a.args?.[0] === OLD && a.address === BOOK.CurveFactory ? '0x8888888888888888888888888888888888888888' : orig(a));
+    const r = await s.run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, previousTokens: `${TOKEN},${OLD}` });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.data.changes.includes(`remove ${OLD}`));
+    const batch = r.body.data.transactions[0].data.toLowerCase();
+    // revokeTarget(role, curve) and revokeTarget(role, token) are in the batch.
+    assert.ok(batch.includes('8888888888888888888888888888888888888888'));
+    assert.ok(batch.includes(OLD.slice(2)));
+    assert.equal(r.body.data.tokenList, TOKEN);
+  });
+  it('update: tokens needs previousTokens, and previousTokens alone is refused', async () => {
+    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 400);
+    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, previousTokens: TOKEN })).status, 400);
   });
   it('update refuses: not owner, multi-sig Safe, foreign Roles, nothing to change, half caps', async () => {
-    assert.equal((await setup({ getOwners: ['0x2222222222222222222222222222222222222222'] }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 403);
-    assert.equal((await setup({ getThreshold: 2n }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 409);
-    assert.equal((await setup({ owner: OWNER }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 404);
+    assert.equal((await setup({ getOwners: ['0x2222222222222222222222222222222222222222'] }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, previousTokens: TOKEN })).status, 403);
+    assert.equal((await setup({ getThreshold: 2n }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, previousTokens: TOKEN })).status, 409);
+    assert.equal((await setup({ owner: OWNER }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, previousTokens: TOKEN })).status, 404);
     assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES })).status, 400);
     assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, dailyEth: '1' })).status, 400);
   });
