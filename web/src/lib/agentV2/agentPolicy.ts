@@ -75,6 +75,7 @@ export const safeAbi = parseAbi([
   'function isModuleEnabled(address module) view returns (bool)',
   'function getOwners() view returns (address[])',
   'function getThreshold() view returns (uint256)',
+  'function getModulesPaginated(address start, uint256 pageSize) view returns (address[] array, address next)',
 ]);
 export const safeProxyFactoryAbi = parseAbi([
   'function createProxyWithNonce(address _singleton, bytes initializer, uint256 saltNonce) returns (address proxy)',
@@ -250,14 +251,9 @@ export function removeTokenCalls(roles: Address, t: { token: Address; curve: Add
 /// token list on every change, so `p.tokens` must be the complete list.
 export function routerPermissionCalls(roles: Address, p: PolicyInput): Call[] {
   if (p.tokens.length === 0) return [rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, p.v4SwapRouter])];
-  const buySel = sel(v4SwapRouterAbi, 'swapExactETHForToken');
   const sellSel = sel(v4SwapRouterAbi, 'swapExactTokenForETH');
-  const buy = anyOf(p.tokens.map((t) => calldata([poolKeyCond(p.hooks, t.token), pass(), isAvatar(), pass()], true)));
   const sellers = p.tokens.filter((t) => t.dailySellTokens > 0n);
-  const calls: Call[] = [
-    rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, p.v4SwapRouter]),
-    scope(roles, p.v4SwapRouter, buySel, buy, EXEC.Send),
-  ];
+  const calls: Call[] = routerBuyPermissionCalls(roles, p, p.tokens.map((t) => t.token));
   if (sellers.length > 0) {
     const sell = anyOf(sellers.map((t) => calldata([poolKeyCond(p.hooks, t.token), withinAllowance(sellAllowanceKey(t.token)), pass(), isAvatar(), pass()], false)));
     calls.push(scope(roles, p.v4SwapRouter, sellSel, sell, EXEC.None));
@@ -265,6 +261,38 @@ export function routerPermissionCalls(roles: Address, p: PolicyInput): Call[] {
     calls.push(rolesCall(roles, 'revokeFunction', [AGENT_ROLE_KEY, p.v4SwapRouter, sellSel]));
   }
   return calls;
+}
+
+/// Only the v4 BUY scope, rebuilt from the full token list. Buys don't depend on
+/// any token's sell setting, so this can be rewritten without knowing them (the
+/// agent-token launch uses it; the sell scope is left as it was).
+export function routerBuyPermissionCalls(roles: Address, p: PolicyInput, tokens: Address[]): Call[] {
+  const buy = anyOf(tokens.map((t) => calldata([poolKeyCond(p.hooks, t), pass(), isAvatar(), pass()], true)));
+  return [
+    rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, p.v4SwapRouter]),
+    scope(roles, p.v4SwapRouter, sel(v4SwapRouterAbi, 'swapExactETHForToken'), buy, EXEC.Send),
+  ];
+}
+
+/// Phase 2 agent token (docs/PLAN-agents-and-swarms.md 3): the Safe launches its own
+/// Fair token, and in the same Safe tx the token is listed for the agent with
+/// selling OFF. The Fair lane burns the creator fee for good once the creator's
+/// balance falls more than forfeitDropBps below its graduation baseline (and a
+/// curve sell by the launcher forfeits it from the start), so the agent may buy,
+/// deposit into the batch, claim and claim fees, but never sell, approve or move
+/// the token. `listed` is every token already on the agent's list.
+export function agentTokenLaunchCalls(args: {
+  roles: Address;
+  policy: Omit<PolicyInput, 'tokens'>;
+  launch: Call[];
+  own: { token: Address; curve: Address; batch: Address };
+  listed: Address[];
+}): Call[] {
+  const { roles, policy, own } = args;
+  const p: PolicyInput = { ...policy, tokens: [] };
+  const ownToken: PolicyTokens = { ...own, dailySellTokens: 0n };
+  const tokens = [...args.listed.filter((t) => t.toLowerCase() !== own.token.toLowerCase()), own.token];
+  return [...args.launch, ...tokenPermissionCalls(roles, p, ownToken), ...routerBuyPermissionCalls(roles, p, tokens)];
 }
 
 /// Permissions that don't depend on a token: fee claims, optional Fair launch.

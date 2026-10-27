@@ -393,6 +393,15 @@ export default function DocsPage() {
               Only put in the Safe what you&apos;re happy for the agent to spend. The rules cap
               how fast it can spend, not whether its trades are good ones.
             </Callout>
+            <h3 className={styles.groupTitle}>An agent with its own coin</h3>
+            <FactList
+              items={[
+                "You can launch a coin for your agent on the Fair lane, with the agent's Safe as its creator. The creator fee then goes to the Safe.",
+                'The agent can buy its coin and collect its fees, but it can never sell or move it. On the Fair lane the creator fee is burned for good if the creator sells, or holds more than 10% less than at graduation.',
+                'You can still sell from the Safe yourself, but that burns the fee.',
+                'Every agent account has a public page at /agent/ followed by its Safe address: who owns it, its limits, its coin and its trades, all read from the chain.',
+              ]}
+            />
           </DocSection>
 
           <DocSection id="fees" title="Fees and discounts">

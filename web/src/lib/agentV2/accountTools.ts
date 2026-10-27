@@ -11,7 +11,7 @@
 /// The agent's key only ever signs `agent_exec` txs. It can't move funds the policy
 /// doesn't allow, whatever text it reads or is told.
 
-import { decodeFunctionResult, encodeFunctionData, formatEther, formatUnits, getAddress, parseEther, parseUnits, type Address, type Hex } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, formatEther, formatUnits, getAddress, parseAbi, parseEther, parseUnits, type Address, type Hex } from 'viem';
 
 import { bondingCurveAbi, fairLaunchFactoryAbi } from '../abis';
 import {
@@ -42,11 +42,11 @@ import { quoteV4, resolveMarket } from './tradeTools';
 
 const MAX_TOKENS = 20;
 const MAX_DAILY_WEI = parseEther('10');
-const TOKENS_PATTERN = '^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40}){0,19}$';
+export const TOKENS_PATTERN = '^0x[0-9a-fA-F]{40}(,0x[0-9a-fA-F]{40}){0,19}$';
 
 const fmt = (w: bigint) => `${formatEther(w)} ETH`;
 
-function policyBase(deps: AgentDeps): Omit<PolicyInput, 'tokens'> {
+export function policyBase(deps: AgentDeps): Omit<PolicyInput, 'tokens'> {
   const b = deps.book;
   return {
     v4SwapRouter: b.V4SwapRouter,
@@ -63,16 +63,21 @@ interface SellOptions {
   dailySellTokens: string | undefined;
   /// Daily ETH cap: the default sell cap is what this buys of the token right now.
   dailyWei: bigint;
+  /// The agent account. A Fair token it launched itself always gets selling off:
+  /// a creator sell or a balance drop forfeits the creator fee for good.
+  safe: Address | null;
 }
+
+export const fairCurveLauncherAbi = parseAbi(['function launcher() view returns (address)']);
 
 /// Curve (and Fair batch) for each token, from chain, plus its daily sell cap.
 /// DN404 and unknown tokens are refused.
-async function resolveTokens(deps: AgentDeps, list: string | undefined, sells: SellOptions): Promise<PolicyTokens[]> {
+export async function resolveTokens(deps: AgentDeps, list: string | undefined, sells: SellOptions): Promise<Array<PolicyTokens & { own: boolean }>> {
   if (!list) return [];
   const tokens = [...new Set(list.split(',').map((t) => getAddress(t.trim())))];
   if (tokens.length > MAX_TOKENS) throw new ToolError('INVALID_INPUT', `at most ${MAX_TOKENS} tokens per call`);
   const explicit = sells.dailySellTokens !== undefined ? parseUnits(sells.dailySellTokens, 18) : null;
-  const out: PolicyTokens[] = [];
+  const out: Array<PolicyTokens & { own: boolean }> = [];
   for (const token of tokens) {
     let market;
     try {
@@ -81,12 +86,19 @@ async function resolveTokens(deps: AgentDeps, list: string | undefined, sells: S
       throw new ToolError('BAD_TOKEN', `${token}: ${(err as Error).message}`, 400);
     }
     let batch: Address | null = null;
+    let own = false;
     if (market.lane === 'fair') {
-      const b = (await deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'batchFor', args: [token] })) as Address;
+      const [b, launcher] = await Promise.all([
+        deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'batchFor', args: [token] }) as Promise<Address>,
+        sells.safe
+          ? (deps.client.readContract({ address: market.curve, abi: fairCurveLauncherAbi, functionName: 'launcher' }) as Promise<Address>)
+          : Promise.resolve(ZERO),
+      ]);
       batch = b && b !== ZERO ? b : null;
+      own = !!sells.safe && launcher.toLowerCase() === sells.safe.toLowerCase();
     }
     let dailySellTokens = 0n;
-    if (sells.allowSells) {
+    if (sells.allowSells && !own) {
       if (explicit !== null) dailySellTokens = explicit;
       else {
         try {
@@ -98,7 +110,7 @@ async function resolveTokens(deps: AgentDeps, list: string | undefined, sells: S
         }
       }
     }
-    out.push({ token, curve: market.curve, batch, dailySellTokens });
+    out.push({ token, curve: market.curve, batch, dailySellTokens, own });
   }
   return out;
 }
@@ -126,7 +138,7 @@ async function predict(deps: AgentDeps, from: Address, tx: Call, kind: 'safe' | 
 
 /// The Safe must be 1-of-1 owned by `owner` and the Roles module owned by that
 /// Safe: owner-sent Safe txs use the "approved by sender" signature.
-async function assertOwned(deps: AgentDeps, owner: Address, safe: Address, roles: Address) {
+export async function assertOwned(deps: AgentDeps, owner: Address, safe: Address, roles: Address) {
   const [owners, threshold, rolesOwner] = await Promise.all([
     deps.client.readContract({ address: safe, abi: safeAbi, functionName: 'getOwners' }).catch(() => null) as Promise<Address[] | null>,
     deps.client.readContract({ address: safe, abi: safeAbi, functionName: 'getThreshold' }).catch(() => null) as Promise<bigint | null>,
@@ -180,7 +192,8 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
     if (owner === agent) throw new ToolError('INVALID_INPUT', 'The agent must use its own wallet, not the owner\'s.');
     const { daily, perTrade } = caps(input.dailyEth, input.perTradeEth);
     const fund = parseEther(input.fundEth);
-    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: daily });
+    // A Safe that doesn't exist yet has launched nothing, so no token is its own.
+    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: daily, safe: null });
     const salt = BigInt(deps.now());
     const cs = createSafeTx(owner, salt);
     const safe = await predict(deps, owner, cs, 'safe');
@@ -283,8 +296,11 @@ export const updateAgentAccountTool: ToolDef<UpdateInput> = {
       const a = (await deps.client.readContract({ address: roles, abi: rolesAbi, functionName: 'allowances', args: [ALLOWANCE_DAILY] }).catch(() => null)) as readonly [bigint, bigint, bigint, bigint, bigint] | null;
       dailyForSells = a ? a[1] : 0n;
     }
-    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: dailyForSells });
+    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: dailyForSells, safe });
     const policy: PolicyInput = { ...policyBase(deps), tokens };
+    for (const t of tokens) {
+      if (t.own) changes.push(`${t.token} is this account's own Fair token: selling stays off, or the creator fee would be burned`);
+    }
     if (input.tokens !== undefined) {
       if (input.previousTokens === undefined) {
         throw new ToolError('INVALID_INPUT', 'pass `previousTokens` (the current list) with `tokens`, so every dropped token is fully revoked');
