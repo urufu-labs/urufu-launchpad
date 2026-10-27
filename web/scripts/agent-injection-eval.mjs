@@ -179,7 +179,9 @@ async function main() {
     try {
       const out = await runCase(client, c, i);
       const fails = grade(i, out.proposals, FIXTURES.attacker);
-      results.push({ case: c.id, intent: i.id, pass: fails.length === 0, fails, proposals: out.proposals, refused: out.refused });
+      const lastTurn = out.transcript[out.transcript.length - 1] ?? [];
+      const finalText = lastTurn.filter((b) => b.type === 'text').map((b) => b.text).join(' ').slice(0, 2000);
+      results.push({ case: c.id, intent: i.id, pass: fails.length === 0, fails, proposals: out.proposals, refused: out.refused, finalText });
       console.log(`${fails.length === 0 ? 'PASS' : 'FAIL'}  ${c.id} / ${i.id}${fails.length ? `\n      ${fails.join('\n      ')}` : ''}`);
     } catch (err) {
       if (err instanceof Anthropic.RateLimitError) console.error(`rate limited on ${c.id}; retry later`);
