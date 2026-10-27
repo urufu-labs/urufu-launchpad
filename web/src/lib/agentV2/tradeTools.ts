@@ -122,7 +122,7 @@ export async function resolveMarket({ client, book, indexer }: AgentDeps, token:
   return { kind: 'pool', lane, token, curve, key, poolId };
 }
 
-async function quoteV4(deps: AgentDeps, key: PoolKey, zeroForOne: boolean, amountIn: bigint): Promise<bigint> {
+export async function quoteV4(deps: AgentDeps, key: PoolKey, zeroForOne: boolean, amountIn: bigint): Promise<bigint> {
   try {
     const [out] = (await deps.client.readContract({
       address: deps.book.V4Quoter,

@@ -84,6 +84,23 @@ describe('setup_agent_account', () => {
     assert.equal(d.policy.caps.perTx, '0.05 ETH');
     assert.equal(d.policy.caps.perDay, '0.25 ETH');
     assert.equal(d.policy.tokens[0].curve, CURVE);
+    // Default sell cap = what the daily ETH cap buys now (fake curve quote: 1,000,000 tokens).
+    assert.equal(d.policy.tokens[0].dailySellTokens, '1000000');
+  });
+
+  it('sell caps: explicit amount, or selling off', async () => {
+    let r = await setup().run('setup_agent_account', { owner: OWNER, agent: AGENT, tokens: TOKEN, dailySellTokens: '5000' });
+    assert.equal(r.body.data.policy.tokens[0].dailySellTokens, '5000');
+    r = await setup().run('setup_agent_account', { owner: OWNER, agent: AGENT, tokens: TOKEN, allowSells: false });
+    assert.equal(r.body.data.policy.tokens[0].dailySellTokens, 'selling off');
+  });
+
+  it('a token that cannot be priced needs an explicit sell cap', async () => {
+    const s = setup();
+    const orig = s.deps.client.readContract;
+    s.deps.client.readContract = async (a) => (a.functionName === 'quoteBuy' ? Promise.reject(new Error('x')) : orig(a));
+    const r = await s.run('setup_agent_account', { owner: OWNER, agent: AGENT, tokens: TOKEN });
+    assert.equal(r.body.error.code, 'SELL_CAP_NEEDED');
   });
 
   it('input rules: agent != owner, per-trade <= daily, daily <= 10 ETH, no zero caps', async () => {
@@ -113,15 +130,19 @@ describe('setup_agent_account', () => {
 
 describe('update / revoke', () => {
   it('update: one Safe tx with new caps and tokens', async () => {
-    const r = await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, addTokens: TOKEN, dailyEth: '0.5', perTradeEth: '0.1' });
+    const r = await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, dailyEth: '0.5', perTradeEth: '0.1' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.data.transactions.length, 1);
-    assert.deepEqual(r.body.data.changes, ['caps: 0.1 ETH per tx, 0.5 ETH per day', 'add 1 token(s)']);
+    assert.deepEqual(r.body.data.changes, ['caps: 0.1 ETH per tx, 0.5 ETH per day', 'token list set to 1 token(s)']);
+  });
+  it('update: removeTokens needs the remaining list, and the two lists cannot overlap', async () => {
+    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, removeTokens: TOKEN })).status, 400);
+    assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN, removeTokens: TOKEN })).status, 400);
   });
   it('update refuses: not owner, multi-sig Safe, foreign Roles, nothing to change, half caps', async () => {
-    assert.equal((await setup({ getOwners: ['0x2222222222222222222222222222222222222222'] }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, addTokens: TOKEN })).status, 403);
-    assert.equal((await setup({ getThreshold: 2n }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, addTokens: TOKEN })).status, 409);
-    assert.equal((await setup({ owner: OWNER }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, addTokens: TOKEN })).status, 404);
+    assert.equal((await setup({ getOwners: ['0x2222222222222222222222222222222222222222'] }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 403);
+    assert.equal((await setup({ getThreshold: 2n }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 409);
+    assert.equal((await setup({ owner: OWNER }).run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, tokens: TOKEN })).status, 404);
     assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES })).status, 400);
     assert.equal((await setup().run('update_agent_account', { owner: OWNER, safe: SAFE, roles: ROLES, dailyEth: '1' })).status, 400);
   });

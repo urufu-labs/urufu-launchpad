@@ -11,9 +11,9 @@
 /// The agent's key only ever signs `agent_exec` txs. It can't move funds the policy
 /// doesn't allow, whatever text it reads or is told.
 
-import { decodeFunctionResult, encodeFunctionData, formatEther, getAddress, parseEther, type Address, type Hex } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, formatEther, formatUnits, getAddress, parseEther, parseUnits, type Address, type Hex } from 'viem';
 
-import { fairLaunchFactoryAbi } from '../abis';
+import { bondingCurveAbi, fairLaunchFactoryAbi } from '../abis';
 import {
   AGENT_ROLE_KEY,
   ALLOWANCE_DAILY,
@@ -21,6 +21,8 @@ import {
   agentExecTx,
   allowanceCalls,
   basePermissionCalls,
+  removeTokenCalls,
+  routerPermissionCalls,
   configureCalls,
   createSafeTx,
   deployRolesTx,
@@ -36,7 +38,7 @@ import {
 } from './agentPolicy';
 import { addressField, ETH_AMOUNT_PATTERN } from './schema';
 import { revertMessage, MINUTE, ToolError, txOut, ZERO, type AgentDeps, type ToolDef } from './tools';
-import { resolveMarket } from './tradeTools';
+import { quoteV4, resolveMarket } from './tradeTools';
 
 const MAX_TOKENS = 20;
 const MAX_DAILY_WEI = parseEther('10');
@@ -55,11 +57,21 @@ function policyBase(deps: AgentDeps): Omit<PolicyInput, 'tokens'> {
   };
 }
 
-/// Curve (and Fair batch) for each token, from chain. DN404 and unknown tokens refused.
-async function resolveTokens(deps: AgentDeps, list: string | undefined): Promise<PolicyTokens[]> {
+interface SellOptions {
+  allowSells: boolean;
+  /// Explicit cap for every token, whole tokens (18 decimals). Null = default.
+  dailySellTokens: string | undefined;
+  /// Daily ETH cap: the default sell cap is what this buys of the token right now.
+  dailyWei: bigint;
+}
+
+/// Curve (and Fair batch) for each token, from chain, plus its daily sell cap.
+/// DN404 and unknown tokens are refused.
+async function resolveTokens(deps: AgentDeps, list: string | undefined, sells: SellOptions): Promise<PolicyTokens[]> {
   if (!list) return [];
   const tokens = [...new Set(list.split(',').map((t) => getAddress(t.trim())))];
   if (tokens.length > MAX_TOKENS) throw new ToolError('INVALID_INPUT', `at most ${MAX_TOKENS} tokens per call`);
+  const explicit = sells.dailySellTokens !== undefined ? parseUnits(sells.dailySellTokens, 18) : null;
   const out: PolicyTokens[] = [];
   for (const token of tokens) {
     let market;
@@ -73,7 +85,20 @@ async function resolveTokens(deps: AgentDeps, list: string | undefined): Promise
       const b = (await deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'batchFor', args: [token] })) as Address;
       batch = b && b !== ZERO ? b : null;
     }
-    out.push({ token, curve: market.curve, batch });
+    let dailySellTokens = 0n;
+    if (sells.allowSells) {
+      if (explicit !== null) dailySellTokens = explicit;
+      else {
+        try {
+          dailySellTokens = market.kind === 'curve'
+            ? ((await deps.client.readContract({ address: market.curve, abi: bondingCurveAbi, functionName: 'quoteBuy', args: [sells.dailyWei] })) as readonly [bigint, bigint])[0]
+            : await quoteV4(deps, market.key, true, sells.dailyWei);
+        } catch {
+          throw new ToolError('SELL_CAP_NEEDED', `${token}: could not price a default sell cap right now. Pass dailySellTokens, or allowSells false.`, 409);
+        }
+      }
+    }
+    out.push({ token, curve: market.curve, batch, dailySellTokens });
   }
   return out;
 }
@@ -113,6 +138,11 @@ async function assertOwned(deps: AgentDeps, owner: Address, safe: Address, roles
   if (!rolesOwner || rolesOwner.toLowerCase() !== safe.toLowerCase()) throw new ToolError('NOT_FOUND', `${roles} is not a Roles module owned by this Safe.`, 404);
 }
 
+const sellFields = {
+  allowSells: { type: 'boolean', default: true, description: 'Let the agent sell listed tokens (within a daily cap per token). false = buy and hold only.' },
+  dailySellTokens: { type: 'string', pattern: '^(0|[1-9]\\d{0,14})(\\.\\d{1,18})?$', description: 'Most of each token the agent may sell per 24 h, in whole tokens. Default: what the daily ETH cap buys at today\'s price.' },
+} as const;
+
 const commonCaps = {
   dailyEth: { type: 'string', pattern: ETH_AMOUNT_PATTERN, default: '0.25', description: 'Most ETH the agent may spend per 24 h (default 0.25)' },
   perTradeEth: { type: 'string', pattern: ETH_AMOUNT_PATTERN, default: '0.05', description: 'Most ETH one agent tx may spend (default 0.05)' },
@@ -120,7 +150,7 @@ const commonCaps = {
 
 // ---------------------------------------------------------------- setup
 
-interface SetupInput { owner: string; agent: string; tokens?: string; dailyEth: string; perTradeEth: string; fundEth: string; allowFairLaunch: boolean }
+interface SetupInput { owner: string; agent: string; tokens?: string; dailyEth: string; perTradeEth: string; fundEth: string; allowFairLaunch: boolean; allowSells: boolean; dailySellTokens?: string }
 
 export const setupAgentAccountTool: ToolDef<SetupInput> = {
   name: 'setup_agent_account',
@@ -136,6 +166,7 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
       ...commonCaps,
       fundEth: { type: 'string', pattern: ETH_AMOUNT_PATTERN, default: '0', description: 'ETH to move from the owner into the Safe at the end' },
       allowFairLaunch: { type: 'boolean', default: false, description: 'Also let the agent launch Fair tokens (within the caps)' },
+      ...sellFields,
     },
     required: ['owner', 'agent'],
     additionalProperties: false,
@@ -149,7 +180,7 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
     if (owner === agent) throw new ToolError('INVALID_INPUT', 'The agent must use its own wallet, not the owner\'s.');
     const { daily, perTrade } = caps(input.dailyEth, input.perTradeEth);
     const fund = parseEther(input.fundEth);
-    const tokens = await resolveTokens(deps, input.tokens);
+    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: daily });
     const salt = BigInt(deps.now());
     const cs = createSafeTx(owner, salt);
     const safe = await predict(deps, owner, cs, 'safe');
@@ -169,7 +200,7 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
         owner, agent, safe, roles, salt: salt.toString(),
         policy: policySummary(deps, tokens, daily, perTrade, input.allowFairLaunch),
         transactions,
-        summary: `Set up an agent account: Safe ${safe} owned by ${owner}; agent ${agent} may trade ${tokens.length} token(s) on urufu, at most ${fmt(perTrade)} per tx and ${fmt(daily)} per day, with everything it buys landing in the Safe. ${transactions.length} owner txs.`,
+        summary: `Set up an agent account: Safe ${safe} owned by ${owner}; agent ${agent} may trade ${tokens.length} listed token(s) on urufu, spending at most ${fmt(perTrade)} per tx and ${fmt(daily)} per day, with daily sell caps per token; everything it buys lands in the Safe. ${transactions.length} owner txs.`,
         next: 'The OWNER sends these in order, each after the previous confirms. Then the agent uses quote_buy / quote_sell / quote_batch_deposit with the Safe as buyer/seller/depositor, and wraps each tx with agent_exec.',
       },
     };
@@ -178,36 +209,48 @@ export const setupAgentAccountTool: ToolDef<SetupInput> = {
 
 function policySummary(deps: AgentDeps, tokens: PolicyTokens[], daily: bigint, perTrade: bigint, allowFairLaunch: boolean) {
   return {
-    caps: { perTx: fmt(perTrade), perDay: fmt(daily), note: 'Only ETH the Safe sends counts. Sells and claims bring ETH in and are not capped.' },
-    tokens: tokens.map((t) => ({ token: t.token, curve: t.curve, fairBatch: t.batch })),
+    caps: {
+      perTx: fmt(perTrade),
+      perDay: fmt(daily),
+      note: 'ETH caps count ETH the Safe sends. Token sells have their own daily cap per token. Within the caps the agent can still trade badly: the caps limit how fast it can lose money, not whether its trades are good.',
+    },
+    tokens: tokens.map((t) => ({
+      token: t.token,
+      curve: t.curve,
+      fairBatch: t.batch,
+      dailySellTokens: t.dailySellTokens > 0n ? formatUnits(t.dailySellTokens, 18) : 'selling off',
+    })),
     allowed: [
-      'buy / sell on each listed token\'s bonding curve',
-      'approve a listed token to its curve or the V4SwapRouter only',
+      'buy on each listed token\'s bonding curve',
+      'sell a listed token on its curve or its v4 pool, up to that token\'s daily sell cap',
+      'approve a listed token to its curve or the V4SwapRouter only (only when selling is on)',
       'Fair opening batch: deposit, settle, claim, withdrawRefund to the Safe only',
-      'Uniswap v4 swaps through the urufu V4SwapRouter, ETH/token 3000/60 pools at urufu hooks only, recipient = the Safe',
+      'Uniswap v4 swaps through the urufu V4SwapRouter: ETH/<listed token> 3000/60 pools at urufu hooks only, recipient = the Safe',
       'creator fee claims (MultiHookHost, FairHookHost)',
       ...(allowFairLaunch ? ['launch a Fair token (fee + deposit within the caps)'] : []),
     ],
-    blocked: ['sending ETH or tokens anywhere else', 'any other contract or function', 'delegatecall', 'changing the policy or the Safe'],
+    blocked: ['sending ETH or tokens anywhere else', 'any token not on the list', 'any other contract or function', 'delegatecall', 'changing the policy or the Safe'],
     hooks: [deps.book.MultiHookHost, deps.book.LegacyMultiHookHost, deps.book.FairHookHost],
   };
 }
 
 // ---------------------------------------------------------------- update / revoke
 
-interface UpdateInput { owner: string; safe: string; roles: string; addTokens?: string; dailyEth?: string; perTradeEth?: string; allowFairLaunch?: boolean }
+interface UpdateInput { owner: string; safe: string; roles: string; tokens?: string; removeTokens?: string; dailyEth?: string; perTradeEth?: string; allowFairLaunch?: boolean; allowSells: boolean; dailySellTokens?: string }
 
 export const updateAgentAccountTool: ToolDef<UpdateInput> = {
   name: 'update_agent_account',
   title: 'Change an agent account\'s policy',
-  description: 'Owner-only: add tokens the agent may trade, change the ETH caps, or allow Fair launches. Returns one unsigned Safe tx for the owner.',
+  description: 'Owner-only: set the full list of tokens the agent may trade (and their sell caps), remove tokens, change the ETH caps, or allow Fair launches. Returns one unsigned Safe tx for the owner.',
   inputSchema: {
     type: 'object',
     properties: {
       owner: addressField('Safe owner (sends the tx)'),
       safe: addressField('The agent account Safe'),
       roles: addressField('Its Roles policy module'),
-      addTokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'Comma-separated tokens to add' },
+      tokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'The COMPLETE list of tokens the agent may trade after this change (comma-separated). v4 swap permissions are rebuilt from it.' },
+      removeTokens: { type: 'string', pattern: TOKENS_PATTERN, description: 'Tokens to take off the list (comma-separated)' },
+      ...sellFields,
       dailyEth: { ...commonCaps.dailyEth, default: undefined },
       perTradeEth: { ...commonCaps.perTradeEth, default: undefined },
       allowFairLaunch: { type: 'boolean', description: 'true to allow Fair launches (can\'t be turned off here; use revoke_agent and set up again)' },
@@ -233,10 +276,36 @@ export const updateAgentAccountTool: ToolDef<UpdateInput> = {
       calls.push(...allowanceCalls(roles, daily, perTrade));
       changes.push(`caps: ${fmt(perTrade)} per tx, ${fmt(daily)} per day`);
     }
-    const tokens = await resolveTokens(deps, input.addTokens);
+    let dailyForSells: bigint;
+    if (input.dailyEth !== undefined) dailyForSells = parseEther(input.dailyEth);
+    else {
+      const a = (await deps.client.readContract({ address: roles, abi: rolesAbi, functionName: 'allowances', args: [ALLOWANCE_DAILY] }).catch(() => null)) as readonly [bigint, bigint, bigint, bigint, bigint] | null;
+      dailyForSells = a ? a[1] : 0n;
+    }
+    const tokens = await resolveTokens(deps, input.tokens, { allowSells: input.allowSells, dailySellTokens: input.dailySellTokens, dailyWei: dailyForSells });
     const policy: PolicyInput = { ...policyBase(deps), tokens };
-    for (const t of tokens) calls.push(...tokenPermissionCalls(roles, policy, t));
-    if (tokens.length) changes.push(`add ${tokens.length} token(s)`);
+    if (input.tokens !== undefined) {
+      for (const t of tokens) calls.push(...tokenPermissionCalls(roles, policy, t));
+      calls.push(...routerPermissionCalls(roles, policy));
+      changes.push(`token list set to ${tokens.length} token(s)`);
+    }
+    if (input.removeTokens) {
+      for (const raw of [...new Set(input.removeTokens.split(',').map((t) => getAddress(t.trim())))]) {
+        if (tokens.some((t) => t.token === raw)) throw new ToolError('INVALID_INPUT', `${raw} is in both tokens and removeTokens`);
+        const [cf, ff, bf] = (await Promise.allSettled([
+          deps.client.readContract({ address: deps.book.CurveFactory, abi: fairLaunchFactoryAbi, functionName: 'curveFor', args: [raw] }),
+          deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'curveFor', args: [raw] }),
+          deps.client.readContract({ address: deps.book.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'batchFor', args: [raw] }),
+        ])).map((r) => (r.status === 'fulfilled' ? (r.value as Address) : ZERO));
+        const curve = ff !== ZERO ? ff : cf;
+        if (curve === ZERO) throw new ToolError('BAD_TOKEN', `${raw}: no urufu curve`, 400);
+        calls.push(...removeTokenCalls(roles, { token: raw, curve, batch: bf !== ZERO ? bf : null }));
+      }
+      changes.push('remove tokens');
+      if (input.tokens === undefined) {
+        throw new ToolError('INVALID_INPUT', 'pass `tokens` (the list that remains) with removeTokens, so v4 swap permissions are rebuilt without the removed ones');
+      }
+    }
     if (input.allowFairLaunch) {
       calls.push(...basePermissionCalls(roles, policy, true).slice(-2));
       changes.push('allow Fair launches');

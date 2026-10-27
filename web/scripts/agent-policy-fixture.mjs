@@ -35,6 +35,10 @@ const FROM = { owner: 0, agent: 1, outsider: 2 };
 const CURVE_TOKEN = '0x286ee43fdeb6f2a8ee06823a7f3b0d11aebf4223';
 const POOL_TOKEN = '0x2c0a57ef2698a881cda6f5106fa6748fa4713a81';
 const OTHER_TOKEN = '0x803b95cf1db535089b31eb24c268e0a57b6ef29c';
+// Graduated on the V11 hook but NOT on the agent's list.
+const UNLISTED_POOL_TOKEN = '0x14ca6b5c38a9eedd22244dccc949cdcef3ea46cc';
+/// Daily sell cap per listed token in the fixture (whole tokens).
+const SELL_CAP = parseEther('2000');
 const FAR_DEADLINE = 2n ** 40n;
 const SALT = 0x75727566n; // "uruf"
 
@@ -55,14 +59,15 @@ const violation = (status) => encodeErrorResult({ abi: rolesErrors, errorName: '
 const DELEGATECALL = violation(1);
 const TARGET = violation(2);
 const OR = violation(5);
+const SELL_CAP_HIT = violation(17);
 const PARAM = violation(7);
 const ETHER_CAP = violation(19);
 /// Never a member (outsider) vs. removed from the role (agent after revoke).
 const notMember = (who) => encodeErrorResult({ abi: rolesErrors, errorName: 'NotAuthorized', args: [who] });
 const REVOKED = encodeErrorResult({ abi: rolesErrors, errorName: 'NoMembership' });
 
-const curveToken = { token: CURVE_TOKEN, curve: await curveOf(CURVE_TOKEN), batch: null };
-const poolToken = { token: POOL_TOKEN, curve: await curveOf(POOL_TOKEN), batch: null };
+const curveToken = { token: CURVE_TOKEN, curve: await curveOf(CURVE_TOKEN), batch: null, dailySellTokens: SELL_CAP };
+const poolToken = { token: POOL_TOKEN, curve: await curveOf(POOL_TOKEN), batch: null, dailySellTokens: SELL_CAP };
 const otherCurve = await curveOf(OTHER_TOKEN);
 
 const cs = createSafeTx(OWNER, SALT);
@@ -82,6 +87,7 @@ const policy = {
 const asAgent = (inner) => agentExecTx(roles, inner);
 const buy = (curve, ethIn) => ({ to: curve, value: ethIn, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: 'buy', args: [0n] }) });
 const swapKey = (over = {}) => ({ currency0: '0x0000000000000000000000000000000000000000', currency1: POOL_TOKEN, fee: 3000, tickSpacing: 60, hooks: BOOK.MultiHookHost, ...over });
+const sellSwap = (amount) => ({ to: BOOK.V4SwapRouter, value: 0n, data: encodeFunctionData({ abi: v4SwapRouterAbi, functionName: 'swapExactTokenForETH', args: [swapKey(), amount, 0n, safe, FAR_DEADLINE] }) });
 const swap = (key, recipient) => ({ to: BOOK.V4SwapRouter, value: parseEther('0.01'), data: encodeFunctionData({ abi: v4SwapRouterAbi, functionName: 'swapExactETHForToken', args: [key, 1n, recipient, FAR_DEADLINE] }) });
 
 // ---- setup: three owner txs + funding
@@ -105,12 +111,19 @@ step('call a non-allowlisted contract', 'agent', asAgent({ to: BOOK.Router, valu
 step('approve token to an outsider', 'agent', asAgent({ to: CURVE_TOKEN, value: 0n, data: encodeFunctionData({ abi: erc20TokenAbi, functionName: 'approve', args: [OUTSIDER, parseEther('1000')] }) }), OR);
 step('approve token to its curve', 'agent', asAgent({ to: CURVE_TOKEN, value: 0n, data: encodeFunctionData({ abi: erc20TokenAbi, functionName: 'approve', args: [curveToken.curve, parseEther('1000')] }) }), true);
 step('sell 1000 tokens on the curve', 'agent', asAgent({ to: curveToken.curve, value: 0n, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: 'sell', args: [parseEther('1000'), 0n] }) }), true);
+step('sell 1001 more: over the 2000/day sell cap', 'agent', asAgent({ to: curveToken.curve, value: 0n, data: encodeFunctionData({ abi: bondingCurveAbi, functionName: 'sell', args: [parseEther('1001'), 0n] }) }), SELL_CAP_HIT);
 
 // ---- v4 swaps
-step('v4 buy with recipient = agent', 'agent', asAgent(swap(swapKey(), AGENT)), PARAM, 2);
+step('v4 buy with recipient = agent', 'agent', asAgent(swap(swapKey(), AGENT)), OR, 2);
 step('v4 buy on a foreign hook', 'agent', asAgent(swap(swapKey({ hooks: '0x1111111111111111111111111111111111111111' }), safe)), OR);
-step('v4 buy on another fee tier', 'agent', asAgent(swap(swapKey({ fee: 10000 }), safe)), PARAM);
-step('v4 buy 0.01, recipient = Safe', 'agent', asAgent(swap(swapKey(), safe)), true);
+step('v4 buy on another fee tier', 'agent', asAgent(swap(swapKey({ fee: 10000 }), safe)), OR);
+step('v4 buy of a graduated token NOT on the list', 'agent', asAgent(swap(swapKey({ currency1: UNLISTED_POOL_TOKEN }), safe)), OR);
+step('v4 buy 0.01, recipient = Safe', 'agent', asAgent(swap(swapKey(), safe)), true, 2);
+step('approve pool token to the V4SwapRouter', 'agent', asAgent({ to: POOL_TOKEN, value: 0n, data: encodeFunctionData({ abi: erc20TokenAbi, functionName: 'approve', args: [BOOK.V4SwapRouter, parseEther('3000')] }) }), true);
+step('v4 sell 1 token, recipient = Safe', 'agent', asAgent(sellSwap(parseEther('1'))), true);
+// Same call as the 1-token sell above, only the amount differs; the per-token Or
+// branches report the cap as an Or violation rather than the inner status.
+step('v4 sell 2000 more: over the sell cap', 'agent', asAgent(sellSwap(parseEther('2000'))), OR);
 
 // ---- privilege
 const inner = buy(curveToken.curve, parseEther('0.001'));
@@ -124,7 +137,7 @@ const fairName = 'Agent Policy Fork Test';
 const fee = await client.readContract({ address: BOOK.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'ethFeeFor', args: [OUTSIDER] });
 const [fToken, fCurve, fBatch] = await client.readContract({ address: BOOK.FairLaunchFactory, abi: fairLaunchFactoryAbi, functionName: 'predictAddresses', args: [OUTSIDER, fairName, 'APFT'] });
 step('outsider launches a Fair token', 'outsider', { to: BOOK.FairLaunchFactory, value: fee, data: encodeFunctionData({ abi: fairLaunchFactoryAbi, functionName: 'launch', args: [fairName, 'APFT'] }) }, true);
-step('owner adds the Fair token (one Safe tx)', 'owner', safeBatchTx(safe, OWNER, tokenPermissionCalls(roles, policy, { token: fToken, curve: fCurve, batch: fBatch })), true);
+step('owner adds the Fair token (one Safe tx)', 'owner', safeBatchTx(safe, OWNER, tokenPermissionCalls(roles, policy, { token: fToken, curve: fCurve, batch: fBatch, dailySellTokens: 0n })), true);
 step('batch deposit over the per-trade cap', 'agent', asAgent({ to: fBatch, value: parseEther('0.05') + 1n, data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'deposit' }) }), ETHER_CAP, 2);
 step('batch deposit 0.02', 'agent', asAgent({ to: fBatch, value: parseEther('0.02'), data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'deposit' }) }), true);
 step('withdrawRefund to the agent', 'agent', asAgent({ to: fBatch, value: 0n, data: encodeFunctionData({ abi: openingBatchAbi, functionName: 'withdrawRefund', args: [AGENT] }) }), PARAM);

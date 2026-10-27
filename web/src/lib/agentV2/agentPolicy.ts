@@ -5,17 +5,21 @@
 /// the Safe as a module. The role is the whole policy, enforced on chain:
 ///
 ///   - only these calls, nothing else (no ETH transfers, no delegatecall):
-///       bonding curve buy / sell and token approve (spender = that curve or the
-///       V4SwapRouter), per allowlisted token;
+///       bonding curve buy and sell, and token approve (spender = that curve or
+///       the V4SwapRouter), per listed token;
 ///       Fair opening batch deposit / settle / claim / withdrawRefund(to = Safe);
-///       V4SwapRouter swaps on ETH/token 3000/60 pools at urufu hooks only, with
-///       the recipient pinned to the Safe;
+///       V4SwapRouter swaps on ETH/<listed token> 3000/60 pools at urufu hooks
+///       only, with the recipient pinned to the Safe;
 ///       creator fee claims (MultiHookHost claim(ETH), FairHookHost claim);
 ///       optionally FairLaunchFactory.launch (phase 2 agent tokens).
 ///   - ETH sent by any allowed call is drawn from two allowances, both enforced:
 ///       DAILY  refills `daily` every 24 h (default 0.25 ETH);
 ///       TRADE  refills `perTrade` every second (default 0.05 ETH), so one call
 ///              can never spend more than `perTrade`.
+///   - tokens leaving by sale are capped too: each listed token has its own daily
+///     sell allowance (token units, curve and v4 together), so a hostile agent
+///     can't dump the Safe's whole balance into a sandwich it set up. Within the
+///     caps the agent can still trade badly; the caps bound how fast, not how well.
 ///   - the owner revokes the agent (or the whole module) with one Safe tx.
 ///
 /// Nothing here deploys anything or holds a key: these are calldata builders for
@@ -32,6 +36,8 @@ import {
   parseAbi,
   size,
   stringToHex,
+  keccak256,
+  toBytes,
   toFunctionSelector,
   type Abi,
   type AbiFunction,
@@ -87,6 +93,7 @@ export const rolesAbi = parseAbi([
   'function setDefaultRole(address module, bytes32 roleKey)',
   'function scopeTarget(bytes32 roleKey, address targetAddress)',
   'function revokeTarget(bytes32 roleKey, address targetAddress)',
+  'function revokeFunction(bytes32 roleKey, address targetAddress, bytes4 selector)',
   'function allowFunction(bytes32 roleKey, address targetAddress, bytes4 selector, uint8 options)',
   'function scopeFunction(bytes32 roleKey, address targetAddress, bytes4 selector, ConditionFlat[] conditions, uint8 options)',
   'function setAllowance(bytes32 key, uint128 balance, uint128 maxRefill, uint128 refill, uint64 period, uint64 timestamp)',
@@ -98,7 +105,7 @@ export const rolesAbi = parseAbi([
 
 /// Roles v2 enums (contracts/Types.sol).
 const P = { None: 0, Static: 1, Dynamic: 2, Tuple: 3, Array: 4, Calldata: 5, AbiEncoded: 6 } as const;
-const O = { Pass: 0, And: 1, Or: 2, Matches: 5, EqualToAvatar: 15, EqualTo: 16, EtherWithinAllowance: 29 } as const;
+const O = { Pass: 0, And: 1, Or: 2, Matches: 5, EqualToAvatar: 15, EqualTo: 16, WithinAllowance: 28, EtherWithinAllowance: 29 } as const;
 /// ExecutionOptions: None = plain call, no ETH; Send = may carry ETH. Never DelegateCall.
 export const EXEC = { None: 0, Send: 1 } as const;
 
@@ -117,6 +124,14 @@ const eqUint = (n: bigint): Cond => ({ paramType: P.Static, operator: O.EqualTo,
 const eqInt = (n: bigint): Cond => ({ paramType: P.Static, operator: O.EqualTo, compValue: encodeAbiParameters([{ type: 'int256' }], [n]) });
 const oneOfAddress = (as: Address[]): Cond => (as.length === 1 ? eqAddress(as[0]!) : { paramType: P.None, operator: O.Or, children: as.map(eqAddress) });
 const etherAllowance = (key: Hex): Cond => ({ paramType: P.None, operator: O.EtherWithinAllowance, compValue: key });
+/// Draws the parameter's value (a token amount) from `key`'s allowance.
+const withinAllowance = (key: Hex): Cond => ({ paramType: P.Static, operator: O.WithinAllowance, compValue: key });
+const anyOf = (branches: Cond[]): Cond => (branches.length === 1 ? branches[0]! : { paramType: P.None, operator: O.Or, children: branches });
+
+/// Per-token daily sell allowance key (token units, shared by curve and v4 sells).
+export function sellAllowanceKey(token: Address): Hex {
+  return keccak256(toBytes(`urufu-agent-sell:${token.toLowerCase()}`));
+}
 
 /// Root node for a function's calldata. Payable calls get both ETH allowances.
 function calldata(params: Cond[], payable: boolean): Cond {
@@ -140,12 +155,12 @@ export function flatten(root: Cond): Array<{ parent: number; paramType: number; 
   return out;
 }
 
-/// ETH/token pool key at one of urufu's hooks, fixed graduation shape.
-function poolKeyCond(hooks: Address[]): Cond {
+/// ETH/`token` pool key at one of urufu's hooks, fixed graduation shape.
+function poolKeyCond(hooks: Address[], token: Address): Cond {
   return {
     paramType: P.Tuple,
     operator: O.Matches,
-    children: [eqAddress(ZERO), pass(), eqUint(3000n), eqInt(60n), oneOfAddress(hooks)],
+    children: [eqAddress(ZERO), eqAddress(token), eqUint(3000n), eqInt(60n), oneOfAddress(hooks)],
   };
 }
 
@@ -156,6 +171,10 @@ export interface PolicyTokens {
   curve: Address;
   /// Fair lane opening batch, when the token is a Fair launch.
   batch: Address | null;
+  /// Most of this token (in base units) the agent may sell per 24 h, on the
+  /// curve and the v4 pool together. 0 = the agent can't sell it at all. Without
+  /// this a hostile agent could dump the Safe's whole balance into a sandwich.
+  dailySellTokens: bigint;
 }
 
 export interface PolicyInput {
@@ -186,15 +205,28 @@ function scope(roles: Address, target: Address, selector: Hex, root: Cond, optio
   return rolesCall(roles, 'scopeFunction', [AGENT_ROLE_KEY, target, selector, flatten(root), options]);
 }
 
-/// Every Roles call that grants the per-token permissions for `t`.
+/// Every Roles call that grants the per-token permissions for `t` (curve buy,
+/// capped sells, approve, Fair batch). v4 swaps are in routerPermissionCalls.
 export function tokenPermissionCalls(roles: Address, p: PolicyInput, t: PolicyTokens): Call[] {
+  const key = sellAllowanceKey(t.token);
   const calls: Call[] = [
     rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, t.curve]),
     scope(roles, t.curve, sel(bondingCurveAbi, 'buy'), calldata([pass()], true), EXEC.Send),
-    scope(roles, t.curve, sel(bondingCurveAbi, 'sell'), calldata([pass(), pass()], false), EXEC.None),
     rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, t.token]),
-    scope(roles, t.token, sel(erc20TokenAbi, 'approve'), calldata([oneOfAddress([t.curve, p.v4SwapRouter]), pass()], false), EXEC.None),
   ];
+  if (t.dailySellTokens > 0n) {
+    const cap = t.dailySellTokens;
+    calls.push(
+      rolesCall(roles, 'setAllowance', [key, cap, cap, cap, 86_400n, 0n]),
+      scope(roles, t.curve, sel(bondingCurveAbi, 'sell'), calldata([withinAllowance(key), pass()], false), EXEC.None),
+      scope(roles, t.token, sel(erc20TokenAbi, 'approve'), calldata([oneOfAddress([t.curve, p.v4SwapRouter]), pass()], false), EXEC.None),
+    );
+  } else {
+    calls.push(
+      rolesCall(roles, 'revokeFunction', [AGENT_ROLE_KEY, t.curve, sel(bondingCurveAbi, 'sell')]),
+      rolesCall(roles, 'revokeFunction', [AGENT_ROLE_KEY, t.token, sel(erc20TokenAbi, 'approve')]),
+    );
+  }
   if (t.batch) {
     calls.push(
       rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, t.batch]),
@@ -207,13 +239,37 @@ export function tokenPermissionCalls(roles: Address, p: PolicyInput, t: PolicyTo
   return calls;
 }
 
-/// Permissions that don't depend on a token: v4 swaps, fee claims, optional launch.
-export function basePermissionCalls(roles: Address, p: PolicyInput, allowFairLaunch: boolean): Call[] {
-  const key = poolKeyCond(p.hooks);
+/// Undo a token's grants (the owner removes it from the list).
+export function removeTokenCalls(roles: Address, t: { token: Address; curve: Address; batch: Address | null }): Call[] {
+  return [t.curve, t.token, ...(t.batch ? [t.batch] : [])].map((a) => rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, a]));
+}
+
+/// v4 swaps through the V4SwapRouter, one branch per listed token: the pool must be
+/// ETH/that token at an urufu hook, the recipient the Safe, buys within the ETH
+/// caps, sells within that token's sell allowance. Rewritten whole from the full
+/// token list on every change, so `p.tokens` must be the complete list.
+export function routerPermissionCalls(roles: Address, p: PolicyInput): Call[] {
+  if (p.tokens.length === 0) return [rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, p.v4SwapRouter])];
+  const buySel = sel(v4SwapRouterAbi, 'swapExactETHForToken');
+  const sellSel = sel(v4SwapRouterAbi, 'swapExactTokenForETH');
+  const buy = anyOf(p.tokens.map((t) => calldata([poolKeyCond(p.hooks, t.token), pass(), isAvatar(), pass()], true)));
+  const sellers = p.tokens.filter((t) => t.dailySellTokens > 0n);
   const calls: Call[] = [
     rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, p.v4SwapRouter]),
-    scope(roles, p.v4SwapRouter, sel(v4SwapRouterAbi, 'swapExactETHForToken'), calldata([key, pass(), isAvatar(), pass()], true), EXEC.Send),
-    scope(roles, p.v4SwapRouter, sel(v4SwapRouterAbi, 'swapExactTokenForETH'), calldata([poolKeyCond(p.hooks), pass(), pass(), isAvatar(), pass()], false), EXEC.None),
+    scope(roles, p.v4SwapRouter, buySel, buy, EXEC.Send),
+  ];
+  if (sellers.length > 0) {
+    const sell = anyOf(sellers.map((t) => calldata([poolKeyCond(p.hooks, t.token), withinAllowance(sellAllowanceKey(t.token)), pass(), isAvatar(), pass()], false)));
+    calls.push(scope(roles, p.v4SwapRouter, sellSel, sell, EXEC.None));
+  } else {
+    calls.push(rolesCall(roles, 'revokeFunction', [AGENT_ROLE_KEY, p.v4SwapRouter, sellSel]));
+  }
+  return calls;
+}
+
+/// Permissions that don't depend on a token: fee claims, optional Fair launch.
+export function basePermissionCalls(roles: Address, p: PolicyInput, allowFairLaunch: boolean): Call[] {
+  const calls: Call[] = [
     rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, p.fairHookHost]),
     rolesCall(roles, 'allowFunction', [AGENT_ROLE_KEY, p.fairHookHost, sel(fairHookHostAbi, 'claimCreatorFees'), EXEC.None]),
   ];
@@ -315,6 +371,7 @@ export function configureCalls(args: {
     ...allowanceCalls(roles, args.dailyWei, args.perTradeWei),
     ...basePermissionCalls(roles, policy, args.allowFairLaunch),
     ...policy.tokens.flatMap((t) => tokenPermissionCalls(roles, policy, t)),
+    ...routerPermissionCalls(roles, policy),
   ];
 }
 

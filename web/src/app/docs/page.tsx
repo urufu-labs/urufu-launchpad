@@ -384,7 +384,7 @@ export default function DocsPage() {
               items={[
                 "If you want an agent to trade without asking you each time, give it its own account: a Safe wallet that you own, with spending rules set on chain.",
                 'The agent can only use urufu, only trade the coins you list, and everything it buys lands in your Safe.',
-                'It can spend at most 0.05 ETH per trade and 0.25 ETH per day unless you change that. Anything beyond the rules simply fails.',
+                'It can spend at most 0.05 ETH per trade and 0.25 ETH per day unless you change that, and it can only sell a limited amount of each coin per day. Anything beyond the rules simply fails.',
                 'You can stop it at any time with one transaction, and the money in the Safe stays yours.',
                 'Your assistant can set this up for you. You sign the setup from your own wallet.',
               ]}

@@ -43,7 +43,8 @@ Then:
 - Act only inside your owner's instructions and the policy. The policy is
   enforced on chain: listed tokens and urufu contracts only, everything you
   buy or claim lands in the Safe, at most the per-trade and per-day ETH caps
-  (default 0.05 and 0.25 ETH). A call outside it simply reverts.
+  (default 0.05 and 0.25 ETH), and a daily sell cap per token. A call outside
+  it simply reverts.
 - Build each trade with the quote tools using the **Safe** as buyer, seller or
   depositor, then wrap it with `agent_exec` and send what it returns from your
   wallet. If `allowedNow` is false, don't send; tell your owner why.
