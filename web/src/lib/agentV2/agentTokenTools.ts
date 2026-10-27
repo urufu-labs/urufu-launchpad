@@ -17,6 +17,7 @@ import { erc20TokenAbi, fairHookHostAbi, fairLaunchFactoryAbi } from '../abis';
 import { buildApproveTx, buildFairLaunchTx } from '../launchTx';
 import { assertOwned, policyBase, resolveTokens, TOKENS_PATTERN } from './accountTools';
 import { ALLOWANCE_DAILY, ALLOWANCE_TRADE, agentTokenLaunchCalls, rolesAbi, safeAbi, safeBatchTx, type Call } from './agentPolicy';
+import { classifySafeLogs, fillTimestamps, scanSafeLogs } from './safeHistory';
 import { addressField, ETH_AMOUNT_PATTERN } from './schema';
 import { fmtEth, fmtUru, MINUTE, NAME_PATTERN, revertMessage, ToolError, txOut, ZERO, type AgentDeps, type ToolDef } from './tools';
 import { ethPoolKey, poolIdOf } from './tradeTools';
@@ -296,4 +297,37 @@ export const getAgentProfileTool: ToolDef<ProfileInput> = {
   },
 };
 
-export const AGENT_TOKEN_TOOLS = [launchAgentTokenTool, getAgentTokenTool, getAgentProfileTool] as unknown as ReadonlyArray<ToolDef<never>>;
+interface HistoryInput { safe: string }
+
+const MAX_HISTORY_ENTRIES = 50;
+
+export const getAgentHistoryTool: ToolDef<HistoryInput> = {
+  name: 'get_agent_history',
+  title: 'Agent account money in and out',
+  description: 'What went into and out of an agent account Safe, from its own events on chain: ETH put in, ETH and tokens the OWNER took out, ETH the owner spent on contracts, and policy changes. Agent trades are not listed here (see get_trades / the agent page).',
+  inputSchema: { type: 'object', properties: { safe: addressField('Agent account Safe') }, required: ['safe'], additionalProperties: false },
+  rate: { limit: 10, windowMs: MINUTE },
+  cacheTtlMs: 60_000,
+  async handler(deps, input) {
+    const safe = getAddress(input.safe);
+    const owners = (await deps.client.readContract({ address: safe, abi: safeAbi, functionName: 'getOwners' }).catch(() => null)) as Address[] | null;
+    if (!owners) throw new ToolError('NOT_FOUND', `${safe} is not a Safe on Robinhood Chain.`, 404);
+    const [roles, scan] = await Promise.all([findRolesModule(deps, safe), scanSafeLogs(deps, safe)]);
+    const b = deps.book;
+    const urufu = new Set([b.FairLaunchFactory, b.CurveFactory, b.Router, b.V4SwapRouter, b.MultiHookHost, b.LegacyMultiHookHost, b.FairHookHost].filter(Boolean).map((a) => a.toLowerCase()));
+    const summary = classifySafeLogs(scan.logs, { safe, roles, urufu });
+    return {
+      data: {
+        safe,
+        scannedFromBlock: scan.fromBlock.toString(),
+        scannedToBlock: scan.toBlock.toString(),
+        complete: scan.complete,
+        ...summary,
+        entries: await fillTimestamps(deps, summary.entries.slice(0, MAX_HISTORY_ENTRIES)),
+        note: scan.complete ? 'Full history since the Safe was created.' : 'Only recent history was scanned; older entries are not included.',
+      },
+    };
+  },
+};
+
+export const AGENT_TOKEN_TOOLS = [launchAgentTokenTool, getAgentTokenTool, getAgentProfileTool, getAgentHistoryTool] as unknown as ReadonlyArray<ToolDef<never>>;
