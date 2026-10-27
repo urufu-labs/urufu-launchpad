@@ -5,7 +5,8 @@ import { BodyError, readJsonBody } from './body';
 import { handleMcpMessage, MCP_PROTOCOL_VERSIONS } from './mcp';
 import { clientIp, RateLimiter } from './rateLimit';
 import { runTool, toJson, type ToolResult } from './runner';
-import { findTool, type AgentDeps } from './tools';
+import { findTool } from './registry';
+import type { AgentDeps } from './tools';
 import { TtlCache } from './ttlCache';
 
 /// JSON tool bodies are tiny; upload_image carries up to 512 KB of base64.

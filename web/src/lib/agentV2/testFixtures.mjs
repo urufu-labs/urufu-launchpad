@@ -24,7 +24,11 @@ export const BOOK = {
   FeeSplitter: '0x60835C422a3671b5F01E6806Fd96b27c90941C83',
   LoyaltyOracle: '0xDcAd73EB96Bd0573b6ed0Ac3FFA32b1A7e0C0b52',
   Erc8004IdentityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+  V4Quoter: '0x8dc178efb8111bb0973dd9d722ebeff267c98f94',
+  LegacyMultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
 };
+
+export const AGENT = '0x5555555555555555555555555555555555555555';
 
 export const LAUNCHER = '0x1111111111111111111111111111111111111111';
 export const TOKEN = '0x2222222222222222222222222222222222222222';
@@ -64,6 +68,31 @@ export function defaultChain() {
     totalSupply: 1_000_000_000n * E18,
     receipts: {},
     calls: [],
+    // phase 1b
+    timestamp: 1_800_000_000n,
+    tokenBalance: 5_000_000n * E18,
+    tokenAllowance: 0n,
+    quoteBuyOut: [1_000_000n * E18, 10n ** 15n],
+    quoteSellOut: [2n * 10n ** 16n, 10n ** 14n],
+    quoterOut: 900_000n * E18,
+    quoterReverts: null,
+    curveLauncher: '0x1111111111111111111111111111111111111111',
+    batchCloseTs: 1_000n,
+    batchSettled: false,
+    batchTotal: E18,
+    deposits: 0n,
+    claimedUser: false,
+    refundOwed: 0n,
+    pendingShare: [100n * E18, 0n],
+    walletCap: 0n,
+    batchQuote: [200_000_000n * E18, E18, 0n],
+    mhhOwed: {},
+    fairFees: [0n, 0n, 0n, 0n],
+    fairForfeited: false,
+    fairPool: null,
+    agentOwner: '0x1111111111111111111111111111111111111111',
+    agentWalletOnChain: null,
+    validSig: true,
   };
 }
 
@@ -71,6 +100,12 @@ const eq = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLower
 
 export function fakeClient(chain) {
   return {
+    async getBlock() {
+      return { timestamp: chain.timestamp, number: chain.block };
+    },
+    async verifyTypedData() {
+      return chain.validSig;
+    },
     async getBlockNumber() {
       if (chain.rpcDown) throw new Error('rpc down');
       return chain.block;
@@ -120,8 +155,8 @@ export function fakeClient(chain) {
         case 'validateName': return chain.nameOk;
         case 'validateTicker': return chain.tickerOk;
         case 'getSlot0': return [chain.sqrtPriceX96, 0, 0, 3000];
-        case 'allowance': return chain.uruAllowance;
-        case 'balanceOf': return chain.uruBalance;
+        case 'allowance': return eq(address, BOOK.URU) ? chain.uruAllowance : chain.tokenAllowance;
+        case 'balanceOf': return eq(address, BOOK.URU) ? chain.uruBalance : chain.tokenBalance;
         case 'totalSupply': return chain.totalSupply;
         case 'launchesOpen': return chain.fairOpen;
         case 'ethLaunchFee': return chain.fairEthFee;
@@ -130,6 +165,7 @@ export function fakeClient(chain) {
         case 'predictAddresses': return chain.fairPredicted;
         case 'curveFor':
           if (fair) return chain.fairCurveFor;
+          if (eq(address, BOOK.Dn404CurveFactory)) return chain.dn404CurveFor ?? '0x0000000000000000000000000000000000000000';
           return eq(args[0], TOKEN) ? chain.v10CurveFor : '0x0000000000000000000000000000000000000000';
         case 'batchFor': return chain.batchFor;
         case 'priceWeiPerToken': return chain.curve.price;
@@ -137,9 +173,28 @@ export function fakeClient(chain) {
         case 'ethReserve': return chain.curve.ethReserve;
         case 'graduationTargetEth': return chain.curve.target;
         case 'token': return chain.tokenOf?.[address.toLowerCase()] ?? TOKEN;
-        case 'closeTs': return 1_000n;
-        case 'totalDeposited': return E18;
-        case 'settled': return false;
+        case 'closeTs': return chain.batchCloseTs;
+        case 'totalDeposited': return chain.batchTotal;
+        case 'settled': return chain.batchSettled;
+        case 'quoteBuy': return chain.quoteBuyOut;
+        case 'quoteSell': return chain.quoteSellOut;
+        case 'quoteExactInputSingle':
+          if (chain.quoterReverts) { const e = new Error(chain.quoterReverts); e.shortMessage = chain.quoterReverts; throw e; }
+          return [chain.quoterOut, 100000n];
+        case 'launcher': return chain.curveLauncher;
+        case 'batch': return BATCH;
+        case 'quoteBatchBuy': return chain.batchQuote;
+        case 'walletCap': return chain.walletCap;
+        case 'deposits': return chain.deposits;
+        case 'claimed': return chain.claimedUser;
+        case 'refundOwed': return chain.refundOwed;
+        case 'pending': return chain.pendingShare;
+        case 'owed': return chain.mhhOwed[address.toLowerCase()] ?? 0n;
+        case 'creatorFees': return chain.fairFees;
+        case 'isForfeited': return chain.fairForfeited;
+        case 'pools': if (!chain.fairPool) throw new Error('no pool'); return chain.fairPool;
+        case 'ownerOf': if (!chain.agentOwner) throw new Error('ERC721NonexistentToken'); return chain.agentOwner;
+        case 'getAgentWallet': return chain.agentWalletOnChain ?? '0x0000000000000000000000000000000000000000';
         default: throw new Error(`fake chain: no ${functionName}`);
       }
     },
@@ -170,6 +225,7 @@ export function fakeIndexer(over = {}) {
       ];
     },
     async v4SwapsForPoolId() { return []; },
+    async launchesByCreator() { return []; },
     async holdersForToken() {
       return [
         { holderAddress: CURVE, balance: String(500_000_000n * E18) },
@@ -180,7 +236,24 @@ export function fakeIndexer(over = {}) {
   };
 }
 
-export function fakeDeps({ chain = defaultChain(), indexer = {}, metadata = null, flags = {}, pin, fetchImage } = {}) {
+export function fakeAgentStore(records = []) {
+  const store = { records: [...records], links: [] };
+  return {
+    store,
+    async link(input) {
+      store.links.push(input);
+      const record = { agentWallet: input.agentWallet, owner: input.owner, agentId: input.agentId, registry: BOOK.Erc8004IdentityRegistry, name: input.name, linkedAt: '2026-10-27T00:00:00Z' };
+      store.records.push(record);
+      return { ok: true, record };
+    },
+    async byWallets(wallets) {
+      const set = new Set(wallets.map((w) => w.toLowerCase()));
+      return store.records.filter((r) => set.has(r.agentWallet.toLowerCase()));
+    },
+  };
+}
+
+export function fakeDeps({ chain = defaultChain(), indexer = {}, metadata = null, flags = {}, pin, fetchImage, agents = fakeAgentStore(), now = () => Number(chain.timestamp) * 1000 } = {}) {
   return {
     chain,
     deps: {
@@ -192,6 +265,8 @@ export function fakeDeps({ chain = defaultChain(), indexer = {}, metadata = null
       pinImage: pin ?? (async () => ({ cid: 'bafytest', gatewayUrl: 'https://gateway.example/ipfs/bafytest' })),
       fetchImage: fetchImage ?? (async () => { throw Object.assign(new Error('no network in tests'), { status: 502 }); }),
       checkDataUrl,
+      agents,
+      now,
     },
   };
 }

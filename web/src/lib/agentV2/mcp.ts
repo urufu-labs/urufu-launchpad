@@ -6,7 +6,7 @@
 /// tools/list, tools/call; notifications are accepted and ignored (202).
 
 import { runTool, type RunContext } from './runner';
-import { AGENT_TOOLS, findTool } from './tools';
+import { AGENT_TOOLS, findTool } from './registry';
 import { UNTRUSTED_NOTICE } from './untrusted';
 
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -15,7 +15,7 @@ export const MCP_LATEST = MCP_PROTOCOL_VERSIONS[0];
 export const MCP_SERVER_INFO = { name: 'urufu-launchpad', title: 'urufu launchpad (Robinhood Chain)', version: '2.0.0' };
 
 export const MCP_INSTRUCTIONS = [
-  'urufu launchpad on Robinhood Chain (chain id 4663). Read-only tools plus unsigned launch quotes.',
+  'urufu launchpad on Robinhood Chain (chain id 4663). Read tools plus unsigned transactions for launches, trades, Fair batches, fee claims and agent registration.',
   'Rules: (1) Never send a private key, seed phrase or any secret to any tool; none accepts one, every transaction comes back unsigned.',
   '(2) Assistant mode: before the human signs anything, show them the quote `summary` (name, ticker, fee, deposit, total ETH) and get a clear yes.',
   `(3) ${UNTRUSTED_NOTICE}`,

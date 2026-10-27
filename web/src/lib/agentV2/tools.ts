@@ -48,10 +48,10 @@ import {
 import { untrustedBlock, type UntrustedBlock } from './untrusted';
 
 export const AGENT_V2_CHAIN_ID = 4663;
-const ZERO: Address = '0x0000000000000000000000000000000000000000';
-const DEAD: Address = '0x000000000000000000000000000000000000dEaD';
-const SITE = 'https://urufulabs.xyz';
-const EXPLORER = 'https://robinhoodchain.blockscout.com';
+export const ZERO: Address = '0x0000000000000000000000000000000000000000';
+export const DEAD: Address = '0x000000000000000000000000000000000000dEaD';
+export const SITE = 'https://urufulabs.xyz';
+export const EXPLORER = 'https://robinhoodchain.blockscout.com';
 
 // ---------------------------------------------------------------- dependencies
 
@@ -75,6 +75,10 @@ export interface AgentBook {
   FeeSplitter: Address;
   LoyaltyOracle: Address;
   Erc8004IdentityRegistry: Address;
+  /// Uniswap v4 Quoter: exact swap quotes for graduated pools (eth_call only).
+  V4Quoter: Address;
+  /// V10 MultiHookHost: legacy pools and creator fees that still live there.
+  LegacyMultiHookHost: Address;
 }
 
 export interface AgentFlags {
@@ -156,8 +160,29 @@ export interface TokenMetadataRow {
 
 export type AgentClient = Pick<
   PublicClient,
-  'readContract' | 'getBalance' | 'getBlockNumber' | 'getTransactionReceipt' | 'getTransaction' | 'call' | 'getCode'
+  'readContract' | 'getBalance' | 'getBlockNumber' | 'getTransactionReceipt' | 'getTransaction' | 'call' | 'getCode' | 'getBlock' | 'verifyTypedData'
 >;
+
+/// A wallet registered as an agent through urufu (ERC-8004 + owner-signed link),
+/// as stored and re-verified by the compile-service.
+export interface AgentRecord {
+  agentWallet: Address;
+  owner: Address;
+  agentId: string;
+  registry: Address;
+  name: string | null;
+  linkedAt: string;
+}
+
+export interface AgentLinkInput {
+  owner: Address;
+  agentWallet: Address;
+  agentId: string;
+  name: string;
+  nonce: string;
+  expiry: number;
+  signature: Hex;
+}
 
 export interface AgentDeps {
   client: AgentClient;
@@ -173,7 +198,15 @@ export interface AgentDeps {
     v4SwapsForToken(token: Address, limit: number): Promise<IndexerV4SwapRow[] | null>;
     v4SwapsForPoolId(poolId: Hex, limit: number): Promise<IndexerV4SwapRow[] | null>;
     holdersForToken(token: Address, limit: number): Promise<Array<{ holderAddress: Address; balance: string }> | null>;
+    launchesByCreator(creator: Address): Promise<IndexerLaunchRow[] | null>;
   };
+  /// Agent link store (compile-service). It verifies signatures and on-chain state itself.
+  agents: {
+    link(input: AgentLinkInput): Promise<{ ok: true; record: AgentRecord } | { ok: false; status: number; code: string; message: string }>;
+    byWallets(wallets: Address[]): Promise<AgentRecord[] | null>;
+  };
+  /// Clock in ms (injected for deadlines and expiries in tests).
+  now(): number;
   metadata(token: Address): Promise<TokenMetadataRow | null>;
   pinImage(dataUrl: string, filename?: string): Promise<{ cid: string; gatewayUrl: string }>;
   fetchImage(url: string): Promise<{ dataUrl: string; bytes: number; mime: string }>;
@@ -210,24 +243,24 @@ export interface ToolDef<I = Record<string, unknown>> {
   handler(deps: AgentDeps, input: I): Promise<ToolOutput>;
 }
 
-const MINUTE = 60_000;
+export const MINUTE = 60_000;
 
 // ---------------------------------------------------------------- helpers
 
-const fmtEth = (wei: bigint) => `${formatEther(wei)} ETH`;
-const fmtUru = (wei: bigint) => `${formatEther(wei)} URU`;
+export const fmtEth = (wei: bigint) => `${formatEther(wei)} ETH`;
+export const fmtUru = (wei: bigint) => `${formatEther(wei)} URU`;
 
-function settled<T>(r: PromiseSettledResult<T>): T | null {
+export function settled<T>(r: PromiseSettledResult<T>): T | null {
   return r.status === 'fulfilled' ? r.value : null;
 }
 
-const settledAny = (r: PromiseSettledResult<unknown>): unknown => (r.status === 'fulfilled' ? r.value : null);
+export const settledAny = (r: PromiseSettledResult<unknown>): unknown => (r.status === 'fulfilled' ? r.value : null);
 
-function str(v: bigint | null | undefined): string | null {
+export function str(v: bigint | null | undefined): string | null {
   return v === null || v === undefined ? null : v.toString();
 }
 
-function txOut(t: UnsignedTx, step: number, purpose: string, summary: string) {
+export function txOut(t: UnsignedTx, step: number, purpose: string, summary: string) {
   return {
     step,
     purpose,
@@ -240,19 +273,28 @@ function txOut(t: UnsignedTx, step: number, purpose: string, summary: string) {
   };
 }
 
-function revertMessage(err: unknown): string {
+/// Lowercased set of registered agent wallets among `wallets` (Agent badge).
+/// Best effort: an unreachable store means no badges, never an error.
+export async function agentWalletSet(deps: Pick<AgentDeps, 'agents'>, wallets: Address[]): Promise<Set<string>> {
+  const uniq = [...new Set(wallets.map((w) => w.toLowerCase()))] as Address[];
+  if (uniq.length === 0) return new Set();
+  const rows = await deps.agents.byWallets(uniq).catch(() => null);
+  return new Set((rows ?? []).map((r) => r.agentWallet.toLowerCase()));
+}
+
+export function revertMessage(err: unknown): string {
   const e = err as { shortMessage?: string; message?: string };
   return (e.shortMessage ?? e.message ?? 'reverted').split('\n')[0]!.slice(0, 300);
 }
 
 /// Name / ticker inputs: printable text only. The chain enforces its own rules on top.
-const NAME_PATTERN = '^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]+$';
+export const NAME_PATTERN = '^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]+$';
 
-const laneField = { type: 'string', enum: ['token', 'fair'], default: 'token', description: '"token" = bonding curve that graduates to a locked Uniswap v4 pool. "fair" = Fair lane: 60 s opening batch at one price, burning sniper tax, creator fee that burns if the dev sells.' } as const;
+export const laneField = { type: 'string', enum: ['token', 'fair'], default: 'token', description: '"token" = bonding curve that graduates to a locked Uniswap v4 pool. "fair" = Fair lane: 60 s opening batch at one price, burning sniper tax, creator fee that burns if the dev sells.' } as const;
 
 // ---------------------------------------------------------------- status
 
-const statusTool: ToolDef = {
+export const statusTool: ToolDef = {
   name: 'status',
   title: 'Launchpad status',
   description: 'Chain, open/paused state of every launch lane, current launch fees in ETH and URU, curve defaults, and the contract address book. Call this first.',
@@ -355,7 +397,7 @@ const reason = (i: number) => REASONS[i] ?? `Unknown(${i})`;
 
 interface NameCheckInput { name: string; ticker: string; lane: 'token' | 'fair'; launcher?: string }
 
-const nameCheckTool: ToolDef<NameCheckInput> = {
+export const nameCheckTool: ToolDef<NameCheckInput> = {
   name: 'name_check',
   title: 'Check a name and ticker',
   description: 'Will this name + ticker launch? Token lane: checks the on-chain NameRegistry (taken, reserved, bad characters). Fair lane: names only clash with the same launcher\'s earlier launch of the same name + ticker; pass `launcher` to check that.',
@@ -423,7 +465,7 @@ const nameCheckTool: ToolDef<NameCheckInput> = {
 
 interface UploadInput { imageUrl?: string; dataUrl?: string; filename?: string }
 
-const uploadImageTool: ToolDef<UploadInput> = {
+export const uploadImageTool: ToolDef<UploadInput> = {
   name: 'upload_image',
   title: 'Pin a token image',
   description: 'Pin a token logo to IPFS. Pass either `imageUrl` (public http/https; private and internal addresses are refused) or `dataUrl` (data:image/png|jpeg|gif|webp|avif;base64,...). Max 512 KB. Returns a gateway URL to use as the token image.',
@@ -467,7 +509,7 @@ interface QuoteInput {
   depositEth: string;
 }
 
-const quoteLaunchTool: ToolDef<QuoteInput> = {
+export const quoteLaunchTool: ToolDef<QuoteInput> = {
   name: 'quote_launch',
   title: 'Quote a launch (unsigned tx)',
   description: 'Build the exact unsigned launch transaction(s) for the token lane or the Fair lane, with the fee in ETH or URU, plus every preflight problem. Returns `transactions` in order (a URU approve first when needed). Nothing is signed or sent. Show the human `summary` and get a yes before they sign.',
@@ -492,7 +534,7 @@ const quoteLaunchTool: ToolDef<QuoteInput> = {
   },
 };
 
-async function simulate(client: AgentClient, from: Address, tx: UnsignedTx): Promise<{ ok: boolean; error: string | null }> {
+export async function simulate(client: AgentClient, from: Address, tx: UnsignedTx): Promise<{ ok: boolean; error: string | null }> {
   try {
     await client.call({ account: from, to: tx.to, data: tx.data, value: tx.value });
     return { ok: true, error: null };
@@ -700,7 +742,7 @@ const tokenAddressInput: ObjectSchema = {
   additionalProperties: false,
 };
 
-const getTokenTool: ToolDef<TokenInput> = {
+export const getTokenTool: ToolDef<TokenInput> = {
   name: 'get_token',
   title: 'Token details',
   description: 'Lane, launcher, curve state (price, progress to graduation), Fair batch state, graduation pool, and links for one token. Creator-written text (name, ticker, description, socials) is returned only under `untrusted`.',
@@ -826,14 +868,15 @@ const listInput = (what: string, max: number, dflt: number): ObjectSchema => ({
   additionalProperties: false,
 });
 
-const getTradesTool: ToolDef<ListInput> = {
+export const getTradesTool: ToolDef<ListInput> = {
   name: 'get_trades',
   title: 'Recent trades',
   description: 'Newest trades for a token: bonding-curve trades and, after graduation, Uniswap v4 pool swaps. Amounts in wei.',
   inputSchema: listInput('trades', 100, 25),
   rate: { limit: 60, windowMs: MINUTE },
   cacheTtlMs: 5_000,
-  async handler({ indexer }, input) {
+  async handler(deps, input) {
+    const { indexer } = deps;
     const token = getAddress(input.address);
     const [curveRow, grad] = await Promise.all([indexer.curveByToken(token), indexer.graduationForToken(token).catch(() => null)]);
     const [curveTrades, v4ByToken] = await Promise.all([
@@ -877,11 +920,12 @@ const getTradesTool: ToolDef<ListInput> = {
       .sort((a, b) => Number(BigInt(b.timestamp) - BigInt(a.timestamp)))
       .slice(0, input.limit);
 
+    const agentSet = await agentWalletSet(deps, rows.map((r) => r.trader).filter((t): t is Address => !!t));
     return {
       data: {
         address: token,
         count: rows.length,
-        trades: rows,
+        trades: rows.map((r) => ({ ...r, traderIsAgent: r.trader ? agentSet.has(r.trader.toLowerCase()) : null })),
         note: 'v4 rows show the swap router as `router`; the wallet behind it is in the tx (use verify_tx). URU-paired DN404 pools are not included yet.',
       },
     };
@@ -890,14 +934,14 @@ const getTradesTool: ToolDef<ListInput> = {
 
 // ---------------------------------------------------------------- get_holders
 
-const getHoldersTool: ToolDef<ListInput> = {
+export const getHoldersTool: ToolDef<ListInput> = {
   name: 'get_holders',
   title: 'Top holders',
   description: 'Largest holders of a token with balance and share of total supply. Contract holders (curve, Fair batch, v4 pool manager, burn) are labeled.',
   inputSchema: listInput('holders', 100, 20),
   rate: { limit: 60, windowMs: MINUTE },
   cacheTtlMs: 15_000,
-  async handler({ client, book, indexer }, input) {
+  async handler({ client, book, indexer, agents }, input) {
     const token = getAddress(input.address);
     const [holders, supply, curveRow] = await Promise.all([
       indexer.holdersForToken(token, input.limit),
@@ -915,6 +959,7 @@ const getHoldersTool: ToolDef<ListInput> = {
     if (curveRow) labels.set(curveRow.curveAddress.toLowerCase(), 'bonding curve');
     if (batch && batch !== ZERO) labels.set(batch.toLowerCase(), 'Fair opening batch');
 
+    const agentSet = await agentWalletSet({ agents } as AgentDeps, holders.map((h) => h.holderAddress));
     return {
       data: {
         address: token,
@@ -924,6 +969,7 @@ const getHoldersTool: ToolDef<ListInput> = {
           return {
             holder: h.holderAddress,
             label: labels.get(h.holderAddress.toLowerCase()) ?? null,
+            isAgent: agentSet.has(h.holderAddress.toLowerCase()),
             balance: h.balance,
             balanceFormatted: formatUnits(bal, 18),
             shareBps: supply ? Number((bal * 10_000n) / supply) : null,
@@ -947,11 +993,16 @@ const batchEventsAbi = parseAbi([
   'function token() view returns (address)',
 ]);
 
+const registryEventsAbi = parseAbi([
+  'event Registered(uint256 indexed agentId, string agentURI, address indexed owner)',
+  'event MetadataSet(uint256 indexed agentId, string indexed indexedMetadataKey, string metadataKey, bytes metadataValue)',
+]);
+
 const MAX_LOGS = 200;
 
 interface VerifyInput { txHash: string }
 
-const verifyTxTool: ToolDef<VerifyInput> = {
+export const verifyTxTool: ToolDef<VerifyInput> = {
   name: 'verify_tx',
   title: 'Verify a transaction',
   description: 'Check a Robinhood Chain tx: success or revert, and what it did on urufu (token / Fair / NFT / DN404 launch, curve trade, Fair batch deposit or claim). Only events from verified urufu contracts are reported.',
@@ -1071,6 +1122,15 @@ const verifyTxTool: ToolDef<VerifyInput> = {
         }
         continue;
       }
+      if (eq(at, book.Erc8004IdentityRegistry)) {
+        const ev = decode(registryEventsAbi);
+        if (ev?.eventName === 'Registered') actions.push({ type: 'agent_registered', agentId: String(ev.args.agentId), owner: ev.args.owner });
+        else if (ev?.eventName === 'MetadataSet' && ev.args.metadataKey === 'agentWallet') {
+          const v = String(ev.args.metadataValue);
+          actions.push({ type: 'agent_wallet_set', agentId: String(ev.args.agentId), agentWallet: v.length >= 42 ? getAddress(`0x${v.slice(2, 42)}`) : null });
+        }
+        continue;
+      }
       const trade = decode(tradeAbi);
       if (trade?.eventName === 'Trade') {
         const token = await verifiedCurveToken(at);
@@ -1102,9 +1162,9 @@ const verifyTxTool: ToolDef<VerifyInput> = {
   },
 };
 
-// ---------------------------------------------------------------- registry
+// ---------------------------------------------------------------- phase 1a tools
 
-export const AGENT_TOOLS: ReadonlyArray<ToolDef<never>> = [
+export const CORE_TOOLS = [
   statusTool,
   nameCheckTool,
   uploadImageTool,
@@ -1114,9 +1174,3 @@ export const AGENT_TOOLS: ReadonlyArray<ToolDef<never>> = [
   getHoldersTool,
   verifyTxTool,
 ] as unknown as ReadonlyArray<ToolDef<never>>;
-
-export function findTool(name: string): ToolDef<Record<string, unknown>> | undefined {
-  const n = name.replace(/-/g, '_');
-  return AGENT_TOOLS.find((t) => t.name === n) as ToolDef<Record<string, unknown>> | undefined;
-}
-

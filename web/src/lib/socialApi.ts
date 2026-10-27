@@ -421,3 +421,25 @@ export async function unfollowUser(
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   return { ok: false, error: String(body.code ?? `HTTP ${res.status}`) };
 }
+
+// ---------------------------------------------------------------- agents
+
+/// A wallet registered as an AI agent (ERC-8004 + owner-signed link), re-checked
+/// on-chain by the compile-service on every read.
+export interface RemoteAgent {
+  agentWallet: string;
+  owner: string;
+  agentId: string;
+  registry: string;
+  name: string | null;
+  linkedAt: string;
+}
+
+/// Registered agents among `wallets` (up to 100). Empty on any failure: a missing
+/// badge is better than a broken page.
+export async function fetchAgents(wallets: string[]): Promise<RemoteAgent[]> {
+  const uniq = [...new Set(wallets.map((w) => w.toLowerCase()))].filter((w) => /^0x[0-9a-f]{40}$/.test(w)).slice(0, 100);
+  if (uniq.length === 0) return [];
+  const data = await getJson<{ agents: RemoteAgent[] }>(`/agents?wallets=${uniq.join(',')}`);
+  return data?.agents ?? [];
+}

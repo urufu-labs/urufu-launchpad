@@ -8,7 +8,7 @@ import { handleMcpRequest, handleRestRequest, MAX_JSON_BODY, MCP_MESSAGE_RATE } 
 import { mcpToolList, MCP_LATEST } from './mcp.ts';
 import { RateLimiter } from './rateLimit.ts';
 import { TtlCache } from './ttlCache.ts';
-import { AGENT_TOOLS } from './tools.ts';
+import { AGENT_TOOLS } from './registry.ts';
 import { LAUNCHER, TOKEN, fakeDeps } from './testFixtures.mjs';
 
 function hctx() {

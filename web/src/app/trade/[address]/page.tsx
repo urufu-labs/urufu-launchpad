@@ -53,6 +53,7 @@ import { MockTradeView } from './MockTradeView';
 import styles from './trade-terminal.module.css';
 import { Tabs } from '@/components/ui/Choice';
 import { useTradeTerminal } from './useTradeTerminal';
+import { useAgentWallets } from '@/components/AgentBadge';
 
 export default function TradePage({ params }: { params: Promise<{ address: string }> }) {
   const mockData = useMockDataMode();
@@ -203,6 +204,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     marketCap,
   } = useTradeTerminal(tokenAddress);
   const [infoTab, setInfoTab] = useState<'trades' | 'chat' | 'info'>('trades');
+  const agentWallets = useAgentWallets(mergedRecentTrades.map((t) => t.trader));
 
   if (!mounted) {
     return (
@@ -563,6 +565,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         className={`${styles.clip} ${styles.alignRight}`}
                       >
                         {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
+                        {agentWallets.has(t.trader.toLowerCase()) && <> <span className="ui-badge" data-tone="info" title="AI agent">Agent</span></>}
                       </Link>
                     </li>
                   ))}

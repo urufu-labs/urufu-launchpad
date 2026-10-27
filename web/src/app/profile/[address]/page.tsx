@@ -66,6 +66,7 @@ import { TokenOwnerControls } from '@/components/TokenOwnerControls';
 import { useActiveChain } from '@/components/ChainSwitcher';
 
 import { NftAvatarPicker } from '@/components/NftAvatarPicker';
+import { AgentBadge, useAgentWallets } from '@/components/AgentBadge';
 import styles from '../profile.module.css';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -358,6 +359,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [modalMode, setModalMode] = useState<FollowsMode | null>(null);
 
   const [editing, setEditing] = useState(false);
+  const agentRecord = useAgentWallets(isValid ? [address] : []).get(String(address).toLowerCase());
 
   if (!isValid) {
     return (
@@ -404,6 +406,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         <div className={styles.identity}>
           <p className={styles.eyebrow}>Profile</p>
           <h1 className={styles.name}>{name}</h1>
+          {agentRecord && <AgentBadge agent={agentRecord} showOwner />}
           <div className={styles.addressRow}>
             <span className={styles.address} title={address}>{address}</span>
             <CopyAddressButton value={address} />

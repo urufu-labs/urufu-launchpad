@@ -287,6 +287,33 @@ export async function migrate(): Promise<void> {
   // Reverse-direction lookup index: given a wallet, list everyone following it.
   // The primary key already covers `follower -> list of followees`.
   await sql`CREATE INDEX IF NOT EXISTS follows_followee_idx ON app.follows (followee, followed_at DESC)`;
+
+  /// AI agent wallets (routes/agents.ts): one row per agent wallet, linked to the
+  /// owner that signed for it and its ERC-8004 agent id. Lower-cased addresses.
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.agents (
+      agent_wallet   text        PRIMARY KEY,
+      owner          text        NOT NULL,
+      agent_id       text        NOT NULL,
+      registry       text        NOT NULL,
+      chain_id       integer     NOT NULL,
+      name           text,
+      link_nonce     text        NOT NULL,
+      link_expiry    bigint      NOT NULL,
+      link_signature text        NOT NULL,
+      linked_at      timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS agents_owner_idx ON app.agents (owner)`;
+  /// Every accepted link nonce, kept forever, so a signed link can't be replayed.
+  await sql`
+    CREATE TABLE IF NOT EXISTS app.agent_link_nonces (
+      owner      text        NOT NULL,
+      nonce      text        NOT NULL,
+      used_at    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (owner, nonce)
+    )
+  `;
 }
 
 /// Read every `contracts/tmp/epoch/epoch*.json` shipped in the repo and INSERT

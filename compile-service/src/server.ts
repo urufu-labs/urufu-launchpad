@@ -15,6 +15,7 @@ import { runForgeTests } from './test-runner.ts';
 import { migrate, hasDb } from './db.ts';
 import { registerSocialRoutes } from './routes/social.ts';
 import { registerCollectionMetadataRoutes } from './routes/collection-metadata.ts';
+import { registerAgentRoutes } from './routes/agents.ts';
 import { registerPinRoutes } from './routes/pin.ts';
 import { registerNftAvatarRoutes } from './routes/nft-avatar.ts';
 import { registerNftHoldersRoutes } from './routes/nft-holders.ts';
@@ -167,6 +168,7 @@ if (hasDb()) {
   }
   await registerSocialRoutes(app);
   await registerCollectionMetadataRoutes(app);
+  await registerAgentRoutes(app);
   app.log.info('social routes registered');
 } else {
   app.log.warn('DATABASE_URL not set — /token/*/metadata + /profile/* + /token/*/chat disabled');
