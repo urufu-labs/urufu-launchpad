@@ -267,6 +267,9 @@ export function fakeDeps({ chain = defaultChain(), indexer = {}, metadata = null
       checkDataUrl,
       agents,
       now,
+      saved: [],
+      async saveMetadata(token, body) { this.saved.push({ token, body }); return { status: 200 }; },
+      async sleep() {},
     },
   };
 }

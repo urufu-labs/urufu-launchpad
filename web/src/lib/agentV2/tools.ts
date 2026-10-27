@@ -205,8 +205,11 @@ export interface AgentDeps {
     link(input: AgentLinkInput): Promise<{ ok: true; record: AgentRecord } | { ok: false; status: number; code: string; message: string }>;
     byWallets(wallets: Address[]): Promise<AgentRecord[] | null>;
   };
+  /// Signed token-page write on the compile-service (it re-verifies the signer).
+  saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }>;
   /// Clock in ms (injected for deadlines and expiries in tests).
   now(): number;
+  sleep(ms: number): Promise<void>;
   metadata(token: Address): Promise<TokenMetadataRow | null>;
   pinImage(dataUrl: string, filename?: string): Promise<{ cid: string; gatewayUrl: string }>;
   fetchImage(url: string): Promise<{ dataUrl: string; bytes: number; mime: string }>;
