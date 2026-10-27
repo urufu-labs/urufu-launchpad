@@ -202,7 +202,9 @@ function AccountStep({ owner, account, onChange }: { owner: Address; account: Sa
               <>
                 <TxList txs={txs} sent={account?.sent ?? 0} busy={busy} onSend={sendNext} />
                 {account!.sent === 0 && (
-                  <button type="button" className="ui-btn" data-variant="ghost" data-size="sm" onClick={() => onChange(null)} disabled={busy}>Change the details</button>
+                  <div>
+                    <button type="button" className="ui-btn" data-variant="ghost" data-size="sm" onClick={() => onChange(null)} disabled={busy}>Change the details</button>
+                  </div>
                 )}
               </>
             )}
@@ -214,21 +216,39 @@ function AccountStep({ owner, account, onChange }: { owner: Address; account: Sa
   );
 }
 
+/// Short titles for the setup txs (by the tool's `purpose`); the tool's own summary,
+/// with addresses shortened, is the line under each.
+const TX_TITLES: Record<string, string> = {
+  createSafe: 'Create the Safe',
+  deployRoles: 'Add the limits module',
+  armPolicy: 'Turn on the limits',
+  fund: 'Put in ETH',
+};
+const shortenAddresses = (text: string) => text.replace(/0x[0-9a-fA-F]{40}/g, (a) => short(a));
+
 function TxList({ txs, sent, busy, onSend }: { txs: ToolTx[]; sent: number; busy: boolean; onSend: () => void }) {
   return (
-    <ol style={{ display: 'grid', gap: 8, paddingLeft: 20, margin: 0 }}>
-      {txs.map((t, i) => (
-        <li key={t.step}>
-          <p className={styles.hiddenCopy} style={{ margin: 0 }}>
-            {t.summary} {i < sent && <span className="ui-badge" data-tone="ok">Done</span>}
-          </p>
-          {i === sent && (
-            <button type="button" className="ui-btn" data-variant="primary" data-size="sm" onClick={onSend} disabled={busy} style={{ marginTop: 6 }}>
-              {busy ? 'Waiting for your wallet…' : `Send (${t.valueFormatted})`}
-            </button>
-          )}
-        </li>
-      ))}
+    <ol className={agentStyles.txList}>
+      {txs.map((t, i) => {
+        const state = i < sent ? 'done' : i === sent ? 'next' : 'later';
+        return (
+          <li key={t.step} className={agentStyles.txRow} data-state={state}>
+            <span className={agentStyles.txNum}>{i < sent ? '✓' : i + 1}</span>
+            <div className={agentStyles.txText}>
+              <span className={agentStyles.txTitle}>{TX_TITLES[t.purpose] ?? t.purpose}</span>
+              <span className={agentStyles.txDesc}>{shortenAddresses(t.summary)}</span>
+            </div>
+            <div className={agentStyles.txAction}>
+              {state === 'done' && <span className="ui-badge" data-tone="ok">Done</span>}
+              {state === 'next' && (
+                <button type="button" className="ui-btn" data-variant="primary" data-size="sm" onClick={onSend} disabled={busy}>
+                  {busy ? 'Confirm in wallet…' : BigInt(t.value) > 0n ? `Send ${t.valueFormatted}` : 'Send'}
+                </button>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }
