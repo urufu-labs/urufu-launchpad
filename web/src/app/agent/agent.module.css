@@ -1,0 +1,9 @@
+/* Agent pages reuse the profile layout; their header has no avatar column. */
+.header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.steps {
+  max-width: 720px;
+}

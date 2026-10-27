@@ -17,6 +17,7 @@ import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 import { Mascot } from '@/components/Mascot';
 import { fetchLaunchesByCreator, fetchTradesByTrader, fetchV4SwapsByTrader } from '@/lib/indexer';
 import styles from '../../profile/profile.module.css';
+import agentStyles from '../agent.module.css';
 
 interface AgentTokenView {
   token: Address;
@@ -98,7 +99,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
         <Mascot size={72} mood="confused" />
         <h1 className={styles.badTitle}>{valid ? 'Not an agent account' : 'That address isn’t valid'}</h1>
         <p className={styles.badCopy}>
-          Agent accounts are Safe wallets set up through the agent tools. See <Link href="/docs#agents">Using an AI agent</Link>.
+          Agent accounts are Safe wallets set up through the agent tools. <Link href="/agent/new">Launch an agent</Link>, or see <Link href="/docs#agents">Using an AI agent</Link>.
         </p>
       </div>
     );
@@ -107,7 +108,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
   const p: AgentProfile | null = data && data !== 'not-found' ? data : null;
   return (
     <div className={styles.profileFrame}>
-      <header className={styles.header}>
+      <header className={agentStyles.header}>
         <div className={styles.identity}>
           <p className={styles.eyebrow}>Agent account</p>
           <h1 className={styles.name}>{short(safe)}</h1>
