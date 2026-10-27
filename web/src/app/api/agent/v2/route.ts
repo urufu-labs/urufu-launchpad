@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server';
 
 import { MCP_PROTOCOL_VERSIONS } from '@/lib/agentV2/mcp';
-import { AGENT_TOOLS } from '@/lib/agentV2/tools';
+import { AGENT_TOOLS } from '@/lib/agentV2/registry';
 import { UNTRUSTED_NOTICE } from '@/lib/agentV2/untrusted';
 
 export const runtime = 'nodejs';

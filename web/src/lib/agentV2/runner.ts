@@ -4,7 +4,8 @@
 
 import { RateLimiter } from './rateLimit';
 import { assertNoSecretFields, ToolInputError, validateInput } from './schema';
-import { AGENT_TOOLS, AGENT_V2_CHAIN_ID, findTool, ToolError, type AgentDeps } from './tools';
+import { AGENT_TOOLS, findTool } from './registry';
+import { AGENT_V2_CHAIN_ID, ToolError, type AgentDeps } from './tools';
 import { TtlCache } from './ttlCache';
 
 /// Ceiling across all tools for one IP, on top of each tool's own limit.

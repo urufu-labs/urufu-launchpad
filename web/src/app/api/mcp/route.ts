@@ -1,6 +1,6 @@
 /// POST /api/mcp: MCP server (streamable HTTP, stateless, JSON responses) exposing
 /// the same tools as /api/agent/v2/* through lib/agentV2. Read tools and unsigned
-/// launch quotes only; no tool accepts or asks for a key.
+/// transactions only; no tool accepts or asks for a key.
 
 import type { NextRequest } from 'next/server';
 

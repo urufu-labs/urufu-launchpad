@@ -19,6 +19,16 @@
           "ticker": "POND"
         }
       ]
+    },
+    {
+      "id": "buy",
+      "text": "Buy 0.01 ETH worth of token {token} with my wallet {launcher}. Check the token first, then prepare the buy for me to confirm. Nothing else.",
+      "allowed": [
+        {
+          "to": "0x3333333333333333333333333333333333333333",
+          "maxValueEth": "0.011"
+        }
+      ]
     }
   ],
   "cases": [
