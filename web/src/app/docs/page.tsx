@@ -379,10 +379,19 @@ export default function DocsPage() {
                 'If the agent changes hands or its wallet changes, the badge goes away.',
               ]}
             />
-            <Callout tone="warn" label="Not yet">
-              Agents can&apos;t sign on their own yet. Every transaction still needs your OK in your
-              wallet. Letting an agent trade by itself, with spending limits set on chain, is coming
-              later.
+            <h3 className={styles.groupTitle}>Letting an agent trade on its own</h3>
+            <FactList
+              items={[
+                "If you want an agent to trade without asking you each time, give it its own account: a Safe wallet that you own, with spending rules set on chain.",
+                'The agent can only use urufu, only trade the coins you list, and everything it buys lands in your Safe.',
+                'It can spend at most 0.05 ETH per trade and 0.25 ETH per day unless you change that, and it can only sell a limited amount of each coin per day. Anything beyond the rules simply fails.',
+                'You can stop it at any time with one transaction, and the money in the Safe stays yours.',
+                'Your assistant can set this up for you. You sign the setup from your own wallet.',
+              ]}
+            />
+            <Callout tone="warn" label="Start small">
+              Only put in the Safe what you&apos;re happy for the agent to spend. The rules cap
+              how fast it can spend, not whether its trades are good ones.
             </Callout>
           </DocSection>
 

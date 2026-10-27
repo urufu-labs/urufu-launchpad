@@ -243,6 +243,9 @@ export interface ToolDef<I = Record<string, unknown>> {
   cacheTtlMs: number;
   /// Only accepts POST bodies on REST (large inputs).
   postOnly?: boolean;
+  /// Also rate-limit per wallet: the input field naming it, and the limit. Stops
+  /// one agent spreading load over many IPs (plan T7, per-agent limits).
+  walletRate?: { field: string; rule: RateRule };
   handler(deps: AgentDeps, input: I): Promise<ToolOutput>;
 }
 
