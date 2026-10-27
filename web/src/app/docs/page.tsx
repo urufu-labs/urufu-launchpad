@@ -172,7 +172,8 @@ export default function DocsPage() {
                   'Supply is fixed at 800,000,000 and all of it goes on the price curve. The creator gets no free share.',
                   'The coin has no owner and no tax. Nobody can mint more or change it later.',
                   'After the opening batch it trades on the curve like any other coin, with the same 1% fee.',
-                  'It graduates to a Uniswap pool once about 4.2 ETH has been bought. The pool opens at the curve price and its money is locked forever.',
+                  'It graduates to a Uniswap pool once about 8 ETH has been bought. The pool opens at the curve price and its money is locked forever.',
+                  'The curve starts at a higher price than most launchpads, so a bundle or bot needs real money to grab a big share early, and the pool is deeper when it opens.',
                 ]}
               />
               <h3 className={styles.groupTitle}>After graduation</h3>
