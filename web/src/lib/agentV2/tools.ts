@@ -160,7 +160,7 @@ export interface TokenMetadataRow {
 
 export type AgentClient = Pick<
   PublicClient,
-  'readContract' | 'getBalance' | 'getBlockNumber' | 'getTransactionReceipt' | 'getTransaction' | 'call' | 'getCode' | 'getBlock' | 'verifyTypedData'
+  'readContract' | 'getBalance' | 'getBlockNumber' | 'getTransactionReceipt' | 'getTransaction' | 'call' | 'getCode' | 'getBlock' | 'verifyTypedData' | 'getLogs'
 >;
 
 /// A wallet registered as an agent through urufu (ERC-8004 + owner-signed link),

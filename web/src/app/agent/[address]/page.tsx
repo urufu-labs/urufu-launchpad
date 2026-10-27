@@ -51,6 +51,19 @@ async function fetchAgentProfile(safe: string): Promise<AgentProfile | 'not-foun
   return body.data;
 }
 
+interface HistoryEntry { kind: string; label: string; failed: boolean; txHash: string | null; timestamp: number | null }
+interface AgentHistory { fundedEth: string; ownerWithdrewEth: string; ownerSpentEth: string; tokenWithdrawals: Array<{ token: Address; amount: string }>; entries: HistoryEntry[]; complete: boolean }
+
+async function fetchAgentHistory(safe: string): Promise<AgentHistory | null> {
+  const res = await fetch(`/api/agent/v2/get_agent_history?safe=${safe}`);
+  if (res.status === 404) return null;
+  const body = (await res.json()) as { data?: AgentHistory; error?: { message?: string } };
+  if (!res.ok || !body.data) throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+  return body.data;
+}
+
+const EXPLORER = 'https://robinhoodchain.blockscout.com';
+
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const eth = (wei: string | bigint) => trim(formatEther(BigInt(wei)));
 const tokens = (wei: string | bigint) => Number(formatUnits(BigInt(wei), 18)).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -70,6 +83,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
 
   const profile = useQuery({ queryKey: ['agent-profile', safe], queryFn: () => fetchAgentProfile(safe), enabled: valid, staleTime: 15_000 });
   const launches = useQuery({ queryKey: ['agent-launches', safe], queryFn: () => fetchLaunchesByCreator(safe, 40), enabled: valid, staleTime: 60_000 });
+  const history = useQuery({ queryKey: ['agent-history', safe], queryFn: () => fetchAgentHistory(safe), enabled: valid, staleTime: 60_000 });
   const trades = useQuery({
     queryKey: ['agent-trades', safe],
     queryFn: async () => {
@@ -190,6 +204,46 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                       </li>
                     ))}
                   </ul>
+                )}
+              </section>
+
+              <section className={styles.panel}>
+                <div className={styles.panelHead}>
+                  <h2 className={styles.panelTitle}>Money in and out</h2>
+                </div>
+                {history.isLoading && <div className={styles.empty}>Loading…</div>}
+                {history.isError && <div className={styles.empty}>Couldn’t load this right now.</div>}
+                {history.data && (
+                  <>
+                    <p className={styles.statNote}>
+                      Put in <span>{eth(history.data.fundedEth)} ETH</span>. The owner took out <span>{eth(history.data.ownerWithdrewEth)} ETH</span>
+                      {history.data.tokenWithdrawals.length > 0 && <> and moved out {history.data.tokenWithdrawals.length} kind(s) of token</>}
+                      {BigInt(history.data.ownerSpentEth) > 0n && <>, and spent <span>{eth(history.data.ownerSpentEth)} ETH</span> directly</>}.
+                      {!history.data.complete && ' Only recent history is shown.'}
+                    </p>
+                    {history.data.entries.length === 0 ? (
+                      <div className={styles.empty}>Nothing yet.</div>
+                    ) : (
+                      <ul className={styles.tableList}>
+                        {history.data.entries.map((e, i) => (
+                          <li key={`${e.txHash}-${i}`} className={`${styles.trow} ${styles.activityCols}`}>
+                            <span className={styles.cell} style={{ gridColumn: 'span 3' }}>
+                              {e.label}
+                              {e.failed && <> <span className="ui-badge" data-tone="bad">Failed</span></>}
+                              {e.kind === 'withdrew_eth' || e.kind === 'withdrew_token' ? <> <span className="ui-badge" data-tone="warn">Owner</span></> : null}
+                            </span>
+                            <span className={`${styles.num} ${styles.right} ${styles.muted}`}>
+                              {e.txHash ? (
+                                <a href={`${EXPLORER}/tx/${e.txHash}`} target="_blank" rel="noopener noreferrer">
+                                  {e.timestamp ? new Date(e.timestamp * 1000).toLocaleDateString() : 'tx'}
+                                </a>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
               </section>
 
