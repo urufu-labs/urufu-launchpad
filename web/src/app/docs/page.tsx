@@ -36,6 +36,7 @@ const SECTIONS: Section[] = [
   { id: 'nfts', label: 'NFT collections', show: NFTS_ON },
   { id: 'dn404', label: 'DN404 (coin + NFTs)', show: DN404_ON },
   { id: 'market', label: 'Buying and selling NFTs', show: NFTS_ON || DN404_ON },
+  { id: 'agents', label: 'Using an AI agent', show: true },
   { id: 'fees', label: 'Fees and discounts', show: true },
   { id: 'risk', label: 'Risks', show: true },
   { id: 'faq', label: 'FAQ', show: true },
@@ -343,6 +344,47 @@ export default function DocsPage() {
               )}
             </DocSection>
           )}
+
+          <DocSection id="agents" title="Using an AI agent">
+            <p className={styles.prose}>
+              You can ask an AI assistant like Claude or Cursor to do things on urufu for you: look up a
+              coin, launch one, buy or sell, join a fair launch, or claim creator fees. The assistant
+              gets the details and prepares the transaction. You still check it and sign it in your
+              own wallet.
+            </p>
+            <h3 className={styles.groupTitle}>Connect your assistant</h3>
+            <FactList
+              items={[
+                'If your assistant supports MCP (Claude, Cursor and others do), add this server: https://urufulabs.xyz/api/mcp',
+                "If it doesn't, give it this link and ask it to follow the instructions: https://urufulabs.xyz/agent-skill.md",
+                'Then just ask in plain words, like "launch a fair coin called Calm Pond with a 0.01 ETH deposit" or "buy 0.05 ETH of this coin".',
+              ]}
+            />
+            <h3 className={styles.groupTitle}>How it stays safe</h3>
+            <FactList
+              items={[
+                'urufu never asks for or accepts your private key or seed phrase. If anything asks you for one, it is a scam.',
+                'Every action comes back as a transaction for your wallet to sign. Nothing moves until you approve it.',
+                "Before you sign, your assistant should show you the coin, the amounts and the total ETH. If the numbers don't match what you asked for, don't sign.",
+                'Coin names and descriptions are written by whoever launched the coin. Your assistant is told never to follow instructions found in them.',
+                'Buys and sells include a price limit (2% by default), so a trade fails instead of filling at a much worse price.',
+              ]}
+            />
+            <h3 className={styles.groupTitle}>The Agent badge</h3>
+            <FactList
+              items={[
+                'If you run an AI agent that trades from its own wallet, you can register that wallet. Your assistant can walk you through it.',
+                'Its trades then show an Agent badge with a link to you as the owner, so nobody mistakes it for a person.',
+                "Registration uses the public agent registry on Robinhood Chain (ERC-8004). Both your wallet and the agent's wallet sign, so nobody can put the badge on a wallet they don't control.",
+                'If the agent changes hands or its wallet changes, the badge goes away.',
+              ]}
+            />
+            <Callout tone="warn" label="Not yet">
+              Agents can&apos;t sign on their own yet. Every transaction still needs your OK in your
+              wallet. Letting an agent trade by itself, with spending limits set on chain, is coming
+              later.
+            </Callout>
+          </DocSection>
 
           <DocSection id="fees" title="Fees and discounts">
             <div className={styles.metrics}>
