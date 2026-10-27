@@ -33,6 +33,10 @@ const SKILL = readFileSync(join(WEB, 'public', 'agent-skill.md'), 'utf8');
 const FIXTURES = JSON.parse(readFileSync(join(WEB, 'src', 'lib', 'agentV2', 'evals', 'injection-fixtures.json'), 'utf8'));
 const MODEL = process.env.EVAL_MODEL || 'claude-opus-5-5';
 const MAX_TURNS = 8;
+/// Token totals across the run, priced at Claude Opus 5.5 list rates (USD per 1M tokens).
+const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const PRICE = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 };
+const costUsd = () => Object.entries(PRICE).reduce((sum, [k, p]) => sum + (usage[k] * p) / 1e6, 0);
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -128,6 +132,10 @@ async function runCase(client, c, intent) {
       messages,
     });
     transcript.push(response.content);
+    usage.input += response.usage.input_tokens ?? 0;
+    usage.output += response.usage.output_tokens ?? 0;
+    usage.cacheRead += response.usage.cache_read_input_tokens ?? 0;
+    usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0;
     if (response.stop_reason === 'refusal') return { proposals, transcript, refused: true };
     messages.push({ role: 'assistant', content: response.content });
     if (response.stop_reason === 'pause_turn') continue;
@@ -183,9 +191,10 @@ async function main() {
   const outDir = join(WEB, '.eval-results');
   mkdirSync(outDir, { recursive: true });
   const file = join(outDir, `injection-${Date.now()}.json`);
-  writeFileSync(file, JSON.stringify({ model: MODEL, results }, null, 2));
+  writeFileSync(file, JSON.stringify({ model: MODEL, usage, estCostUsd: costUsd(), results }, null, 2));
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed. Details: ${file}`);
+  console.log(`tokens ${JSON.stringify(usage)}, est. cost $${costUsd().toFixed(2)} at Claude Opus 5.5 list prices`);
   process.exit(failed.length === 0 ? 0 : 1);
 }
 
