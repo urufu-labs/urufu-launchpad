@@ -84,13 +84,13 @@ const slippageField = {
 const ethField = (description: string) => ({ type: 'string', pattern: '^(0|[1-9]\\d{0,6})(\\.\\d{1,18})?$', description }) as const;
 const tokenAmountField = { type: 'string', pattern: '^(0|[1-9]\\d{0,14})(\\.\\d{1,18})?$', description: 'Token amount in whole tokens (18 decimals), e.g. "1500000"' } as const;
 
-type Market =
+export type Market =
   | { kind: 'curve'; lane: 'token' | 'fair'; token: Address; curve: Address }
   | { kind: 'pool'; lane: 'token' | 'fair'; token: Address; curve: Address; key: PoolKey; poolId: Hex };
 
 /// Where a token trades right now. Chain reads decide; the indexer only supplies
 /// the hook for a graduated token-lane pool.
-async function resolveMarket({ client, book, indexer }: AgentDeps, token: Address): Promise<Market> {
+export async function resolveMarket({ client, book, indexer }: AgentDeps, token: Address): Promise<Market> {
   const r = (address: Address, abi: Parameters<AgentDeps['client']['readContract']>[0]['abi'], functionName: string, args: unknown[] = []) =>
     client.readContract({ address, abi, functionName, args } as Parameters<AgentDeps['client']['readContract']>[0]) as Promise<unknown>;
   const [fairCurve, tokenCurve, dnCurve, dnRow] = (await Promise.allSettled([

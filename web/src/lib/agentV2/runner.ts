@@ -64,6 +64,14 @@ export async function runTool(name: string, rawInput: unknown, ctx: RunContext):
     throw err;
   }
 
+  if (tool.walletRate) {
+    const w = input[tool.walletRate.field];
+    if (typeof w === 'string') {
+      const d = ctx.limiter.check(`wallet:${tool.name}:${w.toLowerCase()}`, tool.walletRate.rule);
+      if (!d.ok) return fail(tool.name, 429, 'RATE_LIMITED', `too many ${tool.name} calls for this wallet; retry in ${d.retryAfter}s`, d.retryAfter);
+    }
+  }
+
   try {
     const run = () => tool.handler(ctx.deps, input);
     const out = tool.cacheTtlMs > 0 ? await ctx.cache.get(`${tool.name}:${stableKey(input)}`, tool.cacheTtlMs, run) : await run();
