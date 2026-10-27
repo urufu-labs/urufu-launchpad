@@ -24,7 +24,7 @@
 /// graduates, MOVE it out of that set but LEAVE it in LEGACY_V10_HOOK
 /// forever — the poolId lookup still needs to work for its trade page.
 
-import type { Address } from 'viem';
+import { encodeAbiParameters, keccak256, type Address, type Hex } from 'viem';
 
 /// V10 MultiHookHost — the hook address every legacy V10 pool is keyed at.
 export const V10_MULTI_HOOK_HOST: Address = '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4';
@@ -69,4 +69,20 @@ export function isLegacyGraduated(tokenAddress: Address | string, graduated: boo
 export function willGraduateLegacy(tokenAddress: Address | string, graduated: boolean | undefined): boolean {
   if (graduated) return false;
   return PENDING_LEGACY_GRADUATION.has((tokenAddress as string).toLowerCase());
+}
+
+/// ETH/token v4 pool ids for every LEGACY_V10_HOOK token, keyed at V10 MHH with the
+/// fixed graduation shape (fee 3000, tick spacing 60). The indexer's `v4Swaps` rows
+/// for these pools can carry `tokenAddress = null` (its graduations join used the
+/// wrong hook), so the home "Live trades" rail fills the token from this list.
+export function legacyV10Pools(): Array<{ poolId: Hex; tokenAddress: Address }> {
+  return [...LEGACY_V10_HOOK].map((token) => ({
+    tokenAddress: token as Address,
+    poolId: keccak256(
+      encodeAbiParameters(
+        [{ type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' }],
+        ['0x0000000000000000000000000000000000000000', token as Address, 3000, 60, V10_MULTI_HOOK_HOST],
+      ),
+    ),
+  }));
 }

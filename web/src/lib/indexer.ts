@@ -17,6 +17,8 @@ import type { Address } from 'viem';
 import { isHiddenToken, notHidden } from './hiddenTokens';
 import { FAIR_LAUNCH_FIELDS, fairRowToLaunch, mergeFairLaunches, type IndexerFairLaunchRow } from './fairFeed';
 import { notHiddenNft } from './hiddenNftCollections';
+import { legacyV10Pools } from './legacyGraduations';
+import { buildPoolTokenMap, fillSwapTokens } from './v4SwapTokens';
 
 /// Shared fallback for chains without their own explicit per-chain URL. `undefined`
 /// on prod when nothing is configured — in that case, indexer helpers skip the fetch
@@ -436,12 +438,16 @@ async function _fetchRecentV4SwapsRaw(limit: number): Promise<IndexerV4Swap[] | 
   // of the 200-row window whenever the chain had heavy non-launchpad v4 traffic.
   // Now the filter runs in Postgres so we always get the newest `limit` launchpad
   // swaps regardless of how noisy the rest of the chain is.
-  const gradsData = await gqlFanout<{ graduationss: { items: Array<{ poolId: `0x${string}` | null }> } }>(
-    `query KnownPoolIds { graduationss(limit: 1000) { items { poolId } } }`,
+  //
+  // Rows whose `tokenAddress` the indexer left null (graduated / legacy V10 pools
+  // whose graduations join failed at ingest) get the token filled from a poolId →
+  // token map built from the same graduations rows plus lib/legacyGraduations.ts,
+  // instead of being dropped from the rail.
+  const gradsData = await gqlFanout<{ graduationss: { items: Array<{ poolId: `0x${string}` | null; tokenAddress: Address }> } }>(
+    `query KnownPoolIds { graduationss(limit: 1000) { items { poolId tokenAddress } } }`,
   );
-  const poolIds = (gradsData?.graduationss.items ?? [])
-    .map((g) => g.poolId)
-    .filter((p): p is `0x${string}` => !!p);
+  const poolToken = buildPoolTokenMap(gradsData?.graduationss.items ?? [], legacyV10Pools());
+  const poolIds = [...poolToken.keys()];
   if (poolIds.length === 0) return [];
 
   const data = await gqlFanout<{ v4Swapss: { items: IndexerV4Swap[] } }>(
@@ -460,7 +466,9 @@ async function _fetchRecentV4SwapsRaw(limit: number): Promise<IndexerV4Swap[] | 
     }`,
     { poolIds, limit },
   );
-  return (data?.v4Swapss.items ?? []).filter((s) => s.tokenAddress && notHidden({ chainId: s.chainId, tokenAddress: s.tokenAddress }));
+  return fillSwapTokens(data?.v4Swapss.items ?? [], poolToken)
+    .map((s) => ({ ...s, tokenAddress: s.tokenAddress as Address }))
+    .filter((s) => notHidden({ chainId: s.chainId, tokenAddress: s.tokenAddress }));
 }
 
 /// Full v4 swap history for a specific token, newest-first. Used by the trade page as
@@ -1273,6 +1281,42 @@ export async function fetchHoldingsByAddress(holder: Address, limit = 100): Prom
   );
   // Hide test-token balances from the profile "holdings" strip.
   return (data?.holderss.items ?? []).filter(notHidden);
+}
+
+/// Largest holders of one token, biggest balance first. Zero balances are skipped.
+/// Used by the agent API `get_holders` tool.
+export async function fetchHoldersForToken(token: Address, limit = 50): Promise<IndexerHolding[] | null> {
+  const data = await gqlFanout<{ holderss: { items: IndexerHolding[] } }>(
+    `query HoldersForToken($token: String!, $limit: Int!) {
+      holderss(
+        where: { tokenAddress: $token, balance_gt: "0" },
+        orderBy: "balance",
+        orderDirection: "desc",
+        limit: $limit
+      ) {
+        items { id chainId tokenAddress holderAddress balance updatedAt }
+      }
+    }`,
+    { token: token.toLowerCase(), limit },
+  );
+  return data ? data.holderss.items : null;
+}
+
+/// Newest curve trades for one curve, newest first. `fetchTradesForCurve` returns
+/// oldest first for charts; the agent API wants the latest N.
+export async function fetchLatestTradesForCurve(curve: Address, limit = 25): Promise<IndexerTrade[] | null> {
+  const data = await gqlFanout<{ tradess: { items: IndexerTrade[] } }>(
+    `query LatestTradesForCurve($curve: String!, $limit: Int!) {
+      tradess(where: { curveAddress: $curve }, orderBy: "blockTimestamp", orderDirection: "desc", limit: $limit) {
+        items {
+          id chainId curveAddress tokenAddress trader isBuy ethAmount tokenAmount
+          ethReserveAfter tokenReserveAfter priceWeiPerToken blockNumber blockTimestamp txHash
+        }
+      }
+    }`,
+    { curve: curve.toLowerCase(), limit },
+  );
+  return data ? data.tradess.items : null;
 }
 
 // ---------------------------------------------------------------------------
