@@ -103,6 +103,8 @@ you are rate limited; wait for `Retry-After` seconds.
 |---|---|
 | `status` | Chain, which lanes are open or paused, fees in ETH and URU, Fair rules, address book. Call first. |
 | `name_check` | `name`, `ticker`, `lane` (`token` or `fair`), optional `launcher` for Fair. Says if the launch would be refused for the name. |
+| `prepare_metadata` | After a launch: `txHash` plus description, image and links. Returns the message the launcher signs. |
+| `attach_metadata` | Same fields + `timestamp` + the launcher's signature. Saves the token page details. |
 | `upload_image` | POST only. `imageUrl` (public http/https) or `dataUrl` (png, jpeg, gif, webp, avif; max 512 KB). Returns an IPFS `gatewayUrl`. |
 | `quote_launch` | Builds the unsigned launch transaction(s) and checks everything first. See below. |
 | `get_token` | Lane, launcher, price, progress to graduation, Fair batch state, links. |
@@ -173,11 +175,14 @@ Point the human to the website to launch these.
 ## Launch flow (assistant mode)
 
 1. `status`. If the chosen lane is not `open`, stop and tell the human.
-2. Ask, one at a time: lane, name, ticker, logo (optional), description and
-   links (optional), fee in ETH or URU, and the first buy (token lane) or
-   opening deposit (Fair lane). Suggest nothing; ask.
+2. Ask, one at a time: lane, name, ticker, an image, a short description,
+   and links (website, X, Telegram, Discord, TikTok), then the fee in ETH or
+   URU, and the first buy (token lane) or opening deposit (Fair lane). Image,
+   description and links are optional, but always ask: a token page without
+   them looks abandoned. Suggest nothing; ask.
 3. `name_check`. If not ok, give the reason and ask for another.
-4. Logo: `upload_image`, keep the `gatewayUrl`.
+4. Image: `upload_image` before the launch, so a bad image is caught early.
+   Keep the `gatewayUrl`.
 5. `quote_launch` with `lane`, `name`, `ticker`, `launcher`, `payWith`, and
    `initialBuyEth` or `depositEth`.
    - `errors` not empty, or `canBroadcast: false`: show them, stop.
@@ -204,12 +209,16 @@ proceed? (yes / no)
    before the next. A URU approve needs its own "yes".
 8. `verify_tx` with the launch tx hash. It returns the token address and
    trade link.
-9. Description, logo and links: sign the ownership message with the same
-   wallet through the v1 metadata endpoints (`POST /api/agent/prepare-metadata`
-   with `txHash` and the fields, the wallet signs `message` with
-   personal_sign, then `POST /api/agent/attach-metadata`). Do not edit
-   `payload` or `timestamp`. `INDEXER_PENDING` means wait 10-20 seconds and
-   send the same body again.
+9. Right after the launch confirms, attach the image, description and links
+   (both lanes):
+   - `prepare_metadata` with the launch `txHash`, `imageUrl` (the
+     `gatewayUrl`), `description` and the links. It returns a plain text
+     `message` and a `timestamp`.
+   - The **launcher** wallet signs `message` with personal_sign. This is a
+     signature, not a transaction: no gas, nothing moves.
+   - `attach_metadata` with the same `txHash` and fields, the `timestamp`, and
+     the signature, within 5 minutes. If it says `INDEXER_PENDING`, wait about
+     30 seconds and call it again with the same inputs.
 10. Report the token address and `https://urufulabs.xyz/trade/<address>`.
 
 ## Trading (assistant mode)
@@ -263,11 +272,11 @@ on it.
 ## v1 endpoints
 
 `/api/agent/status`, `/name-check`, `/upload-image`, `/quote`, `/verify`,
-`/prepare-metadata` and `/attach-metadata` still work as before (token lane,
-ETH fee only). New agents should use v2.
+`/prepare-metadata` and `/attach-metadata` still work as before (token lane
+only). New agents should use v2.
 
 ## Contact
 
 Problems or security reports: https://x.com/spoobsV1
 
-_Served from `https://urufulabs.xyz/agent-skill.md`. v2.1, 2026-10-27._
+_Served from `https://urufulabs.xyz/agent-skill.md`. v2.2, 2026-10-27._

@@ -115,6 +115,21 @@ async function agentsByWallets(wallets: Address[]): Promise<AgentRecord[] | null
   }
 }
 
+async function saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }> {
+  try {
+    const res = await fetch(`${COMPILE_SERVICE_URL}/token/4663/${token.toLowerCase()}/metadata`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const json = (await res.json().catch(() => ({}))) as { code?: string };
+    return { status: res.status, code: json.code };
+  } catch {
+    return { status: 502, code: 'UPSTREAM' };
+  }
+}
+
 let deps: AgentDeps | null = null;
 
 export function productionDeps(): AgentDeps {
@@ -141,7 +156,9 @@ export function productionDeps(): AgentDeps {
       launchesByCreator: (c) => fetchLaunchesByCreator(c, 100),
     },
     agents: { link: linkAgent, byWallets: agentsByWallets },
+    saveMetadata,
     now: () => Date.now(),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     metadata: (t) => fetchTokenMetadata(4663, t),
     pinImage,
     fetchImage: (url) => safeFetchImage(url),
