@@ -122,7 +122,10 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
   const p: AgentProfile | null = data && data !== 'not-found' ? data : null;
   return (
     <div className={styles.profileFrame}>
-      <header className={agentStyles.header}>
+      <header className={styles.header}>
+        <div className={styles.avatar} aria-hidden="true">
+          <span className={agentStyles.avatarGlyph}>AI</span>
+        </div>
         <div className={styles.identity}>
           <p className={styles.eyebrow}>Agent account</p>
           <h1 className={styles.name}>{short(safe)}</h1>
@@ -165,10 +168,6 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
             <div className={`ui-stat ${styles.statTile}`}>
               <dt className="ui-label">Max per day</dt>
               <dd className="ui-stat-value">{p.caps ? `${eth(p.caps.perDay)} Ξ` : '–'}</dd>
-            </div>
-            <div className={`ui-stat ${styles.statTile}`}>
-              <dt className="ui-label">Own tokens</dt>
-              <dd className="ui-stat-value">{p.tokens.length}</dd>
             </div>
           </dl>
           <p className={styles.statNote}>
@@ -216,7 +215,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                 {history.isError && <div className={styles.empty}>Couldn’t load this right now.</div>}
                 {history.data && (
                   <>
-                    <p className={styles.statNote}>
+                    <p className={agentStyles.panelNote}>
                       Put in <span>{eth(history.data.fundedEth)} ETH</span>. The owner took out <span>{eth(history.data.ownerWithdrewEth)} ETH</span>
                       {history.data.tokenWithdrawals.length > 0 && <> and moved out {history.data.tokenWithdrawals.length} kind(s) of token</>}
                       {BigInt(history.data.ownerSpentEth) > 0n && <>, and spent <span>{eth(history.data.ownerSpentEth)} ETH</span> directly</>}.
@@ -227,8 +226,8 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                     ) : (
                       <ul className={styles.tableList}>
                         {history.data.entries.map((e, i) => (
-                          <li key={`${e.txHash}-${i}`} className={`${styles.trow} ${styles.activityCols}`}>
-                            <span className={styles.cell} style={{ gridColumn: 'span 3' }}>
+                          <li key={`${e.txHash}-${i}`} className={`${styles.trow} ${agentStyles.historyCols}`}>
+                            <span className={styles.cell}>
                               {e.label}
                               {e.failed && <> <span className="ui-badge" data-tone="bad">Failed</span></>}
                               {e.kind === 'withdrew_eth' || e.kind === 'withdrew_token' ? <> <span className="ui-badge" data-tone="warn">Owner</span></> : null}
@@ -236,7 +235,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                             <span className={`${styles.num} ${styles.right} ${styles.muted}`}>
                               {e.txHash ? (
                                 <a href={`${EXPLORER}/tx/${e.txHash}`} target="_blank" rel="noopener noreferrer">
-                                  {e.timestamp ? new Date(e.timestamp * 1000).toLocaleDateString() : 'tx'}
+                                  {e.timestamp ? new Date(e.timestamp * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'tx'}
                                 </a>
                               ) : null}
                             </span>
@@ -277,7 +276,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                 <div className={styles.panelHead}>
                   <h2 className={styles.panelTitle}>How this works</h2>
                 </div>
-                <div className={styles.panelBody}>
+                <div className={`${styles.panelBody} ${agentStyles.stack}`}>
                   <p className={styles.hiddenCopy}>
                     The money sits in a Safe that only its owner controls. The agent has its own key and can only do what the owner allowed.
                   </p>

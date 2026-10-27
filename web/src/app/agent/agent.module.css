@@ -1,9 +1,35 @@
-/* Agent pages reuse the profile layout; their header has no avatar column. */
-.header {
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--line);
+/* Agent pages reuse the profile and create-studio styles; these fill the gaps. */
+.steps {
+  display: grid;
+  gap: 16px;
+  max-width: 820px;
 }
 
-.steps {
-  max-width: 720px;
+/* Same box as the profile avatar; agents have no picture, so a label instead. */
+.avatarGlyph {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+/* A summary line inside a panel, padded like the panel's rows. */
+.panelNote {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Label | date. */
+.historyCols {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Paragraphs inside a panel body. */
+.stack {
+  display: grid;
+  gap: 10px;
 }

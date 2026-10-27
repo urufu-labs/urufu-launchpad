@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { isAddress, type Address, type Hex } from 'viem';
 import { useAccount, useChainId, usePublicClient, useSendTransaction, useSignTypedData, useSwitchChain } from 'wagmi';
 
+import cs from '../../create/create-studio.module.css';
 import styles from '../../profile/profile.module.css';
 import agentStyles from '../agent.module.css';
 
@@ -76,19 +77,23 @@ export default function LaunchAgentPage() {
   useEffect(() => { setMounted(true); }, []);
 
   return (
-    <div className={styles.profileFrame}>
-      <header className={agentStyles.header}>
-        <div className={styles.identity}>
-          <p className={styles.eyebrow}>Agents</p>
-          <h1 className={styles.name}>Launch an agent</h1>
-          <p className={styles.bio}>
+    <div className={cs.studio}>
+      <header className={cs.pageHeader}>
+        <div>
+          <p className={cs.pageEyebrow}>Launch · Agent</p>
+          <h1 className={cs.pageTitle}>Launch an agent</h1>
+          <p className={cs.pageLede}>
             Give an AI agent its own account with spending limits set on chain, a coin of its own if you want one, and the
             Agent badge. You sign every step from your wallet. See <Link href="/docs#agents">Using an AI agent</Link> first.
           </p>
         </div>
       </header>
       {!mounted || !owner ? (
-        <div className={styles.empty}>Connect your wallet (top right) to start. It becomes the owner of the agent account.</div>
+        <section className={cs.panel}>
+          <div className={cs.panelBody}>
+            <p className={styles.hiddenCopy}>Connect your wallet (top right) to start. It becomes the owner of the agent account.</p>
+          </div>
+        </section>
       ) : (
         <Steps owner={owner} />
       )}
@@ -103,7 +108,7 @@ function Steps({ owner }: { owner: Address }) {
   const ready = !!account && account.sent >= account.total;
 
   return (
-    <div className={`${styles.main} ${agentStyles.steps}`}>
+    <div className={agentStyles.steps}>
       <AccountStep owner={owner} account={account} onChange={update} />
       <CoinStep owner={owner} account={ready ? account : null} onListed={(tokenList) => account && update({ ...account, tokenList })} />
       <BadgeStep owner={owner} defaultAgent={account?.agent} />
@@ -154,9 +159,9 @@ function AccountStep({ owner, account, onChange }: { owner: Address; account: Sa
   const done = !!account && account.sent >= account.total;
 
   return (
-    <section className={styles.panel}>
-      <div className={styles.panelHead}><h2 className={styles.panelTitle}>1. Agent account</h2></div>
-      <div className={styles.panelBody} style={{ display: 'grid', gap: 12 }}>
+    <section className={cs.panel}>
+      <PanelHead step="01" title="Agent account" />
+      <div className={cs.panelBody}>
         {done ? (
           <>
             <p className={styles.hiddenCopy}>
@@ -274,9 +279,9 @@ function CoinStep({ owner, account, onListed }: { owner: Address; account: Saved
   };
 
   return (
-    <section className={styles.panel}>
-      <div className={styles.panelHead}><h2 className={styles.panelTitle}>2. Its own coin (optional)</h2></div>
-      <div className={styles.panelBody} style={{ display: 'grid', gap: 12 }}>
+    <section className={cs.panel}>
+      <PanelHead step="02" title="Its own coin" aside="Optional" />
+      <div className={cs.panelBody}>
         {!account ? (
           <p className={styles.hiddenCopy}>Finish step 1 first.</p>
         ) : launched ? (
@@ -396,9 +401,9 @@ function BadgeStep({ owner, defaultAgent }: { owner: Address; defaultAgent?: Add
   });
 
   return (
-    <section className={styles.panel}>
-      <div className={styles.panelHead}><h2 className={styles.panelTitle}>3. Agent badge (optional)</h2></div>
-      <div className={styles.panelBody} style={{ display: 'grid', gap: 12 }}>
+    <section className={cs.panel}>
+      <PanelHead step="03" title="Agent badge" aside="Optional" />
+      <div className={cs.panelBody}>
         {phase === 'done' ? (
           <p className={styles.hiddenCopy}>
             Done. The agent’s wallet now shows an Agent badge linked to you. <Link href={`/profile/${agent}`}>See it</Link>.
@@ -458,5 +463,17 @@ function BadgeStep({ owner, defaultAgent }: { owner: Address; defaultAgent?: Add
         {error && <p className="ui-error">{error}</p>}
       </div>
     </section>
+  );
+}
+
+function PanelHead({ step, title, aside }: { step: string; title: string; aside?: string }) {
+  return (
+    <div className={cs.panelHead}>
+      <h2 className={cs.panelTitle}>
+        <span className={cs.panelStep}>{step}</span>
+        {title}
+      </h2>
+      {aside && <span className={cs.panelAside}>{aside}</span>}
+    </div>
   );
 }
