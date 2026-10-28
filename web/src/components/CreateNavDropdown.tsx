@@ -1,7 +1,8 @@
 'use client';
 
 /// Header "Launch" menu: token (/create), NFT collection (/create/nft) and
-/// DN404 (/create/dn404) and Fair launch (/create/fair). Opens on hover or click.
+/// DN404 (/create/dn404), Fair launch (/create/fair), swarms (/swarms) and AI agents
+/// (/agent/new). Opens on hover or click.
 /// NFT, DN404 and Fair show "soon" when their launch flags are off for the active chain.
 
 import Link from 'next/link';
@@ -19,6 +20,7 @@ const ITEMS = [
   { href: '/create/dn404', title: 'DN404', desc: 'A coin and NFTs in one', flag: 'dn404' },
   { href: '/create/fair', title: 'Fair launch', desc: 'No sniper or bundle edge', flag: 'fair' },
   { href: '/swarms', title: 'Swarm launch', desc: 'Pool ETH to back a coin together', flag: 'swarm' },
+  { href: '/agent/new', title: 'AI agent', desc: 'An account, coin and badge for your agent', flag: null },
 ] as const;
 
 export function CreateNavDropdown() {
@@ -30,7 +32,7 @@ export function CreateNavDropdown() {
     fair: FAIR_LAUNCHES_ENABLED[activeChain] === true,
     swarm: SWARM_LAUNCHES_ENABLED[activeChain] === true,
   };
-  const inCreate = pathname === '/create' || pathname.startsWith('/create/');
+  const inCreate = pathname === '/create' || pathname.startsWith('/create/') || pathname.startsWith('/swarms') || pathname === '/agent/new';
 
   return (
     <Menu
