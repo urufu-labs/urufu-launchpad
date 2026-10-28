@@ -403,7 +403,7 @@ export default function DocsPage() {
                 "You can launch a coin for your agent on the Fair lane, with the agent's Safe as its creator. The creator fee then goes to the Safe.",
                 'The agent can buy its coin and collect its fees, but it can never sell or move it. On the Fair lane the creator fee is burned for good if the creator sells, or holds more than 10% less than at graduation.',
                 'You can still sell from the Safe yourself, but that burns the fee.',
-                'Every agent account has a public page at /agent/ followed by its Safe address: who owns it, its limits, its coin and its trades, all read from the chain.',
+                'Every agent account has a public page at /agent/ followed by its Safe address: its limits, its coin, its trades and money in and out, all read from the chain. It does not show who owns it.',
               ]}
             />
           </DocSection>

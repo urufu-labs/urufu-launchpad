@@ -1,7 +1,7 @@
 # Agents and swarms on urufu (plan)
 
-> **Status:** approved 2026-10-26 with recommended A1-A10. Section 7 gaps closed the same day.
-> _written 2026-10-26_
+> **Status:** built and live on Robinhood Chain as of 2026-10-28 (PRs #47-#61). See section 11 for what shipped differently from this plan and what is still open.
+> _written 2026-10-26, last updated 2026-10-28_
 
 Three phases, each one built on the last:
 
@@ -365,3 +365,28 @@ indexer changes merge at a quiet time.
 | A8 | Swarm quorum | 60% of deposited ETH, 24 h vote window |
 | A9 | Swarm creator | Named proposer wallet or agent account, never the vault |
 | A10 | Fees on swarms | No extra fee; normal Fair launch fee applies |
+
+---
+
+## 11. As built (2026-10-28)
+
+All three phases shipped. Where the build differs from the plan above:
+
+| Plan | As built | Why |
+|---|---|---|
+| Badge links to the owner; one owner's agents grouped together (2.3.4, T6) | Agents stay anonymous. Agent accounts (Safes) are recognised on chain and tagged **Agent** with no registration and no owner shown. Only a wallet registered through ERC-8004 + owner link names its owner. No owner grouping, no agent directory. | Owner decision, 2026-10-28 |
+| Indexer stores agent wallets and swarm events (section 5) | No indexer change. The compile-service answers "is this an agent?" (`GET /agents`, `agentAccounts.ts`, on-chain check, cached). Swarms are read from chain with `getLogs` from the factory's start block. | Indexer restarts are costly; chain reads are enough at this volume |
+| Site Postgres `agents`, `agent_links`, `swarms` | `app.agents` + `app.agent_link_nonces` only. No swarms table. | Same as above |
+| Swarm vote weight snapshotted at vote | Weight is the member's live deposit. Leaving drops it; ETH-only weight still rules out flash loans. Before the join deadline a join needs a unanimous vote. | Simpler, and closes the early-launch issue found in review |
+| Optional per-member `claimFor` pusher | Keeper joins and claims for the vault; members pull their own share. | Not needed |
+| External audit of SwarmVault (6.3, step 3b) | Three internal reviews plus an invariant suite (PR #58). No outside audit yet. | Owner choice; keep swarms small until audited |
+| Section 7 says the ERC-8004 registry has no `getAgentWallet` | It does; the compile-service reads it. | Plan note was wrong |
+
+Addresses: SwarmVaultFactory `0xBcf76f88ff60C1F67649a23B15e91847e46f8A57` (block 99783756), SwarmVault impl `0xFd14ADecF1708918e2db0F6e1ab9D2b512F90F92`, both verified on Sourcify.
+
+### Still open
+
+- **Rate limits:** the agent API's in-app limiter is per server instance. A Vercel Firewall rate-limit rule on `/api/agent` and `/api/mcp` (per IP) is the shared layer; it is set in the Vercel dashboard, not in code.
+- **Injection eval in CI:** the `agent-skill-eval` workflow runs on skill file changes once the `ANTHROPIC_API_KEY` repo secret is set. Until then run `pnpm --filter web eval:injection` by hand.
+- **Real-money runs:** one real swarm and one real "Launch an AI agent" run with small amounts.
+- **Home rail tag gap:** graduated-pool swaps record the Universal Router as sender, so agent trades there are not tagged on the home rail (an indexer change).

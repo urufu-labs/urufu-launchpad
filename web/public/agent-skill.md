@@ -315,9 +315,14 @@ Rules:
 
 ## Registering an agent (Agent badge)
 
-An agent wallet that trades on urufu should be registered so everyone sees an
-**Agent** badge on it, linked to its owner. The owner and the agent are two
-different wallets. Call `register_agent` once per step, in order:
+An agent account (the Safe from autonomous mode) needs no registration: urufu
+spots it on chain and shows an **Agent** tag on its trades and launches, linked
+to its page at `/agent/<Safe address>`. That page does not name the owner.
+
+An agent that trades from its own plain wallet should be registered so everyone
+sees an **Agent** badge on it. Its page then names the owner, who signs for it.
+The owner and the agent are two different wallets. Call `register_agent` once
+per step, in order:
 
 1. `step: "register"`: the owner wallet sends the ERC-8004 `register` tx.
    `verify_tx` on its hash shows the new `agentId`.
@@ -351,4 +356,4 @@ only). New agents should use v2.
 
 Problems or security reports: https://x.com/spoobsV1
 
-_Served from `https://urufulabs.xyz/agent-skill.md`. v2.5, 2026-10-28._
+_Served from `https://urufulabs.xyz/agent-skill.md`. v2.6, 2026-10-28._

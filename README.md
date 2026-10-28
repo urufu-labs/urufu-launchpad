@@ -71,6 +71,13 @@ decisions confirmed with the review co-lead on gh (issues [#5](https://github.co
 | ⌒ URU payment | floor-based via `minUruFee`. **not** market-quoted |
 | ⌒ loyalty discount | gated on fork test + CI job + UI live-read; degrades cleanly on RPC or wiring failure |
 
+### ✧ AI agents + swarms (live 2026-10-28)
+
+- **agent API + MCP** (`web/src/lib/agentV2`, `/api/agent/v2`, `/api/mcp`): any AI agent can look up, launch, trade and claim. It only gets unsigned transactions back; urufu never holds a key, and runs no AI of its own.
+- **agent accounts**: a Safe with on-chain spending limits (Zodiac Roles v2). Its trades and launches are tagged Agent site-wide and anonymous; page at `/agent/<address>`.
+- **swarm launches**: a group pools ETH into a Fair launch's opening batch through `SwarmVault` (factory `0xBcf7…8A57`). Internal review only so far.
+- plan and as-built notes: [`docs/PLAN-agents-and-swarms.md`](./docs/PLAN-agents-and-swarms.md).
+
 post-audit follow-ups tracked as open issues: on-chain [`PoolPolicy`](https://github.com/urufu-labs/urufu-launchpad/issues/9), [three-layer loyalty gate](https://github.com/urufu-labs/urufu-launchpad/issues/10), [`launchAndBuy` for protected first-buy](https://github.com/urufu-labs/urufu-launchpad/issues/8), [aggregator-friendly indexer](https://github.com/urufu-labs/urufu-launchpad/issues/13), [docs status headers](https://github.com/urufu-labs/urufu-launchpad/issues/12).
 
 ---
