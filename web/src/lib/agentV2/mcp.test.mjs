@@ -129,6 +129,11 @@ describe('MCP tool contract', () => {
     assert.equal((await rpc(c, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'name-check' } })).json.error.code, -32602);
   });
 
+  it('tools/call status: the address book (with bigint start blocks) serializes', async () => {
+    const r = await rpc(hctx(), { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'status', arguments: {} } });
+    assert.equal(r.json.result.isError, false, JSON.stringify(r.json.error ?? null));
+    assert.match(r.json.result.content.at(-1).text, /SwarmVaultFactoryStartBlock/);
+  });
   it('tools/call returns text + structuredContent, untrusted note first', async () => {
     const r = await rpc(hctx(), { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_token', arguments: { address: TOKEN } } });
     const res = r.json.result;
