@@ -248,7 +248,7 @@ export const createSwarmTool: ToolDef<CreateInput> = {
         proposer, creator, factory, params: { ...params, minPool: params.minPool.toString(), maxPool: params.maxPool.toString(), minDeposit: params.minDeposit.toString() },
         transactions: [txOut(tx, 1, 'createSwarm', summary)],
         simulation, errors, canBroadcast: errors.length === 0, summary,
-        warnings: ['The creator must launch AFTER the vote closes, with exactly this name and ticker. A launch before that, or with any other spelling, can\'t receive the pool; members then take their ETH back.'],
+        warnings: ['The creator must launch AFTER the vote closes (earlier only works if everyone in the pot voted yes), with exactly this name and ticker, before the launch deadline. Any other spelling or timing can\'t receive the pot; members then take their ETH back.'],
         next: 'Show `summary` to the human and wait for a yes. After it confirms, the SwarmCreated event in the receipt gives the vault address; check it with get_swarm.',
       },
     };

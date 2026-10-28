@@ -497,7 +497,8 @@ export const SWARM_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   sepolia: false,
   base: false,
   'base-sepolia': false,
-  robinhood: false,
+  // SwarmVaultFactory 0xBcf7…8A57 live 2026-10-28 (internal audit only, owner choice).
+  robinhood: true,
   'robinhood-testnet': false,
 };
 
