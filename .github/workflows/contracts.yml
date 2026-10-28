@@ -38,10 +38,12 @@ jobs:
       - name: Build
         run: forge build
       - name: Test (CI profile — high fuzz runs)
-        run: FOUNDRY_PROFILE=ci forge test -vvv
+        # The fork suites run in parallel and the RPC rate-limits (HTTP 429): pace each
+        # fork's requests and back off + retry instead of failing.
+        run: FOUNDRY_PROFILE=ci forge test -vvv --compute-units-per-second 120 --fork-retries 10 --fork-retry-backoff 3000
         env:
           # The live-RH fork tests read ROBINHOOD_RPC_URL and otherwise fall back to the
-          # public RPC, which rate-limits (HTTP 429) when dozens of fork suites run at once.
+          # public RPC.
           ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
       - name: Coverage summary
         # --ir-minimum enables viaIR with minimum optimization. Several launch-related
