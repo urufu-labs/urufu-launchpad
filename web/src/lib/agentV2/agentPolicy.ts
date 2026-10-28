@@ -316,6 +316,39 @@ export function basePermissionCalls(roles: Address, p: PolicyInput, allowFairLau
   return calls;
 }
 
+// ---------------------------------------------------------------- swarms (phase 3)
+
+/// SwarmVault (contracts/src/swarm/SwarmVault.sol), the calls a member makes.
+export const swarmVaultAbi = parseAbi([
+  'function join() payable',
+  'function approve()',
+  'function unapprove()',
+  'function leave()',
+  'function joinBatch()',
+  'function claimFromBatch()',
+  'function withdrawShare() returns (uint256 tokens, uint256 eth)',
+]);
+
+/// Let the agent take part in ONE swarm the owner chose. Every vault call pays out to
+/// msg.sender (the Safe) or to nobody, so no recipient pinning is needed: `join` sends
+/// ETH within both ETH allowances; voting, `leave` (ETH back to the Safe), `joinBatch`,
+/// `claimFromBatch` and `withdrawShare` (tokens + ETH to the Safe) send none. The swarm's
+/// token lands in the Safe and can't be sold unless the owner also lists it.
+export function swarmPermissionCalls(roles: Address, vault: Address): Call[] {
+  const plain = ['approve', 'unapprove', 'leave', 'joinBatch', 'claimFromBatch', 'withdrawShare'].map((fn) =>
+    rolesCall(roles, 'allowFunction', [AGENT_ROLE_KEY, vault, sel(swarmVaultAbi, fn), EXEC.None]),
+  );
+  return [
+    rolesCall(roles, 'scopeTarget', [AGENT_ROLE_KEY, vault]),
+    scope(roles, vault, sel(swarmVaultAbi, 'join'), calldata([], true), EXEC.Send),
+    ...plain,
+  ];
+}
+
+export function removeSwarmCalls(roles: Address, vault: Address): Call[] {
+  return [rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, vault])];
+}
+
 export function allowanceCalls(roles: Address, dailyWei: bigint, perTradeWei: bigint): Call[] {
   return [
     rolesCall(roles, 'setAllowance', [ALLOWANCE_DAILY, dailyWei, dailyWei, dailyWei, 86_400n, 0n]),
