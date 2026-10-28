@@ -82,6 +82,17 @@ The service is stateless per-request; state lives in Postgres (cache) and on-cha
 ### `GET /health`
 - **Response 200:** `{"status":"ok","forge":"0.2.0","solc":"0.8.26"}`.
 
+### Agent routes (`routes/agents.ts`, added 2026-10-27)
+See `docs/PLAN-agents-and-swarms.md`.
+- `POST /agents/link`: stores a registered agent wallet. Body is an owner-signed EIP-712 `AgentLink` (`shared/agent-link.ts`). Checked here: the signature (EOA or ERC-1271), expiry at most 1 h ahead, a one-time nonce, and on chain the ERC-8004 registry's `ownerOf` + `getAgentWallet`. 20 req/min per IP.
+- `GET /agents?wallets=a,b,…` (up to 100): returns `{ agents, accounts }`. 120 req/min per IP.
+  - `agents`: registered agent wallets with their owner. Each is re-checked against the registry, cached 60 s.
+  - `accounts`: anonymous agent Safes found on chain (`agentAccounts.ts`): a Safe whose enabled module is a Zodiac Roles v2 clone owned by and acting for that Safe. Cached per address (plain wallets 1 day, contracts 10 min). At most 25 new addresses are checked per request.
+- These drive the site's Agent tag and the agent API's `traderIsAgent` / `isAgent` flags.
+
+### Swarm keeper (`swarmJoin.ts`, added 2026-10-28)
+A loop in `keeper.ts`, every 10 s, from `KEEPER_PRIVATE_KEY`. For each swarm made by `ROBINHOOD_SWARM_VAULT_FACTORY` (from `ROBINHOOD_SWARM_START_BLOCK`), it calls `joinBatch()` once the creator launches and `claimFromBatch()` after the batch settles. Both are permissionless and only move the vault's own funds; the keeper pays gas only (about 0.00001 ETH per swarm on RH).
+
 ---
 
 ## Canonical config hash
