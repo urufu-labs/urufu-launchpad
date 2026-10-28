@@ -26,6 +26,8 @@ export const BOOK = {
   Erc8004IdentityRegistry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
   V4Quoter: '0x8dc178efb8111bb0973dd9d722ebeff267c98f94',
   LegacyMultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
+  // Not deployed yet; tests (and the swarm fork fixture) use this fixed address.
+  SwarmVaultFactory: '0x00000000000000000000000000000000005a7f01',
 };
 
 export const AGENT = '0x5555555555555555555555555555555555555555';

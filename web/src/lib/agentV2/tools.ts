@@ -79,6 +79,9 @@ export interface AgentBook {
   V4Quoter: Address;
   /// V10 MultiHookHost: legacy pools and creator fees that still live there.
   LegacyMultiHookHost: Address;
+  /// SwarmVaultFactory (phase 3). Null until it is deployed after its audit; the swarm
+  /// tools say so instead of building anything.
+  SwarmVaultFactory: Address | null;
 }
 
 export interface AgentFlags {
