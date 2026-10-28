@@ -39,6 +39,7 @@ import { fetchFollowing } from '@/lib/socialApi';
 import { withCreatorDetails } from '@/lib/collectionDetails';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
 import { displayNameFor, loadProfile, type UserProfile } from '@/lib/profile';
+import { AgentTag, useAgentTags, type AgentInfo } from '@/components/AgentBadge';
 import styles from './feed.module.css';
 
 /// NFT + DN404 lanes are Robinhood-only; launchers' saved images live there.
@@ -288,6 +289,7 @@ export default function FeedPage() {
       default: return items;
     }
   }, [items, kind]);
+  const feedAgents = useAgentTags((filteredItems ?? []).map((i) => i.who));
 
   // Per-kind counts for chip badges.
   const counts = useMemo(() => {
@@ -426,6 +428,7 @@ export default function FeedPage() {
                     tokenMeta={tokenMeta}
                     collectionMeta={collectionMeta}
                     chainKey={activeChain}
+                    agent={feedAgents.get(item.who.toLowerCase())}
                   />
                 </li>
               ))}
@@ -482,15 +485,26 @@ function FeedRow({
   tokenMeta,
   collectionMeta,
   chainKey,
+  agent,
 }: {
   item: FeedItem;
   profile: UserProfile | undefined;
   tokenMeta: Record<string, TokenMeta>;
   collectionMeta: Record<string, IndexerNftCollection>;
   chainKey: ChainKey;
+  agent: AgentInfo | undefined;
 }) {
   const name = displayNameFor(profile, item.who);
   const ago = formatAgo(item.ts * 1000);
+  // Agents link to their agent page and carry the Agent tag.
+  const who = agent ? (
+    <>
+      <Link href={`/agent/${item.who}`} className={styles.rowLink}>{name}</Link>{' '}
+      <AgentTag address={item.who} info={agent} />
+    </>
+  ) : (
+    <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+  );
 
   if (item.kind === 'nftLaunch') {
     const c = item.data;
@@ -500,7 +514,7 @@ function FeedRow({
       <article className={styles.ledgerRow} data-kind="launch">
         <span className={styles.rowKind}>{isDn404 ? 'DN404' : 'NFT'}</span>
         <div className={styles.rowBody}>
-          <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+          {who}
           <span>{isDn404 ? ' launched DN404 ' : ' launched the collection '}</span>
           <Link href={href} className={styles.tokenLink}>
             <FeedThumb cover={c.coverImageUrl} baseUri={c.baseUri} />
@@ -523,7 +537,7 @@ function FeedRow({
       <article className={styles.ledgerRow} data-kind="mint">
         <span className={styles.rowKind}>Mint</span>
         <div className={styles.rowBody}>
-          <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+          {who}
           <span> minted {m.quantity} from </span>
           <Link href={`/collection/${m.collectionAddress}`} className={styles.tokenLink}>
             {c && <FeedThumb cover={c.coverImageUrl} baseUri={c.baseUri} />}
@@ -551,7 +565,7 @@ function FeedRow({
       <article className={styles.ledgerRow} data-kind={p.isBuy ? 'buy' : 'sell'}>
         <span className={styles.rowKind}>{p.isBuy ? 'Buy' : 'Sell'}</span>
         <div className={styles.rowBody}>
-          <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+          {who}
           <span>{p.isBuy ? ' bought ' : ' sold '}</span>
           <b className={styles.ethValue}>{shortAmount(BigInt(p.pairAmount))} {unit}</b>
           <span>{p.isBuy ? ' into ' : ' from '}</span>
@@ -574,7 +588,7 @@ function FeedRow({
       <article className={styles.ledgerRow} data-kind="launch">
         <span className={styles.rowKind}>Launch</span>
         <div className={styles.rowBody}>
-          <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+          {who}
           <span> launched </span>
           <Link href={`/trade/${l.tokenAddress}`} className={styles.tokenLink}>
             {l.name} <span>${l.ticker}</span>
@@ -596,7 +610,7 @@ function FeedRow({
     <article className={styles.ledgerRow} data-kind={t.isBuy ? 'buy' : 'sell'}>
       <span className={styles.rowKind}>{t.isBuy ? 'Buy' : 'Sell'}</span>
       <div className={styles.rowBody}>
-        <Link href={`/profile/${item.who}`} className={styles.rowLink}>{name}</Link>
+        {who}
         <span>{t.isBuy ? ' bought ' : ' sold '}</span>
         <b className={styles.ethValue}>{eth} ETH</b>
         <span>{t.isBuy ? ' into ' : ' from '}</span>

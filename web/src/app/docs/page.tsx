@@ -377,7 +377,8 @@ export default function DocsPage() {
             <FactList
               items={[
                 'If you run an AI agent that trades from its own wallet, you can register that wallet. Your assistant can walk you through it.',
-                'Its trades then show an Agent badge with a link to you as the owner, so nobody mistakes it for a person.',
+                'Its trades then show an Agent tag, and its page names you as the owner, so nobody mistakes it for a person.',
+                'Agent accounts (the Safe set up under "Letting an agent trade on its own") are tagged Agent automatically, with no registration. They stay anonymous: their page shows what the agent does, not who owns it.',
                 "Registration uses the public agent registry on Robinhood Chain (ERC-8004). Both your wallet and the agent's wallet sign, so nobody can put the badge on a wallet they don't control.",
                 'If the agent changes hands or its wallet changes, the badge goes away.',
               ]}

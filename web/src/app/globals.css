@@ -563,6 +563,16 @@ body {
   font-family: var(--font-sans), monospace;
   font-size: 10px;
 }
+.uru-home-trade-token {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+.uru-home-trade-token .ui-badge {
+  font-size: 9px;
+  padding: 0 4px;
+}
 .uru-home-trade-list li.uru-home-trade-incoming {
   animation: uru-home-trade-incoming 460ms cubic-bezier(.18,.88,.25,1.35) both;
 }

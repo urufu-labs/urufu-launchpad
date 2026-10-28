@@ -44,6 +44,7 @@ import type { RemoteCollectionMetadata } from '@/lib/socialApi';
 import { MarketPanel } from '@/components/market/MarketPanel';
 import { CreatorTools, type PageDraft } from './CreatorTools';
 import { CreatorLinks, LookBanner, LookShell, lookFrom, lookImageUrl, useCollectionMeta } from './CollectionLook';
+import { AgentTag, useAgentTags } from '@/components/AgentBadge';
 import styles from './collection.module.css';
 
 // Solady Ownable — the ERC-721 clone inherits it; `owner()` returns the
@@ -275,6 +276,7 @@ function CollectionView({
     })();
     return () => { cancelled = true; };
   }, [address, chainKey, totalMinted]);
+  const holderAgents = useAgentTags((holders ?? []).slice(0, 20).map((h) => h.address));
 
   // ------------------------------------------------------------
   // 1c. Recent mints feed for this collection.
@@ -787,6 +789,7 @@ function CollectionView({
                           >
                             {h.address.slice(0, 6)}…{h.address.slice(-4)}
                           </a>
+                          {holderAgents.has(h.address.toLowerCase()) && <> <AgentTag address={h.address} info={holderAgents.get(h.address.toLowerCase())} /></>}
                         </td>
                         <td data-align="right" className="ui-num">{h.balance}</td>
                       </tr>

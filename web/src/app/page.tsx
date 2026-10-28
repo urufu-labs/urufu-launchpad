@@ -40,6 +40,7 @@ import { NftCollectionGrid } from '@/components/NftCollectionGrid';
 import nftStyles from './home-nft.module.css';
 import { isLegacyGraduated, willGraduateLegacy } from '@/lib/legacyGraduations';
 import { CHAIN_KEY_TO_ID } from '@/lib/wagmi';
+import { AgentTag, useAgentTags } from '@/components/AgentBadge';
 
 // All tabs are curve-only now; the create page only launches curves (quick +
 // customizable, both fire installBondingCurve=true). The old 'direct mint' tab
@@ -362,6 +363,7 @@ function HomePageContent() {
       .sort((a, b) => b.t.timestamp - a.t.timestamp)
       .slice(0, 14);
   }, [liveIsRealChain, liveTradesReal, liveV4Real, livePairReal, chainMocks, sourceLaunches]);
+  const liveAgents = useAgentTags(liveIsRealChain ? liveTrades.map((r) => r.t.trader) : []);
 
   // The static review's rail tells a small, readable story: three creator-first rows,
   // a replay button, and a gentle FLIP-like arrival sequence. It remains review-only;
@@ -654,7 +656,10 @@ function HomePageContent() {
                     <span data-side={row.t.isBuy ? 'buy' : 'sell'}>
                       {row.t.isBuy ? 'Buy' : 'Sell'}
                     </span>
-                    <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
+                    <span className="uru-home-trade-token">
+                      <Link href={`/trade/${row.l.address}`}>${row.l.ticker}</Link>
+                      <AgentTag address={row.t.trader} info={liveAgents.get(row.t.trader.toLowerCase())} />
+                    </span>
                     <span>
                       {isPairLaunch(row.l)
                         ? formatCurveAmount(row.l, row.t.ethAmount)

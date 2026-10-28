@@ -1,0 +1,44 @@
+name: agent-skill-eval
+# Prompt-injection eval for the agent skill file (docs/PLAN-agents-and-swarms.md 6.2).
+# Runs a real Claude model, so it only runs when the skill file, its fixtures or
+# the eval itself change, and only when the ANTHROPIC_API_KEY secret is set
+# (without it the job passes with a notice). A run costs a few dollars.
+on:
+  pull_request:
+    paths:
+      - 'web/public/agent-skill.md'
+      - 'web/src/lib/agentV2/evals/**'
+      - 'web/scripts/agent-injection-eval.mjs'
+      - '.github/workflows/agent-skill-eval.yml'
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Skip without an API key
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::notice::ANTHROPIC_API_KEY secret not set; injection eval skipped. Run 'pnpm --filter web eval:injection' by hand."
+      - uses: actions/checkout@v7
+        if: env.ANTHROPIC_API_KEY != ''
+      - uses: pnpm/action-setup@v6
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          version: 10.7.1
+      - uses: actions/setup-node@v7
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: env.ANTHROPIC_API_KEY != ''
+      - run: pnpm --filter web eval:injection
+        if: env.ANTHROPIC_API_KEY != ''
+      - uses: actions/upload-artifact@v4
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        with:
+          name: injection-eval-results
+          path: web/.eval-results/
+          if-no-files-found: ignore

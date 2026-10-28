@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createPublicClient, getAddress, http, isAddress, parseAbi, type Address, type Hex } from 'viem';
 
 import { sql as _defaultSql } from '../db.ts';
+import { AgentAccountDetector, defaultAccountChain, type AccountChain } from '../agentAccounts.ts';
 import type { SqlLike } from './social.ts';
 import {
   AGENT_CHAIN_ID,
@@ -17,7 +18,7 @@ import {
 /// and who owns them. Drives the Agent badge on the site and the agent API.
 ///
 ///   - POST /agents/link        owner-signed EIP-712 AgentLink (shared/agent-link.ts)
-///   - GET  /agents?wallets=a,b  registered agents among up to 100 wallets
+///   - GET  /agents?wallets=a,b  registered agents + agent Safes among up to 100 wallets
 ///
 /// Write gate, all checked here (the web/MCP layer is not trusted):
 ///   1. the EIP-712 signature recovers to `owner` (EOA, or ERC-1271 for a Safe);
@@ -94,11 +95,12 @@ interface AgentRow {
 
 export async function registerAgentRoutes(
   app: FastifyInstance,
-  opts?: { sqlOverride?: SqlLike; chain?: AgentChain; now?: () => number },
+  opts?: { sqlOverride?: SqlLike; chain?: AgentChain; accountChain?: AccountChain; now?: () => number },
 ): Promise<void> {
   const sql = (opts?.sqlOverride ?? _defaultSql) as SqlLike | null;
   const chain = opts?.chain ?? defaultChain();
   const now = opts?.now ?? Date.now;
+  const detector = new AgentAccountDetector(opts?.accountChain ?? defaultAccountChain(), now);
   const recheck = new Map<string, { at: number; ok: boolean }>();
 
   async function stillValid(row: AgentRow): Promise<boolean> {
@@ -167,22 +169,28 @@ export async function registerAgentRoutes(
     },
   );
 
+  /// `agents`: badged agent wallets (owner-linked). `accounts`: agent Safes found
+  /// on chain (agentAccounts.ts), anonymous. Either one gets the Agent tag.
   app.get<{ Querystring: { wallets?: string } }>(
     '/agents',
     { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      if (!sql) return reply.code(503).send({ code: 'DB_NOT_CONFIGURED' });
       const wallets = [...new Set((req.query.wallets ?? '').split(',').map((w) => w.trim().toLowerCase()).filter(Boolean))];
-      if (wallets.length === 0) return reply.send({ agents: [] });
+      if (wallets.length === 0) return reply.send({ agents: [], accounts: [] });
       if (wallets.length > MAX_WALLETS || wallets.some((w) => !isAddress(w))) {
         return reply.code(400).send({ code: 'BAD_WALLETS', message: `up to ${MAX_WALLETS} comma-separated addresses` });
       }
-      const rows = (await sql`
-        SELECT agent_wallet AS "agentWallet", owner, agent_id AS "agentId", registry, name, linked_at AS "linkedAt"
-        FROM app.agents WHERE agent_wallet IN ${sql(wallets)}
-      `) as unknown as AgentRow[];
+      const [rows, accounts] = await Promise.all([
+        sql
+          ? (sql`
+              SELECT agent_wallet AS "agentWallet", owner, agent_id AS "agentId", registry, name, linked_at AS "linkedAt"
+              FROM app.agents WHERE agent_wallet IN ${sql(wallets)}
+            ` as unknown as Promise<AgentRow[]>)
+          : Promise.resolve([] as AgentRow[]),
+        detector.find(wallets),
+      ]);
       const checked = await Promise.all(rows.map(async (r) => ((await stillValid(r)) ? r : null)));
-      return reply.send({ agents: checked.filter((r): r is AgentRow => r !== null) });
+      return reply.send({ agents: checked.filter((r): r is AgentRow => r !== null), accounts });
     },
   );
 }

@@ -111,16 +111,39 @@ async function linkAgent(input: AgentLinkInput): ReturnType<AgentDeps['agents'][
   }
 }
 
+/// One compile-service /agents lookup serves both byWallets and accountsAmong,
+/// so a tool asking for both makes one request.
+const lookupCache = new Map<string, { at: number; p: Promise<{ agents: AgentRecord[]; accounts: Array<{ address: string }> } | null> }>();
+
+function agentLookup(wallets: Address[]) {
+  const q = wallets.slice(0, 100).map((w) => getAddress(w).toLowerCase()).join(',');
+  const hit = lookupCache.get(q);
+  if (hit && Date.now() - hit.at < 5_000) return hit.p;
+  const p = (async () => {
+    try {
+      const res = await fetch(`${COMPILE_SERVICE_URL}/agents?wallets=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { agents?: AgentRecord[]; accounts?: Array<{ address: string }> };
+      return { agents: body.agents ?? [], accounts: body.accounts ?? [] };
+    } catch {
+      return null;
+    }
+  })();
+  if (lookupCache.size > 200) lookupCache.clear();
+  lookupCache.set(q, { at: Date.now(), p });
+  return p;
+}
+
 async function agentsByWallets(wallets: Address[]): Promise<AgentRecord[] | null> {
   if (wallets.length === 0) return [];
-  try {
-    const q = encodeURIComponent(wallets.slice(0, 100).map((w) => getAddress(w).toLowerCase()).join(','));
-    const res = await fetch(`${COMPILE_SERVICE_URL}/agents?wallets=${q}`, { signal: AbortSignal.timeout(8_000) });
-    if (!res.ok) return null;
-    return ((await res.json()) as { agents: AgentRecord[] }).agents ?? [];
-  } catch {
-    return null;
-  }
+  return (await agentLookup(wallets))?.agents ?? null;
+}
+
+/// Agent Safes (anonymous agent accounts) among `wallets`, lower-cased.
+async function accountsAmong(wallets: Address[]): Promise<string[] | null> {
+  if (wallets.length === 0) return [];
+  const r = await agentLookup(wallets);
+  return r ? r.accounts.map((a) => a.address.toLowerCase()) : null;
 }
 
 async function saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }> {
@@ -163,7 +186,7 @@ export function productionDeps(): AgentDeps {
       holdersForToken: (t, n) => fetchHoldersForToken(t, n),
       launchesByCreator: (c) => fetchLaunchesByCreator(c, 100),
     },
-    agents: { link: linkAgent, byWallets: agentsByWallets },
+    agents: { link: linkAgent, byWallets: agentsByWallets, accountsAmong },
     saveMetadata,
     now: () => Date.now(),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

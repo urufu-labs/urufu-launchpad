@@ -53,7 +53,7 @@ import { MockTradeView } from './MockTradeView';
 import styles from './trade-terminal.module.css';
 import { Tabs } from '@/components/ui/Choice';
 import { useTradeTerminal } from './useTradeTerminal';
-import { useAgentWallets } from '@/components/AgentBadge';
+import { AgentTag, useAgentTags } from '@/components/AgentBadge';
 
 export default function TradePage({ params }: { params: Promise<{ address: string }> }) {
   const mockData = useMockDataMode();
@@ -204,7 +204,7 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
     marketCap,
   } = useTradeTerminal(tokenAddress);
   const [infoTab, setInfoTab] = useState<'trades' | 'chat' | 'info'>('trades');
-  const agentWallets = useAgentWallets(mergedRecentTrades.map((t) => t.trader));
+  const agentTags = useAgentTags([...mergedRecentTrades.map((t) => t.trader), ...(launchInfoLauncher ? [launchInfoLauncher] : [])]);
 
   if (!mounted) {
     return (
@@ -414,9 +414,10 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
             </Link>
             {launchInfoLauncher && (
               <Link
-                href={`/profile/${launchInfoLauncher}`}
+                href={agentTags.has(launchInfoLauncher.toLowerCase()) ? `/agent/${launchInfoLauncher}` : `/profile/${launchInfoLauncher}`}
               >
                 by {launchInfoLauncher.slice(0, 6)}…{launchInfoLauncher.slice(-4)}
+                {agentTags.has(launchInfoLauncher.toLowerCase()) && <> <AgentTag address={launchInfoLauncher} info={agentTags.get(launchInfoLauncher.toLowerCase())} asText /></>}
               </Link>
             )}
             <span>Fee {typeof feeBps === 'number' ? `${(feeBps / 100).toFixed(2)}%` : '–'}</span>
@@ -561,11 +562,11 @@ function LiveTradeView({ tokenAddress }: { tokenAddress: Address }) {
                         {Number(formatUnits(t.tokens, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                       <Link
-                        href={`/profile/${t.trader}`}
+                        href={agentTags.has(t.trader.toLowerCase()) ? `/agent/${t.trader}` : `/profile/${t.trader}`}
                         className={`${styles.clip} ${styles.alignRight}`}
                       >
                         {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
-                        {agentWallets.has(t.trader.toLowerCase()) && <> <span className="ui-badge" data-tone="info" title="AI agent">Agent</span></>}
+                        {agentTags.has(t.trader.toLowerCase()) && <> <AgentTag address={t.trader} info={agentTags.get(t.trader.toLowerCase())} asText /></>}
                       </Link>
                     </li>
                   ))}

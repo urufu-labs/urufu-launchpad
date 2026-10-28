@@ -62,7 +62,9 @@ async function makeApp(state = { owner: owner.address as Address | null, wallet:
   const db = fakeDb();
   const app = Fastify();
   await app.register(rateLimit, { global: false });
-  await registerAgentRoutes(app, { sqlOverride: db.sql, chain: fakeChain(state), now });
+  // No contracts anywhere: every wallet is a plain wallet, so no agent accounts.
+  const accountChain = { code: async () => '0x' as const, modules: async () => null, ownerAndAvatar: async () => [null, null] as [null, null] };
+  await registerAgentRoutes(app, { sqlOverride: db.sql, chain: fakeChain(state), accountChain, now });
   return { app, db, state };
 }
 
@@ -168,5 +170,5 @@ test('wallet list limits', async () => {
   assert.equal((await app.inject({ method: 'GET', url: '/agents?wallets=nope' })).statusCode, 400);
   const many = Array.from({ length: 101 }, (_, i) => `0x${i.toString(16).padStart(40, '0')}`).join(',');
   assert.equal((await app.inject({ method: 'GET', url: `/agents?wallets=${many}` })).statusCode, 400);
-  assert.deepEqual((await app.inject({ method: 'GET', url: '/agents' })).json(), { agents: [] });
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/agents' })).json(), { agents: [], accounts: [] });
 });
