@@ -489,6 +489,18 @@ export const UNISWAP_ALLOWLIST_PENDING_HOOKS: ReadonlySet<string> = new Set<stri
   '0xfa7feccfb9a08e69457f876c3bebccbb39bde8c4', // FairHookHost V1, retired (never approved)
 ]);
 
+/// Swarm launches (docs/PLAN-agents-and-swarms.md §4): the /swarms pages and the
+/// "Swarm launch" menu item. Flip with the SwarmVaultFactory address in
+/// lib/agentV2/deps.ts once it is deployed and verified.
+export const SWARM_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
+  mainnet: false,
+  sepolia: false,
+  base: false,
+  'base-sepolia': false,
+  robinhood: false,
+  'robinhood-testnet': false,
+};
+
 /// Create-page gate for the Fair lane.
 export const FAIR_LAUNCHES_ENABLED: Record<ChainKey, boolean> = {
   mainnet: false,

@@ -44,6 +44,7 @@ const COMPILE_SERVICE_URL =
 /// SwarmVaultFactory: not deployed yet (audit first, docs/PLAN-agents-and-swarms.md §8).
 /// Set this to the verified address when it goes live; null keeps the swarm tools off.
 const SWARM_VAULT_FACTORY: Address | null = null;
+const SWARM_VAULT_FACTORY_START_BLOCK: bigint | null = null;
 
 /// Uniswap v4 Quoter on Robinhood (post-migration address book).
 const V4_QUOTER: Address = '0x8dc178efb8111bb0973dd9d722ebeff267c98f94';
@@ -74,6 +75,7 @@ export function agentBook(): AgentBook {
     V4Quoter: V4_QUOTER,
     LegacyMultiHookHost: V10_MULTI_HOOK_HOST,
     SwarmVaultFactory: SWARM_VAULT_FACTORY,
+    SwarmVaultFactoryStartBlock: SWARM_VAULT_FACTORY_START_BLOCK,
   };
 }
 

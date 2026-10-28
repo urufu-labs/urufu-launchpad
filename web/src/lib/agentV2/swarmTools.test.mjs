@@ -175,3 +175,28 @@ describe('allow_agent_swarm', () => {
     assert.equal(notOwner.status, 403);
   });
 });
+
+describe('list_swarms', () => {
+  const ev = (vault, name, block) => ({
+    blockNumber: BigInt(block),
+    args: { vault, creator: CREATOR, token: TOKEN, batch: BATCH, name, ticker: 'MCAT', joinDeadline: BigInt(NOW + 3600), launchDeadline: BigInt(NOW + 7200), quorumBps: 6000, minPool: parseEther('0.1'), metadataURI: 'ipfs://idea' },
+  });
+  it('newest first, with stage and pool; stranger text only under each item\'s untrusted', async () => {
+    const s = setup();
+    s.deps.client.getBlockNumber = async () => 1000n;
+    s.deps.client.getLogs = async () => [ev(getAddress('0x' + '1'.repeat(40)), 'Older', 100), ev(VAULT, 'Newer', 200)];
+    const r = await s.run('list_swarms', {});
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const d = r.body.data;
+    assert.equal(d.count, 2);
+    assert.equal(d.swarms[0].vault, VAULT, 'newest first');
+    assert.equal(d.swarms[0].stage, 'joining');
+    assert.equal(d.swarms[0].pool, String(parseEther('0.3')));
+    assert.equal(d.swarms[0].untrusted.fields.name.text, 'Newer');
+    assert.equal(JSON.stringify(d.swarms.map(({ untrusted, ...rest }) => rest)).includes('Newer'), false);
+  });
+  it('off while the factory is not deployed', async () => {
+    const r = await setup({}, { book: { SwarmVaultFactory: null } }).run('list_swarms', {});
+    assert.equal(r.status, 409);
+  });
+});

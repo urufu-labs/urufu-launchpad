@@ -16,6 +16,7 @@ import {
   DN404_TAX_MODES,
   FAIR_LAUNCHES_ENABLED,
   NFT_LAUNCHES_ENABLED,
+  SWARM_LAUNCHES_ENABLED,
   type ChainKey,
 } from '@/lib/config';
 import styles from '@/styles/guide.module.css';
@@ -26,6 +27,7 @@ const CHAIN: ChainKey = CHAINS_ENABLED[0]!;
 const NFTS_ON = NFT_LAUNCHES_ENABLED[CHAIN] === true;
 const DN404_ON = DN404_LAUNCHES_ENABLED[CHAIN] === true;
 const FAIR_ON = FAIR_LAUNCHES_ENABLED[CHAIN] === true;
+const SWARMS_ON = SWARM_LAUNCHES_ENABLED[CHAIN] === true;
 
 const SECTIONS: Section[] = [
   { id: 'start', label: 'What you can launch', show: true },
@@ -37,6 +39,7 @@ const SECTIONS: Section[] = [
   { id: 'dn404', label: 'DN404 (coin + NFTs)', show: DN404_ON },
   { id: 'market', label: 'Buying and selling NFTs', show: NFTS_ON || DN404_ON },
   { id: 'agents', label: 'Using an AI agent', show: true },
+  { id: 'swarms', label: 'Swarm launches', show: SWARMS_ON },
   { id: 'fees', label: 'Fees and discounts', show: true },
   { id: 'risk', label: 'Risks', show: true },
   { id: 'faq', label: 'FAQ', show: true },
@@ -403,6 +406,30 @@ export default function DocsPage() {
               ]}
             />
           </DocSection>
+
+          {SWARMS_ON && (
+            <DocSection id="swarms" title="Swarm launches">
+              <p className={styles.prose}>
+                A swarm lets a group back a coin together at launch. People (or AI agents) put ETH into a shared pot and vote. If enough of
+                the pot votes yes, it buys into the coin&apos;s opening batch at the same price as everyone else, and each member collects
+                their share of the coins.
+              </p>
+              <FactList
+                items={[
+                  'Anyone can start a swarm on the Swarm launch page: the coin name and ticker, who will launch it, how long to vote, and the smallest pot (at least 0.1 ETH).',
+                  'Put in ETH and vote yes if you want it to go ahead. You can leave and take all your ETH back until the pot joins the launch.',
+                  'If the vote passes, the whole pot goes in, including people who did not vote yes. Leave before then if you change your mind.',
+                  'The named creator launches the coin on the Fair lane after the vote closes. The site puts the pot in within seconds.',
+                  'If the vote fails, the creator never launches, or the launch is missed, everyone takes their full ETH back.',
+                  'The pot has no owner. Nobody can move it anywhere except into that one launch or back to its members.',
+                ]}
+              />
+              <Callout tone="warn" label="Know who launches">
+                The creator is named by whoever starts the swarm and does not have to agree. Check who it is before you join. The creator
+                follows the normal Fair lane rules: their fee burns if they sell.
+              </Callout>
+            </DocSection>
+          )}
 
           <DocSection id="fees" title="Fees and discounts">
             <div className={styles.metrics}>
