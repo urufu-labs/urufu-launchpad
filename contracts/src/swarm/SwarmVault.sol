@@ -25,6 +25,7 @@ interface IOpeningBatchSwarm {
     function factory() external view returns (address);
     function token() external view returns (address);
     function creator() external view returns (address);
+    function openTs() external view returns (uint64);
     function closeTs() external view returns (uint64);
     function settled() external view returns (bool);
     function walletCap() external view returns (uint256);
@@ -52,9 +53,9 @@ interface IOpeningBatchSwarm {
 ///         tokens and any ETH the batch refunds.
 ///
 ///             join / leave / approve   until joinDeadline (leave: until the pool joins)
-///             joinBatch                anyone, after joinDeadline and before
-///                                      launchDeadline, once the vote passed and the creator
-///                                      launched, inside the batch's 60 s window
+///             joinBatch                anyone, once the vote passed and the creator launched
+///                                      before launchDeadline, inside the batch's window
+///                                      (before joinDeadline only if every wei voted yes)
 ///             claimFromBatch           anyone, once the batch can settle
 ///             withdrawShare            each member, pull
 ///
@@ -95,6 +96,9 @@ contract SwarmVault is ReentrancyGuard {
     error SwarmVault__NothingToWithdraw();
     error SwarmVault__SweepTooEarly(uint256 opensAt);
     error SwarmVault__UnexpectedEth(address from);
+    error SwarmVault__ZeroRecipient();
+    error SwarmVault__NoEthOwed();
+    error SwarmVault__TokenUnreadable();
 
     // ============================================================ events
     event Joined(address indexed member, uint256 amount, uint256 memberTotal, uint256 pool);
@@ -105,6 +109,10 @@ contract SwarmVault is ReentrancyGuard {
     event BatchClaimed(address indexed caller, uint256 tokens, uint256 eth);
     event ShareWithdrawn(address indexed member, uint256 tokens, uint256 eth);
     event DustSwept(uint256 tokens, uint256 eth);
+    /// The ETH leg of a share could not be pushed (the member rejected it); it waits for
+    /// `withdrawEthOwed`, so the token leg never fails on it.
+    event EthDeferred(address indexed member, uint256 amount);
+    event EthOwedWithdrawn(address indexed member, address indexed to, uint256 amount);
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     uint256 public constant SWEEP_DELAY = 180 days;
@@ -147,6 +155,9 @@ contract SwarmVault is ReentrancyGuard {
     uint256 public ethReceived;
     uint256 public withdrawnDeposits;
     mapping(address => bool) public withdrawn;
+    /// ETH shares that could not be pushed during withdrawShare, waiting to be pulled.
+    mapping(address => uint256) public ethOwed;
+    uint256 public totalEthOwed;
 
     struct Config {
         address creator;
@@ -223,7 +234,7 @@ contract SwarmVault is ReentrancyGuard {
 
     /// Vote yes with everything you have in the vault (now and later deposits).
     function approve() external {
-        if (block.timestamp >= joinDeadline) revert SwarmVault__JoinClosed();
+        if (joined || block.timestamp >= joinDeadline) revert SwarmVault__JoinClosed();
         uint256 weight = deposits[msg.sender];
         if (weight == 0) revert SwarmVault__NotMember();
         if (approved[msg.sender]) revert SwarmVault__AlreadyApproved();
@@ -233,7 +244,7 @@ contract SwarmVault is ReentrancyGuard {
     }
 
     function unapprove() external {
-        if (block.timestamp >= joinDeadline) revert SwarmVault__JoinClosed();
+        if (joined || block.timestamp >= joinDeadline) revert SwarmVault__JoinClosed();
         if (!approved[msg.sender]) revert SwarmVault__NotApproved();
         uint256 weight = deposits[msg.sender];
         approved[msg.sender] = false;
@@ -252,14 +263,19 @@ contract SwarmVault is ReentrancyGuard {
     /// Anyone (our keeper, a member, the creator) can call this once the named creator has
     /// launched the token: it puts the pool into that launch's opening batch. Fails closed
     /// on anything unexpected; if it can never succeed, members simply leave.
+    ///
+    /// Timing (security review): the batch window is short (60 s by default), so
+    ///   - before joinDeadline it only goes ahead if EVERY wei in the pool voted yes: then
+    ///     nobody who might still have left is swept in, and an early launch does not kill
+    ///     a swarm everyone already backs;
+    ///   - the launch deadline applies to when the creator LAUNCHED (the batch openTs),
+    ///     so a launch just before it still leaves the whole window to join.
     function joinBatch() external nonReentrant {
         if (joined) revert SwarmVault__AlreadyJoined();
-        uint256 jd = joinDeadline;
-        if (block.timestamp < jd) revert SwarmVault__VoteStillOpen(jd);
-        uint256 ld = launchDeadline;
-        if (block.timestamp >= ld) revert SwarmVault__LaunchDeadlinePassed(ld);
         uint256 p = pool;
         if (!passed()) revert SwarmVault__VoteFailed(p, approvedEth);
+        uint256 jd = joinDeadline;
+        if (block.timestamp < jd && approvedEth != p) revert SwarmVault__VoteStillOpen(jd);
 
         address b = batch;
         address t = token;
@@ -269,6 +285,8 @@ contract SwarmVault is ReentrancyGuard {
             ob.factory() != address(fairFactory) || ob.token() != t || ob.creator() != creator
                 || fairFactory.batchFor(t) != b
         ) revert SwarmVault__BatchMismatch();
+        uint256 ld = launchDeadline;
+        if (ob.openTs() >= ld) revert SwarmVault__LaunchDeadlinePassed(ld);
         uint64 close = ob.closeTs();
         if (block.timestamp >= close || ob.settled()) revert SwarmVault__BatchWindowClosed();
 
@@ -307,7 +325,8 @@ contract SwarmVault is ReentrancyGuard {
         if (!ob.settled()) ob.settle(); // reverts while the window is open
         if (!ob.claimed(address(this))) ob.claim();
         if (ob.refundOwed(address(this)) != 0) ob.withdrawRefund(address(this));
-        uint256 tok = _tokenBalance();
+        (bool ok, uint256 tok) = _tokenBalance();
+        if (!ok) revert SwarmVault__TokenUnreadable();
         uint256 eth = address(this).balance;
         tokensReceived = tok;
         ethReceived = eth;
@@ -323,8 +342,27 @@ contract SwarmVault is ReentrancyGuard {
         withdrawnDeposits += dep;
         (tokens, eth) = shareOf(msg.sender);
         if (tokens > 0) SafeTransferLib.safeTransfer(token, msg.sender, tokens);
-        if (eth > 0) SafeTransferLib.safeTransferETH(msg.sender, eth);
+        // Never let the ETH leg block the token leg: a member contract that rejects ETH
+        // gets it parked for withdrawEthOwed (same pattern as OpeningBatch).
+        if (eth > 0 && !SafeTransferLib.trySafeTransferETH(msg.sender, eth, SafeTransferLib.GAS_STIPEND_NO_GRIEF)) {
+            ethOwed[msg.sender] += eth;
+            totalEthOwed += eth;
+            emit EthDeferred(msg.sender, eth);
+        }
         emit ShareWithdrawn(msg.sender, tokens, eth);
+    }
+
+    /// Pull an ETH share that could not be pushed, to any address you choose.
+    function withdrawEthOwed(
+        address to
+    ) external nonReentrant {
+        if (to == address(0)) revert SwarmVault__ZeroRecipient();
+        uint256 amount = ethOwed[msg.sender];
+        if (amount == 0) revert SwarmVault__NoEthOwed();
+        ethOwed[msg.sender] = 0;
+        totalEthOwed -= amount;
+        SafeTransferLib.safeTransferETH(to, amount);
+        emit EthOwedWithdrawn(msg.sender, to, amount);
     }
 
     /// What `member` gets from withdrawShare (0 before claimFromBatch).
@@ -349,8 +387,9 @@ contract SwarmVault is ReentrancyGuard {
         uint256 p = poolAtJoin;
         uint256 unclaimed = p - withdrawnDeposits;
         uint256 reservedTok = FixedPointMathLib.mulDivUp(tokensReceived, unclaimed, p);
-        uint256 reservedEth = FixedPointMathLib.mulDivUp(ethReceived, unclaimed, p);
-        uint256 tokBal = _tokenBalance();
+        uint256 reservedEth = FixedPointMathLib.mulDivUp(ethReceived, unclaimed, p) + totalEthOwed;
+        (bool ok, uint256 tokBal) = _tokenBalance();
+        if (!ok) revert SwarmVault__TokenUnreadable();
         uint256 ethBal = address(this).balance;
         uint256 tokDust = tokBal > reservedTok ? tokBal - reservedTok : 0;
         uint256 ethDust = ethBal > reservedEth ? ethBal - reservedEth : 0;
@@ -359,12 +398,13 @@ contract SwarmVault is ReentrancyGuard {
         emit DustSwept(tokDust, ethDust);
     }
 
-    function _tokenBalance() internal view returns (uint256) {
+    /// (false, 0) if the token can not be read: callers stop rather than count it as 0.
+    function _tokenBalance() internal view returns (bool, uint256) {
         address t = token;
-        if (t.code.length == 0) return 0;
+        if (t.code.length == 0) return (false, 0);
         (bool ok, bytes memory ret) = t.staticcall(abi.encodeWithSignature("balanceOf(address)", address(this)));
-        if (!ok || ret.length < 32) return 0;
-        return abi.decode(ret, (uint256));
+        if (!ok || ret.length < 32) return (false, 0);
+        return (true, abi.decode(ret, (uint256)));
     }
 
     /// Only the OpeningBatch sends ETH in (its refund); deposits come through join().

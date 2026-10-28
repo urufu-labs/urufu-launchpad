@@ -101,6 +101,12 @@ contract UruSinkBurnFork is Test {
         vm.stopPrank();
     }
 
+    /// The live keeper burns the sink down to zero, so a fork may find it empty: give it
+    /// a balance (on the fork only) so the burn path is always exercised.
+    function _seedSinkIfEmpty() internal {
+        if (URU.balanceOf(address(SINK)) == 0) deal(address(URU), address(SINK), 50_000 ether);
+    }
+
     function _burnData(
         uint256 amount
     ) internal pure returns (bytes memory) {
@@ -117,6 +123,7 @@ contract UruSinkBurnFork is Test {
     function test_burnsWholeSinkBalance() public {
         if (!forked) return;
         _activate();
+        _seedSinkIfEmpty();
         uint256 bal = URU.balanceOf(address(SINK));
         assertGt(bal, 0, "sink empty");
         uint256 deadBefore = URU.balanceOf(DEAD);
@@ -137,6 +144,7 @@ contract UruSinkBurnFork is Test {
     function test_partialBurnThenDepositsStillLand() public {
         if (!forked) return;
         _activate();
+        _seedSinkIfEmpty();
         uint256 bal = URU.balanceOf(address(SINK));
         vm.prank(KEEPER);
         SINK.executeConversion(address(URU), bal / 2, _burnData(bal / 2), 0);
