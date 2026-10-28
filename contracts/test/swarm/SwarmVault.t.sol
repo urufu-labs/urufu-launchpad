@@ -57,6 +57,35 @@ contract ReentrantMember {
     }
 }
 
+/// A member contract with no way to receive ETH.
+contract NoEthMember {
+    SwarmVault public vault;
+
+    constructor(
+        SwarmVault v
+    ) {
+        vault = v;
+    }
+
+    function join() external payable {
+        vault.join{value: msg.value}();
+    }
+
+    function approve() external {
+        vault.approve();
+    }
+
+    function withdraw() external returns (uint256, uint256) {
+        return vault.withdrawShare();
+    }
+
+    function pull(
+        address to
+    ) external {
+        vault.withdrawEthOwed(to);
+    }
+}
+
 /// @notice SwarmVault + factory on a local Fair stack (docs/PLAN-agents-and-swarms.md §4.4):
 ///         join / leave / vote math, quorum edges, deadlines, failed swarms, the batch
 ///         checks (lookalike tokens, missed window), payouts, reentrancy, wallet caps,
@@ -344,11 +373,59 @@ contract SwarmVaultTest is FairTestBase {
             abi.encodeWithSelector(SwarmVault.SwarmVault__VoteStillOpen.selector, uint256(v.joinDeadline()))
         );
         v.joinBatch();
+        // A launch at (or after) the launch deadline can't receive the pool.
         vm.warp(uint256(v.launchDeadline()));
+        _creatorLaunch(0);
         vm.expectRevert(
             abi.encodeWithSelector(SwarmVault.SwarmVault__LaunchDeadlinePassed.selector, uint256(v.launchDeadline()))
         );
         v.joinBatch();
+    }
+
+    /// Security review: a launch just before the launch deadline still gets its whole window.
+    function test_JoinBatch_LaunchJustBeforeDeadline_StillJoins() public {
+        SwarmVault v = _passingSwarm();
+        vm.warp(uint256(v.launchDeadline()) - 1);
+        (, OpeningBatch batch) = _creatorLaunch(0);
+        vm.warp(uint256(v.launchDeadline()) + 30); // past the deadline, inside the batch window
+        v.joinBatch();
+        assertEq(batch.deposits(address(v)), 1.5 ether);
+    }
+
+    /// Security review: an early launch is fine when everyone in the pool voted yes...
+    function test_JoinBatch_EarlyLaunch_UnanimousJoins() public {
+        SwarmVault v = _swarm();
+        _join(v, a, 0.6 ether);
+        _join(v, b, 0.4 ether);
+        _approve(v, a);
+        _approve(v, b);
+        (, OpeningBatch batch) = _creatorLaunch(0); // before joinDeadline
+        v.joinBatch();
+        assertEq(batch.deposits(address(v)), 1 ether);
+        // ...and once joined, nobody can join or change votes.
+        vm.prank(a);
+        vm.expectRevert(SwarmVault.SwarmVault__JoinClosed.selector);
+        v.unapprove();
+        vm.deal(c, 1 ether);
+        vm.prank(c);
+        vm.expectRevert(SwarmVault.SwarmVault__JoinClosed.selector);
+        v.join{value: 0.1 ether}();
+    }
+
+    /// ...but not when anyone in the pool hasn't voted yes: they can still leave.
+    function test_JoinBatch_EarlyLaunch_NotUnanimousWaits() public {
+        SwarmVault v = _passingSwarm(); // c is in the pool without a yes
+        _creatorLaunch(0);
+        vm.expectRevert(
+            abi.encodeWithSelector(SwarmVault.SwarmVault__VoteStillOpen.selector, uint256(v.joinDeadline()))
+        );
+        v.joinBatch();
+        uint256 before = c.balance;
+        vm.prank(c);
+        v.leave();
+        assertEq(c.balance - before, 0.5 ether);
+        v.joinBatch(); // now everyone left in the pool voted yes
+        assertTrue(v.joined());
     }
 
     function test_JoinBatch_CreatorNeverLaunches_EveryoneLeaves() public {
@@ -523,11 +600,14 @@ contract SwarmVaultTest is FairTestBase {
         _deposit(batch, makeAddr("whale"), 200 ether); // forces an ETH refund leg
         _warpPast(batch);
         v.claimFromBatch();
-        vm.expectRevert();
+        // Re-entering from receive() fails inside the gas-limited push, so the ETH leg is
+        // parked instead of paid twice; the tokens arrive once.
+        (, uint256 e) = v.shareOf(address(r));
         r.withdraw(2);
-        assertFalse(v.withdrawn(address(r)), "rolled back, can retry normally");
-        r.withdraw(0);
         assertTrue(v.withdrawn(address(r)));
+        assertEq(v.ethOwed(address(r)), e, "ETH parked, not paid twice");
+        vm.expectRevert(SwarmVault.SwarmVault__NothingToWithdraw.selector);
+        r.withdraw(0);
     }
 
     /// Regression (security review): OpeningBatch.claimFor is permissionless. Someone pushes
@@ -582,6 +662,38 @@ contract SwarmVaultTest is FairTestBase {
         IERC20Min(token).transfer(address(v), got / 2);
         v.claimFromBatch();
         assertEq(v.tokensReceived(), batch.entitlement(address(v)) + got / 2);
+    }
+
+    /// Security review: a member contract that rejects ETH still gets its tokens; the ETH is
+    /// parked, pulled to any address, and never burned by the dust sweep.
+    function test_EthRejectingMember_GetsTokensAndPullsEth() public {
+        SwarmVault v = _passingSwarm();
+        NoEthMember n = new NoEthMember(v);
+        vm.deal(address(this), 1 ether);
+        n.join{value: 0.5 ether}();
+        n.approve();
+        _toLaunch(v);
+        (address token, OpeningBatch batch) = _creatorLaunch(0);
+        v.joinBatch();
+        _deposit(batch, makeAddr("whale"), 200 ether); // forces an ETH leg
+        _warpPast(batch);
+        v.claimFromBatch();
+        (uint256 t, uint256 e) = n.withdraw();
+        assertGt(t, 0);
+        assertGt(e, 0);
+        assertEq(IERC20Min(token).balanceOf(address(n)), t, "tokens delivered");
+        assertEq(v.ethOwed(address(n)), e, "ETH parked");
+
+        vm.warp(uint256(batch.closeTs()) + 180 days);
+        v.sweepDust();
+        assertGe(address(v).balance, e, "sweep keeps parked ETH");
+
+        address to = makeAddr("n-owner");
+        n.pull(to);
+        assertEq(to.balance, e);
+        assertEq(v.ethOwed(address(n)), 0);
+        vm.expectRevert(SwarmVault.SwarmVault__NoEthOwed.selector);
+        n.pull(to);
     }
 
     function test_StrayEthRefused() public {
