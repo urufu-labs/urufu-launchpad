@@ -168,7 +168,9 @@ describe('allow_agent_swarm', () => {
   it('remove revokes the vault; non-owner refused', async () => {
     const r = await setup().run('allow_agent_swarm', { owner: OWNER, safe: SAFE, roles: ROLES, vault: VAULT, remove: true });
     const ops = unpack(r.body.data.transactions[0].data).map((c) => decodeFunctionData({ abi: rolesAbi, data: c.data }));
-    assert.deepEqual(ops.map((o) => o.functionName), ['revokeTarget']);
+    assert.equal(ops[0].functionName, 'revokeTarget');
+    assert.equal(ops.filter((o) => o.functionName === 'revokeFunction').length, 7, 'every function scope cleared too');
+    assert.ok(ops.every((o) => o.args[1] === VAULT));
     const notOwner = await setup({ getOwners: [MEMBER] }).run('allow_agent_swarm', { owner: OWNER, safe: SAFE, roles: ROLES, vault: VAULT });
     assert.equal(notOwner.status, 403);
   });

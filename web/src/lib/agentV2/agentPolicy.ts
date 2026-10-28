@@ -345,8 +345,14 @@ export function swarmPermissionCalls(roles: Address, vault: Address): Call[] {
   ];
 }
 
+/// Revokes the vault and each function scope on it, so a later scopeTarget alone
+/// could never bring the old grants back.
 export function removeSwarmCalls(roles: Address, vault: Address): Call[] {
-  return [rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, vault])];
+  const fns = ['join', 'approve', 'unapprove', 'leave', 'joinBatch', 'claimFromBatch', 'withdrawShare'];
+  return [
+    rolesCall(roles, 'revokeTarget', [AGENT_ROLE_KEY, vault]),
+    ...fns.map((fn) => rolesCall(roles, 'revokeFunction', [AGENT_ROLE_KEY, vault, sel(swarmVaultAbi, fn)])),
+  ];
 }
 
 export function allowanceCalls(roles: Address, dailyWei: bigint, perTradeWei: bigint): Call[] {

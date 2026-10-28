@@ -379,7 +379,8 @@ export const allowAgentSwarmTool: ToolDef<AllowInput> = {
         owner, safe, roles, vault: s.vault, removed: input.remove, stage: s.stage, poolFormatted: formatEther(s.pool),
         transactions: [txOut(tx, 1, input.remove ? 'removeSwarm' : 'allowSwarm', summary)],
         summary,
-        next: 'Show `summary` to the OWNER; the OWNER sends this tx. The agent then uses swarm_action with the Safe as `member` and wraps each tx with agent_exec.',
+        warnings: input.remove ? [] : [`Check who the creator is (${s.creator}). If it is your own agent's wallet, or someone it works with, the creator earns the coin's trading fees from a pool your Safe helps fund. Your caps still limit how much the agent can put in.`],
+        next: 'Show `summary` and `warnings` to the OWNER; the OWNER sends this tx. The agent then uses swarm_action with the Safe as `member` and wraps each tx with agent_exec.',
       },
       untrusted: untrustedBlock({ name: s.name, ticker: s.ticker }, { name: 'name', ticker: 'ticker' }),
     };

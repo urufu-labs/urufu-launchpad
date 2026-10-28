@@ -83,7 +83,9 @@ contract AgentSwarmForkTest is Test {
             vm.parseJsonAddress(json, ".outsider")
         ];
         address fair = vm.parseJsonAddress(json, ".fairFactory");
-        deployCodeTo("SwarmVaultFactory.sol:SwarmVaultFactory", abi.encode(fair), vm.parseJsonAddress(json, ".swarmFactory"));
+        deployCodeTo(
+            "SwarmVaultFactory.sol:SwarmVaultFactory", abi.encode(fair), vm.parseJsonAddress(json, ".swarmFactory")
+        );
 
         address safe1 = vm.parseJsonAddress(json, ".safe1");
         address safe2 = vm.parseJsonAddress(json, ".safe2");
@@ -108,8 +110,9 @@ contract AgentSwarmForkTest is Test {
         uint256 fee = ILiveFairFactorySwarm(fair).ethFeeFor(creator);
         vm.deal(creator, fee + 0.05 ether);
         vm.prank(creator);
-        (address token,, address batch) =
-            ILiveFairFactorySwarm(fair).launch{value: fee + 0.05 ether}(vm.parseJsonString(json, ".name"), vm.parseJsonString(json, ".ticker"));
+        (address token,, address batch) = ILiveFairFactorySwarm(fair).launch{value: fee + 0.05 ether}(
+            vm.parseJsonString(json, ".name"), vm.parseJsonString(json, ".ticker")
+        );
         assertEq(batch, vault.batch());
 
         // ---- B
@@ -131,7 +134,11 @@ contract AgentSwarmForkTest is Test {
         assertGt(got1, 0, "agent 1's share landed in its Safe");
         assertEq(got1, got2, "equal deposits, equal shares");
         assertEq(got1, vault.tokensReceived() / 2);
-        assertEq(IERC20Swarm(token).balanceOf(actors[2]) + IERC20Swarm(token).balanceOf(actors[3]), 0, "agent keys hold nothing");
+        assertEq(
+            IERC20Swarm(token).balanceOf(actors[2]) + IERC20Swarm(token).balanceOf(actors[3]),
+            0,
+            "agent keys hold nothing"
+        );
     }
 
     function _run(
