@@ -28,6 +28,7 @@ export const BOOK = {
   LegacyMultiHookHost: '0x48C22af8Ad989fc9d5e82D6055dc0F263076e0C4',
   // Not deployed yet; tests (and the swarm fork fixture) use this fixed address.
   SwarmVaultFactory: '0x00000000000000000000000000000000005a7f01',
+  SwarmVaultFactoryStartBlock: 90n,
 };
 
 export const AGENT = '0x5555555555555555555555555555555555555555';

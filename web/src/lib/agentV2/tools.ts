@@ -82,6 +82,8 @@ export interface AgentBook {
   /// SwarmVaultFactory (phase 3). Null until it is deployed after its audit; the swarm
   /// tools say so instead of building anything.
   SwarmVaultFactory: Address | null;
+  /// Block the SwarmVaultFactory was deployed in (where swarm discovery starts).
+  SwarmVaultFactoryStartBlock: bigint | null;
 }
 
 export interface AgentFlags {

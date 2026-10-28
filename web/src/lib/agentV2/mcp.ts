@@ -5,7 +5,7 @@
 /// No sessions, no server-to-client requests. Supported methods: initialize, ping,
 /// tools/list, tools/call; notifications are accepted and ignored (202).
 
-import { runTool, type RunContext } from './runner';
+import { runTool, toJson, type RunContext } from './runner';
 import { AGENT_TOOLS, findTool } from './registry';
 import { UNTRUSTED_NOTICE } from './untrusted';
 
@@ -94,7 +94,7 @@ export async function handleMcpMessage(msg: unknown, ctx: RunContext): Promise<M
       const args = params.arguments ?? {};
       const res = await runTool(name, args, { ...ctx, coerce: false, source: 'mcp' });
       const ok = res.body.ok === true;
-      const lines = [JSON.stringify(res.body)];
+      const lines = [toJson(res.body)];
       if (ok && res.body.untrusted) lines.unshift(`NOTE: ${UNTRUSTED_NOTICE}`);
       return rpcResult(id, {
         content: lines.map((text) => ({ type: 'text', text })),

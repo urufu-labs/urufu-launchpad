@@ -7,7 +7,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED, FAIR_LAUNCHES_ENABLED } from '@/lib/config';
+import { NFT_LAUNCHES_ENABLED, DN404_LAUNCHES_ENABLED, FAIR_LAUNCHES_ENABLED, SWARM_LAUNCHES_ENABLED } from '@/lib/config';
 import { useActiveChain } from '@/components/ChainSwitcher';
 import { Menu } from '@/components/ui/Menu';
 import { IconChevron } from '@/components/shell/icons';
@@ -18,6 +18,7 @@ const ITEMS = [
   { href: '/create/nft', title: 'NFT collection', desc: 'Art people mint at your price', flag: 'nft' },
   { href: '/create/dn404', title: 'DN404', desc: 'A coin and NFTs in one', flag: 'dn404' },
   { href: '/create/fair', title: 'Fair launch', desc: 'No sniper or bundle edge', flag: 'fair' },
+  { href: '/swarms', title: 'Swarm launch', desc: 'Pool ETH to back a coin together', flag: 'swarm' },
 ] as const;
 
 export function CreateNavDropdown() {
@@ -27,6 +28,7 @@ export function CreateNavDropdown() {
     nft: NFT_LAUNCHES_ENABLED[activeChain] === true,
     dn404: DN404_LAUNCHES_ENABLED[activeChain] === true,
     fair: FAIR_LAUNCHES_ENABLED[activeChain] === true,
+    swarm: SWARM_LAUNCHES_ENABLED[activeChain] === true,
   };
   const inCreate = pathname === '/create' || pathname.startsWith('/create/');
 

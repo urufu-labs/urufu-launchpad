@@ -1,0 +1,131 @@
+/* Swarm pages reuse the create-studio layout; these fill the gaps. */
+.muted {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 120ms;
+}
+
+.card:hover {
+  border-color: var(--line-strong);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cardName {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticker {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+.cardStats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.cardStats b {
+  color: var(--fg);
+}
+
+.layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.stat {
+  display: grid;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.statValue {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--fg);
+}
+
+.bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.addr {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

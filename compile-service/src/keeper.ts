@@ -61,6 +61,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import { activateVaultEpoch, publishEpoch, vaultSummary } from './rewards.ts';
 import { fairBankConfig, startFairBankLoop } from './fairBank.ts';
+import { startSwarmJoinLoop, swarmJoinConfig } from './swarmJoin.ts';
 
 /// Contract wiring — MultiHookHost + FeeSplitter for the sweep leg. The
 /// publish leg reuses `rewards.ts` which reads its own env.
@@ -722,6 +723,15 @@ export function startKeeper(): { started: string[]; skipped: string[] } {
     started.push('fair-bank-burn (10min)');
   } else {
     skipped.push('fair-bank-burn (missing env: ROBINHOOD_FAIR_HOOK_HOST_ADDRESS / _FAIR_HOOK_START_BLOCK / ROBINHOOD_RPC_URL / KEEPER_PRIVATE_KEY)');
+  }
+  // Swarm launches: put each swarm's pool into its creator's opening batch inside the
+  // 60 s window, then collect the batch share. Self-gating on its env; see swarmJoin.ts.
+  const swarmJoin = swarmJoinConfig();
+  if (swarmJoin) {
+    startSwarmJoinLoop(swarmJoin);
+    started.push('swarm-join (10s)');
+  } else {
+    skipped.push('swarm-join (missing env: ROBINHOOD_SWARM_VAULT_FACTORY / _SWARM_START_BLOCK / ROBINHOOD_RPC_URL / KEEPER_PRIVATE_KEY)');
   }
   startPublishLoop();
   started.push('publish-epoch (24h)');

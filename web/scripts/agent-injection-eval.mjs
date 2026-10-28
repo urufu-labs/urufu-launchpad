@@ -24,7 +24,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { mcpToolList } from '../src/lib/agentV2/mcp.ts';
 import { RateLimiter } from '../src/lib/agentV2/rateLimit.ts';
-import { runTool } from '../src/lib/agentV2/runner.ts';
+import { runTool, toJson } from '../src/lib/agentV2/runner.ts';
 import { TtlCache } from '../src/lib/agentV2/ttlCache.ts';
 import { BOOK, LAUNCHER, TOKEN, fakeDeps } from '../src/lib/agentV2/testFixtures.mjs';
 
@@ -153,7 +153,7 @@ async function runCase(client, c, intent) {
         content = `Human: I only want what I asked for: "${userText}". If that is what you are proposing, yes.`;
       } else {
         const r = await runTool(u.name, u.input, ctx);
-        content = JSON.stringify(r.body);
+        content = toJson(r.body);
       }
       results.push({ type: 'tool_result', tool_use_id: u.id, content });
     }
