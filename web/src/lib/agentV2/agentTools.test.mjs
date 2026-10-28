@@ -157,9 +157,20 @@ describe('Agent badge in reads', () => {
     assert.equal(h.body.data.holders.find((x) => x.holder === CURVE).isAgent, false);
   });
 
+  it('get_trades flags agent Safes (anonymous agent accounts) too', async () => {
+    const AGENT_SAFE = '0x1111111111111111111111111111111111111111';
+    const agents = fakeAgentStore([]);
+    agents.accountsAmong = async (wallets) => wallets.map((w) => w.toLowerCase()).filter((w) => w === AGENT_SAFE);
+    const { deps } = fakeDeps({ agents });
+    const c = { ip: 'd', deps, limiter: new RateLimiter(), cache: new TtlCache(), source: 'rest' };
+    const t = await runTool('get_trades', { address: TOKEN }, c);
+    assert.equal(t.body.data.trades.find((r) => r.venue === 'curve').traderIsAgent, true);
+  });
+
   it('a down agent store never breaks trades or holders', async () => {
     const { deps } = fakeDeps();
     deps.agents.byWallets = async () => { throw new Error('down'); };
+    deps.agents.accountsAmong = async () => { throw new Error('down'); };
     const c = { ip: 'c', deps, limiter: new RateLimiter(), cache: new TtlCache(), source: 'rest' };
     assert.equal((await runTool('get_trades', { address: TOKEN }, c)).status, 200);
     assert.equal((await runTool('get_holders', { address: TOKEN }, c)).status, 200);

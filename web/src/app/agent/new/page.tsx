@@ -426,7 +426,7 @@ function BadgeStep({ owner, defaultAgent }: { owner: Address; defaultAgent?: Add
       <div className={cs.panelBody}>
         {phase === 'done' ? (
           <p className={styles.hiddenCopy}>
-            Done. The agent’s wallet now shows an Agent badge linked to you. <Link href={`/profile/${agent}`}>See it</Link>.
+            Done. The agent’s wallet now shows an Agent badge linked to you. <Link href={`/agent/${agent}`}>See it</Link>.
           </p>
         ) : (
           <>

@@ -435,11 +435,18 @@ export interface RemoteAgent {
   linkedAt: string;
 }
 
-/// Registered agents among `wallets` (up to 100). Empty on any failure: a missing
-/// badge is better than a broken page.
-export async function fetchAgents(wallets: string[]): Promise<RemoteAgent[]> {
+/// An agent's Safe, found on chain (a Safe guarded by its own Roles policy).
+/// Anonymous: no owner is looked up or shown.
+export interface RemoteAgentAccount {
+  address: string;
+  rolesModule: string;
+}
+
+/// Agents among `wallets` (up to 100): badged agent wallets and agent Safes.
+/// Empty on any failure: a missing tag is better than a broken page.
+export async function fetchAgents(wallets: string[]): Promise<{ agents: RemoteAgent[]; accounts: RemoteAgentAccount[] }> {
   const uniq = [...new Set(wallets.map((w) => w.toLowerCase()))].filter((w) => /^0x[0-9a-f]{40}$/.test(w)).slice(0, 100);
-  if (uniq.length === 0) return [];
-  const data = await getJson<{ agents: RemoteAgent[] }>(`/agents?wallets=${uniq.join(',')}`);
-  return data?.agents ?? [];
+  if (uniq.length === 0) return { agents: [], accounts: [] };
+  const data = await getJson<{ agents?: RemoteAgent[]; accounts?: RemoteAgentAccount[] }>(`/agents?wallets=${uniq.join(',')}`);
+  return { agents: data?.agents ?? [], accounts: data?.accounts ?? [] };
 }

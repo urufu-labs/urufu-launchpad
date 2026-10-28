@@ -209,6 +209,8 @@ export interface AgentDeps {
   agents: {
     link(input: AgentLinkInput): Promise<{ ok: true; record: AgentRecord } | { ok: false; status: number; code: string; message: string }>;
     byWallets(wallets: Address[]): Promise<AgentRecord[] | null>;
+    /// Agent Safes among `wallets` (found on chain by the compile-service).
+    accountsAmong?(wallets: Address[]): Promise<string[] | null>;
   };
   /// Signed token-page write on the compile-service (it re-verifies the signer).
   saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }>;
@@ -289,8 +291,11 @@ export function txOut(t: UnsignedTx, step: number, purpose: string, summary: str
 export async function agentWalletSet(deps: Pick<AgentDeps, 'agents'>, wallets: Address[]): Promise<Set<string>> {
   const uniq = [...new Set(wallets.map((w) => w.toLowerCase()))] as Address[];
   if (uniq.length === 0) return new Set();
-  const rows = await deps.agents.byWallets(uniq).catch(() => null);
-  return new Set((rows ?? []).map((r) => r.agentWallet.toLowerCase()));
+  const [rows, accounts] = await Promise.all([
+    deps.agents.byWallets(uniq).catch(() => null),
+    deps.agents.accountsAmong?.(uniq).catch(() => null) ?? null,
+  ]);
+  return new Set([...(rows ?? []).map((r) => r.agentWallet.toLowerCase()), ...(accounts ?? [])]);
 }
 
 export function revertMessage(err: unknown): string {

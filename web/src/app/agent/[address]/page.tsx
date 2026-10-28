@@ -1,7 +1,11 @@
 'use client';
 
-/// Agent account page (docs/PLAN-agents-and-swarms.md 3.2): one autonomous agent
-/// account, i.e. a Safe guarded by a Roles policy (lib/agentV2/agentPolicy.ts).
+/// Agent page (docs/PLAN-agents-and-swarms.md 3.2): where every Agent tag links.
+/// Two kinds of address:
+///  - an agent account, i.e. a Safe guarded by a Roles policy
+///    (lib/agentV2/agentPolicy.ts). Anonymous: its owners are not shown.
+///  - a badged agent wallet (ERC-8004 + owner link): its launches and trades, and
+///    the owner, who signed to be named.
 ///
 /// Data sources:
 ///  - get_agent_profile (agent API): owners, policy module, caps, Safe balance and
@@ -15,6 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatEther, formatUnits, isAddress, type Address } from 'viem';
 
 import { Mascot } from '@/components/Mascot';
+import { useAgentTags } from '@/components/AgentBadge';
 import { fetchLaunchesByCreator, fetchTradesByTrader, fetchV4SwapsByTrader } from '@/lib/indexer';
 import styles from '../../profile/profile.module.css';
 import agentStyles from '../agent.module.css';
@@ -106,8 +111,39 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
   }, [launches.data]);
   const label = (a: string) => names[a.toLowerCase()] ?? short(a);
 
+  const tradesPanel = (
+    <section className={styles.panel}>
+      <div className={styles.panelHead}>
+        <h2 className={styles.panelTitle}>Trades</h2>
+        <span className={styles.panelCount}>{trades.data?.length ?? 0}</span>
+      </div>
+      {trades.isLoading && <div className={styles.empty}>Loading…</div>}
+      {trades.data && trades.data.length === 0 && <div className={styles.empty}>No trades yet.</div>}
+      {trades.data && trades.data.length > 0 && (
+        <ul className={styles.tableList}>
+          {trades.data.map((t) => (
+            <li key={t.id} className={`${styles.trow} ${styles.activityCols}`}>
+              <span className={styles.cell}>
+                <Link href={`/trade/${t.token}`} className={styles.tokenLink} title={t.token}>{label(t.token)}</Link>
+              </span>
+              <span className={t.isBuy ? styles.sideBuy : styles.sideSell}>{t.isBuy ? 'Buy' : 'Sell'}</span>
+              <span className={`${styles.num} ${styles.right}`}>{eth(t.eth)} Ξ</span>
+              <span className={`${styles.num} ${styles.right} ${styles.muted}`}>{new Date(Number(t.ts) * 1000).toLocaleDateString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+
+  // A badged agent wallet (the agent's own key, ERC-8004 + owner link). Its owner
+  // chose to be named, so only then is an owner shown. Agent Safes stay anonymous.
+  const tags = useAgentTags(valid ? [safe] : []);
+  const badge = tags.get(safe.toLowerCase())?.badge ?? null;
+
   const data = profile.data;
-  if (!valid || data === 'not-found') {
+  const isKey = data === 'not-found' && !!badge;
+  if (!valid || (data === 'not-found' && !badge)) {
     return (
       <div className={styles.badAddress}>
         <Mascot size={72} mood="confused" />
@@ -127,7 +163,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
           <span className={agentStyles.avatarGlyph}>AI</span>
         </div>
         <div className={styles.identity}>
-          <p className={styles.eyebrow}>Agent account</p>
+          <p className={styles.eyebrow}>{isKey ? 'AI agent' : 'Agent account'}</p>
           <h1 className={styles.name}>{short(safe)}</h1>
           <div className={styles.addressRow}>
             <span className={styles.address} title={safe}>{safe}</span>
@@ -137,14 +173,13 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
               <span className="ui-badge" data-tone={p.policyActive ? 'info' : undefined}>
                 {p.policyActive ? 'Limits on' : 'No agent limits'}
               </span>
+            </div>
+          )}
+          {badge && (
+            <div className={styles.socials}>
+              <span className="ui-badge" data-tone="info">Agent{badge.name ? `: ${badge.name}` : ''}</span>
               <span className={styles.socialMuted}>
-                Owned by{' '}
-                {p.owners.map((o, i) => (
-                  <span key={o}>
-                    {i > 0 && ', '}
-                    <Link href={`/profile/${o}`}>{short(o)}</Link>
-                  </span>
-                ))}
+                Run by <Link href={`/profile/${badge.owner}`}>{short(badge.owner)}</Link>
               </span>
             </div>
           )}
@@ -153,6 +188,46 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
 
       {profile.isError && <div className={styles.empty}>Couldn’t load this account right now. Try again in a moment.</div>}
       {profile.isLoading && <div className={styles.empty}>Loading…</div>}
+
+      {isKey && (
+        <div className={styles.body}>
+          <div className={styles.main}>
+            <section className={styles.panel}>
+              <div className={styles.panelHead}>
+                <h2 className={styles.panelTitle}>Launches</h2>
+                <span className={styles.panelCount}>{launches.data?.length ?? 0}</span>
+              </div>
+              {launches.isLoading && <div className={styles.empty}>Loading…</div>}
+              {launches.data && launches.data.length === 0 && <div className={styles.empty}>No launches yet.</div>}
+              {launches.data && launches.data.length > 0 && (
+                <ul className={styles.tableList}>
+                  {launches.data.map((l) => (
+                    <li key={l.tokenAddress} className={styles.trow} style={{ display: 'block' }}>
+                      <Link href={`/trade/${l.tokenAddress}`} className={styles.tokenLink} title={l.tokenAddress}>{label(l.tokenAddress)}</Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            {tradesPanel}
+          </div>
+          <aside className={styles.side}>
+            <section className={styles.panel}>
+              <div className={styles.panelHead}>
+                <h2 className={styles.panelTitle}>How this works</h2>
+              </div>
+              <div className={`${styles.panelBody} ${agentStyles.stack}`}>
+                <p className={styles.hiddenCopy}>
+                  This is an AI agent&apos;s own wallet. Its owner signed to link it, so the owner is shown.
+                </p>
+                <p className={styles.hiddenCopy}>
+                  Agents usually trade from a separate account with limits. Those trades are tagged Agent too.
+                </p>
+              </div>
+            </section>
+          </aside>
+        </div>
+      )}
 
       {p && (
         <>
@@ -247,28 +322,7 @@ export default function AgentPage({ params }: { params: Promise<{ address: strin
                 )}
               </section>
 
-              <section className={styles.panel}>
-                <div className={styles.panelHead}>
-                  <h2 className={styles.panelTitle}>Trades</h2>
-                  <span className={styles.panelCount}>{trades.data?.length ?? 0}</span>
-                </div>
-                {trades.isLoading && <div className={styles.empty}>Loading…</div>}
-                {trades.data && trades.data.length === 0 && <div className={styles.empty}>No trades yet.</div>}
-                {trades.data && trades.data.length > 0 && (
-                  <ul className={styles.tableList}>
-                    {trades.data.map((t) => (
-                      <li key={t.id} className={`${styles.trow} ${styles.activityCols}`}>
-                        <span className={styles.cell}>
-                          <Link href={`/trade/${t.token}`} className={styles.tokenLink} title={t.token}>{label(t.token)}</Link>
-                        </span>
-                        <span className={t.isBuy ? styles.sideBuy : styles.sideSell}>{t.isBuy ? 'Buy' : 'Sell'}</span>
-                        <span className={`${styles.num} ${styles.right}`}>{eth(t.eth)} Ξ</span>
-                        <span className={`${styles.num} ${styles.right} ${styles.muted}`}>{new Date(Number(t.ts) * 1000).toLocaleDateString()}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+              {tradesPanel}
             </div>
 
             <aside className={styles.side}>
