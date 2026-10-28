@@ -39,6 +39,10 @@ jobs:
         run: forge build
       - name: Test (CI profile — high fuzz runs)
         run: FOUNDRY_PROFILE=ci forge test -vvv
+        env:
+          # The live-RH fork tests read ROBINHOOD_RPC_URL and otherwise fall back to the
+          # public RPC, which rate-limits (HTTP 429) when many fork suites run at once.
+          ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
       - name: Coverage summary
         # --ir-minimum enables viaIR with minimum optimization. Several launch-related
         # functions still trip solc's stack limit even with the workaround (the
