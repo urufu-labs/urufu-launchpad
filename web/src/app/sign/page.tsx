@@ -140,7 +140,14 @@ function Steps({ payload }: { payload: Payload }) {
 
   const total = payload.txs.reduce((s, t) => s + BigInt(t.value), 0n);
   const wrongWallet = !!(address && payload.from && address.toLowerCase() !== payload.from.toLowerCase());
-  const expired = Date.now() > payload.exp;
+  // Re-checked every 15 s so an open page notices the link running out.
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const check = () => setExpired(Date.now() > payload.exp);
+    check();
+    const t = setInterval(check, 15_000);
+    return () => clearInterval(t);
+  }, [payload.exp]);
   const done = sent.length >= payload.txs.length;
   const until = new Date(payload.exp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
