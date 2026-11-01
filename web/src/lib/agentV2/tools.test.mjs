@@ -378,6 +378,23 @@ describe('get_trades / get_holders', () => {
   });
 });
 
+describe('connection_check', () => {
+  it('passes the code to the store and says connected', async () => {
+    const seen = [];
+    const { deps } = fakeDeps();
+    deps.connectCheck = async (c) => { seen.push(c); return true; };
+    const r = await runTool('connection_check', { code: 'URU-AB12CD' }, { ip: '203.0.113.20', deps, limiter: new RateLimiter(), cache: new TtlCache(), source: 'mcp' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.data.connected, true);
+    assert.deepEqual(seen, ['URU-AB12CD']);
+  });
+  it('502 when the store is down, 400 on a bad code', async () => {
+    const r = await call('connection_check', { code: 'URU-AB12CD' });
+    assert.equal(r.status, 502);
+    assert.equal((await call('connection_check', { code: 'hello' })).status, 400);
+  });
+});
+
 describe('get_portfolio', () => {
   it('lists held coins with value from the last trade, skips zero balances, names untrusted', async () => {
     const r = await call('get_portfolio', { wallet: LAUNCHER });

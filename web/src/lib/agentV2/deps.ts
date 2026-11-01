@@ -113,6 +113,21 @@ async function linkAgent(input: AgentLinkInput): ReturnType<AgentDeps['agents'][
   }
 }
 
+/// Marks a Connect your AI test code as seen (compile-service keeps it 30 min).
+async function connectCheck(code: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${COMPILE_SERVICE_URL}/agents/connect-check`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /// One compile-service /agents lookup serves both byWallets and accountsAmong,
 /// so a tool asking for both makes one request.
 const lookupCache = new Map<string, { at: number; p: Promise<{ agents: AgentRecord[]; accounts: Array<{ address: string }> } | null> }>();
@@ -190,6 +205,7 @@ export function productionDeps(): AgentDeps {
       launchesByCreator: (c) => fetchLaunchesByCreator(c, 100),
     },
     agents: { link: linkAgent, byWallets: agentsByWallets, accountsAmong },
+    connectCheck,
     signLink: (input) => {
       const key = signLinkKey();
       return key ? makeSignUrl(SITE, input, key, Date.now()) : null;

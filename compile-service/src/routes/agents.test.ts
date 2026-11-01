@@ -172,3 +172,24 @@ test('wallet list limits', async () => {
   assert.equal((await app.inject({ method: 'GET', url: `/agents?wallets=${many}` })).statusCode, 400);
   assert.deepEqual((await app.inject({ method: 'GET', url: '/agents' })).json(), { agents: [], accounts: [] });
 });
+
+test('connect check: a posted code is seen, others are not, and it expires', async () => {
+  let t = NOW;
+  const { app } = await makeApp(undefined, () => t);
+  const get = async (code: string) => (await app.inject({ method: 'GET', url: `/agents/connect-check?code=${code}` })).json();
+  assert.deepEqual(await get('URU-ABC123'), { seen: false, at: null });
+  const res = await app.inject({ method: 'POST', url: '/agents/connect-check', payload: { code: 'URU-ABC123' } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal((await get('URU-ABC123')).seen, true);
+  assert.equal((await get('URU-ZZZ999')).seen, false);
+  t += 31 * 60_000;
+  assert.equal((await get('URU-ABC123')).seen, false);
+});
+
+test('connect check: malformed codes are refused', async () => {
+  const { app } = await makeApp();
+  for (const code of ['', 'uru-abc123', 'URU-ABC12', 'URU-ABC1234', 'X'.repeat(500)]) {
+    assert.equal((await app.inject({ method: 'POST', url: '/agents/connect-check', payload: { code } })).statusCode, 400, code);
+  }
+  assert.equal((await app.inject({ method: 'GET', url: '/agents/connect-check?code=hello' })).statusCode, 400);
+});
