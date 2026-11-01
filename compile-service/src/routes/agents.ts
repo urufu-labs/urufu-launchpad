@@ -19,6 +19,7 @@ import {
 ///
 ///   - POST /agents/link        owner-signed EIP-712 AgentLink (shared/agent-link.ts)
 ///   - GET  /agents?wallets=a,b  registered agents + agent Safes among up to 100 wallets
+///   - POST/GET /agents/connect-check  the Connect your AI page's "did it work?" test
 ///
 /// Write gate, all checked here (the web/MCP layer is not trusted):
 ///   1. the EIP-712 signature recovers to `owner` (EOA, or ERC-1271 for a Safe);
@@ -193,4 +194,44 @@ export async function registerAgentRoutes(
       return reply.send({ agents: checked.filter((r): r is AgentRow => r !== null), accounts });
     },
   );
+
+  /// "Did it work?" on the site's Connect your AI page. The page shows a random
+  /// code; the human asks their AI to run the `connection_check` tool with it; the
+  /// web tool POSTs here and the page polls GET until the code shows up. Kept in
+  /// memory (this service runs as one instance; a restart only drops pending
+  /// checks). A code proves nothing beyond "some AI reached the urufu tools".
+  const checks = new Map<string, number>();
+  const CODE = /^URU-[A-Z0-9]{6}$/;
+  const sweep = () => {
+    const cutoff = now() - CONNECT_CHECK_TTL_MS;
+    for (const [k, at] of checks) if (at < cutoff) checks.delete(k);
+  };
+
+  app.post<{ Body: { code?: unknown } }>(
+    '/agents/connect-check',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const code = typeof req.body?.code === 'string' ? req.body.code : '';
+      if (!CODE.test(code)) return reply.code(400).send({ code: 'BAD_CODE', message: 'code looks like URU-ABC123' });
+      sweep();
+      if (checks.size >= MAX_CONNECT_CHECKS) return reply.code(503).send({ code: 'BUSY', message: 'too many pending checks; try again shortly' });
+      checks.set(code, now());
+      return reply.send({ ok: true });
+    },
+  );
+
+  app.get<{ Querystring: { code?: string } }>(
+    '/agents/connect-check',
+    { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const code = req.query.code ?? '';
+      if (!CODE.test(code)) return reply.code(400).send({ code: 'BAD_CODE', message: 'code looks like URU-ABC123' });
+      const at = checks.get(code);
+      const seen = at !== undefined && now() - at < CONNECT_CHECK_TTL_MS;
+      return reply.send({ seen, at: seen ? new Date(at!).toISOString() : null });
+    },
+  );
 }
+
+const CONNECT_CHECK_TTL_MS = 30 * 60_000;
+const MAX_CONNECT_CHECKS = 10_000;

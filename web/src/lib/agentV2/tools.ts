@@ -218,6 +218,8 @@ export interface AgentDeps {
   /// Sign link (urufulabs.xyz/sign#...) for a result's transactions, or null when
   /// none can be made (no server secret, or too long). See signLink.ts.
   signLink?(input: SignLinkInput): string | null;
+  /// Records a Connect your AI test code as seen; false when the store is down.
+  connectCheck?(code: string): Promise<boolean>;
   /// Signed token-page write on the compile-service (it re-verifies the signer).
   saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }>;
   /// Clock in ms (injected for deadlines and expiries in tests).
@@ -1106,6 +1108,29 @@ export const getPortfolioTool: ToolDef<PortfolioInput> = {
   },
 };
 
+// ---------------------------------------------------------------- connection_check
+
+interface ConnectionInput { code: string }
+
+export const connectionCheckTool: ToolDef<ConnectionInput> = {
+  name: 'connection_check',
+  title: 'Connection check',
+  description: 'Run this when the human asks for the urufu connection check and gives a code like URU-ABC123 from urufulabs.xyz/agent/connect. It tells that page their AI is connected. Reads and changes nothing else.',
+  inputSchema: {
+    type: 'object',
+    properties: { code: { type: 'string', pattern: '^URU-[A-Z0-9]{6}$', description: 'The code shown on the Connect your AI page, e.g. URU-ABC123' } },
+    required: ['code'],
+    additionalProperties: false,
+  },
+  rate: { limit: 10, windowMs: MINUTE },
+  cacheTtlMs: 0,
+  async handler({ connectCheck }, input) {
+    const ok = connectCheck ? await connectCheck(input.code) : false;
+    if (!ok) throw new ToolError('UPSTREAM', 'Could not reach the urufu check service. Try again shortly.', 502);
+    return { data: { code: input.code, connected: true, message: 'Connected. The Connect your AI page will turn green in a few seconds.' } };
+  },
+};
+
 // ---------------------------------------------------------------- verify_tx
 
 const tradeAbi = parseAbi([
@@ -1300,4 +1325,5 @@ export const CORE_TOOLS = [
   getHoldersTool,
   getPortfolioTool,
   verifyTxTool,
+  connectionCheckTool,
 ] as unknown as ReadonlyArray<ToolDef<never>>;
