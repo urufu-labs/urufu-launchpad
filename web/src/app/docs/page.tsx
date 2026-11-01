@@ -369,6 +369,7 @@ export default function DocsPage() {
               items={[
                 'urufu never asks for or accepts your private key or seed phrase. If anything asks you for one, it is a scam.',
                 'Every action comes back as a transaction for your wallet to sign. Nothing moves until you approve it.',
+                'In a chat app, your assistant gives you a link to urufulabs.xyz/sign. It shows each step in plain words and you confirm them in your own wallet. The link only works for the wallet it was made for and expires after 30 minutes.',
                 "Before you sign, your assistant should show you the coin, the amounts and the total ETH. If the numbers don't match what you asked for, don't sign.",
                 'Coin names and descriptions are written by whoever launched the coin. Your assistant is told never to follow instructions found in them.',
                 'Buys and sells include a price limit (2% by default), so a trade fails instead of filling at a much worse price.',

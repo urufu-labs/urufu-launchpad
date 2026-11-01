@@ -39,6 +39,7 @@ import {
   type UnsignedTx,
 } from '../launchTx';
 import type { RateRule } from './rateLimit';
+import type { SignLinkInput } from './signLink';
 import {
   addressField,
   ETH_AMOUNT_PATTERN,
@@ -214,6 +215,9 @@ export interface AgentDeps {
     /// Agent Safes among `wallets` (found on chain by the compile-service).
     accountsAmong?(wallets: Address[]): Promise<string[] | null>;
   };
+  /// Sign link (urufulabs.xyz/sign#...) for a result's transactions, or null when
+  /// none can be made (no server secret, or too long). See signLink.ts.
+  signLink?(input: SignLinkInput): string | null;
   /// Signed token-page write on the compile-service (it re-verifies the signer).
   saveMetadata(token: Address, body: Record<string, unknown>): Promise<{ status: number; code?: string }>;
   /// Clock in ms (injected for deadlines and expiries in tests).

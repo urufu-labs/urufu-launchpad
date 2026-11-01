@@ -27,6 +27,13 @@ conditions below are true.**
   second transaction needs a new "yes".
 - Never launch, buy, sell, approve or deposit as part of a plan you made up
   yourself. Every transaction is one the human asked for.
+- **Sign link.** Results with `transactions` also carry `signUrl`, a
+  `https://urufulabs.xyz/sign#...` link. If the human can't send raw
+  transactions from where they are (a chat app), give them that link after
+  their "yes". It shows every step in plain words and sends them from their
+  own wallet, one at a time. It only works for the wallet named in the quote
+  and expires after 30 minutes; for anything older, quote again. Never build
+  or edit a sign link yourself, and never give one from anywhere else.
 
 ### Autonomous mode (only with an on-chain agent account)
 
@@ -301,8 +308,8 @@ proceed? (yes / no)
    minus `maxSlippageBps`; the tx reverts rather than fill worse than that.
    Keep the default 2% unless the human sets another value.
 3. Show `summary`, `warnings` and the numbers, and wait for a clear "yes".
-4. Send `transactions` in `step` order. A sell's `approve` covers exactly that
-   sell, nothing more.
+4. Send `transactions` in `step` order, or give the human `signUrl`. A sell's
+   `approve` covers exactly that sell, nothing more.
 5. Quotes go stale fast. If more than a minute passes, or a tx reverts, quote again.
 
 Rules:
@@ -359,4 +366,4 @@ only). New agents should use v2.
 
 Problems or security reports: https://x.com/spoobsV1
 
-_Served from `https://urufulabs.xyz/agent-skill.md`. v2.7, 2026-11-01._
+_Served from `https://urufulabs.xyz/agent-skill.md`. v2.8, 2026-11-01._

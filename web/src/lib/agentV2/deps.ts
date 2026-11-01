@@ -37,7 +37,8 @@ import { LAUNCHPAD_LIVE } from '../launchpadStatus';
 import { V10_MULTI_HOOK_HOST } from '../legacyGraduations';
 import { fetchTokenMetadata } from '../socialApi';
 import { checkDataUrl, safeFetchImage } from './safeFetch';
-import type { AgentBook, AgentDeps, AgentLinkInput, AgentRecord } from './tools';
+import { makeSignUrl, signLinkKey } from './signLink';
+import { SITE, type AgentBook, type AgentDeps, type AgentLinkInput, type AgentRecord } from './tools';
 
 const COMPILE_SERVICE_URL =
   process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL ?? process.env.COMPILE_SERVICE_URL ?? 'http://localhost:3001';
@@ -189,6 +190,10 @@ export function productionDeps(): AgentDeps {
       launchesByCreator: (c) => fetchLaunchesByCreator(c, 100),
     },
     agents: { link: linkAgent, byWallets: agentsByWallets, accountsAmong },
+    signLink: (input) => {
+      const key = signLinkKey();
+      return key ? makeSignUrl(SITE, input, key, Date.now()) : null;
+    },
     saveMetadata,
     now: () => Date.now(),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

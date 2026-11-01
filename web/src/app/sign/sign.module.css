@@ -1,0 +1,61 @@
+/* /sign: one panel with the plan and its steps; tx rows reuse agent.module.css. */
+.page {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.summary {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.facts div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+  background: var(--surface-2);
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.done {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
