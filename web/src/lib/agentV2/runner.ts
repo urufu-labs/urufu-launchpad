@@ -11,6 +11,50 @@ import { TtlCache } from './ttlCache';
 /// Ceiling across all tools for one IP, on top of each tool's own limit.
 export const GLOBAL_RATE = { limit: 120, windowMs: 60_000 };
 
+/// For tools that build transactions: the input field naming the wallet that must
+/// send them. The sign page refuses any other connected wallet.
+export const SENDER_FIELD: Record<string, string> = {
+  quote_launch: 'launcher',
+  quote_buy: 'buyer',
+  quote_sell: 'seller',
+  quote_batch_deposit: 'depositor',
+  build_batch_claim: 'user',
+  build_claim_creator_fees: 'wallet',
+  register_agent: 'owner',
+  setup_agent_account: 'owner',
+  update_agent_account: 'owner',
+  revoke_agent: 'owner',
+  agent_exec: 'agent',
+  launch_agent_token: 'owner',
+  create_swarm: 'proposer',
+  swarm_action: 'member',
+  allow_agent_swarm: 'owner',
+};
+
+/// Adds `signUrl` when a successful result carries transactions the human can send
+/// now (none when the tool reported blocking errors or said it can't broadcast).
+function withSignUrl(toolName: string, input: Record<string, unknown>, data: Record<string, unknown>, deps: AgentDeps): Record<string, unknown> {
+  const txs = data.transactions;
+  if (!deps.signLink || !Array.isArray(txs) || txs.length === 0) return data;
+  if (data.canBroadcast === false || (Array.isArray(data.errors) && data.errors.length > 0)) return data;
+  const field = SENDER_FIELD[toolName];
+  const from = field && typeof input[field] === 'string' ? (input[field] as string) : null;
+  const url = deps.signLink({
+    tool: toolName,
+    chainId: AGENT_V2_CHAIN_ID,
+    from,
+    summary: typeof data.summary === 'string' ? data.summary : null,
+    txs: (txs as Array<Record<string, unknown>>).map((t) => ({
+      to: String(t.to),
+      data: String(t.data),
+      value: String(t.value),
+      purpose: String(t.purpose),
+      summary: String(t.summary),
+    })),
+  });
+  return url ? { ...data, signUrl: url } : data;
+}
+
 export interface RunContext {
   ip: string;
   deps: AgentDeps;
@@ -75,7 +119,7 @@ export async function runTool(name: string, rawInput: unknown, ctx: RunContext):
   try {
     const run = () => tool.handler(ctx.deps, input);
     const out = tool.cacheTtlMs > 0 ? await ctx.cache.get(`${tool.name}:${stableKey(input)}`, tool.cacheTtlMs, run) : await run();
-    const body: Record<string, unknown> = { ok: true, tool: tool.name, chainId: AGENT_V2_CHAIN_ID, data: out.data };
+    const body: Record<string, unknown> = { ok: true, tool: tool.name, chainId: AGENT_V2_CHAIN_ID, data: withSignUrl(tool.name, input, out.data, ctx.deps) };
     if (out.untrusted) body.untrusted = out.untrusted;
     return { status: 200, body };
   } catch (err) {

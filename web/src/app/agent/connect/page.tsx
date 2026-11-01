@@ -207,7 +207,8 @@ export default function ConnectAgentPage() {
           <h1 className={cs.pageTitle}>Connect your AI</h1>
           <p className={cs.pageLede}>
             Use urufu from the AI app you already talk to. Ask it to check your coins, look into a coin, get a price, launch, or
-            join a swarm. Your AI prepares everything, and nothing moves until you sign it in your own wallet.
+            join a swarm. Your AI prepares everything and gives you a link to approve it. Nothing moves until you sign it
+            in your own wallet.
           </p>
         </div>
       </header>
