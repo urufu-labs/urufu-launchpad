@@ -18,6 +18,7 @@ const primaryLinks = [
   { href: '/create/fair', label: 'Fair launch', primary: true },
   { href: '/swarms', label: 'Swarm launch', primary: true },
   { href: '/agent/new', label: 'AI agent', primary: true },
+  { href: '/agent/connect', label: 'Connect your AI', primary: true },
   { href: '/discover', label: 'Explore' },
   { href: '/trade', label: 'Trade' },
   { href: '/market', label: 'NFT market' },

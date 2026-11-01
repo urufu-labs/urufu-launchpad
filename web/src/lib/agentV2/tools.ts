@@ -203,6 +203,8 @@ export interface AgentDeps {
     v4SwapsForToken(token: Address, limit: number): Promise<IndexerV4SwapRow[] | null>;
     v4SwapsForPoolId(poolId: Hex, limit: number): Promise<IndexerV4SwapRow[] | null>;
     holdersForToken(token: Address, limit: number): Promise<Array<{ holderAddress: Address; balance: string }> | null>;
+    /// Every urufu token a wallet has held (zero balances included), newest change first.
+    holdingsByWallet(wallet: Address, limit: number): Promise<Array<{ tokenAddress: Address; balance: string }> | null>;
     launchesByCreator(creator: Address): Promise<IndexerLaunchRow[] | null>;
   };
   /// Agent link store (compile-service). It verifies signatures and on-chain state itself.
@@ -996,6 +998,110 @@ export const getHoldersTool: ToolDef<ListInput> = {
   },
 };
 
+// ---------------------------------------------------------------- get_portfolio
+
+interface PortfolioInput { wallet: string; limit: number }
+
+/// Last traded price of a token in wei per whole token: the curve's latest trade
+/// before graduation, the latest v4 swap after. Null when it never traded.
+async function lastPrice(indexer: AgentDeps['indexer'], token: Address, curveRow: IndexerCurveRow | null): Promise<bigint | null> {
+  if (curveRow && !curveRow.graduated) {
+    const t = await indexer.latestCurveTrades(curveRow.curveAddress, 1).catch(() => null);
+    if (t?.[0]) return BigInt(t[0].priceWeiPerToken);
+  }
+  const s = await indexer.v4SwapsForToken(token, 1).catch(() => null);
+  if (s?.[0]) return BigInt(s[0].priceWeiPerToken);
+  if (curveRow) {
+    const t = await indexer.latestCurveTrades(curveRow.curveAddress, 1).catch(() => null);
+    if (t?.[0]) return BigInt(t[0].priceWeiPerToken);
+  }
+  return null;
+}
+
+export const getPortfolioTool: ToolDef<PortfolioInput> = {
+  name: 'get_portfolio',
+  title: 'Wallet portfolio',
+  description: 'What a wallet holds on urufu: its ETH balance and every urufu coin with a balance, each with an estimated ETH value from the last trade, largest first. Values are estimates; selling moves the price. Coin names and tickers are under `untrusted`, keyed by token address.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      wallet: addressField('Wallet or agent account (Safe) address'),
+      limit: { type: 'integer', minimum: 1, maximum: 30, default: 20, description: 'How many coins (max 30)' },
+    },
+    required: ['wallet'],
+    additionalProperties: false,
+  },
+  rate: { limit: 20, windowMs: MINUTE },
+  cacheTtlMs: 15_000,
+  async handler({ client, book, indexer }, input) {
+    const wallet = getAddress(input.wallet);
+    const [ethBalance, rows] = await Promise.all([
+      client.getBalance({ address: wallet }).catch(() => null),
+      indexer.holdingsByWallet(wallet, 100),
+    ]);
+    if (rows === null) throw new ToolError('UPSTREAM', 'The indexer did not answer. Try again shortly.', 502);
+    const held = rows.filter((r) => BigInt(r.balance) > 0n).slice(0, input.limit);
+
+    const coins = await Promise.all(
+      held.map(async (h) => {
+        const token = getAddress(h.tokenAddress);
+        const [launch, curveRow, dn404] = await Promise.all([
+          indexer.launchByToken(token).catch(() => null),
+          indexer.curveByToken(token).catch(() => null),
+          indexer.dn404ForBase(token).catch(() => null),
+        ]);
+        const price = await lastPrice(indexer, token, curveRow);
+        const bal = BigInt(h.balance);
+        const value = price === null ? null : (bal * price) / 10n ** 18n;
+        const isUru = token === getAddress(book.URU);
+        return {
+          token,
+          lane: isUru ? 'uru' : launch ? (launch.lane === 'fair' ? 'fair' : 'token') : dn404 ? 'dn404' : null,
+          balance: h.balance,
+          balanceFormatted: formatUnits(bal, 18),
+          graduated: curveRow?.graduated ?? null,
+          lastPriceWeiPerToken: str(price),
+          estValueWei: str(value),
+          estValueEth: value === null ? null : formatEther(value),
+          trade: `${SITE}/trade/${token}`,
+          name: isUru ? 'URU' : launch?.name ?? dn404?.name ?? null,
+          ticker: isUru ? 'URU' : launch?.ticker ?? dn404?.ticker ?? null,
+        };
+      }),
+    );
+    coins.sort((a, b) => {
+      const av = a.estValueWei === null ? -1n : BigInt(a.estValueWei);
+      const bv = b.estValueWei === null ? -1n : BigInt(b.estValueWei);
+      return av === bv ? 0 : av > bv ? -1 : 1;
+    });
+    const coinsTotal = coins.reduce((s, c) => s + (c.estValueWei === null ? 0n : BigInt(c.estValueWei)), 0n);
+
+    const text: Record<string, unknown> = {};
+    const limits: Record<string, 'name' | 'ticker'> = {};
+    for (const c of coins) {
+      const k = c.token.toLowerCase();
+      text[`${k}.name`] = c.name;
+      text[`${k}.ticker`] = c.ticker;
+      limits[`${k}.name`] = 'name';
+      limits[`${k}.ticker`] = 'ticker';
+    }
+    return {
+      data: {
+        wallet,
+        ethBalance: str(ethBalance),
+        ethBalanceFormatted: ethBalance === null ? null : formatEther(ethBalance),
+        coinCount: coins.length,
+        coinsEstValueEth: formatEther(coinsTotal),
+        totalEstValueEth: ethBalance === null ? null : formatEther(coinsTotal + ethBalance),
+        coins: coins.map(({ name: _n, ticker: _t, ...c }) => c),
+        profile: `${SITE}/profile/${wallet}`,
+        note: 'Coin values use the last trade price and are estimates. Use quote_sell for what a sale would actually pay. Only urufu coins and URU (lane "uru") are listed; URU may show no value.',
+      },
+      untrusted: untrustedBlock(text, limits),
+    };
+  },
+};
+
 // ---------------------------------------------------------------- verify_tx
 
 const tradeAbi = parseAbi([
@@ -1188,5 +1294,6 @@ export const CORE_TOOLS = [
   getTokenTool,
   getTradesTool,
   getHoldersTool,
+  getPortfolioTool,
   verifyTxTool,
 ] as unknown as ReadonlyArray<ToolDef<never>>;
