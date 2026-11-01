@@ -39,14 +39,7 @@
   color: var(--fg-muted);
 }
 
-/* Goals: selectable cards, two or three per row. */
-.goals {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
-  gap: 8px;
-}
-
-.goal,
+/* App cards: logo + name + one line, two or three per row. */
 .app {
   appearance: none;
   display: grid;
@@ -62,33 +55,19 @@
   transition: border-color 120ms ease, background 120ms ease;
 }
 
-.goal:hover,
 .app:hover {
   border-color: var(--fg-muted);
 }
 
-.goal[data-active='true'],
 .app[data-active='true'] {
   border-color: var(--accent);
   background: var(--surface-2);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.goalLabel {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.goalLine {
-  font-size: 12.5px;
-  line-height: 1.4;
-  color: var(--fg-muted);
-}
-
-/* App cards: letter mark + name + one line. */
 .apps {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 185px), 1fr));
   gap: 8px;
 }
 
@@ -103,12 +82,39 @@
   place-items: center;
   width: 36px;
   height: 36px;
+  border: 1px solid var(--line);
   border-radius: 9px;
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* Everything a connected AI can do: a heading per ability, its prompts below. */
+.abilities {
+  display: grid;
+  gap: 18px;
+}
+
+.ability {
+  display: grid;
+  gap: 8px;
+}
+
+.abilityHead {
+  display: grid;
+  gap: 1px;
+}
+
+.abilityLabel {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.abilityLine {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-muted);
 }
 
 .appText {
@@ -275,17 +281,16 @@
 }
 
 @media (max-width: 480px) {
-  .goal,
-  .app {
-    padding: 10px 11px;
+  .apps {
+    grid-template-columns: 1fr 1fr;
   }
   .app {
+    padding: 10px 11px;
     grid-template-columns: 30px minmax(0, 1fr);
     gap: 8px;
   }
   .app .appMark {
     width: 30px;
     height: 30px;
-    font-size: 11.5px;
   }
 }

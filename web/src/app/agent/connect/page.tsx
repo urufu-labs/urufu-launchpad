@@ -1,7 +1,7 @@
 'use client';
 
-/// "Connect your AI": pick what you want your AI to do, pick your app (one setup
-/// screen per app), check it worked, then copy a prompt for that goal.
+/// "Connect your AI": pick your app (one setup screen per app), check it worked,
+/// then everything a connected AI can do, each with prompts to copy.
 ///
 /// Setup steps per app were checked against each app's own help pages on
 /// 2026-11-01. The "Did it work?" test shows a random code; the human's AI runs
@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useAccount } from 'wagmi';
 
 import cs from '../../create/create-studio.module.css';
+import { ClaudeCodeLogo, ClaudeLogo, CursorLogo, GrokLogo, OpenAiLogo, OtherAppLogo, PerplexityLogo } from '@/components/AiAppLogos';
 import styles from './connect.module.css';
 
 const MCP_URL = 'https://urufulabs.xyz/api/mcp';
@@ -64,16 +65,15 @@ const P = {
   },
 } satisfies Record<string, Prompt>;
 
-interface Goal { id: string; label: string; line: string; prompts: Prompt[] }
-
-const GOALS: Goal[] = [
-  { id: 'holdings', label: 'Check my coins', line: 'What you hold and what it is worth', prompts: [P.holdings, P.takeProfit] },
-  { id: 'research', label: 'Look into a coin', line: 'Price, holders, trades, red flags', prompts: [P.research, P.watch] },
-  { id: 'trade', label: 'Buy or sell', line: 'A quote first, then you approve it', prompts: [P.buy, P.takeProfit] },
-  { id: 'launch', label: 'Launch a coin', line: 'Your AI walks you through it', prompts: [P.launch] },
-  { id: 'swarm', label: 'Join a swarm', line: 'Back a coin with a group', prompts: [P.swarm] },
-  { id: 'fees', label: 'Collect my fees', line: 'Creator fees from coins you launched', prompts: [P.fees] },
-  { id: 'schedule', label: 'Run on a schedule', line: 'Check-ins and alerts while you are away', prompts: [P.monday, P.watch] },
+/// Everything a connected AI can do, each with prompts to copy.
+const ABILITIES: Array<{ label: string; line: string; prompts: Prompt[] }> = [
+  { label: 'Check your coins', line: 'What you hold and what it is worth.', prompts: [P.holdings] },
+  { label: 'Look into a coin', line: 'Price, holders, recent trades and red flags.', prompts: [P.research] },
+  { label: 'Buy and sell', line: 'A quote first, then a link to approve it in your wallet.', prompts: [P.buy, P.takeProfit] },
+  { label: 'Launch a coin', line: 'It walks you through name, image, fees and the first buy.', prompts: [P.launch] },
+  { label: 'Join a swarm', line: 'Back a coin together with a group.', prompts: [P.swarm] },
+  { label: 'Collect creator fees', line: 'From coins you launched.', prompts: [P.fees] },
+  { label: 'Keep watch', line: 'Check-ins and alerts on a schedule, in apps that support it.', prompts: [P.monday, P.watch] },
 ];
 
 // ---------------------------------------------------------------- apps
@@ -81,9 +81,7 @@ const GOALS: Goal[] = [
 interface App {
   id: string;
   label: string;
-  /// Short letter mark for the app card (we don't ship other companies' logos).
-  mark: string;
-  tone: string;
+  Logo: (p: { size?: number }) => React.ReactElement;
   blurb: string;
   plan: string;
   steps: React.ReactNode[];
@@ -94,8 +92,7 @@ const APPS: App[] = [
   {
     id: 'claude',
     label: 'Claude',
-    mark: 'Cl',
-    tone: '#d97757',
+    Logo: ClaudeLogo,
     blurb: 'claude.ai, desktop and phone',
     plan: 'Works on every plan. Free accounts get one custom connector.',
     steps: [
@@ -110,8 +107,7 @@ const APPS: App[] = [
   {
     id: 'chatgpt',
     label: 'ChatGPT',
-    mark: 'G',
-    tone: '#10a37f',
+    Logo: OpenAiLogo,
     blurb: 'Business and Enterprise',
     plan: 'Custom connectors are on ChatGPT Business and Enterprise (web). On a workspace, an admin may need to add it.',
     steps: [
@@ -126,8 +122,7 @@ const APPS: App[] = [
   {
     id: 'grok',
     label: 'Grok',
-    mark: 'Gk',
-    tone: '#6b7280',
+    Logo: GrokLogo,
     blurb: 'grok.com, every plan',
     plan: 'Connectors are on every Grok plan. On Grok Business, an admin adds it first.',
     steps: [
@@ -140,8 +135,7 @@ const APPS: App[] = [
   {
     id: 'grok-bot',
     label: 'Grok Bot',
-    mark: 'GB',
-    tone: '#111827',
+    Logo: GrokLogo,
     blurb: 'Works 24/7, runs routines',
     plan: 'Included with Grok Premium, Super, Ultra, Teams and Enterprise. Grok Bot uses the same connectors as Cursor and can run routines on a schedule.',
     steps: [
@@ -155,8 +149,7 @@ const APPS: App[] = [
   {
     id: 'perplexity',
     label: 'Perplexity',
-    mark: 'Px',
-    tone: '#20808d',
+    Logo: PerplexityLogo,
     blurb: 'Plugins in the sidebar',
     plan: 'Remote connectors are added from Plugins.',
     steps: [
@@ -169,8 +162,7 @@ const APPS: App[] = [
   {
     id: 'claude-code',
     label: 'Claude Code',
-    mark: '>_',
-    tone: '#b4532a',
+    Logo: ClaudeCodeLogo,
     blurb: 'One command in your terminal',
     plan: 'Run this once in your terminal.',
     steps: [
@@ -182,8 +174,7 @@ const APPS: App[] = [
   {
     id: 'cursor',
     label: 'Cursor',
-    mark: 'Cu',
-    tone: '#374151',
+    Logo: CursorLogo,
     blurb: 'One line in mcp.json',
     plan: 'Add it to ~/.cursor/mcp.json (all projects) or .cursor/mcp.json (one project).',
     steps: [
@@ -196,8 +187,7 @@ const APPS: App[] = [
   {
     id: 'other',
     label: 'Something else',
-    mark: '+',
-    tone: '#9ca3af',
+    Logo: OtherAppLogo,
     blurb: 'Any app with MCP or web reading',
     plan: 'Any app that can add an MCP server by link works. If yours can only read web pages, give it the guide instead.',
     steps: [
@@ -324,13 +314,11 @@ function ConnectionTest() {
 // ---------------------------------------------------------------- page
 
 export default function ConnectAgentPage() {
-  const [goalId, setGoalId] = useState(GOALS[0]!.id);
   const [appId, setAppId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const { address } = useAccount();
   useEffect(() => setMounted(true), []);
   const wallet = mounted && address ? address : '[your wallet address]';
-  const goal = GOALS.find((g) => g.id === goalId) ?? GOALS[0]!;
   const app = APPS.find((a) => a.id === appId) ?? null;
 
   return (
@@ -347,26 +335,7 @@ export default function ConnectAgentPage() {
       </header>
 
       <div className={styles.page}>
-        <Section n={1} title="What do you want your AI to do?">
-          <div className={styles.goals} role="radiogroup" aria-label="Goal">
-            {GOALS.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                role="radio"
-                aria-checked={goalId === g.id}
-                className={styles.goal}
-                data-active={goalId === g.id}
-                onClick={() => setGoalId(g.id)}
-              >
-                <span className={styles.goalLabel}>{g.label}</span>
-                <span className={styles.goalLine}>{g.line}</span>
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        <Section n={2} title="Pick your app" lede="About a minute to set up.">
+        <Section n={1} title="Pick your app" lede="Tap the AI you use. Setup takes about a minute.">
           <div className={styles.apps}>
             {APPS.map((a) => (
               <button
@@ -377,7 +346,7 @@ export default function ConnectAgentPage() {
                 aria-expanded={appId === a.id}
                 onClick={() => setAppId(appId === a.id ? null : a.id)}
               >
-                <span className={styles.appMark} style={{ background: a.tone }} aria-hidden>{a.mark}</span>
+                <span className={styles.appMark}><a.Logo size={22} /></span>
                 <span className={styles.appText}>
                   <span className={styles.appName}>{a.label}</span>
                   <span className={styles.appBlurb}>{a.blurb}</span>
@@ -388,7 +357,7 @@ export default function ConnectAgentPage() {
           {app && (
             <div className={styles.setup}>
               <div className={styles.setupHead}>
-                <span className={styles.appMark} style={{ background: app.tone }} aria-hidden>{app.mark}</span>
+                <span className={styles.appMark}><app.Logo size={22} /></span>
                 <span className={styles.appName}>Set up {app.label}</span>
               </div>
               <ol className={styles.appSteps}>
@@ -408,24 +377,36 @@ export default function ConnectAgentPage() {
           )}
         </Section>
 
-        <Section n={3} title="Did it work?" lede="Send your AI this line. This box turns green when it reaches urufu.">
+        <Section n={2} title="Did it work?" lede="Send your AI this line. This box turns green when it reaches urufu.">
           <ConnectionTest />
         </Section>
 
         <Section
-          n={4}
-          title={`Try it: ${goal.label.toLowerCase()}`}
-          lede={mounted && address ? 'Your wallet is already filled in.' : 'Connect your wallet (top right) and your address fills in by itself.'}
+          n={3}
+          title="What your AI can do"
+          lede={
+            mounted && address
+              ? 'All of it, in plain words. Copy a prompt to try one. Your wallet is already filled in.'
+              : 'All of it, in plain words. Copy a prompt to try one. Connect your wallet (top right) to fill in your address.'
+          }
         >
-          <div className={styles.prompts}>
-            {goal.prompts.map((p) => <PromptCard key={p.title} p={p} wallet={wallet} />)}
+          <div className={styles.abilities}>
+            {ABILITIES.map((a) => (
+              <div key={a.label} className={styles.ability}>
+                <div className={styles.abilityHead}>
+                  <h3 className={styles.abilityLabel}>{a.label}</h3>
+                  <p className={styles.abilityLine}>{a.line}</p>
+                </div>
+                <div className={styles.prompts}>
+                  {a.prompts.map((p) => <PromptCard key={p.title} p={p} wallet={wallet} />)}
+                </div>
+              </div>
+            ))}
           </div>
-          {goal.id === 'schedule' || goal.id === 'trade' ? (
-            <p className={styles.appPlan}>
-              Want it to trade without asking you each time? Give it an agent account with spending limits set on chain:{' '}
-              <Link href="/agent/new">Launch an agent</Link>.
-            </p>
-          ) : null}
+          <p className={styles.appPlan}>
+            Want it to trade without asking you each time? Give it an agent account with spending limits set on chain:{' '}
+            <Link href="/agent/new">Launch an agent</Link>.
+          </p>
         </Section>
 
         <p className={styles.safety}>
