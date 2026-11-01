@@ -169,6 +169,9 @@ function AccountStep({ owner, account, onChange }: { owner: Address; account: Sa
               <span className={styles.num}>{short(account.agent)}</span>. Give your agent the account and limits module addresses:
             </p>
             <p className={styles.num} style={{ wordBreak: 'break-all' }}>safe {account.safe}<br />roles {account.roles}</p>
+            <p className={styles.hiddenCopy}>
+              Next, <Link href="/agent/connect">connect your AI app</Link> to urufu so it can use this account.
+            </p>
             <button type="button" className="ui-btn" data-variant="ghost" data-size="sm" onClick={() => onChange(null)}>Set up another</button>
           </>
         ) : (
