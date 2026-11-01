@@ -1279,8 +1279,9 @@ export async function fetchHoldingsByAddress(holder: Address, limit = 100): Prom
     }`,
     { holder: holder.toLowerCase(), limit },
   );
-  // Hide test-token balances from the profile "holdings" strip.
-  return (data?.holderss.items ?? []).filter(notHidden);
+  // Hide test-token balances from the profile "holdings" strip. Null (not []) when
+  // the indexer is down, so callers can tell "holds nothing" from "couldn't check".
+  return data ? data.holderss.items.filter(notHidden) : null;
 }
 
 /// Largest holders of one token, biggest balance first. Zero balances are skipped.

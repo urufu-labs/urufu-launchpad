@@ -229,6 +229,12 @@ export function fakeIndexer(over = {}) {
     },
     async v4SwapsForPoolId() { return []; },
     async launchesByCreator() { return []; },
+    async holdingsByWallet() {
+      return [
+        { tokenAddress: TOKEN, balance: String(1000n * E18) },
+        { tokenAddress: '0x7777777777777777777777777777777777777777', balance: '0' },
+      ];
+    },
     async holdersForToken() {
       return [
         { holderAddress: CURVE, balance: String(500_000_000n * E18) },

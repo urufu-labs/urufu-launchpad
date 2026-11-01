@@ -350,10 +350,11 @@ export default function DocsPage() {
 
           <DocSection id="agents" title="Using an AI agent">
             <p className={styles.prose}>
-              You can ask an AI assistant like Claude or Cursor to do things on urufu for you: look up a
-              coin, launch one, buy or sell, join a fair launch, or claim creator fees. The assistant
-              gets the details and prepares the transaction. You still check it and sign it in your
-              own wallet.
+              You can ask an AI assistant like Claude, ChatGPT or Grok to do things on urufu for you:
+              check what your wallet holds, look up a coin, launch one, buy or sell, join a fair launch,
+              or claim creator fees. The assistant gets the details and prepares the transaction. You
+              still check it and sign it in your own wallet. Setup steps for each app and ready-made
+              prompts are on <Link href="/agent/connect">Connect your AI</Link>.
             </p>
             <h3 className={styles.groupTitle}>Connect your assistant</h3>
             <FactList

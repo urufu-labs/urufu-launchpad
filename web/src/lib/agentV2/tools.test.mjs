@@ -378,6 +378,37 @@ describe('get_trades / get_holders', () => {
   });
 });
 
+describe('get_portfolio', () => {
+  it('lists held coins with value from the last trade, skips zero balances, names untrusted', async () => {
+    const r = await call('get_portfolio', { wallet: LAUNCHER });
+    assert.equal(r.status, 200);
+    const d = r.body.data;
+    assert.equal(d.coinCount, 1);
+    const c = d.coins[0];
+    assert.equal(c.token.toLowerCase(), TOKEN.toLowerCase());
+    // 1000 tokens at 1 wei per whole token (fake latest curve trade) = 1000 wei.
+    assert.equal(c.lastPriceWeiPerToken, '1');
+    assert.equal(c.estValueWei, '1000');
+    assert.equal(c.name, undefined);
+    assert.equal(r.body.untrusted.fields[`${TOKEN.toLowerCase()}.name`].text, 'Good Coin');
+    assert.ok(d.ethBalance !== undefined);
+  });
+  it('uses the v4 price after graduation', async () => {
+    const r = await call('get_portfolio', { wallet: LAUNCHER }, {
+      indexer: { curveByToken: async () => ({ curveAddress: '0x' + '44'.repeat(20), ethReserve: '0', tokenReserve: '0', graduationTargetEth: '1', tradeFeeBps: 100, tradeCount: 1, graduated: true }) },
+    });
+    assert.equal(r.body.data.coins[0].lastPriceWeiPerToken, '2');
+  });
+  it('502 when the indexer is down', async () => {
+    const r = await call('get_portfolio', { wallet: LAUNCHER }, { indexer: { holdingsByWallet: async () => null } });
+    assert.equal(r.status, 502);
+  });
+  it('rejects a bad address and limits over 30', async () => {
+    assert.equal((await call('get_portfolio', { wallet: '0x123' })).status, 400);
+    assert.equal((await call('get_portfolio', { wallet: LAUNCHER, limit: 31 })).status, 400);
+  });
+});
+
 describe('verify_tx', () => {
   const HASH = '0x' + 'aa'.repeat(32);
   const topicsLaunched = encodeEventTopics({ abi: routerAbi, eventName: 'Launched', args: { token: TOKEN, launchedBy: LAUNCHER, base: 0 } });
