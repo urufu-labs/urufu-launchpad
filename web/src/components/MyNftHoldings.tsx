@@ -7,7 +7,7 @@
 /// gallery because there's no useful in-app destination.
 ///
 /// Click routing:
-///   - urufu gemu / birbs / other friends → external OpenSea page (new tab)
+///   - urufu gemu → Scatter; birbs / other friends → OpenSea (new tab)
 ///   - launchpad-launched → /collection/[address]/[tokenId] (NFT page; owner can list it)
 ///
 /// Data path:
@@ -44,21 +44,21 @@ interface Props {
 
 type Destination =
   | { kind: 'launchpad'; href: string }
-  | { kind: 'external'; href: string };
+  | { kind: 'external'; href: string; label: string };
 
-const EXTERNAL_FRIENDS: ReadonlyArray<{ address: string; href: string }> = [
+const EXTERNAL_FRIENDS: ReadonlyArray<{ address: string; href: string; label: string }> = [
   // birbs — RH-native friend collection.
-  { address: '0x94ab280f48fe30cbbb92794a0bf2d51ea07b1164', href: 'https://opensea.io/collection/birbsrh' },
+  { address: '0x94ab280f48fe30cbbb92794a0bf2d51ea07b1164', href: 'https://opensea.io/collection/birbsrh', label: 'OpenSea' },
 ];
 
-function externalDestinationFor(collectionAddress: string): Destination | null {
+function externalDestinationFor(collectionAddress: string): (Destination & { kind: 'external' }) | null {
   const addr = collectionAddress.toLowerCase();
   const gemu = ECOSYSTEM_TOKENS.robinhood?.gemuNft?.toLowerCase();
   if (gemu && addr === gemu) {
-    return { kind: 'external', href: 'https://opensea.io/collection/urufugemu' };
+    return { kind: 'external', href: 'https://www.scatter.art/c/urufugemu', label: 'Scatter' };
   }
   const friend = EXTERNAL_FRIENDS.find((f) => f.address.toLowerCase() === addr);
-  if (friend) return { kind: 'external', href: friend.href };
+  if (friend) return { kind: 'external', href: friend.href, label: friend.label };
   return null;
 }
 
@@ -141,7 +141,7 @@ export function MyNftHoldings({ visibleFor, chain }: Props) {
           contractAddress: n.contractAddress as Address,
           displayName: `${collectionLabel} #${n.tokenId}`,
           subtitle: (launchpadMeta?.ticker ? `$${launchpadMeta.ticker}` : addr.slice(0, 10) + '…')
-            + (ext ? ' · OpenSea ↗' : ''),
+            + (ext ? ` · ${ext.label} ↗` : ''),
           imageUrl: n.imageUrl || null,
           dest: ext ?? { kind: 'launchpad', href: `/collection/${n.contractAddress}/${n.tokenId}` },
           chainId: n.chainId,
