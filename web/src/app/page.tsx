@@ -709,7 +709,7 @@ function HomePageContent() {
                 Buy URU
               </a>
               <a
-                href="https://opensea.io/collection/urufugemu"
+                href="https://www.scatter.art/c/urufugemu"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ui-btn"
