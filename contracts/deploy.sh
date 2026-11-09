@@ -53,7 +53,7 @@ case "$CHAIN" in
     ;;
   robinhood-testnet)
     RPC="${ROBINHOOD_TESTNET_RPC_URL:-https://rpc.testnet.chain.robinhood.com}" ; CHAIN_ID=46630
-    EXPLORER_KIND=blockscout ; EXPLORER_KEY="${BLOCKSCOUT_API_KEY:-none}" ; EXPLORER_URL="https://robinhoodchain-testnet.blockscout.com/api"
+    EXPLORER_KIND=blockscout ; EXPLORER_KEY="${BLOCKSCOUT_API_KEY:-none}" ; EXPLORER_URL="https://explorer.testnet.chain.robinhood.com/api"
     ;;
   *)
     echo "Unknown chain: $CHAIN"; exit 1
