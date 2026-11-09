@@ -91,7 +91,7 @@ robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
 # Robinhood Chain uses Blockscout; key can be any non-empty string for public endpoints.
 # Set BLOCKSCOUT_API_KEY=none (default in .env) or a real key once Blockscout Pro is set up.
 robinhood = { key = "${BLOCKSCOUT_API_KEY}", url = "https://robinhoodchain.blockscout.com/api", chain = 4663 }
-robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://robinhoodchain-testnet.blockscout.com/api", chain = 46630 }
+robinhood_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://explorer.testnet.chain.robinhood.com/api", chain = 46630 }
 
 # Coverage profile — forge coverage disables optimization for source accuracy.
 # We enable via_ir with minimal optimization runs so viaIR pipeline has room
