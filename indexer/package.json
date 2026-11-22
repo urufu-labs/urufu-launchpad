@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint 'src/**/*.ts'",
     "replay:getlogs": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-getlogs.ts",
-    "replay:realtime": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-realtime.ts"
+    "replay:realtime": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-realtime.ts",
+    "replay:steps": "node --import tsx/esm --import ./scripts/ponder-internals.mjs scripts/replay-steps.ts"
   },
   "dependencies": {
     "@ponder/core": "^0.7.0",

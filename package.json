@@ -63,6 +63,9 @@
       "uuid@8": ">=8.3.2",
       "uuid@9": ">=9.0.1",
       "js-yaml": ">=4.3.1"
+    },
+    "patchedDependencies": {
+      "@ponder/core@0.7.17": "patches/@ponder__core@0.7.17.patch"
     }
   }
 }
