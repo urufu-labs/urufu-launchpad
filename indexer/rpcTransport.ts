@@ -85,7 +85,7 @@ export function batchedTransport(rpcUrl: string): Transport {
 
 /// Keyless RPCs that share realtime traffic (see batchedTransport). Override:
 /// RPC_SPREAD_HOSTS="host1,host2" (one host or empty = plain configured order).
-const SPREAD_HOSTS = (process.env.RPC_SPREAD_HOSTS ?? 'rpc.mainnet.chain.robinhood.com,rpc.ordofi.network')
+const SPREAD_HOSTS = (process.env.RPC_SPREAD_HOSTS ?? 'rpc.mainnet.chain.robinhood.com')
   .split(',')
   .map((h) => h.trim())
   .filter(Boolean);

@@ -36,14 +36,14 @@ export const robinhoodChainTestnet = defineChain({
 /// The official RPC rate-limits per IP ("Rate Limit Hit, limit will reset in
 /// 60 seconds", 429 with no CORS header). When that happens the page can't
 /// read the chain at all: tokens show "Loading…" and graduated tokens fall back
-/// to "Bonding curve" (seen 2026-10-17). ordofi and dRPC both allow browser
-/// requests from urufulabs.xyz and serve the same reads, so viem's fallback
+/// to "Bonding curve" (seen 2026-10-17). dRPC and publicnode both allow browser
+/// requests from any origin and serve the same reads, so viem's fallback
 /// moves to them on a 429 and back to the official RPC when it recovers.
 /// Keyless URLs only: never a provider key or a NEXT_PUBLIC_ env value.
 export const ROBINHOOD_BROWSER_RPCS = [
   'https://rpc.mainnet.chain.robinhood.com',
-  'https://rpc.ordofi.network',
   'https://robinhood.drpc.org',
+  'https://robinhood-rpc.publicnode.com',
 ] as const;
 
 /// Wagmi config. Sepolia is the only user-facing chain in Phase 1.
