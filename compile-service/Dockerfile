@@ -22,6 +22,8 @@ RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 # the `build` step's `tsc --noEmit` falls back to bare defaults (ES5 target, no
 # node module resolution) and every top-level await / import.meta blows up.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
+# pnpm patchedDependencies (root package.json) must exist before install.
+COPY patches/ ./patches/
 COPY compile-service/package.json ./compile-service/
 RUN pnpm install --filter @vm/compile-service --frozen-lockfile
 

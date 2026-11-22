@@ -9,6 +9,8 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
+# pnpm patchedDependencies (root package.json) must exist before install.
+COPY patches/ ./patches/
 COPY keeper/package.json ./keeper/
 RUN pnpm install --filter @vm/keeper --frozen-lockfile
 

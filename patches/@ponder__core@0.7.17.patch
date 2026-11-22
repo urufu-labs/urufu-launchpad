@@ -1,0 +1,27 @@
+diff --git a/dist/bin/ponder.js b/dist/bin/ponder.js
+index d6e36bb62caed3671c9ef48a3b38bec47b3d0663..b409c63fecc8cc2c0478bfd080d5ba085295cdef 100644
+--- a/dist/bin/ponder.js
++++ b/dist/bin/ponder.js
+@@ -9789,7 +9789,12 @@ async function* localHistoricalSyncGenerator({
+       )} cached`
+     });
+   }
+-  let estimateRange = 25;
++  // urufu patch: floor for the historical step size. Upstream is 25 blocks, so
++  // with ~3s of fixed cost per step (one eth_getLogs + one insertInterval per
++  // filter) the range never grows and catch-up runs at ~chain speed while the
++  // interval tables fill the disk (2026-11-22). PONDER_MIN_HISTORICAL_RANGE.
++  const minEstimateRange = Number(process.env.PONDER_MIN_HISTORICAL_RANGE) > 0 ? Math.floor(Number(process.env.PONDER_MIN_HISTORICAL_RANGE)) : 2e3;
++  let estimateRange = minEstimateRange;
+   let fromBlock = hexToNumber8(syncProgress.start.number);
+   if (syncProgress.current !== void 0 && (syncProgress.cached === void 0 || hexToNumber8(syncProgress.current.number) > hexToNumber8(syncProgress.cached.number))) {
+     fromBlock = hexToNumber8(syncProgress.current.number) + 1;
+@@ -9838,7 +9843,7 @@ async function* localHistoricalSyncGenerator({
+       );
+       estimateRange = Math.min(
+         Math.max(
+-          25,
++          minEstimateRange,
+           Math.round(1e3 * (interval[1] - interval[0]) / duration)
+         ),
+         estimateRange * 2,

@@ -16,6 +16,8 @@ RUN corepack enable && corepack prepare pnpm@10.7.1 --activate
 # tsconfig.base.json is `extends`-ed by indexer/tsconfig.json which ponder loads
 # at startup; without it the process exits before serving /health.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
+# pnpm patchedDependencies (root package.json) must exist before install.
+COPY patches/ ./patches/
 COPY indexer/package.json ./indexer/
 RUN pnpm install --filter @vm/indexer --frozen-lockfile
 
